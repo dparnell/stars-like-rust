@@ -1,0 +1,12 @@
+[package]
+name = "stars-formats"
+description = "Binary readers/writers for the original Stars! on-disk file formats (.xy, .mN, .hN, .xN, .rN, .hst). Pure data + (de)serialization; no game logic."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+thiserror.workspace = true

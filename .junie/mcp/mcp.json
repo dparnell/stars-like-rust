@@ -1,0 +1,13 @@
+{
+    "mcpServers": {
+        "ghidra": {
+            "command": "uv",
+            "args": [
+                "run",
+                "--directory",
+                "/Users/danielparnell/Documents/Develoment/ghidra-mcp",
+                "bridge-mcp-ghidra"
+            ]
+        }
+    }
+}

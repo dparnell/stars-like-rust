@@ -1,3 +1,19 @@
 .DS_Store
 /tmp
 /build
+*.lock
+*~
+
+# Rust
+/target
+# Keep the workspace lockfile under version control even though *.lock is
+# ignored above (that rule targets Ghidra project locks).
+!Cargo.lock
+
+# Ghidra project working files: volatile database + lock/journal files,
+# regenerable from binary/STARS!.EXE. Not versioned.
+/ghidra/*.gpr
+/ghidra/*.gpr.lock
+/ghidra/*.rep/
+/ghidra/*.lock
+/ghidra/*.lock~

@@ -1,0 +1,19 @@
+[package]
+name = "stars-web"
+description = "Web/WebAssembly Stars! frontend (stretch goal). Will compile the shared stars-ui egui views to wasm via eframe and add browser storage/file integration in Step 7."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+# cdylib is what a wasm build ultimately needs; rlib keeps it usable as a
+# normal library and unit-testable on the host during early development.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+stars-ui.workspace = true
+stars-core.workspace = true
+# wasm-bindgen / eframe wasm bits are added in Step 7 (the web stretch goal).

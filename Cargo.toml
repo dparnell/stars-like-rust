@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/stars-formats",
+    "crates/stars-core",
+    "crates/stars-ui",
+    "crates/stars-desktop",
+    "crates/stars-web",
+]
+
+# Shared metadata inherited by member crates via `field.workspace = true`.
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.98"
+license = "MIT"
+repository = "https://github.com/"
+authors = ["Stars-re contributors"]
+
+# Centralized dependency versions. Member crates opt in with
+# `dep.workspace = true` so versions stay consistent across the workspace.
+[workspace.dependencies]
+stars-formats = { path = "crates/stars-formats" }
+stars-core = { path = "crates/stars-core" }
+stars-ui = { path = "crates/stars-ui" }
+thiserror = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"

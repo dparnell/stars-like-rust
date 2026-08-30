@@ -1,0 +1,15 @@
+[package]
+name = "stars-ui"
+description = "Shared egui view code for Stars! (galaxy map, race wizard, production queue, browsers, reports) built on top of stars-core state. Compiles for both native and wasm frontends."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+stars-core.workspace = true
+stars-formats.workspace = true
+# egui/eframe are introduced in Step 5 when the real views are built. Kept out
+# for now so early scaffolding builds fast and without native UI system deps.

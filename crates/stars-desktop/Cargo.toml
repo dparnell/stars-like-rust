@@ -1,0 +1,19 @@
+[package]
+name = "stars-desktop"
+description = "Native (Windows/macOS/Linux) Stars! frontend. Will wire the shared stars-ui egui views to file I/O and turn generation via eframe/winit in Step 5."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "stars"
+path = "src/main.rs"
+
+[dependencies]
+stars-ui.workspace = true
+stars-core.workspace = true
+stars-formats.workspace = true
+# eframe/winit are added in Step 5 when the native shell is built.
