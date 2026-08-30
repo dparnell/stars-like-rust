@@ -159,11 +159,13 @@ distinct turn value.
   fleets, designs, production queues, …). The `.hst`/`.mN` **block inventory** is
   now decoded and the **planet-id word** verified — see `hst.md`; the per-field
   planet/fleet/design layouts remain.
-- `.xy` **planet array** — **decoded** (see `xy.md`): a 2-byte region header +
-  `planet_count` plaintext 4-byte records (`x:10 | y:10 | name:12`) + an
-  optional trailer; whole `.xy` file round-trips byte-for-byte via `xy::Universe`
-  across six universes (24–540 planets, two games). Axis order and the name
-  table remain open.
+- `.xy` **planet array** — **fully decoded** (see `xy.md`): `planet_count`
+  plaintext 4-byte records (`xoffset:10 | y:12 | nameid:10`, x is a running
+  sum) directly after the game-info block + a trailer (2 bytes in-game, 4
+  standalone); coordinates and **names** (via the embedded master name table)
+  are recovered, and the whole `.xy` round-trips byte-for-byte via
+  `xy::Universe` across six universes (24–540 planets, two games). Only the x/y
+  axis order and the trailer's `02 00` prefix remain open.
 - Footer contents per extension (year vs checksum).
 - `.rN` race file layout — **decoded** from `fixtures/r/` (see `race-r.md`): a
   single type-6 block holding habitability, growth, economy, research, PRT and

@@ -1,8 +1,9 @@
 # Format: `.xy` — universe definition
 
 - **Status:** header + game-info (type 7) **decoded & verified**; planet array
-  **structure decoded** — whole file **round-trips byte-for-byte** across six
-  different universes (24–540 planets) from two independent games
+  **fully decoded** — absolute coordinates + planet **names** recovered, and the
+  whole file **round-trips byte-for-byte** across six different universes
+  (24–540 planets) from two independent games
 - **Original files analysed:**
   - `fixtures/incoming/turn0/Game.xy` and `turn1/Game.xy` (598 bytes, 3-player,
     small universe "A Barefoot JayWalk") — an **in-game** `.xy`;
@@ -13,7 +14,8 @@
     players).
 - **Encoding:** block framing + Stars! stream cipher (see `blocks.md`); the
   planet region is **plaintext-packed** (not ciphered)
-- **Implemented in:** `stars-formats::xy::{Universe, PlanetPosition}`
+- **Implemented in:** `stars-formats::xy::{Universe, PlanetPosition, Planet}`
+  and the master name table `stars-formats::names`
   (`tests/real_files.rs::{turn0,turn1}_xy_universe_round_trips`,
   `tests/real_files.rs::tutorial_xy_universe_round_trips`,
   `tests/real_files.rs::xy_dir_universes_round_trip`)
@@ -68,75 +70,94 @@ index): `0 PlanetControl`, `1 TechLevel`, `2 TechFields`, `3 Score`,
 After the game-info block the region is laid out as:
 
 ```text
-[ 2-byte region header ][ planet_count × 4-byte records ][ optional trailer ]
+[ planet_count × 4-byte records ][ trailer ]
 ```
 
-The **planet count is authoritative from the game-info block** (offset 10, see
-above) — *not* derived from the file length, because the region may carry a
-trailer. This is what lets a single parser handle every universe size:
+There is **no** leading region header — records begin immediately after the
+game-info block. The **planet count is authoritative from the game-info block**
+(offset 10, see above), *not* derived from the file length, because the region
+always carries a trailer. This is what lets a single parser handle every
+universe size:
 
-| File                | planet_count | region bytes | header | records   | trailer |
-|---------------------|-------------:|-------------:|-------:|----------:|--------:|
-| `tutorial.xy`       | 24           | 98           | 2      | 96        | 0       |
-| `turn0/Game.xy`     | 128          | 514          | 2      | 512       | 0       |
-| `across.xy`         | 160          | 644          | 2      | 640       | 2       |
-| `02ca32d8.xy`       | 160          | 644          | 2      | 640       | 2       |
-| `e8dda8f7.xy`       | 360          | 1444         | 2      | 1440      | 2       |
-| `dancing.xy`        | 540          | 2164         | 2      | 2160      | 2       |
+| File                | planet_count | region bytes | records | trailer |
+|---------------------|-------------:|-------------:|--------:|--------:|
+| `tutorial.xy`       | 24           | 98           | 96      | 2       |
+| `turn0/Game.xy`     | 128          | 514          | 512     | 2       |
+| `across.xy`         | 160          | 644          | 640     | 4       |
+| `02ca32d8.xy`       | 160          | 644          | 640     | 4       |
+| `e8dda8f7.xy`       | 360          | 1444         | 1440    | 4       |
+| `dancing.xy`        | 540          | 2164         | 2160    | 4       |
 
 The region is stored **plaintext** — parsing the raw on-disk bytes yields clean
 coordinates, so it is *not* run through the stream cipher.
 
-The **trailer** is empty for an **in-game** `.xy` (both the `incoming/` sample
-and the tutorial game confirm this across two independent games) but is a 2-byte
-`u16` in the standalone universe files, and in every case **equals the player
-count** (game-info offset 8: `4`, `5`, `5`, `11`). It is preserved verbatim so
-all files round-trip; the hypothesis that it is the player count is recorded but
-not yet surfaced as a typed field.
+The **trailer** is a 2-byte `00 00` for an **in-game** `.xy` (both the
+`incoming/` sample and the tutorial game confirm this across two independent
+games), and a 4-byte `02 00 <players> 00` for a **standalone**
+universe-definition file (the constant `02 00` followed by the player count as a
+`u16`: `4`, `5`, `5`, `11`). It is preserved verbatim so all files round-trip.
 
-Each 4-byte record is a little-endian `u32`:
+Each 4-byte record is a little-endian `u32`, matching the community
+`struct position { unsigned xoffset:10; unsigned y:12; unsigned nameid:10; }`:
 
-| Bits  | Field        | Notes                                             |
-|------:|--------------|---------------------------------------------------|
-| 0..9  | x coordinate | 10 bits (0..1023)                                 |
-| 10..19| y coordinate | 10 bits (0..1023)                                 |
-| 20..31| name index   | 12 bits; index into the planet-name table         |
+| Bits  | Field       | Notes                                                |
+|------:|-------------|------------------------------------------------------|
+| 0..9  | `xoffset`   | 10 bits; **delta** added to a running x total         |
+| 10..21| `y`         | 12 bits; **absolute** y coordinate                    |
+| 22..31| `nameid`    | 10 bits; index into the master planet-name table      |
 
-**Evidence:** with the count taken from the game-info block and a **2-byte**
-region header, *every* file's records decode to coordinates cleanly bounded
-within the 10-bit field with **no two planets sharing a position** (a physical
-invariant). Shifting the alignment by ±2 bytes (a 0- or 4-byte header) instead
-produces overlapping/garbage positions on all files, so the 2-byte header is
-confirmed across six independent universes (24–540 planets, two games). The
-whole `.xy` file then **re-encodes byte-for-byte** via `Universe::encode`.
+**x is a running sum.** A planet's absolute x is the sum of all `xoffset`s up to
+and including its record, so planets are stored in **non-decreasing x** order
+(the original tools require x to never decrease planet-to-planet). This is why
+`xoffset`s are small (deltas), and `Universe::planets_resolved` reconstructs the
+absolute `(x, y)` and the resolved name for each planet.
+
+**Evidence:** with records starting immediately after the game-info block and
+the count taken from that block, *every* file decodes so that (1) each `nameid`
+is a **unique** index `< 999` that resolves in the master name table, (2)
+running-sum x gives **no two planets sharing a position**, and (3) the x/y
+spans scale with the universe size class (tiny tutorial ≈ 360, small `Game` ≈
+780, large `e8dda8f7`/`dancing` ≈ 1180). Any other record alignment breaks the
+name uniqueness or the position uniqueness. The whole `.xy` file then
+**re-encodes byte-for-byte** via `Universe::encode`.
+
+## Planet-name table
+
+Each planet's `nameid` (10 bits, `0..=998`) indexes a fixed master list of 999
+planet names that ships inside `STARS!.EXE`; the save files store only the
+index. The table is embedded in the crate at
+`crates/stars-formats/data/star-names.txt` (recovered via the Map2XY tool's
+`planets.txt`, whose README notes the names "really come from Stars!.exe") and
+exposed through `stars-formats::names::planet_name`. Every planet in all six
+sample universes resolves to a **unique** entry, e.g. tutorial planet 0 →
+`"Lever"`, planet 23 → `"Bloop"`.
 
 **Caveats (still open):**
 
-- The **axis assignment** (which 10-bit field is x vs y) follows the community
-  convention and is not independently confirmed — it does not affect
-  byte-accuracy. (The fleet-anchor bytes in the `.hst`, `a4 05 1c 06`, turned
-  out **not** to be a position, so there is no external coordinate oracle yet.)
-- The **2-byte region header** (varies per file: `1a 7c`, `0a 14`, `0f 34`,
-  `0a e0`, `0d e8`, `0c 0c`) is preserved verbatim; its meaning (a count, seed,
-  or flags) is not yet known.
-- The **name index → text** mapping (the planet-name table) is not yet decoded.
+- The **axis assignment** (which coordinate is x vs y) follows the community
+  `struct position` convention and is not independently confirmed — it does not
+  affect byte-accuracy.
+- The absolute-x **origin** is taken as 0 before the first `xoffset`; whether
+  there is an implicit base offset (y minima sit near ~1000) is not confirmed,
+  but it does not affect round-tripping.
+- The standalone trailer's constant `02 00` prefix is preserved verbatim; its
+  meaning is not yet known.
 
 ### Next steps
 
-- Confirm the x/y axis order and decode the name-index table (from a save whose
-  planet names are visible, or the `STARS!.EXE` name table in Ghidra).
-- Identify the 2-byte region header's meaning.
-- Confirm the trailer really is the player count (a standalone `.xy` whose player
-  count differs from any coincidental byte would settle it).
+- Confirm the x/y axis order and any absolute-coordinate origin against an
+  in-game screen or the `STARS!.EXE` layout in Ghidra.
+- Identify the standalone trailer's `02 00` prefix.
 
 ## Derived test vectors
 
 - `Game.xy`: `game_id=0x2a031dd8`, size=1, density=1, players=3, planets=128,
-  name=`"A Barefoot JayWalk"` (asserted in `tests/real_files.rs`).
+  name=`"A Barefoot JayWalk"`; all 128 planets resolve to unique names and
+  positions, 2-byte `00 00` trailer (asserted in `tests/real_files.rs`).
 - `fixtures/xy/*.xy`: planet counts `160/160/360/540` (from game-info offset 10)
-  each round-trip byte-for-byte, with a 2-byte trailer equal to the player count
+  each round-trip byte-for-byte, with a 4-byte `02 00 <players> 00` trailer
   (asserted in `tests/real_files.rs::xy_dir_universes_round_trip`).
 - `tutorial.xy`: `game_id=0x008cef49`, players=2, planets=24,
-  name=`"Tutorial Game"`, no trailer (a second in-game `.xy`); round-trips
-  byte-for-byte (asserted in
-  `tests/real_files.rs::tutorial_xy_universe_round_trips`).
+  name=`"Tutorial Game"`, 2-byte `00 00` trailer (a second in-game `.xy`);
+  planet 0 → `"Lever"`, planet 23 → `"Bloop"`; round-trips byte-for-byte
+  (asserted in `tests/real_files.rs::tutorial_xy_universe_round_trips`).

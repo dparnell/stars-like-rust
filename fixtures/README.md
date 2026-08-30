@@ -16,6 +16,7 @@ fixtures/
   x/      # .xN   player orders files
   r/      # .rN   race files
   hst/    # .hst  host files
+  star-names.txt   # master planet-name table (index -> name)
 ```
 
 ## Conventions
@@ -72,14 +73,23 @@ orders — and the turn-1 files confirm the seeding math on non-zero turns.
 planets). Together with the in-game `.xy` from `incoming/` and the 24-planet
 `games/tutorial/tutorial.xy`, they let the `.xy` parser be verified across
 **six** different universes (24–540 planets): the planet count is read from the
-game-info block and the whole file (including any trailing player-count bytes)
-**round-trips byte-for-byte** — see `docs/formats/xy.md`,
+game-info block, each planet record decodes to a unique absolute position and
+resolved name, and the whole file (including its trailer) **round-trips
+byte-for-byte** — see `docs/formats/xy.md`,
 `tests/real_files.rs::xy_dir_universes_round_trip`, and
 `tests/real_files.rs::tutorial_xy_universe_round_trips`.
 
 `games/tutorial/` adds a whole second game (see above) whose every framed file
 and its `.xy` round-trip byte-for-byte via
 `tests/real_files.rs::tutorial_*`.
+
+`star-names.txt` is the **master planet-name table** (999 tab-delimited
+`index -> name` rows, `0..=998`) originally embedded in `STARS!.EXE`. A `.xy`
+planet record stores only a 10-bit `nameid` index into this list, so the table
+is needed to turn indices back into names. It is copied into the crate at
+`crates/stars-formats/data/star-names.txt` and used to fully decode `.xy`
+planet records — every planet in all six sample universes resolves to a unique
+name (see `docs/formats/xy.md`).
 
 `r/` now holds seven exported **race** files (the six built-in default races
 plus a "random" race). They round-trip byte-for-byte and the race record is

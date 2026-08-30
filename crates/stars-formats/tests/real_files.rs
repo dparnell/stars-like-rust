@@ -23,8 +23,9 @@
 //! - the file header decodes to the expected shared `game_id`, per-file type,
 //!   per-player numbering, and turn;
 //! - the `.xy` universe header + game-info (type-7) block decrypt to the
-//!   expected game name and player count (its trailing planet array is not yet
-//!   decoded — see `docs/formats/xy.md`).
+//!   expected game name and player count, and its planet array decodes to
+//!   unique absolute positions and resolved planet names — see
+//!   `docs/formats/xy.md`.
 //!
 //! If the fixtures are absent (e.g. a checkout without the sample game), each
 //! test skips rather than fails so CI stays green.
@@ -32,6 +33,40 @@
 use std::path::{Path, PathBuf};
 
 use stars_formats::{planet_headers, BlockType, FileType, StarsFile, Universe};
+
+/// Validate a decoded universe's planet array: every planet resolves to a name
+/// in the master table, positions are unique, absolute x is non-decreasing (the
+/// running-sum-of-`x_offset` invariant), and y fits the 12-bit field.
+fn assert_planets_valid(label: &str, universe: &Universe) {
+    let planets = universe.planets_resolved();
+    assert_eq!(
+        planets.len(),
+        universe.planet_count(),
+        "{label}: planet count"
+    );
+    let mut seen = std::collections::HashSet::new();
+    let mut last_x = 0u32;
+    for p in &planets {
+        assert!(
+            p.name.is_some(),
+            "{label}: planet {} name index {} not in table",
+            p.id,
+            p.name_index
+        );
+        assert!(
+            p.x >= last_x,
+            "{label}: absolute x not non-decreasing at planet {}",
+            p.id
+        );
+        last_x = p.x;
+        assert!(p.y < 4096, "{label}: planet {} y out of 12-bit range", p.id);
+        assert!(
+            seen.insert((p.x, p.y)),
+            "{label}: planet {} shares a position",
+            p.id
+        );
+    }
+}
 
 /// Expected per-game id shared by every file of the `incoming/` sample game.
 const GAME_ID: u32 = 0x2a03_1dd8;
@@ -255,20 +290,12 @@ fn assert_xy_universe(rel: &str) {
     assert_eq!(name, "A Barefoot JayWalk", "{rel}: game name");
 
     // Planet array: one record per planet, matching the 128 planets in the
-    // `.hst`. Coordinates are bounded to the 10-bit field and no two planets
-    // share a position (both broken at any offset other than the real one).
+    // `.hst`. Absolute positions are unique and every name index resolves.
     assert_eq!(universe.planet_count(), 128, "{rel}: planet count");
-    let mut seen = std::collections::HashSet::new();
-    for (i, p) in universe.planets.iter().enumerate() {
-        assert!(
-            p.x < 1024 && p.y < 1024,
-            "{rel}: planet {i} coord out of range"
-        );
-        assert!(
-            seen.insert((p.x, p.y)),
-            "{rel}: planet {i} shares a position"
-        );
-    }
+    assert_planets_valid(rel, &universe);
+
+    // An in-game `.xy` carries a 2-byte `00 00` trailer.
+    assert_eq!(universe.trailer, [0, 0], "{rel}: in-game trailer");
 
     // The killer contract: re-encode is byte-for-byte identical.
     let reencoded = universe
@@ -348,27 +375,22 @@ fn xy_dir_universes_round_trip() {
         );
         assert!(universe.planet_count() > 0, "{name}: has planets");
 
-        // Coordinates are 10-bit-bounded and no two planets share a position.
-        let mut seen = std::collections::HashSet::new();
-        for (i, p) in universe.planets.iter().enumerate() {
-            assert!(
-                p.x < 1024 && p.y < 1024,
-                "{name}: planet {i} coord out of range"
-            );
-            assert!(
-                seen.insert((p.x, p.y)),
-                "{name}: planet {i} shares a position"
-            );
-        }
+        // Absolute positions are unique and every name index resolves.
+        assert_planets_valid(&name, &universe);
 
-        // These standalone universe files carry a 2-byte trailer equal to the
-        // player count (game-info offset 8).
+        // Standalone universe files carry a 4-byte trailer: a constant `02 00`
+        // followed by the player count (game-info offset 8).
         assert_eq!(
             universe.trailer.len(),
-            2,
-            "{name}: expected a 2-byte trailer"
+            4,
+            "{name}: expected a 4-byte trailer"
         );
-        let trailer_val = u16::from_le_bytes([universe.trailer[0], universe.trailer[1]]);
+        assert_eq!(
+            &universe.trailer[0..2],
+            &[0x02, 0x00],
+            "{name}: trailer prefix"
+        );
+        let trailer_val = u16::from_le_bytes([universe.trailer[2], universe.trailer[3]]);
         assert_eq!(
             trailer_val,
             u16::from(universe.player_count()),
@@ -448,8 +470,9 @@ fn tutorial_hst_block_inventory_and_planets() {
 }
 
 /// The tutorial `.xy` is the smallest universe verified so far: an **in-game**
-/// `.xy` (no trailer) of 24 planets named "Tutorial Game", round-tripping
-/// byte-for-byte with the planet count driven by the game-info block.
+/// `.xy` (2-byte `00 00` trailer) of 24 planets named "Tutorial Game",
+/// round-tripping byte-for-byte with the planet count driven by the game-info
+/// block, and every planet resolving to a unique name and position.
 #[test]
 fn tutorial_xy_universe_round_trips() {
     let Some(bytes) = tutorial_fixture("tutorial.xy") else {
@@ -476,15 +499,16 @@ fn tutorial_xy_universe_round_trips() {
     let name = std::str::from_utf8(&gi[32..32 + name_end]).unwrap();
     assert_eq!(name, "Tutorial Game", "game name");
 
-    // 10-bit-bounded, non-overlapping coordinates.
-    let mut seen = std::collections::HashSet::new();
-    for (i, p) in universe.planets.iter().enumerate() {
-        assert!(p.x < 1024 && p.y < 1024, "planet {i} coord out of range");
-        assert!(seen.insert((p.x, p.y)), "planet {i} shares a position");
-    }
+    // Unique absolute positions and resolved names.
+    assert_planets_valid("tutorial.xy", &universe);
 
-    // In-game `.xy` carries no trailer.
-    assert!(universe.trailer.is_empty(), "in-game .xy has no trailer");
+    // Spot-check a couple of resolved planet names against the master table.
+    let planets = universe.planets_resolved();
+    assert_eq!(planets[0].name, Some("Lever"), "tutorial planet 0 name");
+    assert_eq!(planets[23].name, Some("Bloop"), "tutorial planet 23 name");
+
+    // In-game `.xy` carries a 2-byte `00 00` trailer.
+    assert_eq!(universe.trailer, [0, 0], "in-game .xy trailer");
 
     let reencoded = universe.encode().unwrap_or_else(|e| panic!("encode: {e}"));
     assert_eq!(reencoded, bytes, "tutorial.xy re-encode not byte-identical");

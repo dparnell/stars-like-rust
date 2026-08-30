@@ -6,39 +6,42 @@
 //! ```text
 //! [ FileHeaderBlock (type 8, plaintext, 16-byte payload) ]
 //! [ game-info block  (type 7, encrypted, 64-byte payload) ]
-//! [ planet region: 2-byte header + N * 4-byte planet records + trailer ]  <- to EOF
+//! [ planet region: N * 4-byte planet records + trailer ]  <- to EOF
 //! ```
 //!
 //! The number of planets **N** is not derived from the file length; it is read
 //! from the game-info block (a little-endian `u16` at offset 10, verified
-//! against `128/160/360/540`-planet real files). After the `N` records an
-//! optional **trailer** may follow: standalone universe files (freshly created,
-//! not yet part of a saved game) carry a 2-byte trailer that equals the player
-//! count (game-info offset 8), while an in-game `.xy` has no trailer. The
-//! trailer is preserved verbatim so every file round-trips.
+//! against `24/128/160/360/540`-planet real files). After the `N` records an
+//! optional **trailer** follows: an **in-game** `.xy` carries a 2-byte trailer
+//! (`00 00`), while a **standalone** universe-definition file carries a 4-byte
+//! trailer (`02 00 <players> 00`). The trailer is preserved verbatim so every
+//! file round-trips.
 //!
 //! The planet region is **not** block-framed and — unlike every other payload —
 //! is stored *without* the stream cipher: parsing the raw on-disk bytes as
-//! 4-byte records yields sane, in-bounds, non-overlapping coordinates, whereas
-//! decrypting them first yields noise (see `docs/formats/xy.md`).
+//! 4-byte records yields sane, in-bounds, non-overlapping coordinates.
 //!
-//! Each 4-byte record is a little-endian `u32` partitioned as:
+//! Each 4-byte record is a little-endian `u32` partitioned as (confirmed
+//! against six real universes and matching the community `struct position`):
 //!
 //! ```text
-//! bits  0..9   x coordinate   (10 bits)
-//! bits 10..19  y coordinate   (10 bits)
-//! bits 20..31  planet name index (12 bits)
+//! bits  0..9   x offset   (10 bits) — delta added to the running x
+//! bits 10..21  y          (12 bits) — absolute y coordinate
+//! bits 22..31  name id     (10 bits) — index into the master planet-name table
 //! ```
 //!
-//! The 10/10/12 *partition* and the 2-byte region header are confirmed by the
-//! record count (exactly `N` planets, matching the `.hst`) and by the values
-//! being cleanly bounded and non-overlapping at this offset (and broken at any
-//! other). The axis assignment (which 10-bit field is x vs y) follows the
-//! community convention and is not independently confirmed; it does not affect
-//! byte-accuracy, which [`Universe::encode`] reproduces exactly.
+//! `x` is **not** stored absolutely: each record's `xoffset` is added to a
+//! running total, so a planet's absolute x is the sum of all `xoffset`s up to
+//! and including it. This is why planets are stored in non-decreasing x order
+//! (the original tools require `x` to never decrease planet-to-planet). With
+//! this reconstruction every planet in every sample universe has a unique
+//! position, its `y` lies in a band whose width matches the universe size
+//! class, and its `name id` resolves to a unique entry in the master name table
+//! (see `docs/formats/xy.md` and [`crate::names`]).
 
 use crate::block::{join_blocks, Block, FILE_HEADER_BLOCK};
 use crate::header::FileHeader;
+use crate::names::planet_name;
 use crate::{FormatError, Result};
 
 /// Type id of the `.xy` game-info block (a "planets" block per the registry).
@@ -55,41 +58,64 @@ pub const GAME_INFO_PLANET_COUNT_OFFSET: usize = 10;
 /// The player count is the low 5 bits of this byte.
 pub const GAME_INFO_PLAYER_COUNT_OFFSET: usize = 8;
 
-/// A single planet's fixed position, unpacked from a 4-byte `.xy` record.
+/// A single planet's packed record, unpacked from a 4-byte `.xy` word.
+///
+/// The fields are stored **exactly as on disk**, so [`PlanetPosition::to_word`]
+/// is a byte-exact inverse of [`PlanetPosition::from_word`]. Note that
+/// [`PlanetPosition::x_offset`] is a *delta*, not an absolute coordinate — use
+/// [`Universe::planets_resolved`] to obtain absolute positions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PlanetPosition {
-    /// X coordinate (low 10 bits of the record).
-    pub x: u16,
-    /// Y coordinate (next 10 bits of the record).
+    /// X offset (low 10 bits): the amount added to the running x total.
+    pub x_offset: u16,
+    /// Y coordinate (next 12 bits): absolute.
     pub y: u16,
-    /// Planet name index (high 12 bits of the record).
+    /// Planet name index (high 10 bits): an index into the master name table.
     pub name_index: u16,
 }
 
 impl PlanetPosition {
-    /// Unpack a 4-byte record word into a position.
+    /// Unpack a 4-byte record word into its fields.
     #[must_use]
     pub fn from_word(word: u32) -> Self {
         Self {
-            x: (word & 0x03FF) as u16,
-            y: ((word >> 10) & 0x03FF) as u16,
-            name_index: ((word >> 20) & 0x0FFF) as u16,
+            x_offset: (word & 0x03FF) as u16,
+            y: ((word >> 10) & 0x0FFF) as u16,
+            name_index: ((word >> 22) & 0x03FF) as u16,
         }
     }
 
-    /// Re-pack this position into its 4-byte record word.
+    /// Re-pack these fields into their 4-byte record word.
     #[must_use]
     pub fn to_word(self) -> u32 {
-        (u32::from(self.x) & 0x03FF)
-            | ((u32::from(self.y) & 0x03FF) << 10)
-            | ((u32::from(self.name_index) & 0x0FFF) << 20)
+        (u32::from(self.x_offset) & 0x03FF)
+            | ((u32::from(self.y) & 0x0FFF) << 10)
+            | ((u32::from(self.name_index) & 0x03FF) << 22)
     }
+}
+
+/// A planet with its **absolute** position and resolved name.
+///
+/// Produced by [`Universe::planets_resolved`] after summing the per-record
+/// `x_offset`s and looking each `name_index` up in the master name table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Planet {
+    /// Planet id (0-based index within the universe).
+    pub id: u16,
+    /// Absolute x coordinate (running sum of `x_offset`s up to this planet).
+    pub x: u32,
+    /// Absolute y coordinate.
+    pub y: u16,
+    /// The 10-bit name index stored in the record.
+    pub name_index: u16,
+    /// The resolved planet name, or `None` if the index is outside the table.
+    pub name: Option<&'static str>,
 }
 
 /// A parsed `.xy` universe file.
 ///
 /// [`Universe::decode`] and [`Universe::encode`] are byte-exact inverses for
-/// real files, so `.xy` now round-trips like the fully-framed formats.
+/// real files, so `.xy` round-trips like the fully-framed formats.
 #[derive(Debug, Clone)]
 pub struct Universe {
     /// The parsed file header.
@@ -98,14 +124,12 @@ pub struct Universe {
     header_payload: Vec<u8>,
     /// Decrypted game-info (type-7) payload.
     pub game_info: Vec<u8>,
-    /// The 2-byte header that precedes the planet records (meaning TBD).
-    pub region_header: [u8; 2],
-    /// The fixed planet positions, in planet-id order.
+    /// The packed planet records, in planet-id order.
     pub planets: Vec<PlanetPosition>,
     /// Any bytes following the planet records, kept verbatim.
     ///
-    /// Empty for an in-game `.xy`; standalone universe files carry a 2-byte
-    /// trailer that equals the player count (see the module docs).
+    /// A 2-byte `00 00` for an in-game `.xy`; a 4-byte `02 00 <players> 00` for
+    /// a standalone universe-definition file (see the module docs).
     pub trailer: Vec<u8>,
 }
 
@@ -142,7 +166,7 @@ impl Universe {
         let game_info = rng.apply(gi_payload);
 
         // The planet count is authoritative from the game-info block, not the
-        // file length (the region may carry a trailer).
+        // file length (the region carries a trailer).
         if game_info.len() < GAME_INFO_PLANET_COUNT_OFFSET + 2 {
             return Err(FormatError::Malformed(format!(
                 ".xy game-info block ({} bytes) too short for the planet count",
@@ -154,20 +178,12 @@ impl Universe {
             game_info[GAME_INFO_PLANET_COUNT_OFFSET + 1],
         ]) as usize;
 
-        // --- planet region: 2-byte header + N * 4-byte records + trailer ---
-        let region = &bytes[after_gi..];
-        if region.len() < 2 {
-            return Err(FormatError::UnexpectedEof {
-                offset: after_gi,
-                needed: 2 - region.len(),
-            });
-        }
-        let region_header = [region[0], region[1]];
-        let body = &region[2..];
+        // --- planet region: N * 4-byte records + trailer (no leading header) ---
+        let body = &bytes[after_gi..];
         let records_len = planet_count * PLANET_RECORD_LEN;
         if body.len() < records_len {
             return Err(FormatError::UnexpectedEof {
-                offset: after_gi + 2,
+                offset: after_gi,
                 needed: records_len - body.len(),
             });
         }
@@ -188,7 +204,6 @@ impl Universe {
             header,
             header_payload: hdr_payload.to_vec(),
             game_info,
-            region_header,
             planets,
             trailer,
         })
@@ -207,7 +222,6 @@ impl Universe {
         let game_info_block = Block::new(GAME_INFO_BLOCK, rng.apply(&self.game_info))?;
         let mut out = join_blocks(&[header_block, game_info_block])?;
 
-        out.extend_from_slice(&self.region_header);
         for planet in &self.planets {
             out.extend_from_slice(&planet.to_word().to_le_bytes());
         }
@@ -232,6 +246,30 @@ impl Universe {
         self.game_info
             .get(GAME_INFO_PLAYER_COUNT_OFFSET)
             .map_or(0, |b| b & 0x1F)
+    }
+
+    /// Resolve every planet to its **absolute** position and name.
+    ///
+    /// Absolute x is the running sum of the per-record `x_offset`s; `y` and the
+    /// name index are taken verbatim, and the name is looked up in the master
+    /// planet-name table ([`crate::names::planet_name`]).
+    #[must_use]
+    pub fn planets_resolved(&self) -> Vec<Planet> {
+        let mut x = 0u32;
+        self.planets
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                x += u32::from(p.x_offset);
+                Planet {
+                    id: i as u16,
+                    x,
+                    y: p.y,
+                    name_index: p.name_index,
+                    name: planet_name(p.name_index),
+                }
+            })
+            .collect()
     }
 }
 
@@ -264,8 +302,7 @@ mod tests {
     #[test]
     fn planet_position_word_round_trips() {
         for word in [0u32, 0x0000_0001, 0x8c05_5555, 0xFFFF_FFFF, 0x1c05_8552] {
-            // The name index is only 12 bits, so the top 12 bits survive; the
-            // full 32-bit word round-trips because 10+10+12 = 32.
+            // 10 + 12 + 10 = 32, so the full 32-bit word round-trips.
             assert_eq!(
                 PlanetPosition::from_word(word).to_word(),
                 word,
@@ -276,14 +313,32 @@ mod tests {
 
     #[test]
     fn planet_position_field_split() {
-        // x=5, y=10, name=3  ->  5 | (10<<10) | (3<<20)
+        // x_offset=5, y=10, name=3  ->  5 | (10<<10) | (3<<22)
         let p = PlanetPosition {
-            x: 5,
+            x_offset: 5,
             y: 10,
             name_index: 3,
         };
         let w = p.to_word();
-        assert_eq!(w, 5 | (10 << 10) | (3 << 20));
+        assert_eq!(w, 5 | (10 << 10) | (3 << 22));
         assert_eq!(PlanetPosition::from_word(w), p);
+    }
+
+    #[test]
+    fn field_widths_are_masked() {
+        // y is 12 bits and name is 10 bits; oversized inputs are truncated.
+        let p = PlanetPosition {
+            x_offset: 0x3FF,
+            y: 0x0FFF,
+            name_index: 0x03FF,
+        };
+        assert_eq!(PlanetPosition::from_word(p.to_word()), p);
+        // The top y bit (0x1000) and top name bits are dropped.
+        let clipped = PlanetPosition {
+            x_offset: 0,
+            y: 0x1000,
+            name_index: 0x0400,
+        };
+        assert_eq!(clipped.to_word(), 0);
     }
 }

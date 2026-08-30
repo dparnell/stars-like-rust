@@ -41,7 +41,7 @@
 //! | `.hN`     | Player history      | decode/encode round-trips; records: WIP  |
 //! | `.xN`     | Player orders       | decode/encode round-trips; records: WIP  |
 //! | `.rN`     | Race definition     | round-trips; record largely decoded (`docs/formats/race-r.md`) |
-//! | `.xy`     | Universe definition | round-trips; header, game-info & planet array decoded |
+//! | `.xy`     | Universe definition | round-trips; header, game-info & planet array (coords + names) decoded |
 //!
 //! See `docs/formats/blocks.md` for the reverse-engineering notes and the
 //! status of the encryption/payload work.
@@ -52,6 +52,7 @@ pub mod block;
 pub mod crypt;
 pub mod file;
 pub mod header;
+pub mod names;
 pub mod records;
 pub mod xy;
 
@@ -62,8 +63,9 @@ pub use block::{
 pub use crypt::{StarsRng, PRIMES};
 pub use file::{StarsFile, FILE_FOOTER_BLOCK};
 pub use header::{FileHeader, FileType};
+pub use names::{planet_name, planet_name_count};
 pub use records::{planet_headers, PlanetHeader, MINIMAL_PLANET_LEN};
-pub use xy::{PlanetPosition, Universe};
+pub use xy::{Planet, PlanetPosition, Universe};
 
 use thiserror::Error;
 
