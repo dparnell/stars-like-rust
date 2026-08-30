@@ -1,0 +1,167 @@
+//! Whole-file decode/encode: framing + header + payload (de)cryption.
+//!
+//! This ties the three lower layers together:
+//!
+//! 1. [`crate::block`] splits the raw bytes into framed blocks (plaintext
+//!    headers, verbatim payloads).
+//! 2. [`crate::header::FileHeader`] parses the first block and seeds the
+//!    [`crate::crypt::StarsRng`].
+//! 3. Every block other than the plaintext header ([`FILE_HEADER_BLOCK`]) and
+//!    footer ([`FILE_FOOTER_BLOCK`]) has its payload run through the keystream,
+//!    which advances continuously across the file.
+//!
+//! [`StarsFile::decode`] yields blocks with **decrypted** payloads;
+//! [`StarsFile::encode`] reverses the process and, for real game files, is
+//! byte-for-byte identical to the input (see `tests/real_files.rs`).
+//!
+//! > **`.xy` note:** universe files are *not* fully block-framed — a game-info
+//! > block (type 7) is followed by a raw planet array that is neither standard
+//! > framing nor a keystream continuation. [`StarsFile::decode`] therefore
+//! > currently returns an error for `.xy`; decoding its planet array is tracked
+//! > in `docs/formats/xy.md`.
+
+use crate::block::{join_blocks, split_blocks, Block, FILE_HEADER_BLOCK};
+use crate::header::FileHeader;
+use crate::{FormatError, Result};
+
+/// Type id of the plaintext file-footer block that ends most Stars! files.
+///
+/// Like the header, the footer is **not** encrypted; it typically carries the
+/// year (`.m`/`.hst`) or a checksum (`.r`).
+pub const FILE_FOOTER_BLOCK: u8 = 0;
+
+/// A decoded Stars! file: its parsed [`FileHeader`] and its blocks with
+/// **decrypted** payloads (the header and footer blocks are kept verbatim).
+#[derive(Debug, Clone)]
+pub struct StarsFile {
+    /// The parsed file-header block.
+    pub header: FileHeader,
+    /// All blocks in file order, with non-header/footer payloads decrypted.
+    pub blocks: Vec<Block>,
+}
+
+impl StarsFile {
+    /// Decode raw file bytes into a header plus decrypted blocks.
+    ///
+    /// # Errors
+    ///
+    /// - Propagates [`FormatError::UnexpectedEof`] from framing on a truncated
+    ///   file (this also currently occurs for `.xy`; see the module note).
+    /// - [`FormatError::Malformed`] if the file does not start with a
+    ///   [`FILE_HEADER_BLOCK`].
+    /// - Propagates header-parse errors (e.g. [`FormatError::BadMagic`]).
+    pub fn decode(bytes: &[u8]) -> Result<Self> {
+        let raw = split_blocks(bytes)?;
+        let first = raw
+            .first()
+            .ok_or_else(|| FormatError::Malformed("file contains no blocks".into()))?;
+        if first.type_id != FILE_HEADER_BLOCK {
+            return Err(FormatError::Malformed(format!(
+                "file does not start with a header block (type {}), found type {}",
+                FILE_HEADER_BLOCK, first.type_id
+            )));
+        }
+
+        let header = FileHeader::parse(&first.data)?;
+        let mut rng = header.init_rng();
+
+        let mut blocks = Vec::with_capacity(raw.len());
+        for block in raw {
+            if is_plaintext(block.type_id) {
+                blocks.push(block);
+            } else {
+                let data = rng.apply(&block.data);
+                blocks.push(Block::new(block.type_id, data)?);
+            }
+        }
+
+        Ok(Self { header, blocks })
+    }
+
+    /// Re-encode a decoded file back to raw bytes.
+    ///
+    /// Inverse of [`StarsFile::decode`]: re-encrypts every non-header/footer
+    /// payload with a freshly seeded keystream and re-frames the blocks. For
+    /// unmodified real files this reproduces the original bytes exactly.
+    ///
+    /// # Errors
+    ///
+    /// [`FormatError::Malformed`] if any block no longer fits the header word's
+    /// bit fields.
+    pub fn encode(&self) -> Result<Vec<u8>> {
+        let mut rng = self.header.init_rng();
+        let mut raw = Vec::with_capacity(self.blocks.len());
+        for block in &self.blocks {
+            if is_plaintext(block.type_id) {
+                raw.push(block.clone());
+            } else {
+                let data = rng.apply(&block.data);
+                raw.push(Block::new(block.type_id, data)?);
+            }
+        }
+        join_blocks(&raw)
+    }
+}
+
+/// Whether a block type is stored in plaintext (header and footer).
+fn is_plaintext(type_id: u8) -> bool {
+    type_id == FILE_HEADER_BLOCK || type_id == FILE_FOOTER_BLOCK
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::crypt::StarsRng;
+
+    /// Build a small synthetic but structurally valid encrypted file.
+    fn synthetic_file() -> Vec<u8> {
+        // Header payload: magic, game_id, ver, turn, player word, dts.
+        let mut hdr = Vec::new();
+        hdr.extend_from_slice(b"J3J3");
+        hdr.extend_from_slice(&0x1234_5678u32.to_le_bytes());
+        hdr.extend_from_slice(&0x2840u16.to_le_bytes());
+        hdr.extend_from_slice(&0u16.to_le_bytes());
+        hdr.extend_from_slice(&0x4900u16.to_le_bytes());
+        hdr.extend_from_slice(&3u16.to_le_bytes());
+
+        let header = FileHeader::parse(&hdr).unwrap();
+        let mut rng = header.init_rng();
+
+        let plain_a = vec![0x11u8, 0x22, 0x33, 0x44, 0x55];
+        let plain_b = vec![0xAAu8; 8];
+        let enc_a = rng.apply(&plain_a);
+        let enc_b = rng.apply(&plain_b);
+
+        let blocks = vec![
+            Block::new(FILE_HEADER_BLOCK, hdr).unwrap(),
+            Block::new(6, enc_a).unwrap(),
+            Block::new(13, enc_b).unwrap(),
+            Block::new(FILE_FOOTER_BLOCK, vec![0x00, 0x00]).unwrap(),
+        ];
+        join_blocks(&blocks).unwrap()
+    }
+
+    #[test]
+    fn decode_then_encode_round_trips() {
+        let bytes = synthetic_file();
+        let file = StarsFile::decode(&bytes).unwrap();
+        assert_eq!(file.header.game_id, 0x1234_5678);
+        // Payloads are decrypted in-memory.
+        assert_eq!(file.blocks[1].data, vec![0x11, 0x22, 0x33, 0x44, 0x55]);
+        assert_eq!(file.blocks[3].data, vec![0x00, 0x00]); // footer plaintext
+                                                           // ...and re-encoding reproduces the original bytes.
+        assert_eq!(file.encode().unwrap(), bytes);
+    }
+
+    #[test]
+    fn rejects_file_not_starting_with_header() {
+        // A lone non-header block.
+        let mut rng = StarsRng::new(3, 5, 1);
+        let enc = rng.apply(&[1, 2, 3, 4]);
+        let bytes = join_blocks(&[Block::new(6, enc).unwrap()]).unwrap();
+        assert!(matches!(
+            StarsFile::decode(&bytes),
+            Err(FormatError::Malformed(_))
+        ));
+    }
+}

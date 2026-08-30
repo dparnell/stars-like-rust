@@ -5,6 +5,10 @@ Reconstruction of the original Stars! PRNG, created from
 
 - `prng.md` — the core generator (algorithm, seeding, consumption points)
 
-Populated in delivery Step 3. The Rust implementation lives in
-`crates/stars-core` (`Rng`); a reference-sequence vector goes under
-`../vectors/`.
+The **encryption** PRNG has already been recovered (Step 2) and is documented in
+`../formats/blocks.md` and implemented as `stars_formats::StarsRng`
+(`crates/stars-formats/src/crypt.rs`): a subtractive combination of two
+Park–Miller LCGs, seeded from a 128-entry primes table. The gameplay RNG used in
+Step 3 is expected to be the same generator (possibly seeded differently); when
+confirmed, `crates/stars-core`'s `Rng` should reuse or mirror `StarsRng`, and a
+reference-sequence vector goes under `../vectors/`.

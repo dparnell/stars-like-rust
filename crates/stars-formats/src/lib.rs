@@ -17,23 +17,31 @@
 //!
 //! ## Layers
 //!
-//! Every Stars! file is a flat sequence of *blocks* (see [`block`]). The block
-//! **framing** — the 16-bit type/size header word and verbatim payload — is the
-//! shared foundation of all formats and is implemented and round-trip tested
-//! today. Payload decoding (the Stars! stream cipher and the per-format record
-//! layouts) is layered on top and is filled in incrementally.
+//! Every Stars! file is a flat sequence of *blocks* (see [`block`]). Three
+//! layers are implemented and verified against real game files:
+//!
+//! 1. **Framing** ([`block`]) — the 16-bit type/size header word + payload.
+//! 2. **Header** ([`header`]) — the plaintext file-header block that seeds
+//!    the cipher.
+//! 3. **Payload (de)cryption** ([`crypt`]) — the Stars! PRNG stream cipher.
+//!
+//! [`file::StarsFile`] combines them: [`StarsFile::decode`] returns blocks with
+//! decrypted payloads and [`StarsFile::encode`] reproduces the original bytes.
+//! The per-format *record* layouts (interpreting each decrypted block) are the
+//! remaining work.
 //!
 //! ## Supported formats
 //!
-//! | Extension | Meaning                | Status                    |
-//! |-----------|------------------------|---------------------------|
-//! | (all)     | Block framing          | implemented (round-trips) |
-//! | `.xy`     | Universe definition    | payload decode: pending   |
-//! | `.mN`     | Player state           | payload decode: pending   |
-//! | `.hN`     | Player history         | payload decode: pending   |
-//! | `.xN`     | Player orders          | payload decode: pending   |
-//! | `.rN`     | Race definition        | payload decode: pending   |
-//! | `.hst`    | Host state             | payload decode: pending   |
+//! | Extension | Meaning             | Status                                   |
+//! |-----------|---------------------|------------------------------------------|
+//! | (all)     | Block framing       | implemented (round-trips)                |
+//! | (all)     | Header + cipher     | implemented (byte-perfect on real files) |
+//! | `.mN`     | Player state        | decode/encode round-trips; records: WIP  |
+//! | `.hst`    | Host state          | decode/encode round-trips; records: WIP  |
+//! | `.hN`     | Player history      | decode/encode round-trips; records: WIP  |
+//! | `.xN`     | Player orders       | decode/encode round-trips; records: WIP  |
+//! | `.rN`     | Race definition     | decode/encode round-trips; records: WIP  |
+//! | `.xy`     | Universe definition | header + game-info decoded; planets: WIP |
 //!
 //! See `docs/formats/blocks.md` for the reverse-engineering notes and the
 //! status of the encryption/payload work.
@@ -41,11 +49,17 @@
 #![forbid(unsafe_code)]
 
 pub mod block;
+pub mod crypt;
+pub mod file;
+pub mod header;
 
 pub use block::{
     join_blocks, split_blocks, Block, BLOCK_SIZE_MASK, BLOCK_TYPE_SHIFT, FILE_HEADER_BLOCK,
     MAX_BLOCK_SIZE, MAX_BLOCK_TYPE,
 };
+pub use crypt::{StarsRng, PRIMES};
+pub use file::{StarsFile, FILE_FOOTER_BLOCK};
+pub use header::{FileHeader, FileType};
 
 use thiserror::Error;
 

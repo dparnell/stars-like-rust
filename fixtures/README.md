@@ -26,7 +26,18 @@ fixtures/
 - Tests locate fixtures relative to the workspace root (`fixtures/...`), so
   they run the same locally and in CI.
 
+## `incoming/`
+
+Real sample files provided by the user live in `fixtures/incoming/`
+(`Game.{xy,m1,m2,m3,hst}` — a fresh 3-player game, turn 0). The differential
+tests in `stars-formats` (`tests/real_files.rs`) read directly from there and
+skip gracefully if the directory is absent.
+
 ## Status
 
-Empty at scaffolding time (delivery Step 1). Add fixtures as Step 2 begins so
-the round-trip tests have real data to assert against.
+`incoming/` holds the first real game. `encode(decode(bytes)) == bytes` is
+verified byte-for-byte for `.hst`/`.m1`/`.m2`/`.m3`; `.xy` header + game-info
+are decoded (planet array pending — see `docs/formats/xy.md`). Additional files
+that would help: a `.rN` race file and a `.hN`/`.xN` history/orders file to
+anchor those record layouts, and a later-turn save to confirm the seeding math
+on non-zero turns.

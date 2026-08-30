@@ -1,124 +1,146 @@
-# Format: block framing — the shared container of every Stars! file
+# Format: block framing + header + encryption — the shared container
 
-- **Status:** framing **implemented & round-trip tested**; payload encryption + per-format records **pending**
-- **Original files analysed:** none yet (no real fixtures captured — see `fixtures/README.md`)
-- **Ghidra reader routine(s):** file bytes are read with the Win16 `_LREAD` import (present in `STARS!.EXE`); the in-memory block loop is not yet pinned to a `seg:off` (see *RE status* below)
-- **Ghidra writer routine(s):** Win16 `_LWRITE` import present; block writer not yet pinned
-- **Encoding/compression:** framing is plaintext; non-header block payloads are obfuscated with the Stars! stream cipher (**not yet recovered**)
-- **Checksum/CRC:** unknown / to be confirmed
+- **Status:** framing, file-header, and payload **encryption recovered &
+  verified byte-for-byte** on real files; per-format record layouts pending
+- **Original files analysed:** `fixtures/incoming/Game.{xy,m1,m2,m3,hst}`
+  (a fresh 3-player game, turn 0 / year 2400)
+- **Encoding/compression:** framing is plaintext; non-header/footer block
+  payloads use the Stars! PRNG **stream cipher** (recovered — see below)
+- **Checksum/CRC:** footer block (type 0) carries a year (`.m`/`.hst`) or
+  checksum (`.r`); not yet decoded per-format
+- **Implemented in:** `stars-formats::{block, header, crypt, file}`
+- **Cross-checked against:** `stars-4x/starsapi` and `ricks03/TotalHost`
+  (`StarsBlock.pm`), both derived from analysis of `STARS!.EXE`
 
 ## Overview
 
 Every Stars! on-disk file (`.xy`, `.mN`, `.hN`, `.xN`, `.rN`, `.hst`) is a flat
-sequence of **blocks**. A block is a 16-bit little-endian header word followed
-by its payload. The header word packs a 6-bit *type id* and a 10-bit *payload
-size*. The game reads the whole file into memory (via `_LREAD`), walks the block
-list, and decrypts/decodes each payload; saving is the reverse (`_LWRITE`).
+sequence of **blocks**: a 16-bit little-endian header word (6-bit type id +
+10-bit payload size) followed by the payload. The **first** block is the
+plaintext file-header (type 8); the **footer** (type 0) is also plaintext.
+Every other block's payload is XOR-encrypted with a keystream from the Stars!
+PRNG that is **seeded from the header** and runs **continuously** across the
+file.
 
-This spec covers the **framing** (fully implemented in `stars-formats::block`).
-The payload **encryption** and the **per-format record layouts** are separate,
-still-open sub-tasks tracked here and in the per-format specs.
+`stars-formats::file::StarsFile::{decode,encode}` combine all three layers:
+decoding yields blocks with decrypted payloads; encoding reproduces the original
+bytes exactly (proven on the four fully-framed sample files).
 
 ## Top-level layout (per block)
 
-| Offset | Size     | Type     | Name    | Notes / source                                  |
-|-------:|---------:|----------|---------|-------------------------------------------------|
-| 0x0000 | 2        | u16 (LE) | header  | `size = header & 0x03FF`, `type = header >> 10` |
-| 0x0002 | `size`   | u8[]     | payload | verbatim bytes; encrypted for non-header blocks |
+| Offset | Size   | Type     | Name    | Notes / source                                  |
+|-------:|-------:|----------|---------|-------------------------------------------------|
+| 0x0000 | 2      | u16 (LE) | header  | `size = header & 0x03FF`, `type = header >> 10` |
+| 0x0002 | `size` | u8[]     | payload | encrypted for all but type 8 (header)/0 (footer) |
 
-> All multi-byte integers are little-endian (16-bit x86 origin).
-
-A file is simply blocks concatenated back-to-back until EOF; there is no
-top-level count. The framing therefore round-trips byte-for-byte:
-`join_blocks(split_blocks(bytes)) == bytes`, which holds for **real** files too
-because payloads are copied verbatim without decoding.
-
-### Header word bit layout
+Header-word bit layout (`type` high 6 bits, `size` low 10 bits):
 
 ```
  bit: 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
       +--------------+  +-----------------------------+
       |   type id    |  |        payload size         |
-      |   (6 bits)   |  |          (10 bits)          |
       +--------------+  +-----------------------------+
 ```
 
-- `type id` range: `0..=63`
-- `payload size` range: `0..=1023` bytes
+## File-header block (type 8, plaintext) — 16-byte payload
 
-Worked example: a header block (`type = 8`) with a 4-byte payload encodes as
-`(8 << 10) | 4 = 0x2004`, written little-endian as `04 20`, then the 4 payload
-bytes. (Covered by the `header_bit_layout_is_type_hi6_size_lo10` unit test.)
+| Offset | Size | Field     | Decoding                                             |
+|-------:|-----:|-----------|-----------------------------------------------------|
+| 0      | 4    | magic     | ASCII `"J3J3"`                                       |
+| 4      | 4    | `game_id` | u32; identical across every file of a game          |
+| 8      | 2    | version   | `major = w>>12`, `minor = (w>>5)&0x7F`, `inc = w&0x1F` |
+| 10     | 2    | turn      | year = `2400 + turn`                                 |
+| 12     | 2    | player    | `player = w & 0x1F` (0-based; 31 = shared/host); `salt = w >> 5` (11 bits) |
+| 14     | 2    | dts       | `file_type = w & 0xFF`; flags in bits 8..12         |
 
-## Records / blocks
+`dts` low byte → file type: `0 .xy`, `1 .x`, `2 .hst`, `3 .m`, `4 .h`, `5 .r`.
+Flags (bit above the low byte): `8 done(.x)`, `9 in_use`, `10 multi(.m)`,
+`11 game_over`, `12 shareware`.
 
-The **first** block is always the file-header block, [`type id 8`], and is the
-one block whose payload is stored **unencrypted**. It carries the values needed
-to seed the stream cipher for every following block. Its exact field layout is
-documented in `player-m.md` / `xy.md` once recovered; the well-known shape is:
+**Verified values** (sample game): `game_id = 0x2a031dd8`, `version = 0x2840`
+(→ 2.x), `turn = 0`; player word low-5 bits = `0,1,2` for `m1,m2,m3` and `31`
+for `.xy`/`.hst`; `dts` low byte = `0/2/3` for `.xy`/`.hst`/`.m`.
 
-- magic bytes `"J3J3"`
-- game id
-- file version (packed major/minor)
-- turn number
-- player number + flags
-- salt used to derive the cipher seed
+## Encryption
 
-> ⚠️ The header field offsets above are the community-documented shape and are
-> **not yet verified** against this binary or a real file. Do not rely on them
-> until confirmed.
+### Seeding (`initDecryption`)
 
-## Bitfields
-
-| Field        | Bits | Meaning                              |
-|--------------|------|--------------------------------------|
-| header.type  | 15–10| block type id (`0..=63`)             |
-| header.size  | 9–0  | payload length in bytes (`0..=1023`) |
-
-## Annotated hex (synthetic; real-file capture pending)
+From the header's `salt` (11 bits) and other fields:
 
 ```
-offset    bytes                     meaning
-00000000  04 20                     header: type=8 (FileHeader), size=4
-00000002  4A 33 4A 33               payload: "J3J3"
+index1 = salt & 0x1F
+index2 = (salt >> 5) & 0x1F
+if (salt >> 10) == 1: index1 += 32   else: index2 += 32
+rounds = ((game_id & 3)+1) * ((turn & 3)+1) * ((player & 3)+1) + shareware
+seedA, seedB = PRNG warmed up `rounds` times from (PRIMES[index1], PRIMES[index2])
 ```
 
-## Encryption (pending recovery)
+`PRIMES` is a 128-entry table lifted from the binary. **It contains a known
+anomaly: entry 55 is `279` (not the prime `269`).** We must reproduce it to stay
+bit-compatible (`stars_formats::PRIMES`).
 
-Non-header block payloads are XOR-obfuscated with a keystream from the Stars!
-PRNG, seeded from the file-header block's game id / turn / player / salt. This
-same PRNG family also drives gameplay RNG (Step 3), so recovering it unlocks
-both. Recovery approach:
+### PRNG (`nextRandom`)
 
-1. Pin the in-memory block loop in Ghidra and the routine that transforms a
-   block payload right after `_LREAD` (constants, shift amounts, seed mixing).
-2. Capture a real `.m1`/`.xy` file as a fixture; confirm the file-header layout
-   and salt derivation against its bytes.
-3. Implement `decrypt_blocks` / `encrypt_blocks` and assert they are mutual
-   inverses **and** that a real file decrypts to sane records, then re-encrypts
-   byte-for-byte.
+A subtractive combination of two Park–Miller LCGs (Schrage's method):
 
-## RE status / notes
+```
+newA = (A % 53668)*40014 - (A / 53668)*12211;  if newA < 0: newA += 0x7fffffab
+newB = (B % 52774)*40692 - (B / 52774)*3791 ;  if newB < 0: newB += 0x7fffff07
+r = newA - newB;  if newA < newB: r += 2^32
+A, B = newA, newB;  keystream word = r & 0xFFFFFFFF
+```
 
-- `STARS!.EXE` imports the Win16 file primitives `_LREAD` and `_LWRITE`,
-  confirming files are read/written as raw byte buffers and parsed in memory
-  (consistent with the block model).
-- Ghidra's call graph does **not** resolve callers across the NE far-call
-  import thunks, so the loader/decrypt routine could not be reached by
-  caller-tracing this pass; it needs to be located by other means (e.g. finding
-  the code that compares the `"J3J3"` magic / references the header constants).
+### Stream cipher (`decryptBytes` = `encryptBytes`)
 
-## Open questions
+Process the payload in 4-byte **little-endian** words, XOR each with the next
+PRNG word. A trailing partial word is zero-padded so it still consumes a whole
+keystream word (the padding is dropped from the output); this keeps the next
+block's keystream aligned. XOR is its own inverse, so one routine both encrypts
+and decrypts (`StarsRng::apply`).
 
-- Exact file-header block field offsets and the salt → seed derivation.
-- The PRNG constants and keystream application (per-byte vs per-word; whether the
-  size field or type participates in seeding).
-- Whether any block or the whole file carries a checksum/CRC.
-- The full block-type registry (only `8` = file header is anchored so far).
+## Block-type registry (from `StarsBlock.pm`, community-documented)
 
-## Derived test vectors
+| id | Name                              | id | Name                          |
+|---:|-----------------------------------|---:|-------------------------------|
+| 0  | FileFooterBlock (plaintext)       | 24 | FleetSplitBlock               |
+| 1  | ManualSmallLoadUnloadTaskBlock    | 25 | ManualLargeLoadUnloadTaskBlock|
+| 2  | ManualMediumLoadUnloadTaskBlock   | 26 | DesignBlock                   |
+| 3  | WaypointDeleteBlock               | 27 | DesignChangeBlock             |
+| 4  | WaypointAddBlock                  | 28 | ProductionQueueBlock          |
+| 5  | WaypointChangeTaskBlock           | 29 | ProductionQueueChangeBlock    |
+| 6  | PlayerBlock                       | 30 | BattlePlanBlock               |
+| 7  | PlanetsBlock (.xy game info)      | 31 | BattleBlock                   |
+| 8  | FileHeaderBlock (plaintext)       | 32 | CountersBlock                 |
+| 9  | FileHashBlock                     | 33 | MessagesFilterBlock           |
+| 10 | WaypointRepeatOrdersBlock         | 34 | ResearchChangeBlock           |
+| 12 | EventsBlock                       | 35 | PlanetChangeBlock             |
+| 13 | PlanetBlock                       | 36 | ChangePassword / Password     |
+| 14 | PartialPlanetBlock                | 37 | FleetsMergeBlock              |
+| 16 | FleetBlock                        | 38 | PlayersRelationChangeBlock    |
+| 17 | PartialFleetBlock                 | 39 | BattleContinuationBlock       |
+| 19 | WaypointTaskBlock                 | 40 | MessageBlock                  |
+| 20 | WaypointBlock                     | 41 | AI record (.h)                |
+| 21 | FleetNameBlock                    | 42 | SetFleetBattlePlanBlock       |
+| 23 | MoveShipsBlock                    | 43 | ObjectBlock                   |
+|    |                                   | 44 | RenameFleetBlock              |
+|    |                                   | 45 | PlayerScoresBlock             |
+|    |                                   | 46 | SaveAndSubmitBlock            |
 
-- Framing: covered by unit tests in `stars-formats::block` (round-trip,
-  max-size payload, truncated-header/payload errors).
-- File-level vectors await a real fixture in `fixtures/` (see
-  `../vectors/README.md`).
+Only types 8 (header) and 0 (footer) are anchored against our own files so far;
+the rest are used to *interpret* decrypted payloads and are validated as each
+per-format record layout is decoded.
+
+## Verified round-trips
+
+`crates/stars-formats/tests/real_files.rs` asserts `encode(decode(bytes)) ==
+bytes` for `Game.hst`, `Game.m1`, `Game.m2`, `Game.m3`, checks the shared
+`game_id` and per-player numbering, and decrypts the `.xy` header + game-info.
+
+## Open questions / next
+
+- Per-format **record layouts** for each decrypted block (players, planets,
+  fleets, designs, production queues, …).
+- `.xy` **planet array** decoding — see `xy.md`.
+- Footer contents per extension (year vs checksum).
+- Confirm the exact `game_id`/`turn`/`player` contribution to `rounds` on a
+  non-zero-turn file (all current fixtures are turn 0).
