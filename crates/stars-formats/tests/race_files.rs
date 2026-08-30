@@ -130,3 +130,32 @@ fn default_races_decode_prt() {
         assert!(race.lrts().is_empty(), "humanoid has no LRTs");
     }
 }
+
+/// The packed singular/plural race names decode to the built-in race names,
+/// verifying the Stars! string codec (`stars_formats::strings`) and the
+/// name-framing offsets against real files.
+#[test]
+fn default_races_decode_names() {
+    let expected: &[(&str, &str, &str)] = &[
+        ("humanoid.r1", "Humanoid", "Humanoids"),
+        ("insectoid.r1", "Insectoid", "Insectoids"),
+        ("nucleoid.r1", "Nucleotid", "Nucleotids"),
+        ("rabitoid.r1", "Rabbitoid", "Rabbitoids"),
+        ("silicanoid.r1", "Silicanoid", "Silicanoids"),
+        ("antetherial.r1", "Antetheral", "Antetherals"),
+    ];
+    let mut seen = 0;
+    for (name, singular, plural) in expected {
+        let Some(bytes) = fixture(name) else {
+            continue;
+        };
+        seen += 1;
+        let file = StarsFile::decode(&bytes).unwrap();
+        let race = RaceRecord::from_file(&file).unwrap_or_else(|e| panic!("race {name}: {e}"));
+        assert_eq!(&race.singular_name, singular, "{name}: singular name");
+        assert_eq!(&race.plural_name, plural, "{name}: plural name");
+    }
+    if seen == 0 {
+        eprintln!("skipping: no default race fixtures present in fixtures/r/");
+    }
+}

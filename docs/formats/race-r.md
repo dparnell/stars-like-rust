@@ -1,8 +1,8 @@
 # Format: `.rN` — race definition
 
 - **Status:** container **verified byte-for-byte**; race record **largely
-  decoded** (habitability, growth, economy, research, PRT, LRTs) — a few
-  bitfields and the packed name encoding remain; a typed read-only view is
+  decoded** (habitability, growth, economy, research, PRT, LRTs, **singular +
+  plural names**) — a few bitfields remain; a typed read-only view is
   implemented (`stars-formats::race::RaceRecord`)
 - **Original files analysed:** `fixtures/r/{antetherial,humanoid,insectoid,
   nucleoid,rabitoid,random,silicanoid}.r1` — the six built-in default races plus
@@ -53,13 +53,20 @@ unless noted; multi-byte integers are little-endian.
 | 23     | 1    | temperature high     |                                                                         |
 | 24     | 1    | radiation high       |                                                                         |
 | 25     | 1    | growth rate %        | max population growth (Humanoid 15, Rabbitoid 20, Silicanoid 6, …)       |
-| 56     | 1    | constant `0x0F`      | `15` in every sample; purpose TBD                                        |
-| 62     | 6–7  | economy settings     | factory & mine produce/cost/count (Humanoid `10,10,10,10,10,5,10`)      |
+| 56     | 1    | research %           | resources spent on research; defaults to `15` (`0x0F`) — per `StarsBlock.pm` |
+| 62     | 1    | resource/colonist    | e.g. Humanoid `10` (÷ divisor for the actual rate)                       |
+| 63     | 1    | produce per factory  |                                                                         |
+| 64     | 1    | factory build cost   |                                                                         |
+| 65     | 1    | factories/10k colon. |                                                                         |
+| 66     | 1    | produce per mine     |                                                                         |
+| 67     | 1    | mine build cost      |                                                                         |
+| 68     | 1    | mines/10k colonists  |                                                                         |
+| 69     | 1    | spend leftover pts   | how surplus advantage points are spent                                  |
 | 70     | 6    | research cost/field  | one byte per tech field (Energy,Weapons,Prop,Const,Elec,Bio); `0/1/2` = costs-less/normal/costs-more; Humanoid = all `1` |
 | 76     | 1    | **PRT**              | primary racial trait: `0`=HE `1`=SS `2`=WM `3`=CA `4`=IS `5`=SD `6`=PP `7`=IT `8`=AR `9`=JOAT |
 | 78     | 2    | **LRT bitfield**     | lesser racial traits, little-endian u16 (bit layout below); Humanoid = `0` |
-| 81     | 1    | bitfield             | varies (Rabbitoid `0x80`, Random `0x40`, Nucleoid `0x20`); TBD          |
-| ~113   | var  | race names           | two length-prefixed, 4-bit-packed strings (singular + plural); see below |
+| 81     | 1    | checkbox flags       | bit 5 = *expensive tech starts at level 3*, bit 7 = *factories cost 1 less germ.* (per `StarsBlock.pm`); other bits TBD |
+| var    | var  | race names           | two length-prefixed, nibble-packed strings (singular + plural); see below |
 
 > The habitability layout was confirmed by the perfectly-centred **Humanoid**
 > race (center 50 / low 15 / high 85 on all three axes) and cross-checked
@@ -115,30 +122,53 @@ cross-check that the PRT byte and record alignment are correct.
 ## Race name encoding
 
 The record ends with two strings — the **singular** and **plural** race name
-(e.g. "Humanoid" / "Humanoids"). Each is stored as:
+(e.g. "Humanoid" / "Humanoids") — decoded via the shared Stars! packed-string
+codec (`stars-formats::strings`, documented in `strings.md`).
+
+**Where the names start.** The names are the last thing in the record, but their
+offset is not fixed: it depends on the `fullData` flag (bit 2 of the flags byte
+at offset 6, always set for `.rN` files and full player blocks). Following
+TotalHost's `StarsBlock.pm`:
 
 ```
-[ len:u8 ][ len bytes of 4-bit-packed characters ]
+if fullData (data[6] & 0x04):
+    index = 112 + data[112] + 1       # after the player-relations table
+else:
+    index = 8                          # short player block
 ```
 
-For Humanoid the two run `06 B7 DE DB 16 74 D6` (singular, 6 packed bytes) and
-`07 B7 DE DB 16 74 D6 9F` (plural, 7 bytes — same prefix plus one byte for the
-trailing "s"). The 4-bit packing uses Stars!'s character lookup table; decoding
-that table to recover the literal text is still **pending**.
+**Field framing.** From `index`, each name is a length-prefixed packed string:
+
+```
+[ len:u8 ][ len bytes of nibble-packed characters ]
+```
+
+The singular field is `data[index ..= index + data[index]]`; the plural field is
+everything from just after it to the end of the record. Both are decoded with
+`stars-formats::strings::decode_field`.
+
+The decoded names match the built-in races exactly: Humanoid/Humanoids,
+Insectoid/Insectoids, **Nucleotid/Nucleotids**, Rabbitoid/Rabbitoids,
+Silicanoid/Silicanoids, **Antetheral/Antetherals** (note the last two are spelt
+as the game stores them, not as the wizard labels them). `RaceRecord` now
+exposes `singular_name` / `plural_name`.
 
 ## Open questions
 
-- The early flags byte (offset 6) and the bitfield at offset 81.
-- Exact split/ordering of the economy block at offsets 62–69 (factory vs. mine
-  produce/cost/count) and the meaning of offset 69.
-- The 4-bit name character table (to turn packed bytes back into text).
+- The early flags byte (offset 6, besides the `fullData` bit) and the remaining
+  bits of the checkbox byte at offset 81.
+- The exact numeric scaling of the economy bytes (62–69) — the field *positions*
+  are now taken from `StarsBlock.pm`, but the divisors/units still need
+  confirmation against known race stats.
 - Whether spent/leftover advantage points are stored anywhere in the record.
 
 ## Derived test vectors
 
 - `crates/stars-formats/tests/race_files.rs` — round-trips all seven default
-  fixtures, asserts the `[8, 6, 0]` block shape and `0xFF` race marker, and
-  decodes their PRTs via `RaceRecord`.
+  fixtures, asserts the `[8, 6, 0]` block shape and `0xFF` race marker, decodes
+  their PRTs via `RaceRecord`, and asserts each decoded **singular/plural name**.
+- `crates/stars-formats/src/strings.rs` — unit tests for the packed-string
+  codec (single-nibble table, `B` escape table, `F` literal-byte escape).
 - `crates/stars-formats/tests/exodus_files.rs` — decodes the seven AI races and
   asserts each PRT + LRT set from the table above (and that they share the
   IFE|OBRM|LSP base with no stray bits).

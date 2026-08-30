@@ -19,6 +19,7 @@
 //! 14-bit range with no stray bits.
 
 use crate::file::StarsFile;
+use crate::strings;
 use crate::{FormatError, Result};
 
 /// Offset of the player-id byte in the race record (`0xFF` for a race-only
@@ -40,6 +41,18 @@ pub const RESEARCH_COST_OFFSET: usize = 70;
 pub const PRT_OFFSET: usize = 76;
 /// Offset of the lesser-racial-trait bitfield (little-endian `u16`).
 pub const LRT_OFFSET: usize = 78;
+/// Offset of the flags byte that carries the `fullData` marker (bit 2). It is
+/// set for `.rN` race files and full player blocks, where the names live at the
+/// end of the record; when clear, the names start at [`SHORT_NAMES_OFFSET`].
+pub const FLAGS_OFFSET: usize = 6;
+/// `data[FLAGS_OFFSET] & FULL_DATA_FLAG` selects the record's name framing.
+pub const FULL_DATA_FLAG: u8 = 0x04;
+/// Where the singular/plural name fields start in a **short** (non-fullData)
+/// player block.
+pub const SHORT_NAMES_OFFSET: usize = 8;
+/// In a **fullData** record the player-relations table starts here; the names
+/// follow it. `data[PLAYER_RELATIONS_OFFSET]` is the relations length.
+pub const PLAYER_RELATIONS_OFFSET: usize = 112;
 
 /// The smallest race record we can fully interpret (must cover the LRT `u16`).
 const MIN_RECORD_LEN: usize = LRT_OFFSET + 2;
@@ -243,6 +256,12 @@ pub struct RaceRecord {
     pub prt: Prt,
     /// Raw lesser-racial-trait bitfield (offset 78).
     pub lrt_bits: u16,
+    /// Singular race name (e.g. `"Humanoid"`), decoded from the packed
+    /// [`strings`] field at the end of the record. Empty if it could not be
+    /// located (e.g. a truncated record).
+    pub singular_name: String,
+    /// Plural race name (e.g. `"Humanoids"`).
+    pub plural_name: String,
 }
 
 impl RaceRecord {
@@ -264,6 +283,7 @@ impl RaceRecord {
         let (gh, th, rh) = axis(HAB_HIGH_OFFSET);
         let mut research_cost = [0u8; 6];
         research_cost.copy_from_slice(&data[RESEARCH_COST_OFFSET..RESEARCH_COST_OFFSET + 6]);
+        let (singular, plural) = decode_race_names(data);
         Ok(Self {
             player_id: data[PLAYER_ID_OFFSET],
             gravity: HabRange {
@@ -285,6 +305,8 @@ impl RaceRecord {
             research_cost,
             prt: Prt::from_id(data[PRT_OFFSET]),
             lrt_bits: u16::from_le_bytes([data[LRT_OFFSET], data[LRT_OFFSET + 1]]),
+            singular_name: singular,
+            plural_name: plural,
         })
     }
 
@@ -322,6 +344,45 @@ impl RaceRecord {
     pub fn has_unknown_lrt_bits(&self) -> bool {
         self.lrt_bits & !0x3FFF != 0
     }
+}
+
+/// Locate and decode the singular/plural race names from a decrypted type-6
+/// record. Returns empty strings for any field whose framing runs past the end
+/// of the record (a truncated/unknown layout) rather than panicking.
+///
+/// Framing (from TotalHost `StarsBlock.pm`): a `fullData` record (bit
+/// [`FULL_DATA_FLAG`] set in `data[FLAGS_OFFSET]`, always the case for `.rN`
+/// files) stores the names after the player-relations table —
+/// `index = PLAYER_RELATIONS_OFFSET + data[PLAYER_RELATIONS_OFFSET] + 1`;
+/// otherwise they start at [`SHORT_NAMES_OFFSET`]. From `index`, each name is a
+/// length-prefixed packed [`strings`] field: the singular field is
+/// `data[index ..= index + data[index]]` and the plural field runs from just
+/// after it to the end of the record.
+fn decode_race_names(data: &[u8]) -> (String, String) {
+    let full_data = data
+        .get(FLAGS_OFFSET)
+        .is_some_and(|&b| b & FULL_DATA_FLAG != 0);
+    let index = if full_data {
+        match data.get(PLAYER_RELATIONS_OFFSET) {
+            Some(&relations_len) => PLAYER_RELATIONS_OFFSET + relations_len as usize + 1,
+            None => return (String::new(), String::new()),
+        }
+    } else {
+        SHORT_NAMES_OFFSET
+    };
+
+    let Some(&singular_len) = data.get(index) else {
+        return (String::new(), String::new());
+    };
+    // Singular field is [len][len bytes]; ends at index + singular_len inclusive.
+    let singular_end = index + singular_len as usize;
+    if singular_end >= data.len() {
+        return (String::new(), String::new());
+    }
+    let singular = strings::decode_field(&data[index..=singular_end]);
+    // Plural field is the rest of the record, again [len][packed...].
+    let plural = strings::decode_field(&data[singular_end + 1..]);
+    (singular, plural)
 }
 
 #[cfg(test)]

@@ -8,6 +8,8 @@ Shared foundation:
 - `blocks.md` — **block framing** shared by every format (implemented &
   round-trip tested in `stars-formats::block`); also tracks the pending payload
   encryption recovery.
+- `strings.md` — the **packed-string codec** used for user-supplied text (race
+  names, etc.), implemented & tested in `stars-formats::strings`.
 
 Per-format (payload record layouts, populated as decoded in Step 2):
 
