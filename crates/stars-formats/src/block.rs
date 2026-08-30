@@ -69,9 +69,12 @@ pub struct Block {
 
 /// The kind of a block, resolved from its 6-bit type id.
 ///
-/// The names come from the community-documented Stars! block registry (see the
-/// table in `docs/formats/blocks.md`), cross-checked against the block types
-/// that actually appear in our real sample files (`.hst`/`.mN`/`.xN`/`.rN`).
+/// The names are the **authoritative** `RecordType` (`rt*`) names recovered from
+/// the decompiled Stars! source (sirgwain/stars-decompile `enums.h`), and match
+/// the block types that actually appear in our real sample files
+/// (`.hst`/`.mN`/`.hN`/`.xN`/`.rN`). See `docs/formats/record-types.md` for the
+/// full table with the original identifiers.
+///
 /// Only [`BlockType::FileHeader`] (8) and [`BlockType::FileFooter`] (0) are
 /// stored in plaintext; everything else is encrypted.
 ///
@@ -79,39 +82,65 @@ pub struct Block {
 /// never depends on the registry being complete.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BlockType {
-    /// 0 — file footer (plaintext); carries a year or checksum.
+    /// 0 — file footer / end-of-file (plaintext; `rtEOF`); carries the year.
     FileFooter,
-    /// 6 — player/race record (full player in `.mN`/`.hst`, race in `.rN`).
+    /// 6 — player/race record (`rtPlr`): full player in `.mN`/`.hst`, race in
+    /// `.rN`.
     Player,
-    /// 7 — `.xy` game-info / planets header block.
-    Planets,
-    /// 8 — file header (plaintext); seeds the stream cipher.
+    /// 7 — game settings record (`rtGame`): also the `.xy` game-info header.
+    Game,
+    /// 8 — file header (plaintext; `rtBOF`); seeds the stream cipher.
     FileHeader,
-    /// 12 — events.
-    Events,
-    /// 13 — planet record.
+    /// 9 — file hash / turn-submit marker (appears in `.xN` orders files).
+    FileHash,
+    /// 12 — message (`rtMsg`).
+    Message,
+    /// 13 — planet record (`rtPlanet`).
     Planet,
-    /// 14 — partial planet record.
+    /// 14 — partial planet record (`rtPlanetB`).
     PartialPlanet,
-    /// 15 — minimal planet record (`rtPlanetC`).
+    /// 15 — minimal planet record.
     MinimalPlanet,
-    /// 16 — fleet record.
+    /// 16 — fleet record (`rtFleetA`).
     Fleet,
-    /// 17 — partial fleet record.
+    /// 17 — partial fleet record (`rtFleetB`).
     PartialFleet,
-    /// 20 — waypoint.
+    /// 19 — waypoint task / order (`rtOrderA`).
+    WaypointTask,
+    /// 20 — waypoint (`rtOrderB`).
     Waypoint,
-    /// 21 — fleet name.
-    FleetName,
-    /// 26 — ship/starbase design.
+    /// 21 — generic compressed string (`rtString`): fleet & player names.
+    String,
+    /// 22 — selection state (`rtSel`).
+    Selection,
+    /// 26 — ship/starbase design (`rtShDef`).
     Design,
-    /// 28 — production queue.
+    /// 28 — production queue (`rtProdQ`).
     ProductionQueue,
-    /// 30 — battle plan.
+    /// 29 — production-queue change order (`rtLogPlanetProdQ`, `.xN`).
+    ProductionQueueChange,
+    /// 30 — battle plan (`rtBtlPlan`).
     BattlePlan,
-    /// 43 — generic object.
+    /// 31 — battle recording data (`rtBtlData`).
+    Battle,
+    /// 32 — history-file header (`rtHistHdr`).
+    HistoryHeader,
+    /// 33 — message filter (`rtMsgFilt`).
+    MessagesFilter,
+    /// 34 — research change order (`rtLogResearch`).
+    ResearchChange,
+    /// 35 — planet change order (`rtLogPlanetRouting`).
+    PlanetChange,
+    /// 36 — change-password order (`rtChgPassword`).
+    ChangePassword,
+    /// 40 — per-player message (`rtPlrMsg`).
+    PlayerMessage,
+    /// 43 — space object / "thing": minefield, packet, wormhole, MT, salvage
+    /// (`rtThing`).
     Object,
-    /// 45 — player scores.
+    /// 44 — fleet rename order (`rtLogFleetName`).
+    RenameFleet,
+    /// 45 — player scores (`rtScore`).
     PlayerScores,
     /// Any type id without a dedicated variant yet.
     Other(u8),
@@ -124,20 +153,32 @@ impl BlockType {
         match id {
             0 => Self::FileFooter,
             6 => Self::Player,
-            7 => Self::Planets,
+            7 => Self::Game,
             8 => Self::FileHeader,
-            12 => Self::Events,
+            9 => Self::FileHash,
+            12 => Self::Message,
             13 => Self::Planet,
             14 => Self::PartialPlanet,
             15 => Self::MinimalPlanet,
             16 => Self::Fleet,
             17 => Self::PartialFleet,
+            19 => Self::WaypointTask,
             20 => Self::Waypoint,
-            21 => Self::FleetName,
+            21 => Self::String,
+            22 => Self::Selection,
             26 => Self::Design,
             28 => Self::ProductionQueue,
+            29 => Self::ProductionQueueChange,
             30 => Self::BattlePlan,
+            31 => Self::Battle,
+            32 => Self::HistoryHeader,
+            33 => Self::MessagesFilter,
+            34 => Self::ResearchChange,
+            35 => Self::PlanetChange,
+            36 => Self::ChangePassword,
+            40 => Self::PlayerMessage,
             43 => Self::Object,
+            44 => Self::RenameFleet,
             45 => Self::PlayerScores,
             other => Self::Other(other),
         }
@@ -149,20 +190,32 @@ impl BlockType {
         match self {
             Self::FileFooter => 0,
             Self::Player => 6,
-            Self::Planets => 7,
+            Self::Game => 7,
             Self::FileHeader => 8,
-            Self::Events => 12,
+            Self::FileHash => 9,
+            Self::Message => 12,
             Self::Planet => 13,
             Self::PartialPlanet => 14,
             Self::MinimalPlanet => 15,
             Self::Fleet => 16,
             Self::PartialFleet => 17,
+            Self::WaypointTask => 19,
             Self::Waypoint => 20,
-            Self::FleetName => 21,
+            Self::String => 21,
+            Self::Selection => 22,
             Self::Design => 26,
             Self::ProductionQueue => 28,
+            Self::ProductionQueueChange => 29,
             Self::BattlePlan => 30,
+            Self::Battle => 31,
+            Self::HistoryHeader => 32,
+            Self::MessagesFilter => 33,
+            Self::ResearchChange => 34,
+            Self::PlanetChange => 35,
+            Self::ChangePassword => 36,
+            Self::PlayerMessage => 40,
             Self::Object => 43,
+            Self::RenameFleet => 44,
             Self::PlayerScores => 45,
             Self::Other(id) => id,
         }

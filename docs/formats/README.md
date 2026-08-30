@@ -3,8 +3,17 @@
 One spec per on-disk file format, created from
 `../templates/format-layout-template.md`.
 
+> **Authoritative reference:** the [`sirgwain/stars-decompile`](https://github.com/sirgwain/stars-decompile)
+> project is a reconstruction of the real Stars! C source (with the actual
+> `types.h`/`enums.h` struct + record-type definitions and the `file.c`/`save.c`
+> load/save code). Its identifiers supersede the earlier tool-derived names
+> (TotalHost, starsapi, stars-4x). See `record-types.md`.
+
 Shared foundation:
 
+- `record-types.md` — the **authoritative record-type (block) registry**
+  (`rt*` ids → our `BlockType`), the header (`RTBOF`) layout and the `dt`
+  file-type table, taken from the decompiled `enums.h`/`save.c`.
 - `blocks.md` — **block framing** shared by every format (implemented &
   round-trip tested in `stars-formats::block`); also tracks the pending payload
   encryption recovery.
