@@ -1,11 +1,13 @@
 # Format: `.xy` — universe definition
 
 - **Status:** header + game-info (type 7) **decoded & verified**; planet array
-  **structure decoded** — whole file **round-trips byte-for-byte** across five
-  different universes (128–540 planets)
+  **structure decoded** — whole file **round-trips byte-for-byte** across six
+  different universes (24–540 planets) from two independent games
 - **Original files analysed:**
   - `fixtures/incoming/turn0/Game.xy` and `turn1/Game.xy` (598 bytes, 3-player,
     small universe "A Barefoot JayWalk") — an **in-game** `.xy`;
+  - `fixtures/games/tutorial/tutorial.xy` (182 bytes, 2-player, 24-planet
+    "Tutorial Game") — a second, **in-game** `.xy` from a different game;
   - `fixtures/xy/{02ca32d8,across,e8dda8f7,dancing}.xy` — **standalone**
     universe-definition files of 160, 160, 360 and 540 planets (4, 5, 5 and 11
     players).
@@ -13,6 +15,7 @@
   planet region is **plaintext-packed** (not ciphered)
 - **Implemented in:** `stars-formats::xy::{Universe, PlanetPosition}`
   (`tests/real_files.rs::{turn0,turn1}_xy_universe_round_trips`,
+  `tests/real_files.rs::tutorial_xy_universe_round_trips`,
   `tests/real_files.rs::xy_dir_universes_round_trip`)
 
 ## Overview
@@ -44,8 +47,8 @@ Offsets are into the **decrypted** 64-byte payload (from `decryptGameInfo` in
 |-------:|-----:|-----------------|----------------------------------------------|
 | 4      | 2    | `mdSize`        | universe size class (0=tiny … 4=huge); `1` here |
 | 6      | 2    | `mdDensity`     | planet density; `1` here                      |
-| 8      | 1    | players (low5)  | player count; `3` here (4/5/5/11 in the standalone files) |
-| 10     | 2    | **planet count**| number of planets in the region; **verified** `128/160/160/360/540` |
+| 8      | 1    | players (low5)  | player count; `3` here (2 tutorial; 4/5/5/11 in the standalone files) |
+| 10     | 2    | **planet count**| number of planets in the region; **verified** `24/128/160/160/360/540` |
 | 12     | 2    | `mdStartDest`   | starting-distance / clumping param            |
 | 16     | 2    | `wCrap`         | bit-flags (see below)                         |
 | 20     | 12   | `rgvc[0..12]`   | victory conditions (per-condition byte)       |
@@ -74,6 +77,7 @@ trailer. This is what lets a single parser handle every universe size:
 
 | File                | planet_count | region bytes | header | records   | trailer |
 |---------------------|-------------:|-------------:|-------:|----------:|--------:|
+| `tutorial.xy`       | 24           | 98           | 2      | 96        | 0       |
 | `turn0/Game.xy`     | 128          | 514          | 2      | 512       | 0       |
 | `across.xy`         | 160          | 644          | 2      | 640       | 2       |
 | `02ca32d8.xy`       | 160          | 644          | 2      | 640       | 2       |
@@ -83,7 +87,8 @@ trailer. This is what lets a single parser handle every universe size:
 The region is stored **plaintext** — parsing the raw on-disk bytes yields clean
 coordinates, so it is *not* run through the stream cipher.
 
-The **trailer** is empty for an in-game `.xy` (the sample) but is a 2-byte
+The **trailer** is empty for an **in-game** `.xy` (both the `incoming/` sample
+and the tutorial game confirm this across two independent games) but is a 2-byte
 `u16` in the standalone universe files, and in every case **equals the player
 count** (game-info offset 8: `4`, `5`, `5`, `11`). It is preserved verbatim so
 all files round-trip; the hypothesis that it is the player count is recorded but
@@ -102,8 +107,8 @@ region header, *every* file's records decode to coordinates cleanly bounded
 within the 10-bit field with **no two planets sharing a position** (a physical
 invariant). Shifting the alignment by ±2 bytes (a 0- or 4-byte header) instead
 produces overlapping/garbage positions on all files, so the 2-byte header is
-confirmed across five independent universes. The whole `.xy` file then
-**re-encodes byte-for-byte** via `Universe::encode`.
+confirmed across six independent universes (24–540 planets, two games). The
+whole `.xy` file then **re-encodes byte-for-byte** via `Universe::encode`.
 
 **Caveats (still open):**
 
@@ -111,9 +116,9 @@ confirmed across five independent universes. The whole `.xy` file then
   convention and is not independently confirmed — it does not affect
   byte-accuracy. (The fleet-anchor bytes in the `.hst`, `a4 05 1c 06`, turned
   out **not** to be a position, so there is no external coordinate oracle yet.)
-- The **2-byte region header** (varies per file: `0a 14`, `0f 34`, `0a e0`,
-  `0d e8`, `0c 0c`) is preserved verbatim; its meaning (a count, seed, or flags)
-  is not yet known.
+- The **2-byte region header** (varies per file: `1a 7c`, `0a 14`, `0f 34`,
+  `0a e0`, `0d e8`, `0c 0c`) is preserved verbatim; its meaning (a count, seed,
+  or flags) is not yet known.
 - The **name index → text** mapping (the planet-name table) is not yet decoded.
 
 ### Next steps
@@ -131,3 +136,7 @@ confirmed across five independent universes. The whole `.xy` file then
 - `fixtures/xy/*.xy`: planet counts `160/160/360/540` (from game-info offset 10)
   each round-trip byte-for-byte, with a 2-byte trailer equal to the player count
   (asserted in `tests/real_files.rs::xy_dir_universes_round_trip`).
+- `tutorial.xy`: `game_id=0x008cef49`, players=2, planets=24,
+  name=`"Tutorial Game"`, no trailer (a second in-game `.xy`); round-trips
+  byte-for-byte (asserted in
+  `tests/real_files.rs::tutorial_xy_universe_round_trips`).

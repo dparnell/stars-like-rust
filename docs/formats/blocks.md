@@ -1,12 +1,16 @@
 # Format: block framing + header + encryption — the shared container
 
 - **Status:** framing, file-header, and payload **encryption recovered &
-  verified byte-for-byte** on real files (turn 0 **and** turn 1, all file
-  types); per-format record layouts pending
-- **Original files analysed:** one 3-player game captured at two points —
-  `fixtures/incoming/turn0/Game.{xy,m1,m2,m3,hst}` (fresh game, turn 0 / year
-  2400) and `fixtures/incoming/turn1/Game.{xy,m1,m2,m3,hst,h1,h2,h3,x1}` (after
-  the first turn was generated, adding history `.hN` and orders `.xN`)
+  verified byte-for-byte** on real files from **two independent games** (turns
+  0, 1 **and** 3, all file types); per-format record layouts pending
+- **Original files analysed:**
+  - one 3-player game captured at two points —
+    `fixtures/incoming/turn0/Game.{xy,m1,m2,m3,hst}` (fresh game, turn 0 / year
+    2400) and `fixtures/incoming/turn1/Game.{xy,m1,m2,m3,hst,h1,h2,h3,x1}`
+    (after the first turn was generated, adding history `.hN` and orders `.xN`);
+  - a second, **independent** game (different `game_id`) —
+    `fixtures/games/tutorial/tutorial.{xy,hst,m1,m2,h1,x1}` (the shipped
+    2-player "Tutorial Game", partly played; `.m1`/`.h1`/`.x1` at **turn 3**)
 - **Encoding/compression:** framing is plaintext; non-header/footer block
   payloads use the Stars! PRNG **stream cipher** (recovered — see below)
 - **Checksum/CRC:** footer block (type 0) carries a year (`.m`/`.hst`) or
@@ -143,6 +147,12 @@ shared `game_id`, per-player numbering, and turn, and decrypts the `.xy` header
 + game-info. The turn-1 files confirm the turn-dependent seeding (`rounds`
 depends on `turn`) is correct on non-zero turns.
 
+The `tutorial_*` tests do the same for the shipped **Tutorial Game** — a
+second game with a different `game_id`, whose `.m1`/`.h1`/`.x1` were saved at
+**turn 3**. Because `rounds` also depends on `game_id` and `player`, this second
+game independently confirms the seeding is game-agnostic and correct on a third
+distinct turn value.
+
 ## Open questions / next
 
 - Per-format **record layouts** for each decrypted block (players, planets,
@@ -150,9 +160,10 @@ depends on `turn`) is correct on non-zero turns.
   now decoded and the **planet-id word** verified — see `hst.md`; the per-field
   planet/fleet/design layouts remain.
 - `.xy` **planet array** — **decoded** (see `xy.md`): a 2-byte region header +
-  128 plaintext 4-byte records (`x:10 | y:10 | name:12`); whole `.xy` file
-  round-trips byte-for-byte via `xy::Universe`. Axis order and the name table
-  remain open.
+  `planet_count` plaintext 4-byte records (`x:10 | y:10 | name:12`) + an
+  optional trailer; whole `.xy` file round-trips byte-for-byte via `xy::Universe`
+  across six universes (24–540 planets, two games). Axis order and the name
+  table remain open.
 - Footer contents per extension (year vs checksum).
 - `.rN` race file layout — **decoded** from `fixtures/r/` (see `race-r.md`): a
   single type-6 block holding habitability, growth, economy, research, PRT and

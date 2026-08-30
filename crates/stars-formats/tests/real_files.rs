@@ -9,6 +9,12 @@
 //!   player history (`Game.h1/.h2/.h3`) and one player's orders (`Game.x1`),
 //!   plus the advanced `.hst`/`.mN`/`.xy`.
 //!
+//! A second, **independent** game lives in `fixtures/games/tutorial/` (the
+//! shipped "Tutorial Game": 2 players, a tiny 24-planet universe, partly played
+//! to turn 3). It has a different `game_id`, so it proves the container/cipher
+//! machinery is game-independent and that the seeding is correct on yet another
+//! non-zero turn (turn 3).
+//!
 //! The contracts checked here:
 //!
 //! - fully block-framed files (`.hst`, `.mN`, `.hN`, `.xN`) **decode → encode
@@ -27,8 +33,11 @@ use std::path::{Path, PathBuf};
 
 use stars_formats::{planet_headers, BlockType, FileType, StarsFile, Universe};
 
-/// Expected per-game id shared by every file of the sample game.
+/// Expected per-game id shared by every file of the `incoming/` sample game.
 const GAME_ID: u32 = 0x2a03_1dd8;
+
+/// Expected per-game id shared by every file of the shipped Tutorial Game.
+const TUTORIAL_GAME_ID: u32 = 0x008c_ef49;
 
 /// Read a fixture by path relative to `fixtures/incoming/`, e.g.
 /// `"turn0/Game.hst"`. Returns `None` (so the test skips) if it is absent.
@@ -39,26 +48,55 @@ fn fixture(rel: &str) -> Option<Vec<u8>> {
     std::fs::read(&path).ok()
 }
 
-/// Decode → encode must reproduce the original bytes exactly for framed files,
-/// with the header decoding to the expected type, player, and turn.
+/// Read a fixture by path relative to `fixtures/games/tutorial/`, e.g.
+/// `"tutorial.hst"`. Returns `None` (so the test skips) if it is absent.
+fn tutorial_fixture(rel: &str) -> Option<Vec<u8>> {
+    let path: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/games/tutorial")
+        .join(rel);
+    std::fs::read(&path).ok()
+}
+
+/// Core round-trip assertion: the given framed-file bytes must decode with the
+/// expected header fields and re-encode byte-for-byte.
+fn assert_framed(
+    label: &str,
+    bytes: &[u8],
+    expected_game_id: u32,
+    expected_type: FileType,
+    expected_player: u8,
+    expected_turn: u16,
+) {
+    let file = StarsFile::decode(bytes).unwrap_or_else(|e| panic!("decode {label}: {e}"));
+    assert_eq!(file.header.game_id, expected_game_id, "{label}: game id");
+    assert_eq!(file.header.file_type, expected_type, "{label}: file type");
+    assert_eq!(file.header.player, expected_player, "{label}: player index");
+    assert_eq!(file.header.turn, expected_turn, "{label}: turn");
+
+    let reencoded = file
+        .encode()
+        .unwrap_or_else(|e| panic!("encode {label}: {e}"));
+    assert_eq!(
+        reencoded, bytes,
+        "{label}: re-encode is not byte-for-byte identical"
+    );
+}
+
+/// Decode → encode must reproduce the original bytes exactly for framed files
+/// of the `incoming/` sample game, with the header decoding to the expected
+/// type, player, and turn.
 fn assert_round_trips(rel: &str, expected_type: FileType, expected_player: u8, expected_turn: u16) {
     let Some(bytes) = fixture(rel) else {
         eprintln!("skipping {rel}: fixture not present");
         return;
     };
-
-    let file = StarsFile::decode(&bytes).unwrap_or_else(|e| panic!("decode {rel}: {e}"));
-    assert_eq!(file.header.game_id, GAME_ID, "{rel}: game id");
-    assert_eq!(file.header.file_type, expected_type, "{rel}: file type");
-    assert_eq!(file.header.player, expected_player, "{rel}: player index");
-    assert_eq!(file.header.turn, expected_turn, "{rel}: turn");
-
-    let reencoded = file
-        .encode()
-        .unwrap_or_else(|e| panic!("encode {rel}: {e}"));
-    assert_eq!(
-        reencoded, bytes,
-        "{rel}: re-encode is not byte-for-byte identical"
+    assert_framed(
+        rel,
+        &bytes,
+        GAME_ID,
+        expected_type,
+        expected_player,
+        expected_turn,
     );
 }
 
@@ -343,4 +381,111 @@ fn xy_dir_universes_round_trip() {
             .unwrap_or_else(|e| panic!("encode {name}: {e}"));
         assert_eq!(reencoded, bytes, "{name}: .xy re-encode not byte-identical");
     }
+}
+
+// ---- Tutorial Game (a second, independent game) ---------------------------
+//
+// `fixtures/games/tutorial/` holds the game shipped with Stars! for its
+// tutorial. It has a different `game_id` from the `incoming/` sample and its
+// player files were saved at turn 3, so it independently confirms the container
+// and cipher seeding are game- and turn-agnostic.
+
+/// Every framed tutorial file decodes with the expected header and re-encodes
+/// byte-for-byte. The `.hst`/`.m2` are at turn 0, while player 1's
+/// `.m1`/`.h1`/`.x1` were saved at turn 3.
+#[test]
+fn tutorial_framed_files_round_trip() {
+    let cases = [
+        ("tutorial.hst", FileType::Host, 31u8, 0u16),
+        ("tutorial.m1", FileType::Turn, 0, 3),
+        ("tutorial.m2", FileType::Turn, 1, 0),
+        ("tutorial.h1", FileType::History, 0, 3),
+        ("tutorial.x1", FileType::Orders, 0, 3),
+    ];
+    let mut seen = 0;
+    for (rel, ty, player, turn) in cases {
+        let Some(bytes) = tutorial_fixture(rel) else {
+            eprintln!("skipping {rel}: fixture not present");
+            continue;
+        };
+        assert_framed(rel, &bytes, TUTORIAL_GAME_ID, ty, player, turn);
+        seen += 1;
+    }
+    if seen == 0 {
+        eprintln!("skipping: no tutorial fixtures present");
+    }
+}
+
+/// The tutorial host file inventories a 2-player game: two player records, a
+/// 24-planet universe numbered `0..=23`, and exactly two inhabited (extended)
+/// planets — the two homeworlds.
+#[test]
+fn tutorial_hst_block_inventory_and_planets() {
+    let Some(bytes) = tutorial_fixture("tutorial.hst") else {
+        eprintln!("skipping: tutorial.hst not present");
+        return;
+    };
+    let file = StarsFile::decode(&bytes).unwrap();
+
+    let counts = file.block_counts();
+    assert_eq!(counts.get(&BlockType::Player), Some(&2), "player blocks");
+    assert_eq!(counts.get(&BlockType::Planet), Some(&24), "planet blocks");
+    assert_eq!(file.header.file_type, FileType::Host);
+
+    let planets = planet_headers(&file);
+    assert_eq!(planets.len(), 24, "planet count");
+
+    let mut ids: Vec<u16> = planets.iter().map(|p| p.id).collect();
+    ids.sort_unstable();
+    assert_eq!(ids, (0..24).collect::<Vec<_>>(), "planet ids contiguous");
+
+    let extended: Vec<u16> = planets
+        .iter()
+        .filter(|p| p.is_extended())
+        .map(|p| p.id)
+        .collect();
+    assert_eq!(extended.len(), 2, "two inhabited planets (homeworlds)");
+}
+
+/// The tutorial `.xy` is the smallest universe verified so far: an **in-game**
+/// `.xy` (no trailer) of 24 planets named "Tutorial Game", round-tripping
+/// byte-for-byte with the planet count driven by the game-info block.
+#[test]
+fn tutorial_xy_universe_round_trips() {
+    let Some(bytes) = tutorial_fixture("tutorial.xy") else {
+        eprintln!("skipping: tutorial.xy not present");
+        return;
+    };
+
+    // Not fully framed, so the generic decoder still errors on it.
+    assert!(
+        StarsFile::decode(&bytes).is_err(),
+        "expected generic .xy decode to error; use Universe instead"
+    );
+
+    let universe = Universe::decode(&bytes).unwrap_or_else(|e| panic!("Universe::decode: {e}"));
+
+    assert_eq!(universe.header.game_id, TUTORIAL_GAME_ID, "game id");
+    assert_eq!(universe.header.file_type, FileType::Universe, "type");
+    assert_eq!(universe.planet_count(), 24, "planet count");
+    assert_eq!(universe.player_count(), 2, "player count");
+
+    // Game name from the game-info block.
+    let gi = &universe.game_info;
+    let name_end = gi[32..64].iter().position(|&b| b == 0).unwrap_or(32);
+    let name = std::str::from_utf8(&gi[32..32 + name_end]).unwrap();
+    assert_eq!(name, "Tutorial Game", "game name");
+
+    // 10-bit-bounded, non-overlapping coordinates.
+    let mut seen = std::collections::HashSet::new();
+    for (i, p) in universe.planets.iter().enumerate() {
+        assert!(p.x < 1024 && p.y < 1024, "planet {i} coord out of range");
+        assert!(seen.insert((p.x, p.y)), "planet {i} shares a position");
+    }
+
+    // In-game `.xy` carries no trailer.
+    assert!(universe.trailer.is_empty(), "in-game .xy has no trailer");
+
+    let reencoded = universe.encode().unwrap_or_else(|e| panic!("encode: {e}"));
+    assert_eq!(reencoded, bytes, "tutorial.xy re-encode not byte-identical");
 }

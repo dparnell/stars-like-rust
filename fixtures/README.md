@@ -43,6 +43,23 @@ turn-dependent cipher seeding. The differential tests in `stars-formats`
 (`tests/real_files.rs`) read directly from these folders and skip gracefully if
 they are absent.
 
+## `games/`
+
+Complete games (all files for one game together), one directory per game:
+
+```
+fixtures/games/
+  tutorial/   # the shipped "Tutorial Game": tutorial.{xy,hst,m1,m2,h1,x1}
+```
+
+`tutorial/` is a **second, independent game** (a different `game_id` from the
+`incoming/` sample: `0x008cef49` vs `0x2a031dd8`). It is a 2-player game in a
+tiny 24-planet universe ("Tutorial Game"), partly played: the `.hst`/`.m2` are
+at turn 0 while player 1's `.m1`/`.h1`/`.x1` were saved at **turn 3**. Because
+nothing in the format code is game-specific, every framed file decodes and
+re-encodes byte-for-byte unchanged, which is the strongest evidence yet that the
+container and cipher seeding are game- and turn-agnostic.
+
 ## Status
 
 `incoming/` holds the first real game at two turns. `encode(decode(bytes)) ==
@@ -52,11 +69,17 @@ orders — and the turn-1 files confirm the seeding math on non-zero turns.
 
 `xy/` now holds four **standalone universe** files of assorted sizes
 (`02ca32d8.xy`, `across.xy`, `e8dda8f7.xy`, `dancing.xy` — 160/160/360/540
-planets). Together with the in-game `.xy` from `incoming/`, they let the `.xy`
-parser be verified across five different universes: the planet count is read
-from the game-info block and the whole file (including its trailing player-count
-bytes) **round-trips byte-for-byte** — see `docs/formats/xy.md` and
-`tests/real_files.rs::xy_dir_universes_round_trip`.
+planets). Together with the in-game `.xy` from `incoming/` and the 24-planet
+`games/tutorial/tutorial.xy`, they let the `.xy` parser be verified across
+**six** different universes (24–540 planets): the planet count is read from the
+game-info block and the whole file (including any trailing player-count bytes)
+**round-trips byte-for-byte** — see `docs/formats/xy.md`,
+`tests/real_files.rs::xy_dir_universes_round_trip`, and
+`tests/real_files.rs::tutorial_xy_universe_round_trips`.
+
+`games/tutorial/` adds a whole second game (see above) whose every framed file
+and its `.xy` round-trip byte-for-byte via
+`tests/real_files.rs::tutorial_*`.
 
 `r/` now holds seven exported **race** files (the six built-in default races
 plus a "random" race). They round-trip byte-for-byte and the race record is
