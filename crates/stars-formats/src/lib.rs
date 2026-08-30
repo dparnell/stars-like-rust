@@ -15,21 +15,37 @@
 //! against the real filesystem (callers pass in `&[u8]`), and no platform
 //! APIs. Those live in `stars-core` and the frontend crates.
 //!
-//! ## Supported formats (planned)
+//! ## Layers
 //!
-//! | Extension | Meaning                | Status      |
-//! |-----------|------------------------|-------------|
-//! | `.xy`     | Universe definition    | not started |
-//! | `.mN`     | Player state           | not started |
-//! | `.hN`     | Player history         | not started |
-//! | `.xN`     | Player orders          | not started |
-//! | `.rN`     | Race definition        | not started |
-//! | `.hst`    | Host state             | not started |
+//! Every Stars! file is a flat sequence of *blocks* (see [`block`]). The block
+//! **framing** — the 16-bit type/size header word and verbatim payload — is the
+//! shared foundation of all formats and is implemented and round-trip tested
+//! today. Payload decoding (the Stars! stream cipher and the per-format record
+//! layouts) is layered on top and is filled in incrementally.
 //!
-//! Implementation happens in Step 2 of the delivery plan; this file currently
-//! establishes only the shared error type and the module surface.
+//! ## Supported formats
+//!
+//! | Extension | Meaning                | Status                    |
+//! |-----------|------------------------|---------------------------|
+//! | (all)     | Block framing          | implemented (round-trips) |
+//! | `.xy`     | Universe definition    | payload decode: pending   |
+//! | `.mN`     | Player state           | payload decode: pending   |
+//! | `.hN`     | Player history         | payload decode: pending   |
+//! | `.xN`     | Player orders          | payload decode: pending   |
+//! | `.rN`     | Race definition        | payload decode: pending   |
+//! | `.hst`    | Host state             | payload decode: pending   |
+//!
+//! See `docs/formats/blocks.md` for the reverse-engineering notes and the
+//! status of the encryption/payload work.
 
 #![forbid(unsafe_code)]
+
+pub mod block;
+
+pub use block::{
+    join_blocks, split_blocks, Block, BLOCK_SIZE_MASK, BLOCK_TYPE_SHIFT, FILE_HEADER_BLOCK,
+    MAX_BLOCK_SIZE, MAX_BLOCK_TYPE,
+};
 
 use thiserror::Error;
 

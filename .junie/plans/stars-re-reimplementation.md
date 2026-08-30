@@ -171,7 +171,7 @@ A buildable Cargo workspace and a documentation pipeline exist, ready to receive
 - Set up a Ghidra triage doc that clusters the ~1350 functions by segment and by exported entry points (`RACEWIZARDDLG*`, `HOSTMODEDIALOG`, `TRANSFERDLG`, `BROWSERWNDPROC`, `ZIPPRODDLG`, `ORDERINFODLG`) into UI / simulation / file-I/O regions.
 - Wire up CI-style `cargo build`/`cargo test` and a fixtures folder for real sample game files.
 
-###   Step 2: Reverse-engineer and implement file formats
+### * Step 2: Reverse-engineer and implement file formats
 `stars-formats` reads and byte-accurately re-writes the core Stars! file formats, verified against real files.
 
 - Locate load/save and (de)compression/encoding routines in Ghidra (reachable from transfer/host-mode code).
