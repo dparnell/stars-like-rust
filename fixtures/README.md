@@ -52,5 +52,7 @@ orders — and the turn-1 files confirm the seeding math on non-zero turns. `.xy
 header + game-info are decoded (planet array pending — see
 `docs/formats/xy.md`).
 
-Still wanted to finish the format set: a `.rN` **race** file to anchor that
-layout (none captured yet).
+`r/` now holds seven exported **race** files (the six built-in default races
+plus a "random" race). They round-trip byte-for-byte and the race record is
+largely decoded — see `docs/formats/race-r.md` and
+`crates/stars-formats/tests/race_files.rs`.

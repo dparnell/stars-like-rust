@@ -149,4 +149,6 @@ depends on `turn`) is correct on non-zero turns.
   fleets, designs, production queues, …).
 - `.xy` **planet array** decoding — see `xy.md`.
 - Footer contents per extension (year vs checksum).
-- `.rN` race file layout — no race fixture is available yet.
+- `.rN` race file layout — **now decoded** from `fixtures/r/` (see
+  `race-r.md`): a single type-6 block holding habitability, growth, economy,
+  research, PRT and LRTs.

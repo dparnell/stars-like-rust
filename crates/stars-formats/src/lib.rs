@@ -40,7 +40,7 @@
 //! | `.hst`    | Host state          | decode/encode round-trips; records: WIP  |
 //! | `.hN`     | Player history      | decode/encode round-trips; records: WIP  |
 //! | `.xN`     | Player orders       | decode/encode round-trips; records: WIP  |
-//! | `.rN`     | Race definition     | decode/encode round-trips; records: WIP  |
+//! | `.rN`     | Race definition     | round-trips; record largely decoded (`docs/formats/race-r.md`) |
 //! | `.xy`     | Universe definition | header + game-info decoded; planets: WIP |
 //!
 //! See `docs/formats/blocks.md` for the reverse-engineering notes and the
