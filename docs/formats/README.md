@@ -15,8 +15,11 @@ Shared foundation:
   (`rt*` ids → our `BlockType`), the header (`RTBOF`) layout and the `dt`
   file-type table, taken from the decompiled `enums.h`/`save.c`.
 - `blocks.md` — **block framing** shared by every format (implemented &
-  round-trip tested in `stars-formats::block`); also tracks the pending payload
-  encryption recovery.
+  round-trip tested in `stars-formats::block`); also tracks the payload
+  encryption.
+- `file-io-map.md` — **binary map**: where the container / block / cipher / PRNG
+  logic lives in `STARS!.EXE` (Ghidra addresses), mapped to our modules. Grounds
+  the whole format layer in the actual shipped code. See also `../rng/prng.md`.
 - `strings.md` — the **packed-string codec** used for user-supplied text (race
   names, etc.), implemented & tested in `stars-formats::strings`.
 

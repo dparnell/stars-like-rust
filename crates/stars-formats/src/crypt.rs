@@ -12,17 +12,19 @@
 //!
 //! ## PRNG
 //!
-//! The generator is a pair of Lehmer/Park–Miller style linear congruential
-//! sub-generators combined by subtraction (a subtractive combined LCG). Two
-//! primes chosen from a fixed table (indexed by the header's encryption salt)
-//! seed the two sub-generators; the generator is then advanced a
+//! The generator is **L'Ecuyer's combined LCG** (CACM 1988): a pair of
+//! Lehmer/Park–Miller sub-generators evaluated with Schrage's method and
+//! combined by subtraction. Two seeds chosen from a fixed table (indexed by
+//! header fields) seed the two sub-generators; the generator is then advanced a
 //! header-dependent number of "warm-up" rounds before it is used as a
 //! keystream.
 //!
-//! This was reverse-engineered from the original binary and cross-checked
-//! against the community `starsapi`/`TotalHost` implementations; it reproduces
-//! real game files **byte-for-byte** (see the round-trip tests in
-//! `tests/real_files.rs` and `docs/formats/blocks.md`).
+//! This was recovered from the original binary — confirmed directly against
+//! `STARS!.EXE` (`FUN_1038_8a58` the step, `FUN_1038_89e4` the seeding,
+//! `FUN_1038_8b20` the cipher; see `docs/rng/prng.md` and
+//! `docs/formats/file-io-map.md`) and cross-checked against the community
+//! `starsapi`/`TotalHost` implementations. It reproduces real game files
+//! **byte-for-byte** (see the round-trip tests in `tests/real_files.rs`).
 
 /// The Stars! primes table used to seed the PRNG.
 ///
@@ -69,8 +71,11 @@ impl StarsRng {
 
     /// Advance the generator and return the next 32-bit keystream word.
     pub fn next_u32(&mut self) -> u32 {
-        // Two Park–Miller style sub-generators (Schrage's method), combined by
-        // subtraction. Constants recovered from the binary.
+        // Two Park–Miller sub-generators (Schrage's method), combined by
+        // subtraction (L'Ecuyer's combined LCG). Constants confirmed against
+        // `FUN_1038_8a58` in STARS!.EXE: m1=0x7fffffab a1=40014 q1=53668
+        // r1=12211; m2=0x7fffff07 a2=40692 q2=52774 r2=3791. See
+        // `docs/rng/prng.md`.
         let mut new_a = (self.seed_a % 53668) * 40014 - (self.seed_a / 53668) * 12211;
         let mut new_b = (self.seed_b % 52774) * 40692 - (self.seed_b / 52774) * 3791;
         if new_a < 0 {
