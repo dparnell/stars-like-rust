@@ -36,9 +36,9 @@
 //! |-----------|---------------------|------------------------------------------|
 //! | (all)     | Block framing       | implemented (round-trips)                |
 //! | (all)     | Header + cipher     | implemented (byte-perfect on real files) |
-//! | `.mN`     | Player state        | round-trips; typed [`PlayerRecord`]/[`PlanetRecord`]/[`FleetRecord`]/[`DesignRecord`] |
-//! | `.hst`    | Host state          | round-trips; typed [`PlayerRecord`]/[`PlanetRecord`]/[`FleetRecord`]/[`DesignRecord`] |
-//! | `.hN`     | Player history      | decode/encode round-trips; records: WIP  |
+//! | `.mN`     | Player state        | round-trips; typed [`PlayerRecord`]/[`PlanetRecord`]/[`FleetRecord`]/[`WaypointRecord`]/[`DesignRecord`]/[`BattlePlanRecord`]/[`ProductionQueueRecord`]/[`ScoreRecord`] |
+//! | `.hst`    | Host state          | round-trips; typed [`PlayerRecord`]/[`PlanetRecord`]/[`FleetRecord`]/[`WaypointRecord`]/[`DesignRecord`]/[`BattlePlanRecord`]/[`ProductionQueueRecord`] |
+//! | `.hN`     | Player history      | decode/encode round-trips; typed [`ScoreRecord`]; other records: WIP |
 //! | `.xN`     | Player orders       | decode/encode round-trips; records: WIP  |
 //! | `.rN`     | Race definition     | round-trips; typed [`RaceRecord`] (hab, growth, research, PRT, LRT) — `docs/formats/race-r.md` |
 //! | `.xy`     | Universe definition | round-trips; header, game-info & planet array (coords + names) decoded |
@@ -48,6 +48,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod battleplan;
 pub mod block;
 pub mod crypt;
 pub mod design;
@@ -57,11 +58,15 @@ pub mod header;
 pub mod names;
 pub mod planet;
 pub mod player;
+pub mod production;
 pub mod race;
 pub mod records;
+pub mod score;
 pub mod strings;
+pub mod waypoint;
 pub mod xy;
 
+pub use battleplan::{battle_plan_records, BattlePlanRecord};
 pub use block::{
     join_blocks, split_blocks, Block, BlockType, BLOCK_SIZE_MASK, BLOCK_TYPE_SHIFT,
     FILE_HEADER_BLOCK, MAX_BLOCK_SIZE, MAX_BLOCK_TYPE,
@@ -76,9 +81,12 @@ pub use planet::{
     planet_records, Concentration, Environment, Installations, Minerals, PlanetRecord, Starbase,
 };
 pub use player::{player_records, PlayerRecord};
+pub use production::{production_queue_records, ProductionQueueRecord, QueueItem};
 pub use race::{Economy, HabRange, Lrt, Prt, RaceRecord};
 pub use records::{planet_headers, PlanetHeader, MINIMAL_PLANET_LEN};
+pub use score::{score_records, ScoreRecord, VictoryConditions};
 pub use strings::{decode_field as decode_stars_string, decode_packed as decode_stars_packed};
+pub use waypoint::{waypoint_records, WaypointRecord};
 pub use xy::{Planet, PlanetPosition, Universe};
 
 use thiserror::Error;

@@ -111,6 +111,8 @@ pub enum BlockType {
     BattlePlan,
     /// 43 — generic object.
     Object,
+    /// 45 — player scores.
+    PlayerScores,
     /// Any type id without a dedicated variant yet.
     Other(u8),
 }
@@ -136,6 +138,7 @@ impl BlockType {
             28 => Self::ProductionQueue,
             30 => Self::BattlePlan,
             43 => Self::Object,
+            45 => Self::PlayerScores,
             other => Self::Other(other),
         }
     }
@@ -160,6 +163,7 @@ impl BlockType {
             Self::ProductionQueue => 28,
             Self::BattlePlan => 30,
             Self::Object => 43,
+            Self::PlayerScores => 45,
             Self::Other(id) => id,
         }
     }

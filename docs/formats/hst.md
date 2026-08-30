@@ -2,13 +2,15 @@
 
 - **Status:** container **verified byte-for-byte**; **block inventory decoded**;
   the **player record** (see `player.md`), **planet record** (see `planet.md`),
-  **fleet record** (see `fleet.md`) and **design record** (see `design.md`) are
-  fully decoded & verified; the remaining per-record layouts (waypoints, events,
-  battle plans) are **in progress**
+  **fleet record** (see `fleet.md`), **design record** (see `design.md`),
+  **waypoint** (see `waypoint.md`), **battle plan** (see `battleplan.md`),
+  **production queue** (see `production.md`) and **player-scores** (see
+  `score.md`) records are fully decoded & verified; the remaining per-record
+  layouts (events, map objects) are **in progress**
 - **Original files analysed:** `fixtures/incoming/turn0/Game.{hst,m1,m2,m3}` and
   the matching `turn1/` set (3-player game "A Barefoot JayWalk", 128 planets)
 - **Encoding:** standard Stars! container (see `blocks.md`)
-- **Implemented in:** `stars-formats::{file, block, records, player, planet, fleet, design}`
+- **Implemented in:** `stars-formats::{file, block, records, player, planet, fleet, waypoint, design, battleplan, production, score}`
   (`StarsFile::block_counts`, `records::planet_headers`,
   `player::player_records`, `planet::planet_records`, `fleet::fleet_records`,
   `design::design_records`); tests in
@@ -34,7 +36,8 @@ Decoded via `StarsFile::block_counts`. In file order the blocks are:
 | `Planet` (13)                   | 128   | one per planet; ids `0..=127` (see below)     |
 | `Design` (26)                   | 15    | ship/starbase designs (all players)           |
 | `Fleet` (16) + `Waypoint` (20)  | 14+14 | starting fleets, each followed by a waypoint  |
-| `BattlePlan` (30)               | ~15   | per-player battle plans                       |
+| `BattlePlan` (30)               | 15    | 5 per player (see `battleplan.md`)            |
+| `ProductionQueue` (28)          | 0+    | planet build lists after turn 1 (`production.md`) |
 | `Object` (43)                   | 5     | minefields / packets / other map objects      |
 | `FileFooter` (0)                | 1     | plaintext; 2 bytes (year/checksum — TBD)      |
 
@@ -74,10 +77,7 @@ the flags/orbit/position of fleets sharing a homeworld.
 
 ## Open questions / next
 
-- Decode the `Player` (6) record fully (it shares a layout with the `.rN` race
-  record — see `race-r.md` — plus per-game state: homeworld, tech levels,
-  resources, relations).
-- Decode `Waypoint` (19/20), `FleetName` (21) and `Design` (26) records.
+- Decode `Events` (12), `Object` (43) and `FleetName` (21) records.
 - Footer (type 0) 2-byte contents (year vs checksum).
 
 ## Derived test vectors
