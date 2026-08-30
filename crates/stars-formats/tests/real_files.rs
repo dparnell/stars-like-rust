@@ -248,3 +248,99 @@ fn turn0_xy_universe_round_trips() {
 fn turn1_xy_universe_round_trips() {
     assert_xy_universe("turn1/Game.xy");
 }
+
+/// Read every `*.xy` fixture under `fixtures/xy/` (standalone universe files of
+/// various sizes the user supplied), returning `(name, bytes)` pairs.
+fn xy_dir_fixtures() -> Vec<(String, Vec<u8>)> {
+    let dir: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/xy");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("xy") {
+            if let Ok(bytes) = std::fs::read(&path) {
+                let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                out.push((name, bytes));
+            }
+        }
+    }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
+/// Every standalone `.xy` universe file (of assorted sizes) decodes and
+/// re-encodes byte-for-byte, with the planet count driven by the game-info
+/// block and coordinates that are in range and non-overlapping.
+///
+/// These are different universes/sizes from the sample game, so they exercise
+/// the count-from-game-info path and the optional trailer (which the sample
+/// in-game `.xy` lacks). Skips cleanly if the directory is empty.
+#[test]
+fn xy_dir_universes_round_trip() {
+    let fixtures = xy_dir_fixtures();
+    if fixtures.is_empty() {
+        eprintln!("skipping: no fixtures/xy/*.xy present");
+        return;
+    }
+
+    for (name, bytes) in fixtures {
+        let universe =
+            Universe::decode(&bytes).unwrap_or_else(|e| panic!("Universe::decode {name}: {e}"));
+
+        // The generic full-file decoder still rejects a `.xy` (not fully framed).
+        assert!(
+            StarsFile::decode(&bytes).is_err(),
+            "{name}: expected generic .xy decode to error; use Universe instead"
+        );
+
+        // Self-identifies as a universe definition.
+        assert_eq!(
+            universe.header.file_type,
+            FileType::Universe,
+            "{name}: file type"
+        );
+
+        // Planet count is authoritative from the game-info block.
+        assert_eq!(
+            universe.planet_count(),
+            u16::from_le_bytes([universe.game_info[10], universe.game_info[11]]) as usize,
+            "{name}: planet count matches game-info"
+        );
+        assert!(universe.planet_count() > 0, "{name}: has planets");
+
+        // Coordinates are 10-bit-bounded and no two planets share a position.
+        let mut seen = std::collections::HashSet::new();
+        for (i, p) in universe.planets.iter().enumerate() {
+            assert!(
+                p.x < 1024 && p.y < 1024,
+                "{name}: planet {i} coord out of range"
+            );
+            assert!(
+                seen.insert((p.x, p.y)),
+                "{name}: planet {i} shares a position"
+            );
+        }
+
+        // These standalone universe files carry a 2-byte trailer equal to the
+        // player count (game-info offset 8).
+        assert_eq!(
+            universe.trailer.len(),
+            2,
+            "{name}: expected a 2-byte trailer"
+        );
+        let trailer_val = u16::from_le_bytes([universe.trailer[0], universe.trailer[1]]);
+        assert_eq!(
+            trailer_val,
+            u16::from(universe.player_count()),
+            "{name}: trailer equals player count"
+        );
+
+        // The killer contract: re-encode is byte-for-byte identical.
+        let reencoded = universe
+            .encode()
+            .unwrap_or_else(|e| panic!("encode {name}: {e}"));
+        assert_eq!(reencoded, bytes, "{name}: .xy re-encode not byte-identical");
+    }
+}

@@ -6,8 +6,16 @@
 //! ```text
 //! [ FileHeaderBlock (type 8, plaintext, 16-byte payload) ]
 //! [ game-info block  (type 7, encrypted, 64-byte payload) ]
-//! [ planet region: 2-byte header + N * 4-byte planet records ]  <- to EOF
+//! [ planet region: 2-byte header + N * 4-byte planet records + trailer ]  <- to EOF
 //! ```
+//!
+//! The number of planets **N** is not derived from the file length; it is read
+//! from the game-info block (a little-endian `u16` at offset 10, verified
+//! against `128/160/360/540`-planet real files). After the `N` records an
+//! optional **trailer** may follow: standalone universe files (freshly created,
+//! not yet part of a saved game) carry a 2-byte trailer that equals the player
+//! count (game-info offset 8), while an in-game `.xy` has no trailer. The
+//! trailer is preserved verbatim so every file round-trips.
 //!
 //! The planet region is **not** block-framed and — unlike every other payload —
 //! is stored *without* the stream cipher: parsing the raw on-disk bytes as
@@ -38,6 +46,14 @@ pub const GAME_INFO_BLOCK: u8 = 7;
 
 /// Size in bytes of one packed planet record in the `.xy` planet region.
 pub const PLANET_RECORD_LEN: usize = 4;
+
+/// Offset of the planet-count `u16` within the decrypted game-info payload.
+pub const GAME_INFO_PLANET_COUNT_OFFSET: usize = 10;
+
+/// Offset of the player-count byte within the decrypted game-info payload.
+///
+/// The player count is the low 5 bits of this byte.
+pub const GAME_INFO_PLAYER_COUNT_OFFSET: usize = 8;
 
 /// A single planet's fixed position, unpacked from a 4-byte `.xy` record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,6 +102,11 @@ pub struct Universe {
     pub region_header: [u8; 2],
     /// The fixed planet positions, in planet-id order.
     pub planets: Vec<PlanetPosition>,
+    /// Any bytes following the planet records, kept verbatim.
+    ///
+    /// Empty for an in-game `.xy`; standalone universe files carry a 2-byte
+    /// trailer that equals the player count (see the module docs).
+    pub trailer: Vec<u8>,
 }
 
 impl Universe {
@@ -96,8 +117,9 @@ impl Universe {
     /// - [`FormatError::UnexpectedEof`] if the file is too short to contain the
     ///   header and game-info blocks.
     /// - [`FormatError::Malformed`] if the leading block is not a header block,
-    ///   the game-info block is not type [`GAME_INFO_BLOCK`], or the planet
-    ///   region is not a whole number of 4-byte records after its 2-byte header.
+    ///   the game-info block is not type [`GAME_INFO_BLOCK`], the game-info
+    ///   payload is too short to hold the planet count, or the planet region is
+    ///   too short for the declared number of 4-byte records.
     /// - Propagates header-parse errors (e.g. [`FormatError::BadMagic`]).
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         // --- header block (type 8, plaintext) ---
@@ -119,7 +141,20 @@ impl Universe {
         let mut rng = header.init_rng();
         let game_info = rng.apply(gi_payload);
 
-        // --- planet region: 2-byte header + N * 4-byte records (plaintext) ---
+        // The planet count is authoritative from the game-info block, not the
+        // file length (the region may carry a trailer).
+        if game_info.len() < GAME_INFO_PLANET_COUNT_OFFSET + 2 {
+            return Err(FormatError::Malformed(format!(
+                ".xy game-info block ({} bytes) too short for the planet count",
+                game_info.len()
+            )));
+        }
+        let planet_count = u16::from_le_bytes([
+            game_info[GAME_INFO_PLANET_COUNT_OFFSET],
+            game_info[GAME_INFO_PLANET_COUNT_OFFSET + 1],
+        ]) as usize;
+
+        // --- planet region: 2-byte header + N * 4-byte records + trailer ---
         let region = &bytes[after_gi..];
         if region.len() < 2 {
             return Err(FormatError::UnexpectedEof {
@@ -129,13 +164,14 @@ impl Universe {
         }
         let region_header = [region[0], region[1]];
         let body = &region[2..];
-        if !body.len().is_multiple_of(PLANET_RECORD_LEN) {
-            return Err(FormatError::Malformed(format!(
-                ".xy planet region body ({} bytes) is not a whole number of {PLANET_RECORD_LEN}-byte records",
-                body.len()
-            )));
+        let records_len = planet_count * PLANET_RECORD_LEN;
+        if body.len() < records_len {
+            return Err(FormatError::UnexpectedEof {
+                offset: after_gi + 2,
+                needed: records_len - body.len(),
+            });
         }
-        let planets = (0..body.len() / PLANET_RECORD_LEN)
+        let planets = (0..planet_count)
             .map(|i| {
                 let o = i * PLANET_RECORD_LEN;
                 PlanetPosition::from_word(u32::from_le_bytes([
@@ -146,6 +182,7 @@ impl Universe {
                 ]))
             })
             .collect();
+        let trailer = body[records_len..].to_vec();
 
         Ok(Self {
             header,
@@ -153,6 +190,7 @@ impl Universe {
             game_info,
             region_header,
             planets,
+            trailer,
         })
     }
 
@@ -173,6 +211,7 @@ impl Universe {
         for planet in &self.planets {
             out.extend_from_slice(&planet.to_word().to_le_bytes());
         }
+        out.extend_from_slice(&self.trailer);
         Ok(out)
     }
 
@@ -180,6 +219,19 @@ impl Universe {
     #[must_use]
     pub fn planet_count(&self) -> usize {
         self.planets.len()
+    }
+
+    /// The number of players declared in the game-info block.
+    ///
+    /// Read from the low 5 bits of game-info offset
+    /// [`GAME_INFO_PLAYER_COUNT_OFFSET`]. Verified against the sample game
+    /// (3 players) and self-consistent with the standalone universe files'
+    /// trailer.
+    #[must_use]
+    pub fn player_count(&self) -> u8 {
+        self.game_info
+            .get(GAME_INFO_PLAYER_COUNT_OFFSET)
+            .map_or(0, |b| b & 0x1F)
     }
 }
 

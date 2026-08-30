@@ -48,9 +48,15 @@ they are absent.
 `incoming/` holds the first real game at two turns. `encode(decode(bytes)) ==
 bytes` is verified byte-for-byte for every fully-framed file across both turns
 — `.hst`/`.mN` (turn 0 and turn 1), plus the turn-1 `.hN` history and `.xN`
-orders — and the turn-1 files confirm the seeding math on non-zero turns. `.xy`
-header + game-info are decoded (planet array pending — see
-`docs/formats/xy.md`).
+orders — and the turn-1 files confirm the seeding math on non-zero turns.
+
+`xy/` now holds four **standalone universe** files of assorted sizes
+(`02ca32d8.xy`, `across.xy`, `e8dda8f7.xy`, `dancing.xy` — 160/160/360/540
+planets). Together with the in-game `.xy` from `incoming/`, they let the `.xy`
+parser be verified across five different universes: the planet count is read
+from the game-info block and the whole file (including its trailing player-count
+bytes) **round-trips byte-for-byte** — see `docs/formats/xy.md` and
+`tests/real_files.rs::xy_dir_universes_round_trip`.
 
 `r/` now holds seven exported **race** files (the six built-in default races
 plus a "random" race). They round-trip byte-for-byte and the race record is
