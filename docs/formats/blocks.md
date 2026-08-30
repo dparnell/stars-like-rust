@@ -1,9 +1,12 @@
 # Format: block framing + header + encryption — the shared container
 
 - **Status:** framing, file-header, and payload **encryption recovered &
-  verified byte-for-byte** on real files; per-format record layouts pending
-- **Original files analysed:** `fixtures/incoming/Game.{xy,m1,m2,m3,hst}`
-  (a fresh 3-player game, turn 0 / year 2400)
+  verified byte-for-byte** on real files (turn 0 **and** turn 1, all file
+  types); per-format record layouts pending
+- **Original files analysed:** one 3-player game captured at two points —
+  `fixtures/incoming/turn0/Game.{xy,m1,m2,m3,hst}` (fresh game, turn 0 / year
+  2400) and `fixtures/incoming/turn1/Game.{xy,m1,m2,m3,hst,h1,h2,h3,x1}` (after
+  the first turn was generated, adding history `.hN` and orders `.xN`)
 - **Encoding/compression:** framing is plaintext; non-header/footer block
   payloads use the Stars! PRNG **stream cipher** (recovered — see below)
 - **Checksum/CRC:** footer block (type 0) carries a year (`.m`/`.hst`) or
@@ -58,8 +61,9 @@ Flags (bit above the low byte): `8 done(.x)`, `9 in_use`, `10 multi(.m)`,
 `11 game_over`, `12 shareware`.
 
 **Verified values** (sample game): `game_id = 0x2a031dd8`, `version = 0x2840`
-(→ 2.x), `turn = 0`; player word low-5 bits = `0,1,2` for `m1,m2,m3` and `31`
-for `.xy`/`.hst`; `dts` low byte = `0/2/3` for `.xy`/`.hst`/`.m`.
+(→ 2.x); `turn = 0` for the turn-0 set and `turn = 1` for the turn-1 set; player
+word low-5 bits = `0,1,2` for `m1,m2,m3` and `31` for `.xy`/`.hst`; `dts` low
+byte = `0/1/2/3/4` observed for `.xy`/`.xN`/`.hst`/`.mN`/`.hN` respectively.
 
 ## Encryption
 
@@ -133,8 +137,11 @@ per-format record layout is decoded.
 ## Verified round-trips
 
 `crates/stars-formats/tests/real_files.rs` asserts `encode(decode(bytes)) ==
-bytes` for `Game.hst`, `Game.m1`, `Game.m2`, `Game.m3`, checks the shared
-`game_id` and per-player numbering, and decrypts the `.xy` header + game-info.
+bytes` for every fully-framed file across both captured turns — `.hst`, `.mN`
+(turn 0 and turn 1), plus the turn-1 `.hN` history and `.xN` orders — checks the
+shared `game_id`, per-player numbering, and turn, and decrypts the `.xy` header
++ game-info. The turn-1 files confirm the turn-dependent seeding (`rounds`
+depends on `turn`) is correct on non-zero turns.
 
 ## Open questions / next
 
@@ -142,5 +149,4 @@ bytes` for `Game.hst`, `Game.m1`, `Game.m2`, `Game.m3`, checks the shared
   fleets, designs, production queues, …).
 - `.xy` **planet array** decoding — see `xy.md`.
 - Footer contents per extension (year vs checksum).
-- Confirm the exact `game_id`/`turn`/`player` contribution to `rounds` on a
-  non-zero-turn file (all current fixtures are turn 0).
+- `.rN` race file layout — no race fixture is available yet.
