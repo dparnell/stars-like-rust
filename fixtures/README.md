@@ -51,6 +51,7 @@ Complete games (all files for one game together), one directory per game:
 ```
 fixtures/games/
   tutorial/   # the shipped "Tutorial Game": tutorial.{xy,hst,m1,m2,h1,x1}
+  exodus/     # one player's 50-turn history: exodus.xy + <year>/exodus.m6 + Races/
 ```
 
 `tutorial/` is a **second, independent game** (a different `game_id` from the
@@ -60,6 +61,24 @@ at turn 0 while player 1's `.m1`/`.h1`/`.x1` were saved at **turn 3**. Because
 nothing in the format code is game-specific, every framed file decodes and
 re-encodes byte-for-byte unchanged, which is the strongest evidence yet that the
 container and cipher seeding are game- and turn-agnostic.
+
+`exodus/` is a **third game**, captured as a single player's long-running
+history (player 6). Its layout differs from the others:
+
+```
+fixtures/games/exodus/
+  exodus.xy          # the universe (540 planets, 8 players; standalone)
+  <year>/exodus.m6   # player 6's turn file at ~40 game years (2400 .. 2450)
+  Races/*.R1         # the seven shipped AI expansion races
+```
+
+The per-year folders each hold one `exodus.m6` snapshot; the folder name is the
+in-game year (the user's label) while the authoritative turn number is the
+monotonic counter inside each header. All ~40 snapshots decode and re-encode
+byte-for-byte, exercising the cipher across many consecutive turns of one game.
+The `Races/` files (`BIGPRO`, `DEFENDER`, `ECOBOOM`, `FLEXIBLE`, `JUMPERS`,
+`OFFENDER`, `SNEAK`) are the first race fixtures with **Lesser Racial Traits
+enabled**, which pinned down the LRT bitfield (see `docs/formats/race-r.md`).
 
 ## Status
 
@@ -88,10 +107,14 @@ and its `.xy` round-trip byte-for-byte via
 planet record stores only a 10-bit `nameid` index into this list, so the table
 is needed to turn indices back into names. It is copied into the crate at
 `crates/stars-formats/data/star-names.txt` and used to fully decode `.xy`
-planet records — every planet in all six sample universes resolves to a unique
-name (see `docs/formats/xy.md`).
+planet records — every planet in all **seven** sample universes (the six above
+plus `games/exodus/exodus.xy`) resolves to a unique name (see
+`docs/formats/xy.md`).
 
-`r/` now holds seven exported **race** files (the six built-in default races
-plus a "random" race). They round-trip byte-for-byte and the race record is
-largely decoded — see `docs/formats/race-r.md` and
-`crates/stars-formats/tests/race_files.rs`.
+`r/` holds seven exported **race** files (the six built-in default races plus a
+"random" race); `games/exodus/Races/` adds the seven shipped AI races. All
+round-trip byte-for-byte, and the verified fields (habitability, growth,
+research cost, PRT, LRT) are exposed as a typed `RaceRecord`. The AI races were
+the key to confirming the **LRT bit layout** (the default races mostly have no
+LRTs). See `docs/formats/race-r.md`, `tests/race_files.rs`, and
+`tests/exodus_files.rs`.

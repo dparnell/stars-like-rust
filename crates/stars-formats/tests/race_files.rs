@@ -16,7 +16,7 @@
 
 use std::path::{Path, PathBuf};
 
-use stars_formats::{FileType, StarsFile};
+use stars_formats::{FileType, Prt, RaceRecord, StarsFile};
 
 /// All race fixtures the user provided, by base filename.
 const RACE_FILES: &[&str] = &[
@@ -87,5 +87,46 @@ fn race_block_starts_with_race_marker() {
             .find(|b| b.type_id == 6)
             .unwrap_or_else(|| panic!("{name}: no race block"));
         assert_eq!(race.data[0], 0xFF, "{name}: race-block player marker");
+    }
+}
+
+/// The default races decode via the typed [`RaceRecord`] to the primary racial
+/// trait implied by their lore, with no stray bits outside the 14-bit LRT
+/// range. (The perfectly-generic **Humanoid** additionally has no LRTs at all;
+/// the other built-ins do enable some, unlike a bare custom race.)
+#[test]
+fn default_races_decode_prt() {
+    // Known PRTs for the built-in races (confirmed in docs/formats/race-r.md).
+    let expected: &[(&str, Prt)] = &[
+        ("humanoid.r1", Prt::JOAT),
+        ("insectoid.r1", Prt::WM),
+        ("rabitoid.r1", Prt::IT),
+        ("silicanoid.r1", Prt::HE),
+    ];
+    let mut seen = 0;
+    for (name, prt) in expected {
+        let Some(bytes) = fixture(name) else {
+            continue;
+        };
+        seen += 1;
+        let file = StarsFile::decode(&bytes).unwrap();
+        let race = RaceRecord::from_file(&file).unwrap_or_else(|e| panic!("race {name}: {e}"));
+        assert_eq!(race.player_id, 0xFF, "{name}: race-only marker");
+        assert_eq!(race.prt, *prt, "{name}: PRT");
+        assert!(
+            !race.has_unknown_lrt_bits(),
+            "{name}: stray bits outside the 14-bit LRT range"
+        );
+    }
+    if seen == 0 {
+        eprintln!("skipping: no default race fixtures present in fixtures/r/");
+    }
+
+    // Humanoid is the fully-generic race: no LRTs.
+    if let Some(bytes) = fixture("humanoid.r1") {
+        let file = StarsFile::decode(&bytes).unwrap();
+        let race = RaceRecord::from_file(&file).unwrap();
+        assert_eq!(race.lrt_bits, 0, "humanoid has no LRTs");
+        assert!(race.lrts().is_empty(), "humanoid has no LRTs");
     }
 }
