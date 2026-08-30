@@ -36,8 +36,8 @@
 //! |-----------|---------------------|------------------------------------------|
 //! | (all)     | Block framing       | implemented (round-trips)                |
 //! | (all)     | Header + cipher     | implemented (byte-perfect on real files) |
-//! | `.mN`     | Player state        | decode/encode round-trips; records: WIP  |
-//! | `.hst`    | Host state          | decode/encode round-trips; records: WIP  |
+//! | `.mN`     | Player state        | round-trips; block inventory + planet ids |
+//! | `.hst`    | Host state          | round-trips; block inventory + planet ids |
 //! | `.hN`     | Player history      | decode/encode round-trips; records: WIP  |
 //! | `.xN`     | Player orders       | decode/encode round-trips; records: WIP  |
 //! | `.rN`     | Race definition     | round-trips; record largely decoded (`docs/formats/race-r.md`) |
@@ -52,14 +52,16 @@ pub mod block;
 pub mod crypt;
 pub mod file;
 pub mod header;
+pub mod records;
 
 pub use block::{
-    join_blocks, split_blocks, Block, BLOCK_SIZE_MASK, BLOCK_TYPE_SHIFT, FILE_HEADER_BLOCK,
-    MAX_BLOCK_SIZE, MAX_BLOCK_TYPE,
+    join_blocks, split_blocks, Block, BlockType, BLOCK_SIZE_MASK, BLOCK_TYPE_SHIFT,
+    FILE_HEADER_BLOCK, MAX_BLOCK_SIZE, MAX_BLOCK_TYPE,
 };
 pub use crypt::{StarsRng, PRIMES};
 pub use file::{StarsFile, FILE_FOOTER_BLOCK};
 pub use header::{FileHeader, FileType};
+pub use records::{planet_headers, PlanetHeader, MINIMAL_PLANET_LEN};
 
 use thiserror::Error;
 

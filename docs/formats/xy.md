@@ -53,25 +53,35 @@ index): `0 PlanetControl`, `1 TechLevel`, `2 TechFields`, `3 Score`,
 
 ## Planet region (open)
 
-After the game-info block (offset `0x54` in `Game.xy`) 514 bytes remain that:
+After the game-info block (offset `0x54` in `Game.xy`) **514 bytes** remain.
+Established facts about this region:
 
-- do **not** re-frame as blocks (the next "header" implies an impossible size);
-- are **not** a plain continuation of the game-info keystream (decrypting them
-  as such yields noise);
-- are **not** obviously the raw planet array under the naive `x:10|y:10|id:12`
-  packing.
+- it is **byte-identical across turn 0 and turn 1** — the universe geometry is
+  fixed once and never rewritten (verified);
+- `514 = 2 + 128 × 4` — with 128 planets in this game (confirmed via the
+  `.hst` planet blocks) this strongly implies **4 bytes per planet** plus a
+  2-byte prefix or trailer;
+- it does **not** re-frame as blocks: naive framing yields a `type 5 (size 10)`,
+  a `type 6 (size 5)`, then a bogus `type 0 (size 125)` that does not reach EOF;
+- it is **not** a plain continuation of the game-info keystream (decrypting it as
+  such yields uniformly-distributed noise, not clustered coordinates);
+- the fleet position bytes from the `.hst` (`a4 05 1c 06`) do **not** appear
+  literally in the region, so coordinates are **packed/encoded**, not stored as
+  raw little-endian words.
 
-Planet coordinates *are* recoverable elsewhere: the `.hst`/`.mN` **PlanetBlock
-(type 13)** decrypts cleanly to sequential planet ids `00,01,02,…`, so universe
-geometry can be sourced there while the `.xy` planet region is worked out.
+Because the `.hst`/`.mN` **PlanetBlock (type 13)** decodes cleanly to sequential
+planet ids (`records::planet_headers`, verified `0..=127`) but carries **no
+coordinates**, the x/y geometry must live *here* in the `.xy` planet region.
 
 ### Next steps
 
-- Decode PlanetBlock (13) records from `.hst`/`.mN` to get planet id/x/y and the
-  planet count for this universe.
-- Re-derive the `.xy` planet region format from the original `create.c`-derived
-  logic (how many planets, record size, and whether the region uses a distinct
-  keystream/seed or an unencrypted packing).
+- Nail the 4-byte planet packing: determine whether the 2 extra bytes are a
+  leading count/seed or a trailing checksum, and how x/y (and a name index) are
+  bit-packed into each 4-byte record. Cross-check by matching the three
+  homeworld ids (`32`, `69`, `112`) to their fleet anchor positions.
+- If the packing resists static analysis, recover the `.xy` planet writer from
+  `STARS!.EXE` in Ghidra (reachable from new-game/universe generation) to read
+  the exact bit layout and any per-region keystream/seed.
 
 ## Derived test vectors
 

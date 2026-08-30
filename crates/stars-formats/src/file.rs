@@ -20,7 +20,9 @@
 //! > currently returns an error for `.xy`; decoding its planet array is tracked
 //! > in `docs/formats/xy.md`.
 
-use crate::block::{join_blocks, split_blocks, Block, FILE_HEADER_BLOCK};
+use std::collections::BTreeMap;
+
+use crate::block::{join_blocks, split_blocks, Block, BlockType, FILE_HEADER_BLOCK};
 use crate::header::FileHeader;
 use crate::{FormatError, Result};
 
@@ -100,6 +102,21 @@ impl StarsFile {
             }
         }
         join_blocks(&raw)
+    }
+
+    /// Count the blocks in this file grouped by [`BlockType`].
+    ///
+    /// A quick structural inventory of a decoded file — useful for triaging an
+    /// unknown save and for tests that assert a file's block makeup (e.g. a
+    /// `.hst` containing one [`BlockType::Player`] per player and one
+    /// [`BlockType::Planet`] per planet).
+    #[must_use]
+    pub fn block_counts(&self) -> BTreeMap<BlockType, usize> {
+        let mut counts = BTreeMap::new();
+        for block in &self.blocks {
+            *counts.entry(block.block_type()).or_insert(0) += 1;
+        }
+        counts
     }
 }
 

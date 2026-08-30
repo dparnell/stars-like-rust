@@ -146,9 +146,12 @@ depends on `turn`) is correct on non-zero turns.
 ## Open questions / next
 
 - Per-format **record layouts** for each decrypted block (players, planets,
-  fleets, designs, production queues, …).
-- `.xy` **planet array** decoding — see `xy.md`.
+  fleets, designs, production queues, …). The `.hst`/`.mN` **block inventory** is
+  now decoded and the **planet-id word** verified — see `hst.md`; the per-field
+  planet/fleet/design layouts remain.
+- `.xy` **planet array** decoding — see `xy.md` (established 4-byte-per-planet
+  packing; exact bit layout still open).
 - Footer contents per extension (year vs checksum).
-- `.rN` race file layout — **now decoded** from `fixtures/r/` (see
-  `race-r.md`): a single type-6 block holding habitability, growth, economy,
-  research, PRT and LRTs.
+- `.rN` race file layout — **decoded** from `fixtures/r/` (see `race-r.md`): a
+  single type-6 block holding habitability, growth, economy, research, PRT and
+  LRTs.

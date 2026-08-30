@@ -11,9 +11,10 @@ Shared foundation:
 
 Per-format (payload record layouts, populated as decoded in Step 2):
 
-- `xy.md` — universe definition (`.xy`)
-- `player-m.md` — player state (`.mN`)
-- `player-h.md` — player history (`.hN`)
-- `player-x.md` — player orders (`.xN`)
-- `race-r.md` — race definition (`.rN`)
-- `host-hst.md` — host state (`.hst`)
+- `xy.md` — universe definition (`.xy`): header + game-info decoded; planet
+  region investigated (4-byte packing, still open)
+- `hst.md` — host & player state (`.hst` / `.mN`): block inventory decoded,
+  planet-id word verified, per-record layouts in progress
+- `race-r.md` — race definition (`.rN`): record largely decoded
+- player history (`.hN`) and player orders (`.xN`): container round-trips; record
+  layouts not yet documented

@@ -67,6 +67,106 @@ pub struct Block {
     pub data: Vec<u8>,
 }
 
+/// The kind of a block, resolved from its 6-bit type id.
+///
+/// The names come from the community-documented Stars! block registry (see the
+/// table in `docs/formats/blocks.md`), cross-checked against the block types
+/// that actually appear in our real sample files (`.hst`/`.mN`/`.xN`/`.rN`).
+/// Only [`BlockType::FileHeader`] (8) and [`BlockType::FileFooter`] (0) are
+/// stored in plaintext; everything else is encrypted.
+///
+/// Unknown ids are preserved via [`BlockType::Other`] so framing/round-tripping
+/// never depends on the registry being complete.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BlockType {
+    /// 0 — file footer (plaintext); carries a year or checksum.
+    FileFooter,
+    /// 6 — player/race record (full player in `.mN`/`.hst`, race in `.rN`).
+    Player,
+    /// 7 — `.xy` game-info / planets header block.
+    Planets,
+    /// 8 — file header (plaintext); seeds the stream cipher.
+    FileHeader,
+    /// 12 — events.
+    Events,
+    /// 13 — planet record.
+    Planet,
+    /// 14 — partial planet record.
+    PartialPlanet,
+    /// 16 — fleet record.
+    Fleet,
+    /// 17 — partial fleet record.
+    PartialFleet,
+    /// 20 — waypoint.
+    Waypoint,
+    /// 21 — fleet name.
+    FleetName,
+    /// 26 — ship/starbase design.
+    Design,
+    /// 28 — production queue.
+    ProductionQueue,
+    /// 30 — battle plan.
+    BattlePlan,
+    /// 43 — generic object.
+    Object,
+    /// Any type id without a dedicated variant yet.
+    Other(u8),
+}
+
+impl BlockType {
+    /// Resolve a raw 6-bit type id to a [`BlockType`].
+    #[must_use]
+    pub fn from_id(id: u8) -> Self {
+        match id {
+            0 => Self::FileFooter,
+            6 => Self::Player,
+            7 => Self::Planets,
+            8 => Self::FileHeader,
+            12 => Self::Events,
+            13 => Self::Planet,
+            14 => Self::PartialPlanet,
+            16 => Self::Fleet,
+            17 => Self::PartialFleet,
+            20 => Self::Waypoint,
+            21 => Self::FleetName,
+            26 => Self::Design,
+            28 => Self::ProductionQueue,
+            30 => Self::BattlePlan,
+            43 => Self::Object,
+            other => Self::Other(other),
+        }
+    }
+
+    /// The raw 6-bit type id this variant encodes to.
+    #[must_use]
+    pub fn id(self) -> u8 {
+        match self {
+            Self::FileFooter => 0,
+            Self::Player => 6,
+            Self::Planets => 7,
+            Self::FileHeader => 8,
+            Self::Events => 12,
+            Self::Planet => 13,
+            Self::PartialPlanet => 14,
+            Self::Fleet => 16,
+            Self::PartialFleet => 17,
+            Self::Waypoint => 20,
+            Self::FleetName => 21,
+            Self::Design => 26,
+            Self::ProductionQueue => 28,
+            Self::BattlePlan => 30,
+            Self::Object => 43,
+            Self::Other(id) => id,
+        }
+    }
+
+    /// Whether blocks of this type are stored in plaintext (header and footer).
+    #[must_use]
+    pub fn is_plaintext(self) -> bool {
+        matches!(self, Self::FileHeader | Self::FileFooter)
+    }
+}
+
 impl Block {
     /// Create a block, validating that the type id and payload length fit in
     /// the header word's 6-bit and 10-bit fields respectively.
@@ -101,6 +201,12 @@ impl Block {
     #[must_use]
     pub fn is_file_header(&self) -> bool {
         self.type_id == FILE_HEADER_BLOCK
+    }
+
+    /// The [`BlockType`] this block's type id resolves to.
+    #[must_use]
+    pub fn block_type(&self) -> BlockType {
+        BlockType::from_id(self.type_id)
     }
 }
 
@@ -263,5 +369,34 @@ mod tests {
         let bytes = [0x04, 0x20, 0xFF];
         let err = split_blocks(&bytes).unwrap_err();
         assert!(matches!(err, FormatError::UnexpectedEof { .. }));
+    }
+
+    #[test]
+    fn block_type_id_round_trips_for_all_ids() {
+        // `from_id`/`id` are inverse for every 6-bit type id, including the
+        // `Other` fallback for ids without a dedicated variant.
+        for id in 0..=MAX_BLOCK_TYPE {
+            assert_eq!(BlockType::from_id(id).id(), id, "type id {id}");
+        }
+    }
+
+    #[test]
+    fn block_type_named_variants_and_plaintext() {
+        assert_eq!(BlockType::from_id(8), BlockType::FileHeader);
+        assert_eq!(BlockType::from_id(0), BlockType::FileFooter);
+        assert_eq!(BlockType::from_id(13), BlockType::Planet);
+        assert_eq!(BlockType::from_id(16), BlockType::Fleet);
+        assert_eq!(BlockType::from_id(63), BlockType::Other(63));
+        // Only header/footer are plaintext.
+        assert!(BlockType::FileHeader.is_plaintext());
+        assert!(BlockType::FileFooter.is_plaintext());
+        assert!(!BlockType::Planet.is_plaintext());
+        assert!(!BlockType::Other(63).is_plaintext());
+    }
+
+    #[test]
+    fn block_exposes_its_block_type() {
+        let b = Block::new(13, vec![0; 4]).unwrap();
+        assert_eq!(b.block_type(), BlockType::Planet);
     }
 }

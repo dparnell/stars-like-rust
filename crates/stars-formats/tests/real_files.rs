@@ -26,7 +26,7 @@
 use std::path::{Path, PathBuf};
 
 use stars_formats::block::split_blocks;
-use stars_formats::{FileHeader, FileType, StarsFile};
+use stars_formats::{planet_headers, BlockType, FileHeader, FileType, StarsFile};
 
 /// Expected per-game id shared by every file of the sample game.
 const GAME_ID: u32 = 0x2a03_1dd8;
@@ -151,6 +151,41 @@ fn all_files_share_game_id() {
     if seen == 0 {
         eprintln!("skipping: no framed fixtures present");
     }
+}
+
+/// The host file's block inventory and planet records match the sample game:
+/// three players, 128 planets numbered `0..=127`, and three inhabited
+/// (extended) planets — the homeworlds.
+#[test]
+fn hst_block_inventory_and_planets() {
+    let Some(bytes) = fixture("turn0/Game.hst") else {
+        eprintln!("skipping: turn0/Game.hst not present");
+        return;
+    };
+    let file = StarsFile::decode(&bytes).unwrap();
+
+    let counts = file.block_counts();
+    // One player record per player, and one planet record per planet.
+    assert_eq!(counts.get(&BlockType::Player), Some(&3), "player blocks");
+    assert_eq!(counts.get(&BlockType::Planet), Some(&128), "planet blocks");
+    // The shared host file self-identifies as a host file.
+    assert_eq!(file.header.file_type, FileType::Host);
+
+    let planets = planet_headers(&file);
+    assert_eq!(planets.len(), 128, "planet count");
+
+    // Planet ids form the contiguous sequence 0..=127.
+    let mut ids: Vec<u16> = planets.iter().map(|p| p.id).collect();
+    ids.sort_unstable();
+    assert_eq!(ids, (0..128).collect::<Vec<_>>(), "planet ids contiguous");
+
+    // Exactly the three homeworlds carry the extended (inhabited) record.
+    let extended: Vec<u16> = planets
+        .iter()
+        .filter(|p| p.is_extended())
+        .map(|p| p.id)
+        .collect();
+    assert_eq!(extended.len(), 3, "three inhabited planets (homeworlds)");
 }
 
 /// The `.xy` universe file is not fully block-framed (a raw planet array
