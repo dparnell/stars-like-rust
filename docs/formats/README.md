@@ -56,10 +56,11 @@ Per-format (payload record layouts, populated as decoded in Step 2):
   **decoded & verified** (`stars-formats::production`)
 - `score.md` — player-scores blocks (type 45) in `.mN`/`.hN`:
   **decoded & verified** (`stars-formats::score`)
+- `orders-x.md` — player orders (`.xN`, the order log): the log header
+  (`RTLOGHDR`, type 9) and the common `rtLog*` operations (waypoints, cargo,
+  research, planet routing, fleet order edits) are **decoded & verified**
+  (`stars-formats::orders`), backed by the 40-turn `EXODUS.X6` fixtures.
 - `race-r.md` — race definition (`.rN`): record largely decoded
 - player history (`.hN`): container round-trips; the **history header**
   (`RTHISTHDR`, type 32) is decoded & verified (`stars-formats::history`) and the
   score record (type 45) is decoded; other record layouts not yet decoded.
-- player orders (`.xN`): container round-trips; the `rtLog*` operation-record
-  format and payload structs are **documented** in `nb09-structs.md`; typed
-  decoders await orders-bearing fixtures.

@@ -69,6 +69,7 @@ history (player 6). Its layout differs from the others:
 fixtures/games/exodus/
   exodus.xy          # the universe (540 planets, 8 players; standalone)
   <year>/exodus.m6   # player 6's turn file at ~40 game years (2400 .. 2450)
+  <year>/EXODUS.X6   # player 6's submitted orders (.xN) at each of those years
   Races/*.R1         # the seven shipped AI expansion races
 ```
 
@@ -76,6 +77,9 @@ The per-year folders each hold one `exodus.m6` snapshot; the folder name is the
 in-game year (the user's label) while the authoritative turn number is the
 monotonic counter inside each header. All ~40 snapshots decode and re-encode
 byte-for-byte, exercising the cipher across many consecutive turns of one game.
+The per-year `EXODUS.X6` files are player 6's **orders** for that turn — the
+first orders-bearing fixtures in the project. They are what validates the `.xN`
+order-log decoder (see `docs/formats/orders-x.md`, `tests/orders_files.rs`).
 The `Races/` files (`BIGPRO`, `DEFENDER`, `ECOBOOM`, `FLEXIBLE`, `JUMPERS`,
 `OFFENDER`, `SNEAK`) are the first race fixtures with **Lesser Racial Traits
 enabled**, which pinned down the LRT bitfield (see `docs/formats/race-r.md`).

@@ -190,9 +190,28 @@ universe total. Implemented as
 ## Order/log records (`.xN`, `dtLog`)
 
 A submitted-orders file is **not** a flat set of one-record-per-type blocks like
-`.hst`/`.mN`. Instead it is a *log*: a sequence of operation records whose block
-`rt` ids come from the `rtLog*` family (each mutating the host's in-memory state
-as it is replayed). The relevant ids (`enums.h`):
+`.hst`/`.mN`. Instead it is a *log*: after the file header it carries a single
+**log header** (`RTLOGHDR`, `rt = 9`) followed by a sequence of operation
+records whose block `rt` ids come from the `rtLog*` family (each mutating the
+host's in-memory state as it is replayed).
+
+The log header (`rt = 9`, `cbRTLOGHDR = 17`; not named in the `RecordType` enum,
+which jumps 8→9):
+
+```c
+typedef struct _rtloghdr {
+    int16_t cbLog;         /* +0x00 total framed bytes of the op records that follow */
+    int32_t lSerialNumber; /* +0x02 per-game/player serial (host validation) */
+    uint8_t rgbConfig[11]; /* +0x06 config/verification bytes */
+} RTLOGHDR;                /* size=0x11 */
+```
+
+Verified on all 40 `EXODUS.X6` files: `cbLog` equals the summed framed sizes of
+the following op records (`filesize − 39`), and `lSerialNumber`+`rgbConfig` are
+constant across the game. Implemented as
+[`LogHeader`](../../crates/stars-formats/src/orders.rs).
+
+The operation ids (`enums.h`):
 
 | `rt` | name | operation |
 |-----:|------|-----------|
@@ -234,10 +253,14 @@ typedef struct _rtxferl { uint16_t id1, id2; uint8_t grobj1:4, grobj2:4; uint8_t
 typedef struct _rtxferx { uint16_t id1, id2; uint8_t grobj1:4, grobj2:4; uint8_t  grbitItems; int16_t rgcQuan[1]; } RTXFERX; /* size=0x8 */
 ```
 
-`new` (documentation) — this maps out the `.xN` log format at the record-type
-level. Typed decoders are deferred until we capture `.xN` fixtures that actually
-contain such operations (the current `.x1` fixtures carry only a couple of
-records), because the log is a replay stream rather than a static table.
+`new` (this pass) — the `.xN` log format is now **decoded & verified** against
+the 40-turn `EXODUS.X6` fixtures in
+[`stars-formats::orders`](../../crates/stars-formats/src/orders.rs): the log
+header, the record-type classification, and typed views for waypoint
+insert/update (`RTWAYPT`), fleet-order-delete (`RTSHIPINT`), research,
+planet-routing (`RTCHGPLANETLONG`) and the cargo-transfer prefix (`RTXFER*`).
+See `orders-x.md`. Remaining: cargo quantity lists, ship-design/prod-queue change
+wrappers, and the fleet-rename string.
 
 ---
 
@@ -254,7 +277,10 @@ records), because the log is a replay stream rather than a static table.
 | battle plan | (`btlplan`) | `battleplan` | confirmed elsewhere |
 | scores | `SCORE`/`SCOREX` | `score` | confirmed |
 | history header | `RTHISTHDR` | `history` | **new (this pass)** |
-| orders/log | `rtLog*` ops + `RTCHGNAME`/`RTCHGPLANETLONG`/`RTCHGPRODQ`/`RTXFER*` | — | documented, decoder pending |
+| order-log header | `RTLOGHDR` | `orders` | **new (this pass)** |
+| orders/log | `rtLog*` ops + `RTWAYPT`/`RTSHIPINT`/`RTCHGPLANETLONG`/`RTXFER*` | `orders` | **new (this pass)** |
 
-Still not typed anywhere: messages (`rtMsg` 12 / `rtMsgFilt` 33), the
-tagged-union `THING`/object records (`rt = 43`), and the `.xN` order bodies above.
+Still not typed anywhere: messages (`rtMsg` 12 / `rtMsgFilt` 33) and the
+tagged-union `THING`/object records (`rt = 43`). A few `.xN` op bodies remain
+partial (cargo quantity lists, the ship-design/prod-queue change wrappers, and
+the fleet-rename string) — see `orders-x.md`.
