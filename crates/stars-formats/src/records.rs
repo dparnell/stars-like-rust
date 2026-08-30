@@ -5,36 +5,33 @@
 //! begins interpreting the payloads of individual blocks into typed records.
 //!
 //! It grows conservatively: only fields that are **verified against the real
-//! sample files** are exposed here. Fields whose meaning is still a hypothesis
-//! (e.g. the exact mineral-concentration vs. environment byte split of a planet
-//! record, or the `.xy` coordinate packing) are documented in
-//! `docs/formats/hst.md` / `docs/formats/xy.md` and deliberately *not* surfaced
-//! as typed fields until confirmed, so this crate stays a correctness anchor.
+//! sample files** are exposed here.
+//!
+//! This module holds the lightweight *inventory* view of the planet blocks (id,
+//! owner and length, used for quick sanity checks). The full field-by-field
+//! decode of a planet record lives in [`crate::planet`].
 
 use crate::block::BlockType;
 use crate::file::StarsFile;
 
 /// Header word common to every [`BlockType::Planet`] (type 13) record.
 ///
-/// A planet block starts with a little-endian 16-bit word whose low 10 bits are
-/// the planet number and whose high 6 bits are a field-presence/flags mask.
-/// This is verified against `Game.hst`, whose 128 planet blocks decode to the
-/// contiguous ids `0..=127`.
+/// A planet block starts with a little-endian 16-bit word whose **low 11 bits**
+/// are the planet number and whose **high 5 bits** are the owning player
+/// (`31` = unowned). This split is taken from TotalHost's `StarsPlanet.pl` and
+/// verified against `Game.hst`, whose 128 planet blocks decode to the
+/// contiguous ids `0..=127` with exactly three owned homeworlds (owners 0, 1,
+/// 2).
 ///
-/// The remaining payload bytes carry the planet's attributes (mineral
-/// concentrations, environment, and — for inhabited planets — population,
-/// installations and a starbase). Their exact layout is still being recovered
-/// (see `docs/formats/hst.md`), so only the id, flags and payload length are
-/// exposed here.
+/// The rest of the payload carries the planet's attributes; see
+/// [`crate::planet::PlanetRecord`] for the full decode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PlanetHeader {
-    /// Planet number (0-based), from the low 10 bits of the header word.
+    /// Planet number (0-based), from the low 11 bits of the header word.
     pub id: u16,
-    /// Field-presence / flags mask, from the high 6 bits of the header word.
-    ///
-    /// Minimal (undiscovered) planet records use `62`; inhabited/homeworld
-    /// records use smaller values and carry a longer payload.
-    pub flags: u8,
+    /// Owning player (0-based), or `None` if the planet is unowned (owner
+    /// field `31`), from the high 5 bits of the header word.
+    pub owner: Option<u8>,
     /// Total payload length of the planet block, in bytes.
     ///
     /// The minimal record is 11 bytes; inhabited planets (including homeworlds)
@@ -53,9 +50,14 @@ impl PlanetHeader {
             return None;
         }
         let word = u16::from_le_bytes([payload[0], payload[1]]);
+        let owner_raw = (word >> 11) & 0x1F;
         Some(Self {
-            id: word & 0x03FF,
-            flags: (word >> 10) as u8,
+            id: word & 0x07FF,
+            owner: if owner_raw == 31 {
+                None
+            } else {
+                Some(owner_raw as u8)
+            },
             payload_len: payload.len(),
         })
     }
@@ -91,26 +93,28 @@ mod tests {
 
     #[test]
     fn parses_minimal_planet_header() {
-        // A minimal planet header word is `0xF800 | id` (flags 62, id in the
-        // low 10 bits), as seen in every 11-byte planet block of `Game.hst`.
+        // A minimal (unowned) planet header word is `(31 << 11) | id`, i.e.
+        // `0xF800 | id`, as seen in every 11-byte planet block of `Game.hst`.
         let word: u16 = 0xF800 | 5;
         let mut payload = word.to_le_bytes().to_vec();
         payload.extend_from_slice(&[0u8; MINIMAL_PLANET_LEN - 2]);
         let h = PlanetHeader::parse(&payload).unwrap();
         assert_eq!(h.id, 5);
-        assert_eq!(h.flags, 62); // 0xF800 >> 10
+        assert_eq!(h.owner, None); // owner field 31 = unowned
         assert_eq!(h.payload_len, MINIMAL_PLANET_LEN);
         assert!(!h.is_extended());
     }
 
     #[test]
     fn parses_extended_planet_header() {
-        // Homeworld id 32 (word 0x1020), extended 33-byte payload.
-        let word: u16 = 0x1020;
+        // Homeworld id 32 owned by player 2: id in the low 11 bits, owner 2 in
+        // the high 5 bits => (2 << 11) | 32 = 0x1020. Extended 33-byte payload.
+        let word: u16 = (2 << 11) | 32;
         let mut payload = word.to_le_bytes().to_vec();
         payload.extend_from_slice(&[0u8; 31]);
         let h = PlanetHeader::parse(&payload).unwrap();
         assert_eq!(h.id, 32);
+        assert_eq!(h.owner, Some(2));
         assert!(h.is_extended());
     }
 

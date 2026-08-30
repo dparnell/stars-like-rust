@@ -1,14 +1,16 @@
 # Format: `.hst` / `.mN` — host & player state (block inventory)
 
 - **Status:** container **verified byte-for-byte**; **block inventory decoded**;
-  planet-id word **decoded & verified**; per-record field layouts (planet
-  attributes, players, fleets, designs) **in progress** (hypotheses below)
+  the **planet record is fully decoded & verified** (see `planet.md`); the
+  remaining per-record layouts (players, fleets, designs) are **in progress**
 - **Original files analysed:** `fixtures/incoming/turn0/Game.{hst,m1,m2,m3}` and
   the matching `turn1/` set (3-player game "A Barefoot JayWalk", 128 planets)
 - **Encoding:** standard Stars! container (see `blocks.md`)
-- **Implemented in:** `stars-formats::{file, block, records}`
-  (`StarsFile::block_counts`, `records::planet_headers`); tests in
-  `tests/real_files.rs::hst_block_inventory_and_planets`
+- **Implemented in:** `stars-formats::{file, block, records, planet}`
+  (`StarsFile::block_counts`, `records::planet_headers`,
+  `planet::planet_records`); tests in
+  `tests/real_files.rs::hst_block_inventory_and_planets` and
+  `tests/planet_files.rs`
 
 ## Overview
 
@@ -37,39 +39,22 @@ much smaller planet/fleet set (only what that player has seen/owns).
 
 ## Planet record (`Planet`, type 13)
 
-Each planet block begins with a little-endian **16-bit header word**:
+**Fully decoded — see [`planet.md`](planet.md)** for the complete layout. The
+first 16-bit word is `id` (low 11 bits) + `owner` (high 5 bits, `31` = unowned);
+the second word is `det` + flag bits; then a sequence of presence-gated sections
+(concentrations, environment, owner guesses, surface minerals, population,
+installations, starbase, route).
 
-```
-bits 0..9   planet id   (0-based; 0..=1023)
-bits 10..15 flags/mask   (field-presence)
-```
+**Verified against `Game.hst`:** the 128 planet blocks decode to the contiguous
+ids `0..=127`; exactly three are owned (players 0/1/2), each a homeworld with
+population 25,000, 10 mines/factories/defenses, a starbase, and (for the
+Humanoid player) the centred environment 50/50/50. The 125 unowned planets are
+the 11-byte record `header(4) + decay-bitmask(1) + concentration(3) +
+environment(3)`.
 
-**Verified:** the 128 planet blocks of `Game.hst` decode to the contiguous ids
-`0..=127`. Minimal (undiscovered) planets use flags `62` (word `0xF800 | id`) and
-an **11-byte** payload; the three **homeworlds** use a longer **33-byte** payload
-with a different mask (`0`, `2`, `4` observed). `records::PlanetHeader` exposes
-the id, the flags byte, and the payload length; `is_extended()` distinguishes
-inhabited planets (payload > 11 bytes).
-
-### Minimal 11-byte record — column analysis (hypothesis)
-
-Column ranges across the 125 minimal planet blocks (offsets into the decrypted
-payload):
-
-| Offset | Observed        | Hypothesis                                   |
-|-------:|-----------------|----------------------------------------------|
-| 0–1    | `0xF800 \| id`  | **id word** (verified)                       |
-| 2      | `0x07` constant | part of the flags/mask framing               |
-| 3      | `0x01` / `0x11` | a per-planet flag bit (bit 4)                |
-| 4      | `0x00` constant | —                                            |
-| 5,6,7  | 1..≈119         | **mineral concentrations** (ironium/boranium/germanium); exceed 100 |
-| 8,9,10 | 4..≈97          | **environment** (gravity/temperature/radiation); capped ≤ 100 |
-
-The mineral/environment split is inferred from the value ranges (concentrations
-can exceed 100, environment clicks cannot) and is **not yet confirmed** against
-the manual or a second sample, so it is documented here but **not** surfaced as
-typed fields in `records`. Note the 11-byte record carries **no coordinates** —
-planet x/y live in the `.xy` planet region (see `xy.md`).
+> The earlier id(10)/flags(6) reading of the first word was **wrong** — the
+> verified split is id(11)/owner(5). `records::PlanetHeader` now exposes `id` +
+> `owner`; the full field-by-field view is `planet::PlanetRecord`.
 
 ## Fleet record (`Fleet`, type 16) — partial
 
@@ -82,12 +67,9 @@ be recovered.
 
 ## Open questions / next
 
-- Confirm the planet mineral-vs-environment byte split (needs the manual's
-  homeworld values or a second, different sample game).
-- Decode the extended 33-byte planet record (population, factories, mines,
-  starbase design ref, defense).
 - Decode the `Player` (6) record fully (it shares a layout with the `.rN` race
-  record — see `race-r.md` — plus per-game state).
+  record — see `race-r.md` — plus per-game state: homeworld, tech levels,
+  resources, relations).
 - Decode `Fleet` (16) / `Waypoint` (20) / `Design` (26) records.
 - Footer (type 0) 2-byte contents (year vs checksum).
 
@@ -95,3 +77,8 @@ be recovered.
 
 - `tests/real_files.rs::hst_block_inventory_and_planets` — asserts 3 players,
   128 planets, contiguous ids `0..=127`, and exactly 3 inhabited planets.
+- `tests/planet_files.rs::hst_planet_records_decode_homeworlds` — asserts the
+  full decoded homeworld state (25,000 pop, 10/10/10 installations, starbase,
+  Humanoid 50/50/50 environment).
+- `tests/planet_files.rs::tutorial_hst_planet_records_decode` — 24 planets, 2
+  homeworlds decode cleanly in a second, independent game.

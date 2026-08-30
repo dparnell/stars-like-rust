@@ -93,6 +93,8 @@ pub enum BlockType {
     Planet,
     /// 14 — partial planet record.
     PartialPlanet,
+    /// 15 — minimal planet record (`rtPlanetC`).
+    MinimalPlanet,
     /// 16 — fleet record.
     Fleet,
     /// 17 — partial fleet record.
@@ -125,6 +127,7 @@ impl BlockType {
             12 => Self::Events,
             13 => Self::Planet,
             14 => Self::PartialPlanet,
+            15 => Self::MinimalPlanet,
             16 => Self::Fleet,
             17 => Self::PartialFleet,
             20 => Self::Waypoint,
@@ -148,6 +151,7 @@ impl BlockType {
             Self::Events => 12,
             Self::Planet => 13,
             Self::PartialPlanet => 14,
+            Self::MinimalPlanet => 15,
             Self::Fleet => 16,
             Self::PartialFleet => 17,
             Self::Waypoint => 20,

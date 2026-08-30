@@ -36,8 +36,8 @@
 //! |-----------|---------------------|------------------------------------------|
 //! | (all)     | Block framing       | implemented (round-trips)                |
 //! | (all)     | Header + cipher     | implemented (byte-perfect on real files) |
-//! | `.mN`     | Player state        | round-trips; block inventory + planet ids |
-//! | `.hst`    | Host state          | round-trips; block inventory + planet ids |
+//! | `.mN`     | Player state        | round-trips; block inventory + typed [`PlanetRecord`]s |
+//! | `.hst`    | Host state          | round-trips; block inventory + typed [`PlanetRecord`]s |
 //! | `.hN`     | Player history      | decode/encode round-trips; records: WIP  |
 //! | `.xN`     | Player orders       | decode/encode round-trips; records: WIP  |
 //! | `.rN`     | Race definition     | round-trips; typed [`RaceRecord`] (hab, growth, research, PRT, LRT) — `docs/formats/race-r.md` |
@@ -53,6 +53,7 @@ pub mod crypt;
 pub mod file;
 pub mod header;
 pub mod names;
+pub mod planet;
 pub mod race;
 pub mod records;
 pub mod strings;
@@ -66,6 +67,9 @@ pub use crypt::{StarsRng, PRIMES};
 pub use file::{StarsFile, FILE_FOOTER_BLOCK};
 pub use header::{FileHeader, FileType};
 pub use names::{planet_name, planet_name_count};
+pub use planet::{
+    planet_records, Concentration, Environment, Installations, Minerals, PlanetRecord, Starbase,
+};
 pub use race::{Economy, HabRange, Lrt, Prt, RaceRecord};
 pub use records::{planet_headers, PlanetHeader, MINIMAL_PLANET_LEN};
 pub use strings::{decode_field as decode_stars_string, decode_packed as decode_stars_packed};
