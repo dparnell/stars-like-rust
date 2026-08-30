@@ -16,7 +16,7 @@
 
 use std::path::{Path, PathBuf};
 
-use stars_formats::{FileType, Prt, RaceRecord, StarsFile};
+use stars_formats::{Economy, FileType, Prt, RaceRecord, StarsFile};
 
 /// All race fixtures the user provided, by base filename.
 const RACE_FILES: &[&str] = &[
@@ -157,5 +157,74 @@ fn default_races_decode_names() {
     }
     if seen == 0 {
         eprintln!("skipping: no default race fixtures present in fixtures/r/");
+    }
+}
+
+/// The `fullData` economy block, research percentage and checkbox flags decode
+/// to the real values stored in the built-in race files. The economy bytes and
+/// checkbox layout come from TotalHost's `StarsRace.pl` and were captured from
+/// the fixtures directly (see docs/formats/race-r.md).
+#[test]
+fn default_races_decode_economy_and_flags() {
+    // Humanoid: the fully-generic defaults — 15% research, standard economy,
+    // and neither checkbox set.
+    if let Some(bytes) = fixture("humanoid.r1") {
+        let race = RaceRecord::from_file(&StarsFile::decode(&bytes).unwrap()).unwrap();
+        assert!(race.full_data, "humanoid: race files are always fullData");
+        assert_eq!(race.research_percentage, 15, "humanoid: research %");
+        assert_eq!(
+            race.economy,
+            Economy {
+                resource_per_colonist: 10,
+                produce_per_factory: 10,
+                factory_build_cost: 10,
+                factories_operated: 10,
+                produce_per_mine: 10,
+                mine_build_cost: 5,
+                mines_operated: 10,
+            },
+            "humanoid: economy block"
+        );
+        assert_eq!(race.spend_leftover_points, 0, "humanoid: spend leftover");
+        assert!(
+            !race.expensive_tech_starts_at_level_3,
+            "humanoid: expensive-tech checkbox"
+        );
+        assert!(
+            !race.factories_cost_one_less_germanium,
+            "humanoid: factories-cost-1-less checkbox"
+        );
+    }
+
+    // Nucleoid enables "expensive tech starts at level 3" (checkbox 0x20).
+    if let Some(bytes) = fixture("nucleoid.r1") {
+        let race = RaceRecord::from_file(&StarsFile::decode(&bytes).unwrap()).unwrap();
+        assert!(
+            race.expensive_tech_starts_at_level_3,
+            "nucleoid: expensive-tech checkbox should be set"
+        );
+        assert!(
+            !race.factories_cost_one_less_germanium,
+            "nucleoid: factories checkbox should be clear"
+        );
+    }
+
+    // Rabbitoid enables "factories cost 1 less germanium" (checkbox 0x80).
+    if let Some(bytes) = fixture("rabitoid.r1") {
+        let race = RaceRecord::from_file(&StarsFile::decode(&bytes).unwrap()).unwrap();
+        assert!(
+            race.factories_cost_one_less_germanium,
+            "rabitoid: factories checkbox should be set"
+        );
+        assert!(
+            !race.expensive_tech_starts_at_level_3,
+            "rabitoid: expensive-tech checkbox should be clear"
+        );
+        // Rabbitoid tweaks its economy (cheaper, more-operable factories).
+        assert_eq!(race.economy.factory_build_cost, 9, "rabitoid: factory cost");
+        assert_eq!(
+            race.economy.factories_operated, 17,
+            "rabitoid: factories operated"
+        );
     }
 }

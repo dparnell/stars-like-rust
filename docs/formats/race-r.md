@@ -1,9 +1,13 @@
 # Format: `.rN` — race definition
 
 - **Status:** container **verified byte-for-byte**; race record **largely
-  decoded** (habitability, growth, economy, research, PRT, LRTs, **singular +
-  plural names**) — a few bitfields remain; a typed read-only view is
-  implemented (`stars-formats::race::RaceRecord`)
+  decoded** (habitability, growth, economy, research %, per-field research cost,
+  PRT, LRTs, checkbox flags, **singular + plural names**) — a couple of flag bits
+  remain; a typed read-only view is implemented
+  (`stars-formats::race::RaceRecord`)
+- **Reference used:** TotalHost `StarsRace.pl` (Rick Steeves), which lays out the
+  full type-6 player/race record field-by-field; its offsets were cross-checked
+  against the fixtures below and drive the typed decoder
 - **Original files analysed:** `fixtures/r/{antetherial,humanoid,insectoid,
   nucleoid,rabitoid,random,silicanoid}.r1` — the six built-in default races plus
   a "random" race, exported from the race wizard; **plus** the seven shipped AI
@@ -42,7 +46,14 @@ unless noted; multi-byte integers are little-endian.
 | Offset | Size | Field                | Notes / evidence                                                        |
 |-------:|-----:|----------------------|-------------------------------------------------------------------------|
 | 0      | 1    | player id            | always `0xFF` here → "race-only" block (vs. 0-based id in `.m`/`.hst`)   |
-| 6      | 1    | flags/bitfield       | varies per race (e.g. Humanoid `0x0F`); meaning TBD                      |
+| 1      | 1    | ship designs         | count; always `0` in a race file (player-block field)                   |
+| 2      | 2    | planets              | `d[2] + ((d[3]&0x03)<<8)`; `0` in a race file (player-block field)       |
+| 4      | ~2   | fleets / sb designs  | fleets `d[4]+((d[5]&0x03)<<8)`, starbase designs `(d[5]&0xF0)>>4`; `0` in a race file |
+| 6      | 1    | flags: logo/fullData | `logo = d[6]>>3`, **`fullData = d[6]&0x04`** (always set for `.rN`); selects name framing |
+| 7      | 1    | AI flags             | bit1 = AI enabled, bits2–3 = AI skill, bits5–7 = AI PRT (player-block field) |
+| 8      | 2    | homeworld            | planet id; player-block field (`0` in a race file)                      |
+| 10     | 2    | player rank          | player-block field (`0` in a race file)                                 |
+| 12     | 4    | password             | player-block field; inverts to `FF FF FF FF` when set human-inactive    |
 | 16     | 1    | gravity center       | habitability click 0–100; **`0xFF` = immune** to gravity                |
 | 17     | 1    | temperature center   | click 0–100; `0xFF` = immune to temperature                             |
 | 18     | 1    | radiation center     | click 0–100; `0xFF` = immune to radiation                               |
@@ -53,19 +64,26 @@ unless noted; multi-byte integers are little-endian.
 | 23     | 1    | temperature high     |                                                                         |
 | 24     | 1    | radiation high       |                                                                         |
 | 25     | 1    | growth rate %        | max population growth (Humanoid 15, Rabbitoid 20, Silicanoid 6, …)       |
-| 56     | 1    | research %           | resources spent on research; defaults to `15` (`0x0F`) — per `StarsBlock.pm` |
-| 62     | 1    | resource/colonist    | e.g. Humanoid `10` (÷ divisor for the actual rate)                       |
-| 63     | 1    | produce per factory  |                                                                         |
-| 64     | 1    | factory build cost   |                                                                         |
-| 65     | 1    | factories/10k colon. |                                                                         |
-| 66     | 1    | produce per mine     |                                                                         |
-| 67     | 1    | mine build cost      |                                                                         |
-| 68     | 1    | mines/10k colonists  |                                                                         |
-| 69     | 1    | spend leftover pts   | how surplus advantage points are spent                                  |
+| 26     | 6    | tech levels          | Energy,Weapons,Prop,Const,Elec,Bio; player-block field (`0` in a race file) |
+| 32     | 24   | tech points          | points since previous level per field (4 bytes each); `0` in a race file |
+| 56     | 1    | research %           | resources spent on research; defaults to `15` (`0x0F`) — per `StarsRace.pl` |
+| 57     | 1    | resource priority    | current (`>>4`) / next; player-block field (`0` in a race file)         |
+| 58     | 4    | research pts prev yr | player-block field (`0` in a race file)                                 |
+| 62     | 1    | resource/colonist    | colonists per resource, in thousands (Humanoid `10` = 1 res / 1000 pop) |
+| 63     | 1    | produce per factory  | resources per 10 factories (Humanoid `10`)                              |
+| 64     | 1    | factory build cost   | resources to build one factory (Humanoid `10`)                          |
+| 65     | 1    | factories operated   | factories per 10,000 colonists (Humanoid `10`, Rabbitoid `17`)          |
+| 66     | 1    | produce per mine     | minerals per 10 mines (Humanoid `10`)                                   |
+| 67     | 1    | mine build cost      | resources to build one mine (Humanoid `5`)                              |
+| 68     | 1    | mines operated       | mines per 10,000 colonists (Humanoid `10`)                             |
+| 69     | 1    | spend leftover pts   | selector for surplus advantage points (Humanoid `0`, Rabbitoid `4`)     |
 | 70     | 6    | research cost/field  | one byte per tech field (Energy,Weapons,Prop,Const,Elec,Bio); `0/1/2` = costs-less/normal/costs-more; Humanoid = all `1` |
 | 76     | 1    | **PRT**              | primary racial trait: `0`=HE `1`=SS `2`=WM `3`=CA `4`=IS `5`=SD `6`=PP `7`=IT `8`=AR `9`=JOAT |
+| 77     | 1    | (unknown)            | always `0` in samples; possibly a second PRT byte (per `StarsRace.pl`)   |
 | 78     | 2    | **LRT bitfield**     | lesser racial traits, little-endian u16 (bit layout below); Humanoid = `0` |
-| 81     | 1    | checkbox flags       | bit 5 = *expensive tech starts at level 3*, bit 7 = *factories cost 1 less germ.* (per `StarsBlock.pm`); other bits TBD |
+| 81     | 1    | checkbox flags       | **bit 5** = *expensive tech starts at level 3* (Nucleoid `0x20`), **bit 7** = *factories cost 1 less germ.* (Rabbitoid `0x80`); bit 6 seen set on Random (`0x40`), TBD |
+| 82     | 2    | MT items             | u16; player-block field (`0` in a race file)                            |
+| 112    | var  | player relations     | `len = d[112]`, then one byte per player; `0`-length in a race file; the names follow |
 | var    | var  | race names           | two length-prefixed, nibble-packed strings (singular + plural); see below |
 
 > The habitability layout was confirmed by the perfectly-centred **Humanoid**
@@ -155,18 +173,27 @@ exposes `singular_name` / `plural_name`.
 
 ## Open questions
 
-- The early flags byte (offset 6, besides the `fullData` bit) and the remaining
-  bits of the checkbox byte at offset 81.
-- The exact numeric scaling of the economy bytes (62–69) — the field *positions*
-  are now taken from `StarsBlock.pm`, but the divisors/units still need
-  confirmation against known race stats.
-- Whether spent/leftover advantage points are stored anywhere in the record.
+- The remaining checkbox bits at offset 81 (bit 6 is set on the Random race;
+  meaning unknown) and the unknown byte at offset 77.
+- The exact numeric scaling of the economy bytes (62–68) — the field *positions*
+  and their in-game meaning are now taken from `StarsRace.pl`, but the raw byte →
+  displayed-rate conversions (e.g. how `resource/colonist` maps to "1 per 1000")
+  still want an in-game cross-check.
+- The `spend leftover points` selector (offset 69) — the raw byte is exposed, but
+  the full enumeration of values is not yet mapped.
+- The player-block-only fields (homeworld, rank, password, tech levels/points,
+  resource priority, MT items) are documented from `StarsRace.pl` but not yet
+  decoded here — they are all `0` in a `.rN` file and belong to the `.mN`/`.hst`
+  player-block work.
 
 ## Derived test vectors
 
 - `crates/stars-formats/tests/race_files.rs` — round-trips all seven default
   fixtures, asserts the `[8, 6, 0]` block shape and `0xFF` race marker, decodes
-  their PRTs via `RaceRecord`, and asserts each decoded **singular/plural name**.
+  their PRTs via `RaceRecord`, asserts each decoded **singular/plural name**, and
+  asserts the **economy block, research % and checkbox flags** against the real
+  values (Humanoid defaults, Nucleoid's *expensive-tech* and Rabbitoid's
+  *factories-cost-1-less* checkboxes).
 - `crates/stars-formats/src/strings.rs` — unit tests for the packed-string
   codec (single-nibble table, `B` escape table, `F` literal-byte escape).
 - `crates/stars-formats/tests/exodus_files.rs` — decodes the seven AI races and

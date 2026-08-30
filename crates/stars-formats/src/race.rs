@@ -4,12 +4,16 @@
 //!
 //! Only the fields **verified against real files** are exposed here (see
 //! `docs/formats/race-r.md`): the player marker, the habitability ranges,
-//! growth rate, per-field research cost, the primary racial trait (PRT) and the
-//! lesser-racial-trait (LRT) bitfield. The remaining bytes of the record
-//! (early flags, economy split, packed name strings) are not yet decoded, so
-//! this is a *read-only view* of the proven subset rather than a full model —
-//! it is deliberately **not** used for re-encoding, which still goes through the
-//! byte-exact container in [`crate::file`].
+//! growth rate, the `fullData` marker, the research percentage, the seven-byte
+//! economy block, the per-field research cost, the primary racial trait (PRT),
+//! the lesser-racial-trait (LRT) bitfield, the two known checkbox flags, and the
+//! packed singular/plural names. The field offsets follow TotalHost's
+//! `StarsRace.pl` and were cross-checked against the fixtures. The
+//! player-block-only bytes (homeworld, password, tech levels, MT items, player
+//! relations — all zero in a `.rN` file) are left undecoded. This is a
+//! *read-only view*, not a full model — it is deliberately **not** used for
+//! re-encoding, which still goes through the byte-exact container in
+//! [`crate::file`].
 //!
 //! The PRT byte (offset 76) and the LRT bitfield (offset 78) were confirmed by
 //! the seven built-in default races (all `LRT = 0`) plus the seven shipped AI
@@ -34,6 +38,15 @@ pub const HAB_LOW_OFFSET: usize = 19;
 pub const HAB_HIGH_OFFSET: usize = 22;
 /// Offset of the maximum population growth rate (percent).
 pub const GROWTH_RATE_OFFSET: usize = 25;
+/// Offset of the research-percentage byte (share of resources spent on
+/// research; defaults to `15`). Only meaningful in a `fullData` record.
+pub const RESEARCH_PERCENTAGE_OFFSET: usize = 56;
+/// Offset of the seven-byte economy block (see [`Economy`]). Only meaningful in
+/// a `fullData` record.
+pub const ECONOMY_OFFSET: usize = 62;
+/// Offset of the "spend leftover advantage points on" selector. Only meaningful
+/// in a `fullData` record.
+pub const SPEND_LEFTOVER_OFFSET: usize = 69;
 /// Offset of the six per-field research-cost bytes (Energy, Weapons,
 /// Propulsion, Construction, Electronics, Biotechnology).
 pub const RESEARCH_COST_OFFSET: usize = 70;
@@ -41,6 +54,13 @@ pub const RESEARCH_COST_OFFSET: usize = 70;
 pub const PRT_OFFSET: usize = 76;
 /// Offset of the lesser-racial-trait bitfield (little-endian `u16`).
 pub const LRT_OFFSET: usize = 78;
+/// Offset of the checkbox-flags byte (offset 81). Only meaningful in a
+/// `fullData` record.
+pub const CHECKBOX_OFFSET: usize = 81;
+/// Checkbox bit 5 — *expensive tech starts at level 3*.
+pub const CHECKBOX_EXPENSIVE_TECH_AT_3: u8 = 1 << 5;
+/// Checkbox bit 7 — *factories cost 1 less germanium to build*.
+pub const CHECKBOX_FACTORIES_COST_1_LESS_GERM: u8 = 1 << 7;
 /// Offset of the flags byte that carries the `fullData` marker (bit 2). It is
 /// set for `.rN` race files and full player blocks, where the names live at the
 /// end of the record; when clear, the names start at [`SHORT_NAMES_OFFSET`].
@@ -235,6 +255,29 @@ fn hab(byte: u8) -> Option<u8> {
     }
 }
 
+/// The seven-byte economy block (race-record offsets 62–68). These are the
+/// player-adjustable production settings from the race wizard's "Production"
+/// panel; the values are the raw stored bytes (e.g. Humanoid's default
+/// `10,10,10,10,10,5,10`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Economy {
+    /// Offset 62 — colonists needed per resource, in thousands (`10` = one
+    /// resource per 1000 colonists for the Humanoid default).
+    pub resource_per_colonist: u8,
+    /// Offset 63 — resources produced per 10 factories.
+    pub produce_per_factory: u8,
+    /// Offset 64 — resources to build one factory.
+    pub factory_build_cost: u8,
+    /// Offset 65 — factories that can be operated per 10,000 colonists.
+    pub factories_operated: u8,
+    /// Offset 66 — mineral output per 10 mines.
+    pub produce_per_mine: u8,
+    /// Offset 67 — resources to build one mine.
+    pub mine_build_cost: u8,
+    /// Offset 68 — mines that can be operated per 10,000 colonists.
+    pub mines_operated: u8,
+}
+
 /// The verified subset of a race record, decoded from a decrypted type-6 block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RaceRecord {
@@ -248,6 +291,20 @@ pub struct RaceRecord {
     pub radiation: HabRange,
     /// Maximum population growth rate (percent).
     pub growth_rate: u8,
+    /// Whether the record carries the full player/race payload (the `fullData`
+    /// flag, bit 2 of the flags byte at offset 6). Always `true` for `.rN`
+    /// files; the [`research_percentage`](Self::research_percentage),
+    /// [`economy`](Self::economy) and checkbox fields below are only meaningful
+    /// when this is set.
+    pub full_data: bool,
+    /// Share of resources spent on research, in percent (offset 56; defaults to
+    /// `15`).
+    pub research_percentage: u8,
+    /// Production/economy settings (offsets 62–68).
+    pub economy: Economy,
+    /// Where surplus advantage points are spent (offset 69): a small selector
+    /// (e.g. `3` = on factories); exposed as the raw stored byte.
+    pub spend_leftover_points: u8,
     /// Per-field research cost in field order (Energy, Weapons, Propulsion,
     /// Construction, Electronics, Biotechnology); `0`/`1`/`2` = costs-less /
     /// normal / costs-more.
@@ -256,6 +313,10 @@ pub struct RaceRecord {
     pub prt: Prt,
     /// Raw lesser-racial-trait bitfield (offset 78).
     pub lrt_bits: u16,
+    /// Checkbox: *expensive tech starts at level 3* (offset 81, bit 5).
+    pub expensive_tech_starts_at_level_3: bool,
+    /// Checkbox: *factories cost 1 less germanium to build* (offset 81, bit 7).
+    pub factories_cost_one_less_germanium: bool,
     /// Singular race name (e.g. `"Humanoid"`), decoded from the packed
     /// [`strings`] field at the end of the record. Empty if it could not be
     /// located (e.g. a truncated record).
@@ -284,6 +345,21 @@ impl RaceRecord {
         let mut research_cost = [0u8; 6];
         research_cost.copy_from_slice(&data[RESEARCH_COST_OFFSET..RESEARCH_COST_OFFSET + 6]);
         let (singular, plural) = decode_race_names(data);
+        // `fullData`-only fields (economy, research %, checkboxes). Read with
+        // bounds-checked accessors so a short/non-fullData record decodes to
+        // sane defaults rather than panicking.
+        let byte = |off: usize| data.get(off).copied().unwrap_or(0);
+        let full_data = byte(FLAGS_OFFSET) & FULL_DATA_FLAG != 0;
+        let checkbox = byte(CHECKBOX_OFFSET);
+        let economy = Economy {
+            resource_per_colonist: byte(ECONOMY_OFFSET),
+            produce_per_factory: byte(ECONOMY_OFFSET + 1),
+            factory_build_cost: byte(ECONOMY_OFFSET + 2),
+            factories_operated: byte(ECONOMY_OFFSET + 3),
+            produce_per_mine: byte(ECONOMY_OFFSET + 4),
+            mine_build_cost: byte(ECONOMY_OFFSET + 5),
+            mines_operated: byte(ECONOMY_OFFSET + 6),
+        };
         Ok(Self {
             player_id: data[PLAYER_ID_OFFSET],
             gravity: HabRange {
@@ -302,9 +378,15 @@ impl RaceRecord {
                 high: hab(rh),
             },
             growth_rate: data[GROWTH_RATE_OFFSET],
+            full_data,
+            research_percentage: byte(RESEARCH_PERCENTAGE_OFFSET),
+            economy,
+            spend_leftover_points: byte(SPEND_LEFTOVER_OFFSET),
             research_cost,
             prt: Prt::from_id(data[PRT_OFFSET]),
             lrt_bits: u16::from_le_bytes([data[LRT_OFFSET], data[LRT_OFFSET + 1]]),
+            expensive_tech_starts_at_level_3: checkbox & CHECKBOX_EXPENSIVE_TECH_AT_3 != 0,
+            factories_cost_one_less_germanium: checkbox & CHECKBOX_FACTORIES_COST_1_LESS_GERM != 0,
             singular_name: singular,
             plural_name: plural,
         })
