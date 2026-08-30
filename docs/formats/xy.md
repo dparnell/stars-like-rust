@@ -1,11 +1,13 @@
 # Format: `.xy` — universe definition
 
 - **Status:** header + game-info (type 7) **decoded & verified**; planet array
-  **pending**
-- **Original files analysed:** `fixtures/incoming/Game.xy` (598 bytes, 3-player,
-  small universe "A Barefoot JayWalk")
-- **Encoding:** block framing + Stars! stream cipher (see `blocks.md`)
-- **Implemented in:** header/cipher via `stars-formats`; planet decoding TBD
+  **structure decoded** — whole file **round-trips byte-for-byte**
+- **Original files analysed:** `fixtures/incoming/turn0/Game.xy` and
+  `turn1/Game.xy` (598 bytes, 3-player, small universe "A Barefoot JayWalk")
+- **Encoding:** block framing + Stars! stream cipher (see `blocks.md`); the
+  planet region is **plaintext-packed** (not ciphered)
+- **Implemented in:** `stars-formats::xy::{Universe, PlanetPosition}`
+  (`tests/real_files.rs::{turn0,turn1}_xy_universe_round_trips`)
 
 ## Overview
 
@@ -23,9 +25,9 @@ does **not** re-frame as blocks.
 | 2     | PlanetsBlock (type 7)       | encrypted; **game info**, not planets    |
 | 3     | planet region (raw)         | **not standard block framing** — see below |
 
-Because of block 3, `StarsFile::decode` currently returns an error for `.xy`
-(framing hits an impossible block near offset `0xFE`). The header and game-info
-are decoded directly in `tests/real_files.rs::xy_header_and_game_info_decode`.
+Because of region 3, `StarsFile::decode` returns an error for `.xy`; the
+dedicated `xy::Universe` parser handles all three parts and re-encodes the file
+byte-for-byte.
 
 ## Game-info block (type 7) — decrypted payload
 
@@ -51,37 +53,42 @@ index): `0 PlanetControl`, `1 TechLevel`, `2 TechFields`, `3 Score`,
 `4 ScoreExcess`, `5 Production`, `6 CapitalShips`, `7 HighScoreAt`,
 `8 MustMeet`, `9 LeastYears`.
 
-## Planet region (open)
+## Planet region (decoded)
 
-After the game-info block (offset `0x54` in `Game.xy`) **514 bytes** remain.
-Established facts about this region:
+After the game-info block (offset `0x54` in `Game.xy`) **514 bytes** remain,
+laid out as a **2-byte region header** followed by **128 × 4-byte planet
+records** (`514 = 2 + 128 × 4`; 128 matches the planet count from the `.hst`).
+The region is stored **plaintext** — parsing the raw on-disk bytes yields clean
+coordinates, so it is *not* run through the stream cipher.
 
-- it is **byte-identical across turn 0 and turn 1** — the universe geometry is
-  fixed once and never rewritten (verified);
-- `514 = 2 + 128 × 4` — with 128 planets in this game (confirmed via the
-  `.hst` planet blocks) this strongly implies **4 bytes per planet** plus a
-  2-byte prefix or trailer;
-- it does **not** re-frame as blocks: naive framing yields a `type 5 (size 10)`,
-  a `type 6 (size 5)`, then a bogus `type 0 (size 125)` that does not reach EOF;
-- it is **not** a plain continuation of the game-info keystream (decrypting it as
-  such yields uniformly-distributed noise, not clustered coordinates);
-- the fleet position bytes from the `.hst` (`a4 05 1c 06`) do **not** appear
-  literally in the region, so coordinates are **packed/encoded**, not stored as
-  raw little-endian words.
+Each 4-byte record is a little-endian `u32`:
 
-Because the `.hst`/`.mN` **PlanetBlock (type 13)** decodes cleanly to sequential
-planet ids (`records::planet_headers`, verified `0..=127`) but carries **no
-coordinates**, the x/y geometry must live *here* in the `.xy` planet region.
+| Bits  | Field        | Notes                                             |
+|------:|--------------|---------------------------------------------------|
+| 0..9  | x coordinate | 10 bits (0..1023)                                 |
+| 10..19| y coordinate | 10 bits (0..1023)                                 |
+| 20..31| name index   | 12 bits; index into the planet-name table         |
+
+**Evidence:** at this offset all 128 records decode to coordinates cleanly
+bounded within the 10-bit field (`x∈[15,987]`, `y∈[1,945]`) with **no two
+planets sharing a position**; at any other offset the values overflow/overlap.
+The whole `.xy` file then **re-encodes byte-for-byte** via `Universe::encode`.
+
+**Caveats (still open):**
+
+- The **axis assignment** (which 10-bit field is x vs y) follows the community
+  convention and is not independently confirmed — it does not affect
+  byte-accuracy. (The fleet-anchor bytes in the `.hst`, `a4 05 1c 06`, turned
+  out **not** to be a position, so there is no external coordinate oracle yet.)
+- The **2-byte region header** (`0a 14` here) is preserved verbatim; its meaning
+  (a count, seed, or flags) is not yet known.
+- The **name index → text** mapping (the planet-name table) is not yet decoded.
 
 ### Next steps
 
-- Nail the 4-byte planet packing: determine whether the 2 extra bytes are a
-  leading count/seed or a trailing checksum, and how x/y (and a name index) are
-  bit-packed into each 4-byte record. Cross-check by matching the three
-  homeworld ids (`32`, `69`, `112`) to their fleet anchor positions.
-- If the packing resists static analysis, recover the `.xy` planet writer from
-  `STARS!.EXE` in Ghidra (reachable from new-game/universe generation) to read
-  the exact bit layout and any per-region keystream/seed.
+- Confirm the x/y axis order and decode the name-index table (from a save whose
+  planet names are visible, or the `STARS!.EXE` name table in Ghidra).
+- Identify the 2-byte region header's meaning.
 
 ## Derived test vectors
 

@@ -25,8 +25,7 @@
 
 use std::path::{Path, PathBuf};
 
-use stars_formats::block::split_blocks;
-use stars_formats::{planet_headers, BlockType, FileHeader, FileType, StarsFile};
+use stars_formats::{planet_headers, BlockType, FileType, StarsFile, Universe};
 
 /// Expected per-game id shared by every file of the sample game.
 const GAME_ID: u32 = 0x2a03_1dd8;
@@ -189,43 +188,63 @@ fn hst_block_inventory_and_planets() {
 }
 
 /// The `.xy` universe file is not fully block-framed (a raw planet array
-/// follows the game-info block), so full decode is expected to error today.
-/// We can still decrypt its header + game-info block manually. Checked for both
-/// captured turns (the `.xy` is unchanged across a turn generation).
-fn assert_xy_header_and_game_info(rel: &str) {
+/// follows the game-info block), so [`StarsFile::decode`] still errors on it;
+/// the dedicated [`Universe`] parser handles it and round-trips byte-for-byte.
+/// Checked for both captured turns (the `.xy` is unchanged across a turn
+/// generation).
+fn assert_xy_universe(rel: &str) {
     let Some(bytes) = fixture(rel) else {
         eprintln!("skipping {rel}: fixture not present");
         return;
     };
 
-    // Full framing currently fails on the trailing planet array.
+    // The generic full-file decoder does not handle the trailing planet array.
     assert!(
         StarsFile::decode(&bytes).is_err(),
-        "{rel}: expected .xy full-frame decode to error until planet array is decoded"
+        "{rel}: expected generic .xy decode to error; use Universe instead"
     );
 
-    // First block = plaintext header.
-    let first = &split_blocks(&bytes[..18]).unwrap()[0];
-    let header = FileHeader::parse(&first.data).unwrap();
-    assert_eq!(header.game_id, GAME_ID, "{rel}: game id");
-    assert_eq!(header.file_type, FileType::Universe, "{rel}: file type");
+    let universe =
+        Universe::decode(&bytes).unwrap_or_else(|e| panic!("Universe::decode {rel}: {e}"));
 
-    // Second block (type 7, 64 bytes) = encrypted game-info; decrypt it.
-    let mut rng = header.init_rng();
-    let game_info = rng.apply(&bytes[0x14..0x14 + 64]);
-    let players = game_info[8] & 0x1F;
-    assert_eq!(players, 3, "{rel}: sample game has 3 players");
-    let name_end = game_info[32..64].iter().position(|&b| b == 0).unwrap_or(32);
-    let name = std::str::from_utf8(&game_info[32..32 + name_end]).unwrap();
+    // Header + game-info decode as before.
+    assert_eq!(universe.header.game_id, GAME_ID, "{rel}: game id");
+    assert_eq!(universe.header.file_type, FileType::Universe, "{rel}: type");
+    let gi = &universe.game_info;
+    assert_eq!(gi[8] & 0x1F, 3, "{rel}: sample game has 3 players");
+    let name_end = gi[32..64].iter().position(|&b| b == 0).unwrap_or(32);
+    let name = std::str::from_utf8(&gi[32..32 + name_end]).unwrap();
     assert_eq!(name, "A Barefoot JayWalk", "{rel}: game name");
+
+    // Planet array: one record per planet, matching the 128 planets in the
+    // `.hst`. Coordinates are bounded to the 10-bit field and no two planets
+    // share a position (both broken at any offset other than the real one).
+    assert_eq!(universe.planet_count(), 128, "{rel}: planet count");
+    let mut seen = std::collections::HashSet::new();
+    for (i, p) in universe.planets.iter().enumerate() {
+        assert!(
+            p.x < 1024 && p.y < 1024,
+            "{rel}: planet {i} coord out of range"
+        );
+        assert!(
+            seen.insert((p.x, p.y)),
+            "{rel}: planet {i} shares a position"
+        );
+    }
+
+    // The killer contract: re-encode is byte-for-byte identical.
+    let reencoded = universe
+        .encode()
+        .unwrap_or_else(|e| panic!("encode {rel}: {e}"));
+    assert_eq!(reencoded, bytes, "{rel}: .xy re-encode not byte-identical");
 }
 
 #[test]
-fn turn0_xy_header_and_game_info_decode() {
-    assert_xy_header_and_game_info("turn0/Game.xy");
+fn turn0_xy_universe_round_trips() {
+    assert_xy_universe("turn0/Game.xy");
 }
 
 #[test]
-fn turn1_xy_header_and_game_info_decode() {
-    assert_xy_header_and_game_info("turn1/Game.xy");
+fn turn1_xy_universe_round_trips() {
+    assert_xy_universe("turn1/Game.xy");
 }

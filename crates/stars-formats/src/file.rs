@@ -15,10 +15,10 @@
 //! byte-for-byte identical to the input (see `tests/real_files.rs`).
 //!
 //! > **`.xy` note:** universe files are *not* fully block-framed — a game-info
-//! > block (type 7) is followed by a raw planet array that is neither standard
-//! > framing nor a keystream continuation. [`StarsFile::decode`] therefore
-//! > currently returns an error for `.xy`; decoding its planet array is tracked
-//! > in `docs/formats/xy.md`.
+//! > block (type 7) is followed by a raw, unencrypted packed planet array.
+//! > [`StarsFile::decode`] therefore returns an error for `.xy`; use the
+//! > dedicated [`crate::xy::Universe`] parser instead (it round-trips `.xy`
+//! > byte-for-byte). See `docs/formats/xy.md`.
 
 use std::collections::BTreeMap;
 

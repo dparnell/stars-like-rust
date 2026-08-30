@@ -149,8 +149,10 @@ depends on `turn`) is correct on non-zero turns.
   fleets, designs, production queues, …). The `.hst`/`.mN` **block inventory** is
   now decoded and the **planet-id word** verified — see `hst.md`; the per-field
   planet/fleet/design layouts remain.
-- `.xy` **planet array** decoding — see `xy.md` (established 4-byte-per-planet
-  packing; exact bit layout still open).
+- `.xy` **planet array** — **decoded** (see `xy.md`): a 2-byte region header +
+  128 plaintext 4-byte records (`x:10 | y:10 | name:12`); whole `.xy` file
+  round-trips byte-for-byte via `xy::Universe`. Axis order and the name table
+  remain open.
 - Footer contents per extension (year vs checksum).
 - `.rN` race file layout — **decoded** from `fixtures/r/` (see `race-r.md`): a
   single type-6 block holding habitability, growth, economy, research, PRT and
