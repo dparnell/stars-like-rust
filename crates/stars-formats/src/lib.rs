@@ -36,8 +36,8 @@
 //! |-----------|---------------------|------------------------------------------|
 //! | (all)     | Block framing       | implemented (round-trips)                |
 //! | (all)     | Header + cipher     | implemented (byte-perfect on real files) |
-//! | `.mN`     | Player state        | round-trips; block inventory + typed [`PlanetRecord`]s |
-//! | `.hst`    | Host state          | round-trips; block inventory + typed [`PlanetRecord`]s |
+//! | `.mN`     | Player state        | round-trips; typed [`PlayerRecord`]/[`PlanetRecord`]/[`FleetRecord`]/[`DesignRecord`] |
+//! | `.hst`    | Host state          | round-trips; typed [`PlayerRecord`]/[`PlanetRecord`]/[`FleetRecord`]/[`DesignRecord`] |
 //! | `.hN`     | Player history      | decode/encode round-trips; records: WIP  |
 //! | `.xN`     | Player orders       | decode/encode round-trips; records: WIP  |
 //! | `.rN`     | Race definition     | round-trips; typed [`RaceRecord`] (hab, growth, research, PRT, LRT) — `docs/formats/race-r.md` |
@@ -50,11 +50,13 @@
 
 pub mod block;
 pub mod crypt;
+pub mod design;
 pub mod file;
 pub mod fleet;
 pub mod header;
 pub mod names;
 pub mod planet;
+pub mod player;
 pub mod race;
 pub mod records;
 pub mod strings;
@@ -65,6 +67,7 @@ pub use block::{
     FILE_HEADER_BLOCK, MAX_BLOCK_SIZE, MAX_BLOCK_TYPE,
 };
 pub use crypt::{StarsRng, PRIMES};
+pub use design::{design_records, DesignRecord, Slot};
 pub use file::{StarsFile, FILE_FOOTER_BLOCK};
 pub use fleet::{fleet_records, Cargo, FleetRecord, ShipDamage, ShipStack};
 pub use header::{FileHeader, FileType};
@@ -72,6 +75,7 @@ pub use names::{planet_name, planet_name_count};
 pub use planet::{
     planet_records, Concentration, Environment, Installations, Minerals, PlanetRecord, Starbase,
 };
+pub use player::{player_records, PlayerRecord};
 pub use race::{Economy, HabRange, Lrt, Prt, RaceRecord};
 pub use records::{planet_headers, PlanetHeader, MINIMAL_PLANET_LEN};
 pub use strings::{decode_field as decode_stars_string, decode_packed as decode_stars_packed};

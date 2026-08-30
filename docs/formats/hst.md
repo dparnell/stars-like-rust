@@ -1,17 +1,20 @@
 # Format: `.hst` / `.mN` — host & player state (block inventory)
 
 - **Status:** container **verified byte-for-byte**; **block inventory decoded**;
-  the **planet record** (see `planet.md`) and the **fleet record** (see
-  `fleet.md`) are fully decoded & verified; the remaining per-record layouts
-  (players, ship designs, waypoints) are **in progress**
+  the **player record** (see `player.md`), **planet record** (see `planet.md`),
+  **fleet record** (see `fleet.md`) and **design record** (see `design.md`) are
+  fully decoded & verified; the remaining per-record layouts (waypoints, events,
+  battle plans) are **in progress**
 - **Original files analysed:** `fixtures/incoming/turn0/Game.{hst,m1,m2,m3}` and
   the matching `turn1/` set (3-player game "A Barefoot JayWalk", 128 planets)
 - **Encoding:** standard Stars! container (see `blocks.md`)
-- **Implemented in:** `stars-formats::{file, block, records, planet, fleet}`
+- **Implemented in:** `stars-formats::{file, block, records, player, planet, fleet, design}`
   (`StarsFile::block_counts`, `records::planet_headers`,
-  `planet::planet_records`, `fleet::fleet_records`); tests in
+  `player::player_records`, `planet::planet_records`, `fleet::fleet_records`,
+  `design::design_records`); tests in
   `tests/real_files.rs::hst_block_inventory_and_planets`,
-  `tests/planet_files.rs` and `tests/fleet_files.rs`
+  `tests/player_files.rs`, `tests/planet_files.rs`, `tests/fleet_files.rs` and
+  `tests/design_files.rs`
 
 ## Overview
 
