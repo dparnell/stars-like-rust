@@ -38,7 +38,7 @@
 //! | (all)     | Header + cipher     | implemented (byte-perfect on real files) |
 //! | `.mN`     | Player state        | round-trips; typed [`PlayerRecord`]/[`PlanetRecord`]/[`FleetRecord`]/[`WaypointRecord`]/[`DesignRecord`]/[`BattlePlanRecord`]/[`ProductionQueueRecord`]/[`ScoreRecord`] |
 //! | `.hst`    | Host state          | round-trips; typed [`PlayerRecord`]/[`PlanetRecord`]/[`FleetRecord`]/[`WaypointRecord`]/[`DesignRecord`]/[`BattlePlanRecord`]/[`ProductionQueueRecord`] |
-//! | `.hN`     | Player history      | decode/encode round-trips; typed [`ScoreRecord`]; other records: WIP |
+//! | `.hN`     | Player history      | decode/encode round-trips; typed [`HistoryHeader`]/[`ScoreRecord`]; other records: WIP |
 //! | `.xN`     | Player orders       | decode/encode round-trips; records: WIP  |
 //! | `.rN`     | Race definition     | round-trips; typed [`RaceRecord`] (hab, growth, research, PRT, LRT) — `docs/formats/race-r.md` |
 //! | `.xy`     | Universe definition | round-trips; header, game-info & planet array (coords + names) decoded |
@@ -55,6 +55,7 @@ pub mod design;
 pub mod file;
 pub mod fleet;
 pub mod header;
+pub mod history;
 pub mod names;
 pub mod planet;
 pub mod player;
@@ -76,6 +77,7 @@ pub use design::{design_records, DesignRecord, Slot};
 pub use file::{StarsFile, FILE_FOOTER_BLOCK};
 pub use fleet::{fleet_records, Cargo, FleetRecord, ShipDamage, ShipStack};
 pub use header::{FileHeader, FileType};
+pub use history::{history_header, HistoryHeader};
 pub use names::{planet_name, planet_name_count};
 pub use planet::{
     planet_records, Concentration, Environment, Installations, Minerals, PlanetRecord, Starbase,

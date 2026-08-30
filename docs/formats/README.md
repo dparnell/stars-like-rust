@@ -3,15 +3,25 @@
 One spec per on-disk file format, created from
 `../templates/format-layout-template.md`.
 
-> **Authoritative reference:** the [`sirgwain/stars-decompile`](https://github.com/sirgwain/stars-decompile)
-> project is a reconstruction of the real Stars! C source (with the actual
-> `types.h`/`enums.h` struct + record-type definitions and the `file.c`/`save.c`
-> load/save code). Its identifiers supersede the earlier tool-derived names
-> (TotalHost, starsapi, stars-4x). See `record-types.md`.
+> **Authoritative reference:** [`sirgwain/stars-asm`](https://github.com/sirgwain/stars-asm)
+> extracts the **CodeView NB09 debug symbols** from a debug build of `Stars! 2.7j`,
+> yielding the game's *actual* struct/enum/field names and offsets — the highest
+> authority available. Its sibling [`sirgwain/stars-decompile`](https://github.com/sirgwain/stars-decompile)
+> reconstructs the C source (`types.h`/`enums.h`, `file.c`/`save.c`). Together they
+> supersede the earlier tool-derived names (TotalHost, starsapi, stars-4x). See
+> `nb09-structs.md` and `record-types.md`.
+>
+> Our shipped `binary/STARS!.EXE` is the stripped retail build (no debug data);
+> the NB09 symbols come from stars-asm's separate debug image but describe the
+> same program lineage, so they apply to our files.
 
 Shared foundation:
 
-- `record-types.md` — the **authoritative record-type (block) registry**
+- `nb09-structs.md` — the **authoritative on-disk record structs** recovered
+  from the NB09 debug symbols (`HDR`, `RTBOF`, `RTPLANET`, `RTSHDEF`/`HS`, `PROD`,
+  `SCORE`/`SCOREX`, `RTHISTHDR`, the `.xN` `rtLog*`/`RTXFER*` order records, the
+  `DtFileType` tags), each mapped to our module and flagged confirmed/new.
+- `record-types.md` — the **record-type (block) registry**
   (`rt*` ids → our `BlockType`), the header (`RTBOF`) layout and the `dt`
   file-type table, taken from the decompiled `enums.h`/`save.c`.
 - `blocks.md` — **block framing** shared by every format (implemented &
@@ -47,6 +57,9 @@ Per-format (payload record layouts, populated as decoded in Step 2):
 - `score.md` — player-scores blocks (type 45) in `.mN`/`.hN`:
   **decoded & verified** (`stars-formats::score`)
 - `race-r.md` — race definition (`.rN`): record largely decoded
-- player history (`.hN`) and player orders (`.xN`): container round-trips; the
-  score record (type 45) in `.hN` is decoded; other record layouts not yet
-  documented
+- player history (`.hN`): container round-trips; the **history header**
+  (`RTHISTHDR`, type 32) is decoded & verified (`stars-formats::history`) and the
+  score record (type 45) is decoded; other record layouts not yet decoded.
+- player orders (`.xN`): container round-trips; the `rtLog*` operation-record
+  format and payload structs are **documented** in `nb09-structs.md`; typed
+  decoders await orders-bearing fixtures.
