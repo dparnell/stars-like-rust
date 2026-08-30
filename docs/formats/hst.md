@@ -1,16 +1,17 @@
 # Format: `.hst` / `.mN` — host & player state (block inventory)
 
 - **Status:** container **verified byte-for-byte**; **block inventory decoded**;
-  the **planet record is fully decoded & verified** (see `planet.md`); the
-  remaining per-record layouts (players, fleets, designs) are **in progress**
+  the **planet record** (see `planet.md`) and the **fleet record** (see
+  `fleet.md`) are fully decoded & verified; the remaining per-record layouts
+  (players, ship designs, waypoints) are **in progress**
 - **Original files analysed:** `fixtures/incoming/turn0/Game.{hst,m1,m2,m3}` and
   the matching `turn1/` set (3-player game "A Barefoot JayWalk", 128 planets)
 - **Encoding:** standard Stars! container (see `blocks.md`)
-- **Implemented in:** `stars-formats::{file, block, records, planet}`
+- **Implemented in:** `stars-formats::{file, block, records, planet, fleet}`
   (`StarsFile::block_counts`, `records::planet_headers`,
-  `planet::planet_records`); tests in
-  `tests/real_files.rs::hst_block_inventory_and_planets` and
-  `tests/planet_files.rs`
+  `planet::planet_records`, `fleet::fleet_records`); tests in
+  `tests/real_files.rs::hst_block_inventory_and_planets`,
+  `tests/planet_files.rs` and `tests/fleet_files.rs`
 
 ## Overview
 
@@ -56,21 +57,24 @@ environment(3)`.
 > verified split is id(11)/owner(5). `records::PlanetHeader` now exposes `id` +
 > `owner`; the full field-by-field view is `planet::PlanetRecord`.
 
-## Fleet record (`Fleet`, type 16) — partial
+## Fleet record (`Fleet`, type 16)
 
-The starting fleet blocks (22–23 bytes) share a common 8-byte signature
-`07 09 45 00 a4 05 1c 06` across **all** fleets of **all** players, so that run
-is **not** a position (fleets sit at three different homeworlds). The leading and
-trailing bytes vary per fleet (fleet id + a design/cargo reference). Full fleet
-layout — including where the fleet's planet/coord anchor is stored — is still to
-be recovered.
+**Fully decoded — see [`fleet.md`](fleet.md).** The 14-byte header is
+`id`(9)+`owner`(4) word, an ignored redundant player word, a `det`+flags byte
+pair, the orbited planet id, the x/y position, and a ship-design bitmask; then
+ship counts, an optional cargo hold, and full/partial tails.
+
+**Verified against `Game.hst`:** the 14 starting fleets (6/4/4 per player) each
+orbit their owner's homeworld (planets 69/112/32) with one ship and a fuel
+supply. The earlier "8-byte signature" hypothesis was wrong — that run is just
+the flags/orbit/position of fleets sharing a homeworld.
 
 ## Open questions / next
 
 - Decode the `Player` (6) record fully (it shares a layout with the `.rN` race
   record — see `race-r.md` — plus per-game state: homeworld, tech levels,
   resources, relations).
-- Decode `Fleet` (16) / `Waypoint` (20) / `Design` (26) records.
+- Decode `Waypoint` (19/20), `FleetName` (21) and `Design` (26) records.
 - Footer (type 0) 2-byte contents (year vs checksum).
 
 ## Derived test vectors
@@ -82,3 +86,5 @@ be recovered.
   Humanoid 50/50/50 environment).
 - `tests/planet_files.rs::tutorial_hst_planet_records_decode` — 24 planets, 2
   homeworlds decode cleanly in a second, independent game.
+- `tests/fleet_files.rs::hst_fleet_records_decode_starting_fleets` — 14 fleets
+  (6/4/4 per player), each orbiting its owner's homeworld with one fuelled ship.

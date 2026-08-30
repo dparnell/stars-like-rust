@@ -20,6 +20,9 @@ Per-format (payload record layouts, populated as decoded in Step 2):
   progress
 - `planet.md` — planet blocks (types 13/14/15) shared by `.hst`/`.mN`/`.hN`:
   **fully decoded & verified** (`stars-formats::planet`)
+- `fleet.md` — fleet blocks (types 16/17/18) shared by `.hst`/`.mN`/`.hN`:
+  **fully decoded & verified** (`stars-formats::fleet`); waypoint/name/design
+  layouts documented for follow-up
 - `race-r.md` — race definition (`.rN`): record largely decoded
 - player history (`.hN`) and player orders (`.xN`): container round-trips; record
   layouts not yet documented

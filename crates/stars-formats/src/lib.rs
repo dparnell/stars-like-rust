@@ -51,6 +51,7 @@
 pub mod block;
 pub mod crypt;
 pub mod file;
+pub mod fleet;
 pub mod header;
 pub mod names;
 pub mod planet;
@@ -65,6 +66,7 @@ pub use block::{
 };
 pub use crypt::{StarsRng, PRIMES};
 pub use file::{StarsFile, FILE_FOOTER_BLOCK};
+pub use fleet::{fleet_records, Cargo, FleetRecord, ShipDamage, ShipStack};
 pub use header::{FileHeader, FileType};
 pub use names::{planet_name, planet_name_count};
 pub use planet::{
