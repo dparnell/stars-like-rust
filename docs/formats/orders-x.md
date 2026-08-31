@@ -158,31 +158,84 @@ Decoded by [`PlanetRoutingOrder`] (`planet_id`, `no_research`, `fling_target`,
 
 ### Cargo transfer (`RTXFER` family, ids 1 / 2 / 23 / 25)
 
+The four variants differ only in the width of the item mask and of each
+quantity; one signed quantity follows per set bit in `grbitItems`:
+
+| op (id)                    | struct    | mask  | quantity |
+|----------------------------|-----------|-------|----------|
+| `rtLogCargoXfer8` (1)       | `RTXFER`  | `u8`  | `i8`     |
+| `rtLogCargoXfer16` (2)      | `RTXFERX` | `u8`  | `i16`    |
+| `rtLogFleetCargoXfer` (23)  | `RTXFERF` | `u16` | `i16`    |
+| `rtLogCargoXfer32` (25)     | `RTXFERL` | `u8`  | `i32`    |
+
 ```c
 typedef struct _rtxfer {
     uint16_t id1, id2;           /* +0x00 the two objects */
     uint8_t  grobj1 : 4, grobj2 : 4; /* +0x04 their classes */
-    uint8_t  grbitItems;         /* +0x05 item bitmask */
-    char     rgcQuan[1];         /* +0x06 per-item quantities (width per variant) */
-} RTXFER; /* int16 form = RTXFERF, int32 form = RTXFERL */
+    uint8_t  grbitItems;         /* +0x05 item bitmask (u16 in RTXFERF) */
+    char     rgcQuan[1];         /* per-item quantities (width per variant) */
+} RTXFER;
 ```
 
-The per-item quantity encoding depends on the variant (int8/int16/int32) and the
-`grbitItems` bitmask, so [`CargoTransfer`] decodes only the unambiguous 5-byte
-prefix (`id1`, `id2`, `grobj1`, `grobj2`) and preserves the remainder as
-`quantity_bytes`. (Decoding the quantity list per bitmask is a follow-up.)
+[`CargoTransfer`] decodes `id1`, `id2`, `grobj1`, `grobj2`, the `items_mask`,
+and the per-item signed `quantities` (widened to `i32`), and still preserves the
+raw quantity region as `quantity_bytes`. Verified on the exodus files: every
+transfer has exactly `popcount(items_mask)` quantities and the raw bytes equal
+`count × width`.
+
+### Ship-design change (`RTCHGSHDEF`, id 27)
+
+```c
+typedef struct _rtchgshdef {
+    uint16_t mdChg : 4, iPlr : 4, ishdef : 5, junk : 3; /* +0x00 header word */
+    RTSHDEF  rtshdef;                                   /* +0x02 embedded design */
+} RTCHGSHDEF;
+```
+
+[`ShipDesignChange`] decodes the header word (`mode`/`player`/`design_index`)
+and, when present, the embedded design via
+[`DesignRecord`](../../crates/stars-formats/src/design.rs) (a bare *delete* is
+just the 2-byte header, no design). In exodus every design change is owned by
+player 6 (`iPlr = 5`) and carries `mdChg = 1` when a design body is present.
+
+### Production-queue change (`RTCHGPRODQ`, id 29)
+
+`{ int16_t id; PROD rgprod[]; }` — a planet id followed by packed production
+items. Decoded by
+[`ProductionQueueRecord::decode_change`](../../crates/stars-formats/src/production.rs)
+(exposed via `LogRecord::as_production_queue`); the `.xN` change form always
+carries the target planet id.
+
+### Fleet rename (`RTCHGNAME`, id 44)
+
+```c
+typedef struct _rtchgname {
+    int16_t id;      /* +0x00 object id */
+    int16_t grobj;   /* +0x02 object class */
+    uint8_t rgb[33]; /* +0x04 packed-string field: [len][packed data] */
+} RTCHGNAME;
+```
+
+[`FleetName`] decodes `id`, `grobj`, and the trailing name field via the
+packed-string decoder ([`decode_stars_string`]); a leading length byte of `0`
+means the name was written as a literal C string. (Not present in the exodus
+capture, so decoded from the NB09 struct rather than fixture-verified.)
+
+### `THING` byte parameter (`RTLOGTHING`, id 43)
+
+`{ uint16_t idFull; int16_t fDetonate; }` — a full object id plus a parameter
+(e.g. a minefield arm/detonate flag). Decoded by [`ThingParam`]. (Also absent
+from exodus; decoded from the struct.)
 
 ## Open items
 
-- Cargo-transfer **quantity** decoding (per `grbitItems`, per width variant).
-- Ship-design change (`rtLogShDef`, 27) — wraps `RTCHGSHDEF` (an `RTSHDEF` with a
-  4-bit change-mode + player/slot prefix); the design body itself is already
-  decoded by [`DesignRecord`](../../crates/stars-formats/src/design.rs).
-- Production-queue change (`rtLogPlanetProdQ`, 29) — `id` + `PROD[]`, already
-  decodable via [`ProductionQueueRecord::decode_change`](../../crates/stars-formats/src/production.rs).
-- Fleet rename (`rtLogFleetName`, 44) — packed/optionally-compressed user string.
 - The 11 `rgbConfig` bytes of `RTLOGHDR` (game-settings snapshot) are preserved
   but not field-split.
+- `rtLogFleetSplit` (24), `rtLogFleetMerge` (37), `rtLogFleetFlagBit9` (10),
+  `rtLogFleetOrderAttrNib` (11), `rtLogRelations` (38), `rtLogFleetPlan` (42)
+  and `rtLogPlayerZpq1` (46) are classified but not yet field-decoded.
+- `RTCHGNAME` (44) and `RTLOGTHING` (43) decoders are struct-derived; they need
+  an orders fixture that renames a fleet / toggles a minefield to fixture-verify.
 
 [`object_owner`]: ../../crates/stars-formats/src/orders.rs
 [`object_index`]: ../../crates/stars-formats/src/orders.rs
@@ -192,3 +245,7 @@ prefix (`id1`, `id2`, `grobj1`, `grobj2`) and preserves the remainder as
 [`ResearchOrder`]: ../../crates/stars-formats/src/orders.rs
 [`PlanetRoutingOrder`]: ../../crates/stars-formats/src/orders.rs
 [`CargoTransfer`]: ../../crates/stars-formats/src/orders.rs
+[`ShipDesignChange`]: ../../crates/stars-formats/src/orders.rs
+[`FleetName`]: ../../crates/stars-formats/src/orders.rs
+[`ThingParam`]: ../../crates/stars-formats/src/orders.rs
+[`decode_stars_string`]: ../../crates/stars-formats/src/strings.rs

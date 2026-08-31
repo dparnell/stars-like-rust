@@ -200,3 +200,75 @@ fn exodus_x6_typed_operations_are_coherent() {
         "expected at least one research order in the run"
     );
 }
+
+/// The record-body decoders recovered from the NB09 structs — cargo transfers
+/// (with per-item quantities), production-queue changes, and ship-design
+/// changes — decode coherently on the real order sequence.
+#[test]
+fn exodus_x6_record_bodies_decode() {
+    let years = exodus_order_years();
+    if years.is_empty() {
+        eprintln!("skipping: no exodus .x6 orders present");
+        return;
+    }
+
+    let mut saw_cargo = false;
+    let mut saw_prodq = false;
+    let mut saw_shdef = false;
+    for year in &years {
+        let bytes = read_order_file(*year);
+        let label = format!("{year}/EXODUS.X6");
+        let file = StarsFile::decode(&bytes).unwrap();
+        let log = order_log(&file);
+
+        for rec in &log.records {
+            if let Some(x) = rec.as_cargo_transfer() {
+                saw_cargo = true;
+                // One quantity per set bit in the item mask, and the raw
+                // quantity bytes exactly cover those quantities.
+                assert_eq!(
+                    x.quantities.len(),
+                    x.items_mask.count_ones() as usize,
+                    "{label}: cargo quantity count vs mask"
+                );
+                let width = match rec.record_type {
+                    LogRecordType::CargoXfer8 => 1,
+                    LogRecordType::CargoXfer32 => 4,
+                    _ => 2,
+                };
+                assert_eq!(
+                    x.quantity_bytes.len(),
+                    x.quantities.len() * width,
+                    "{label}: cargo quantity bytes vs count*width"
+                );
+            }
+            if let Some(q) = rec.as_production_queue() {
+                saw_prodq = true;
+                // The .xN change form always carries the target planet id.
+                assert!(q.planet_id.is_some(), "{label}: prod-queue missing planet");
+                assert!(!q.items.is_empty(), "{label}: prod-queue has no items");
+            }
+            if let Some(c) = rec.as_ship_design_change() {
+                saw_shdef = true;
+                assert_eq!(
+                    c.player, EXODUS_PLAYER,
+                    "{label}: design change not owned by player 6"
+                );
+                // A change that carries a design (add/update) decodes it.
+                if c.design.is_some() {
+                    assert!(c.mode != 0, "{label}: mode 0 should be a bare delete");
+                }
+            }
+        }
+    }
+
+    assert!(saw_cargo, "expected at least one cargo transfer in the run");
+    assert!(
+        saw_prodq,
+        "expected at least one production-queue change in the run"
+    );
+    assert!(
+        saw_shdef,
+        "expected at least one ship-design change in the run"
+    );
+}

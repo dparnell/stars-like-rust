@@ -16,7 +16,10 @@
 //! Like the other record decoders this is a read-only *interpreted view*;
 //! byte-exact write-back still goes through the container in [`crate::file`].
 
+use crate::design::DesignRecord;
 use crate::file::StarsFile;
+use crate::production::ProductionQueueRecord;
+use crate::strings::decode_field;
 
 /// The block type id of the order-log header record (`RTLOGHDR`).
 pub const LOG_HEADER_BLOCK: u8 = 9;
@@ -336,13 +339,19 @@ impl PlanetRoutingOrder {
     }
 }
 
-/// The common fixed prefix of a cargo-transfer operation (`RTXFER` family,
-/// type ids 1/2/23/25).
+/// A decoded cargo-transfer operation (`RTXFER` family, type ids 1/2/23/25).
 ///
-/// Only the unambiguous prefix — the two object ids and their classes — is
-/// decoded; the per-item quantities that follow are kept as raw bytes in
-/// [`Self::quantity_bytes`] because their width and packing depend on the op
-/// variant and the `grbitItems` bitmask.
+/// A transfer moves cargo between two objects (`id1`/`id2`, classes
+/// `grobj1`/`grobj2`). A `grbitItems` bitmask selects which cargo categories
+/// are present, and one signed quantity follows per set bit. The four op
+/// variants differ only in the width of the mask and of each quantity:
+///
+/// | op (type id)                | mask width | quantity width |
+/// |-----------------------------|-----------:|---------------:|
+/// | `rtLogCargoXfer8` (1)        | `u8`       | `i8`  (`RTXFER`)  |
+/// | `rtLogCargoXfer16` (2)       | `u8`       | `i16` (`RTXFERX`) |
+/// | `rtLogFleetCargoXfer` (23)   | `u16`      | `i16` (`RTXFERF`) |
+/// | `rtLogCargoXfer32` (25)      | `u8`       | `i32` (`RTXFERL`) |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CargoTransfer {
     /// The first object id involved in the transfer (`id1`).
@@ -353,26 +362,167 @@ pub struct CargoTransfer {
     pub grobj1: u8,
     /// The class of the second object (`grobj2`, high nibble of byte 4).
     pub grobj2: u8,
-    /// The raw remainder after the fixed 5-byte prefix (item bitmask +
-    /// quantities), preserved verbatim.
+    /// The `grbitItems` bitmask selecting which cargo categories are present
+    /// (8-bit for most variants, 16-bit for `rtLogFleetCargoXfer`).
+    pub items_mask: u16,
+    /// One signed quantity per set bit in [`Self::items_mask`], in ascending
+    /// bit order, widened to `i32`.
+    pub quantities: Vec<i32>,
+    /// The raw quantity region (everything after the mask), preserved verbatim.
     pub quantity_bytes: Vec<u8>,
 }
 
 impl CargoTransfer {
-    /// Decode the fixed prefix of a **decrypted** cargo-transfer payload.
+    /// The mask width (`true` = 16-bit) and quantity width (bytes) for an op.
+    fn params(record_type: LogRecordType) -> Option<(bool, usize)> {
+        match record_type {
+            LogRecordType::CargoXfer8 => Some((false, 1)),
+            LogRecordType::CargoXfer16 => Some((false, 2)),
+            LogRecordType::CargoXfer32 => Some((false, 4)),
+            LogRecordType::FleetCargoXfer => Some((true, 2)),
+            _ => None,
+        }
+    }
+
+    /// Decode a **decrypted** cargo-transfer payload for the given op variant.
     ///
-    /// Returns `None` if the payload is shorter than the 5-byte prefix.
+    /// Returns `None` if `record_type` is not a cargo-transfer op or the
+    /// payload is too short for the fixed prefix + mask.
     #[must_use]
-    pub fn decode(data: &[u8]) -> Option<Self> {
+    pub fn decode(data: &[u8], record_type: LogRecordType) -> Option<Self> {
+        let (mask_u16, width) = Self::params(record_type)?;
         if data.len() < 5 {
             return None;
+        }
+        let (mask, quantity_start) = if mask_u16 {
+            if data.len() < 7 {
+                return None;
+            }
+            (u16::from_le_bytes([data[5], data[6]]), 7usize)
+        } else {
+            (u16::from(data[5]), 6usize)
+        };
+        let count = mask.count_ones() as usize;
+        let mut quantities = Vec::with_capacity(count);
+        let mut off = quantity_start;
+        for _ in 0..count {
+            if off + width > data.len() {
+                break;
+            }
+            let q: i32 = match width {
+                1 => i32::from(data[off] as i8),
+                2 => i32::from(i16::from_le_bytes([data[off], data[off + 1]])),
+                _ => i32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]]),
+            };
+            quantities.push(q);
+            off += width;
         }
         Some(Self {
             id1: u16::from_le_bytes([data[0], data[1]]),
             id2: u16::from_le_bytes([data[2], data[3]]),
             grobj1: data[4] & 0xF,
             grobj2: (data[4] >> 4) & 0xF,
-            quantity_bytes: data[5..].to_vec(),
+            items_mask: mask,
+            quantities,
+            quantity_bytes: data[quantity_start..].to_vec(),
+        })
+    }
+}
+
+/// A decoded fleet-rename operation (`RTCHGNAME`, type id 44).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FleetName {
+    /// The object being renamed (raw object id; see [`object_owner`] /
+    /// [`object_index`]).
+    pub id: u16,
+    /// The object class (`grobj`).
+    pub grobj: u16,
+    /// The new name, decoded from the trailing packed-string field. A leading
+    /// length byte of `0` means the name was stored as a literal C string
+    /// rather than the packed encoding; both are handled by the decoder.
+    pub name: String,
+}
+
+impl FleetName {
+    /// Decode a **decrypted** `RTCHGNAME` payload (type id 44).
+    ///
+    /// Returns `None` if the payload is shorter than the 4-byte fixed part.
+    #[must_use]
+    pub fn decode(data: &[u8]) -> Option<Self> {
+        if data.len() < 4 {
+            return None;
+        }
+        Some(Self {
+            id: u16::from_le_bytes([data[0], data[1]]),
+            grobj: u16::from_le_bytes([data[2], data[3]]),
+            name: decode_field(&data[4..]),
+        })
+    }
+}
+
+/// A decoded ship-design-change operation (`RTCHGSHDEF`, type id 27).
+///
+/// The op carries a packed header word (`mdChg`/`iPlr`/`ishdef`) followed by an
+/// embedded ship-design record (`RTSHDEF`, the same layout as a type-26 design
+/// block). A pure *delete* carries only the header word and no design.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShipDesignChange {
+    /// The change mode (`mdChg`, low nibble): add / update / delete.
+    pub mode: u8,
+    /// The owning player index (`iPlr`, next nibble).
+    pub player: u8,
+    /// The design slot index (`ishdef`, 5 bits at bit 8).
+    pub design_index: u8,
+    /// The embedded design (`RTSHDEF`); `None` for a delete (header only).
+    pub design: Option<DesignRecord>,
+}
+
+impl ShipDesignChange {
+    /// Decode a **decrypted** `RTCHGSHDEF` payload (type id 27).
+    ///
+    /// Returns `None` if the payload is shorter than the 2-byte header word.
+    #[must_use]
+    pub fn decode(data: &[u8]) -> Option<Self> {
+        if data.len() < 2 {
+            return None;
+        }
+        let hdr = u16::from_le_bytes([data[0], data[1]]);
+        let design = if data.len() > 2 {
+            DesignRecord::from_payload(&data[2..]).ok()
+        } else {
+            None
+        };
+        Some(Self {
+            mode: (hdr & 0xF) as u8,
+            player: ((hdr >> 4) & 0xF) as u8,
+            design_index: ((hdr >> 8) & 0x1F) as u8,
+            design,
+        })
+    }
+}
+
+/// A decoded `THING`-parameter operation (`RTLOGTHING`, type id 43).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ThingParam {
+    /// The full object id of the `THING` (`idFull`).
+    pub id_full: u16,
+    /// The parameter written into the `THING` (`fDetonate` — e.g. arm/disarm a
+    /// mine field or detonation flag).
+    pub param: i16,
+}
+
+impl ThingParam {
+    /// Decode a **decrypted** `RTLOGTHING` payload (type id 43).
+    ///
+    /// Returns `None` if the payload is shorter than 4 bytes.
+    #[must_use]
+    pub fn decode(data: &[u8]) -> Option<Self> {
+        if data.len() < 4 {
+            return None;
+        }
+        Some(Self {
+            id_full: u16::from_le_bytes([data[0], data[1]]),
+            param: i16::from_le_bytes([data[2], data[3]]),
         })
     }
 }
@@ -423,18 +573,44 @@ impl LogRecord {
             .flatten()
     }
 
-    /// Decode this record as a cargo-transfer operation (fixed prefix only).
+    /// Decode this record as a cargo-transfer operation, including the
+    /// per-item quantities (their width is taken from the op variant).
     #[must_use]
     pub fn as_cargo_transfer(&self) -> Option<CargoTransfer> {
-        matches!(
-            self.record_type,
-            LogRecordType::CargoXfer8
-                | LogRecordType::CargoXfer16
-                | LogRecordType::CargoXfer32
-                | LogRecordType::FleetCargoXfer
-        )
-        .then(|| CargoTransfer::decode(&self.data))
-        .flatten()
+        CargoTransfer::decode(&self.data, self.record_type)
+    }
+
+    /// Decode this record as a fleet-rename operation.
+    #[must_use]
+    pub fn as_fleet_name(&self) -> Option<FleetName> {
+        (self.record_type == LogRecordType::FleetName)
+            .then(|| FleetName::decode(&self.data))
+            .flatten()
+    }
+
+    /// Decode this record as a ship-design-change operation.
+    #[must_use]
+    pub fn as_ship_design_change(&self) -> Option<ShipDesignChange> {
+        (self.record_type == LogRecordType::ShipDesign)
+            .then(|| ShipDesignChange::decode(&self.data))
+            .flatten()
+    }
+
+    /// Decode this record as a production-queue-change operation (planet id +
+    /// queued items).
+    #[must_use]
+    pub fn as_production_queue(&self) -> Option<ProductionQueueRecord> {
+        (self.record_type == LogRecordType::PlanetProdQueue)
+            .then(|| ProductionQueueRecord::decode_change(&self.data))
+            .flatten()
+    }
+
+    /// Decode this record as a `THING`-parameter operation.
+    #[must_use]
+    pub fn as_thing_param(&self) -> Option<ThingParam> {
+        (self.record_type == LogRecordType::ThingByteParam)
+            .then(|| ThingParam::decode(&self.data))
+            .flatten()
     }
 }
 
@@ -558,13 +734,60 @@ mod tests {
     }
 
     #[test]
-    fn decodes_cargo_transfer_prefix() {
-        let d = [0x10, 0x0a, 0x20, 0x00, 0x12, 0xff, 0x00];
-        let x = CargoTransfer::decode(&d).unwrap();
+    fn decodes_cargo_transfer_xfer8() {
+        // id1=0x0a10, id2=0x0020, classes 2/1, mask 0x08 (one item), qty i8 -1.
+        let d = [0x10, 0x0a, 0x20, 0x00, 0x12, 0x08, 0xff];
+        let x = CargoTransfer::decode(&d, LogRecordType::CargoXfer8).unwrap();
         assert_eq!(x.id1, 0x0a10);
         assert_eq!(x.id2, 0x0020);
         assert_eq!(x.grobj1, 2);
         assert_eq!(x.grobj2, 1);
-        assert_eq!(x.quantity_bytes, vec![0xff, 0x00]);
+        assert_eq!(x.items_mask, 0x08);
+        assert_eq!(x.quantities, vec![-1]);
+        assert_eq!(x.quantity_bytes, vec![0xff]);
+    }
+
+    #[test]
+    fn decodes_cargo_transfer_fleet_u16_mask_i16_qty() {
+        // FleetCargoXfer: 16-bit mask 0x0001 (one item), one i16 quantity 300.
+        let d = [0x10, 0x0a, 0x12, 0x0a, 0x00, 0x01, 0x00, 0x2c, 0x01];
+        let x = CargoTransfer::decode(&d, LogRecordType::FleetCargoXfer).unwrap();
+        assert_eq!(x.items_mask, 0x0001);
+        assert_eq!(x.quantities, vec![300]);
+    }
+
+    #[test]
+    fn non_cargo_type_yields_no_transfer() {
+        assert!(CargoTransfer::decode(&[0u8; 8], LogRecordType::Research).is_none());
+    }
+
+    #[test]
+    fn decodes_fleet_name() {
+        // id, grobj, then a packed-string field: len=1, one nibble byte 0x12
+        // -> "ae" (single-nibble table).
+        let d = [0x10, 0x0a, 0x01, 0x00, 0x01, 0x12];
+        let n = FleetName::decode(&d).unwrap();
+        assert_eq!(n.id, 0x0a10);
+        assert_eq!(n.grobj, 1);
+        assert_eq!(n.name, "ae");
+    }
+
+    #[test]
+    fn decodes_ship_design_change_delete_has_no_design() {
+        // Header only (delete): word 0x0450 -> mdChg=0, iPlr=5, ishdef=4.
+        let d = [0x50, 0x04];
+        let c = ShipDesignChange::decode(&d).unwrap();
+        assert_eq!(c.mode, 0);
+        assert_eq!(c.player, 5);
+        assert_eq!(c.design_index, 4);
+        assert!(c.design.is_none());
+    }
+
+    #[test]
+    fn decodes_thing_param() {
+        let d = [0x2a, 0x00, 0x01, 0x00];
+        let t = ThingParam::decode(&d).unwrap();
+        assert_eq!(t.id_full, 0x2a);
+        assert_eq!(t.param, 1);
     }
 }
