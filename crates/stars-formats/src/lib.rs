@@ -37,7 +37,7 @@
 //! | (all)     | Block framing       | implemented (round-trips)                |
 //! | (all)     | Header + cipher     | implemented (byte-perfect on real files) |
 //! | `.mN`     | Player state        | round-trips; typed [`PlayerRecord`]/[`PlanetRecord`]/[`FleetRecord`]/[`WaypointRecord`]/[`DesignRecord`]/[`BattlePlanRecord`]/[`ProductionQueueRecord`]/[`ScoreRecord`] |
-//! | `.hst`    | Host state          | round-trips; typed [`PlayerRecord`]/[`PlanetRecord`]/[`FleetRecord`]/[`WaypointRecord`]/[`DesignRecord`]/[`BattlePlanRecord`]/[`ProductionQueueRecord`] |
+//! | `.hst`    | Host state          | round-trips; typed [`PlayerRecord`]/[`PlanetRecord`]/[`FleetRecord`]/[`WaypointRecord`]/[`DesignRecord`]/[`BattlePlanRecord`]/[`ProductionQueueRecord`]/[`Thing`] |
 //! | `.hN`     | Player history      | decode/encode round-trips; typed [`HistoryHeader`]/[`ScoreRecord`]; other records: WIP |
 //! | `.xN`     | Player orders       | round-trips; typed [`OrderLog`] ([`LogHeader`] + classified [`LogRecord`]s: waypoints, cargo, research, routing, …) — `docs/formats/orders-x.md` |
 //! | `.rN`     | Race definition     | round-trips; typed [`RaceRecord`] (hab, growth, research, PRT, LRT) — `docs/formats/race-r.md` |
@@ -65,6 +65,7 @@ pub mod race;
 pub mod records;
 pub mod score;
 pub mod strings;
+pub mod thing;
 pub mod waypoint;
 pub mod xy;
 
@@ -94,6 +95,10 @@ pub use race::{Economy, HabRange, Lrt, Prt, RaceRecord};
 pub use records::{planet_headers, PlanetHeader, MINIMAL_PLANET_LEN};
 pub use score::{score_records, ScoreRecord, VictoryConditions};
 pub use strings::{decode_field as decode_stars_string, decode_packed as decode_stars_packed};
+pub use thing::{
+    thing_records, thing_section, Minefield, MineralPacket, MysteryTrader, Thing, ThingKind,
+    ThingSection, ThingType, Wormhole, THING_BLOCK, THING_SIZE,
+};
 pub use waypoint::{waypoint_records, WaypointRecord};
 pub use xy::{Planet, PlanetPosition, Universe};
 

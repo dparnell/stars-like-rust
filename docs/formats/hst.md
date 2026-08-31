@@ -4,9 +4,11 @@
   the **player record** (see `player.md`), **planet record** (see `planet.md`),
   **fleet record** (see `fleet.md`), **design record** (see `design.md`),
   **waypoint** (see `waypoint.md`), **battle plan** (see `battleplan.md`),
-  **production queue** (see `production.md`) and **player-scores** (see
-  `score.md`) records are fully decoded & verified; the remaining per-record
-  layouts (events, map objects) are **in progress**
+  **production queue** (see `production.md`), **player-scores** (see
+  `score.md`) and **space objects** (see `thing.md`) records are fully decoded &
+  verified; the only remaining per-record layout is the **message** record
+  (type 12), whose text needs the message-template catalogue (deferred to the
+  simulation phase)
 - **Original files analysed:** `fixtures/incoming/turn0/Game.{hst,m1,m2,m3}` and
   the matching `turn1/` set (3-player game "A Barefoot JayWalk", 128 planets)
 - **Encoding:** standard Stars! container (see `blocks.md`)
@@ -38,7 +40,7 @@ Decoded via `StarsFile::block_counts`. In file order the blocks are:
 | `Fleet` (16) + `Waypoint` (20)  | 14+14 | starting fleets, each followed by a waypoint  |
 | `BattlePlan` (30)               | 15    | 5 per player (see `battleplan.md`)            |
 | `ProductionQueue` (28)          | 0+    | planet build lists after turn 1 (`production.md`) |
-| `Object` (43)                   | 5     | minefields / packets / other map objects      |
+| `Object` (43)                   | 5     | 1 count record + 4 `THING`s (fresh game: 4 wormholes) — `thing.md` |
 | `FileFooter` (0)                | 1     | plaintext; 2 bytes (year/checksum — TBD)      |
 
 `.mN` files have the same shape but only the owning player's `Player` block and a
@@ -77,7 +79,8 @@ the flags/orbit/position of fleets sharing a homeworld.
 
 ## Open questions / next
 
-- Decode `Events` (12), `Object` (43) and `FleetName` (21) records.
+- Decode the `Message` (`rtMsg`, type 12) record body — needs the message-id →
+  text-template catalogue (belongs with the simulation core).
 - Footer (type 0) 2-byte contents (year vs checksum).
 
 ## Derived test vectors

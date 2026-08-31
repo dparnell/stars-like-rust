@@ -171,7 +171,7 @@ A buildable Cargo workspace and a documentation pipeline exist, ready to receive
 - Set up a Ghidra triage doc that clusters the ~1350 functions by segment and by exported entry points (`RACEWIZARDDLG*`, `HOSTMODEDIALOG`, `TRANSFERDLG`, `BROWSERWNDPROC`, `ZIPPRODDLG`, `ORDERINFODLG`) into UI / simulation / file-I/O regions.
 - Wire up CI-style `cargo build`/`cargo test` and a fixtures folder for real sample game files.
 
-### * Step 2: Reverse-engineer and implement file formats
+### ✓ Step 2: Reverse-engineer and implement file formats
 `stars-formats` reads and byte-accurately re-writes the core Stars! file formats, verified against real files.
 
 - Locate load/save and (de)compression/encoding routines in Ghidra (reachable from transfer/host-mode code).
@@ -179,7 +179,7 @@ A buildable Cargo workspace and a documentation pipeline exist, ready to receive
 - Implement typed models and `read_/write_` pairs per format in `stars-formats`.
 - Add differential round-trip tests asserting `write(read(bytes)) == bytes` on real fixtures plus semantic-equality checks.
 
-###   Step 3: Reverse-engineer and implement the deterministic simulation core
+### * Step 3: Reverse-engineer and implement the deterministic simulation core
 `stars-core` models the universe and reproduces the original's per-subsystem calculations deterministically.
 
 - Define the core data model (`GameState`: universe, planets, fleets, players, tech tree, seed, turn).

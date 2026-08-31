@@ -56,6 +56,9 @@ Per-format (payload record layouts, populated as decoded in Step 2):
   **decoded & verified** (`stars-formats::production`)
 - `score.md` — player-scores blocks (type 45) in `.mN`/`.hN`:
   **decoded & verified** (`stars-formats::score`)
+- `thing.md` — space objects (type 43: minefields, mineral packets, wormholes,
+  mystery traders) in `.hst`/`.mN`/`.hN`: count + `THING` records
+  **decoded & verified** (`stars-formats::thing`)
 - `orders-x.md` — player orders (`.xN`, the order log): the log header
   (`RTLOGHDR`, type 9) and the common `rtLog*` operations (waypoints, cargo,
   research, planet routing, fleet order edits) are **decoded & verified**

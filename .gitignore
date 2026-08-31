@@ -4,6 +4,9 @@
 *.lock
 *~
 
+# Python bytecode cache (e.g. from running docs/ghidra/apply_symbols.py)
+__pycache__/
+
 # Rust
 /target
 # Keep the workspace lockfile under version control even though *.lock is
