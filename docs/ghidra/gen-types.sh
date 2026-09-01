@@ -96,4 +96,14 @@ fi
   printf '\n/* ======================== END generated game types ========================= */\n'
 } > "$out"
 
+# Collapse every C bitfield declaration into a plain scalar field of the same
+# base type (keeping the bit layout as a comment). Ghidra's decompiler aborts a
+# whole function when it must form a pointer to a bitfield ("Pointer reference
+# data-type may not be a bitfield"), so importing bitfields breaks decompilation
+# of any routine that dereferences such a struct/union pointer (e.g.
+# CAdvantagePoints via the PLAYER flags word). This is size-preserving for these
+# headers — see strip-bitfields.py. The decompiler is bitfield-unaware anyway
+# (it renders shift/mask), so nothing is lost in the decompiler view.
+python3 "$here/strip-bitfields.py" < "$out" > "$out.tmp" && mv "$out.tmp" "$out"
+
 echo "wrote $out ($(wc -l < "$out") lines)"

@@ -4249,10 +4249,7 @@ typedef enum StandardCursorId {
 
 
 typedef struct _aipart {
-    uint16_t ibit : 4, /* +0x0000 (2) @bit0 */
-        iItem : 5,     /* @bit4 */
-        cItem : 4,     /* @bit9 */
-        fRandom : 3;   /* @bit13 */
+    uint16_t ibit; /* bitfield: ibit:4, iItem:5, cItem:4, fRandom:3 */
 } AIPART;              /* size=0x2 */
 
 typedef struct _aistarbase {
@@ -4306,16 +4303,8 @@ typedef struct _bomb {
 } BOMB;                      /* size=0x3a */
 
 typedef struct _btlplan {
-    uint16_t iplr : 4,      /* +0x0000 (2) @bit0 */
-        iplan : 4,          /* @bit4 */
-        mdTactic : 4,       /* @bit8 */
-        unused1 : 2,        /* @bit12 */
-        fDelete : 1,        /* @bit14 */
-        fDumpCargo : 1;     /* @bit15 */
-    uint16_t mdTarget1 : 4, /* +0x0002 (2) @bit0 */
-        mdTarget2 : 4,      /* @bit4 */
-        iplrAttack : 5,     /* @bit8 */
-        unused2 : 3;        /* @bit13 */
+    uint16_t iplr; /* bitfield: iplr:4, iplan:4, mdTactic:4, unused1:2, fDelete:1, fDumpCargo:1 */
+    uint16_t mdTarget1; /* bitfield: mdTarget1:4, mdTarget2:4, iplrAttack:5, unused2:3 */
     char szName[32];        /* +0x0004 (32) */
 } BTLPLAN;                  /* size=0x24 */
 
@@ -4323,8 +4312,7 @@ typedef struct _coldrop {
     int16_t  idFleetSrc;       /* +0x0000 (2) */
     int16_t  idPlr;            /* +0x0002 (2) */
     int16_t  idPlanetDst;      /* +0x0004 (2) */
-    uint16_t fCanColonize : 1, /* +0x0006 (2) @bit0 */
-        unused : 15;           /* @bit1 */
+    uint16_t fCanColonize; /* bitfield: fCanColonize:1, unused:15 */
     int32_t cColonist;         /* +0x0008 (4) */
 } COLDROP;                     /* size=0xc */
 
@@ -4340,28 +4328,14 @@ typedef struct _compart {
 
 typedef struct _cyberinfo {
     union {
-        uint16_t iLstPktDir : 3, /* +0x0000 (2) @bit0 */
-            fBltColony : 1,      /* @bit3 */
-            fLaunchedPkt : 1,    /* @bit4 */
-            iPktTarget : 2,      /* @bit5 */
-            fNeedScanPkt : 1,    /* @bit7 */
-            unused : 8;          /* @bit8 */
+        uint16_t iLstPktDir; /* bitfield: iLstPktDir:3, fBltColony:1, fLaunchedPkt:1, iPktTarget:2, fNeedScanPkt:1, unused:8 */
         uint16_t wInfo;          /* +0x0000 (2) */
     };
 } CYBERINFO; /* size=0x2 */
 
 typedef struct _cyberinfotemp {
     union {
-        uint16_t fIdleColonizers : 1, /* +0x0000 (2) @bit0 */
-            cIdleFreighters : 2,      /* @bit1 */
-            cFreightersDst : 2,       /* @bit3 */
-            fNeedDefenders : 1,       /* @bit5 */
-            fDefended : 1,            /* @bit6 */
-            fUnderAttack : 1,         /* @bit7 */
-            fNeedsMin1 : 1,           /* @bit8 */
-            fNeedsMin2 : 1,           /* @bit9 */
-            fNeedsMin3 : 1,           /* @bit10 */
-            unused : 5;               /* @bit11 */
+        uint16_t fIdleColonizers; /* bitfield: fIdleColonizers:1, cIdleFreighters:2, cFreightersDst:2, fNeedDefenders:1, fDefended:1, fUnderAttack:1, fNeedsMin1:1, fNeedsMin2:1, fNeedsMin3:1, unused:5 */
         uint16_t wInfo1;              /* +0x0000 (2) */
     };
 } CYBERINFOTEMP; /* size=0x2 */
@@ -4369,8 +4343,7 @@ typedef struct _cyberinfotemp {
 typedef struct _dv {
     union {
         uint16_t dp;        /* +0x0000 (2) */
-        uint16_t pctSh : 7, /* +0x0000 (2) @bit0 */
-            pctDp : 9;      /* @bit7 */
+        uint16_t pctSh; /* bitfield: pctSh:7, pctDp:9 */
     };
 } DV; /* size=0x2 */
 
@@ -4387,9 +4360,7 @@ typedef struct _engine {
 } ENGINE;                     /* size=0x4e */
 
 typedef struct _fleetid {
-    uint16_t ifl : 9, /* +0x0000 (2) @bit0 */
-        iplr : 4,     /* @bit9 */
-        junk : 3;     /* @bit13 */
+    uint16_t ifl; /* bitfield: ifl:9, iplr:4, junk:3 */
 } FLEETID;            /* size=0x2 */
 
 typedef struct _framestuff {
@@ -4415,17 +4386,7 @@ typedef struct _game {
     int16_t mdStartDist; /* +0x000C (2) */
     int16_t fDirty;      /* +0x000E (2) */
     union {
-        uint16_t fExtraFuel : 1, /* +0x0010 (2) @bit0 */
-            fSlowTech : 1,       /* @bit1 */
-            fSinglePlr : 1,      /* @bit2 */
-            fTutorial : 1,       /* @bit3 */
-            fAisBand : 1,        /* @bit4 */
-            fBBSPlay : 1,        /* @bit5 */
-            fVisScores : 1,      /* @bit6 */
-            fNoRandom : 1,       /* @bit7 */
-            fClumping : 1,       /* @bit8 */
-            wGen : 3,            /* @bit9 */
-            unused : 4;          /* @bit12 */
+        uint16_t fExtraFuel; /* bitfield: fExtraFuel:1, fSlowTech:1, fSinglePlr:1, fTutorial:1, fAisBand:1, fBBSPlay:1, fVisScores:1, fNoRandom:1, fClumping:1, wGen:3, unused:4 */
         uint16_t wCrap;          /* +0x0010 (2) */
     };
     uint16_t turn;       /* +0x0012 (2) */
@@ -4437,61 +4398,18 @@ typedef struct _gdata {
     union {
         int32_t grBits; /* +0x0000 (4) */
         struct {
-            uint16_t fUnknownShip : 1, /* +0x0000 (2) @bit0 */
-                fGeneratingTurn : 1,   /* @bit1 */
-                fForceTurn : 1,        /* @bit2 */
-                fHostMode : 1,         /* @bit3 */
-                fSubmit : 1,           /* @bit4 */
-                fNoResearchSav : 1,    /* @bit5 */
-                fRadiatingEngine : 1,  /* @bit6 */
-                fNoIdleChecks : 1,     /* @bit7 */
-                fSendMsgMode : 1,      /* @bit8 */
-                fRetryOpens : 1,       /* @bit9 */
-                fAisDone : 1,          /* @bit10 */
-                fTutorial : 1,         /* @bit11 */
-                fGotoVCR : 1,          /* @bit12 */
-                fVCRTimer : 1,         /* @bit13 */
-                mdScreenSize : 2;      /* @bit14 */
-            uint16_t fGameOverMan : 1, /* +0x0002 (2) @bit0 */
-                fDontDoLogFiles : 1,   /* @bit1 */
-                fFileCrippled : 1,     /* @bit2 */
-                fSmallTileMode : 1,    /* @bit3 */
-                fAllAis : 1,           /* @bit4 */
-                fReadOnly : 1,         /* @bit5 */
-                fExitWindows : 1,      /* @bit6 */
-                fPartialTurn : 1,      /* @bit7 */
-                fSetMassMode : 1,      /* @bit8 */
-                fRptSafeDraw : 1,      /* @bit9 */
-                fProgressTxt : 1,      /* @bit10 */
-                fSoundFX : 1,          /* @bit11 */
-                fNoSound : 1,          /* @bit12 */
-                fSetRouteMode : 1,     /* @bit13 */
-                fBleedingEdge : 1,     /* @bit14 */
-                fToolbar : 1;          /* @bit15 */
+            uint16_t fUnknownShip; /* bitfield: fUnknownShip:1, fGeneratingTurn:1, fForceTurn:1, fHostMode:1, fSubmit:1, fNoResearchSav:1, fRadiatingEngine:1, fNoIdleChecks:1, fSendMsgMode:1, fRetryOpens:1, fAisDone:1, fTutorial:1, fGotoVCR:1, fVCRTimer:1, mdScreenSize:2 */
+            uint16_t fGameOverMan; /* bitfield: fGameOverMan:1, fDontDoLogFiles:1, fFileCrippled:1, fSmallTileMode:1, fAllAis:1, fReadOnly:1, fExitWindows:1, fPartialTurn:1, fSetMassMode:1, fRptSafeDraw:1, fProgressTxt:1, fSoundFX:1, fNoSound:1, fSetRouteMode:1, fBleedingEdge:1, fToolbar:1 */
         };
     };
     union {
         int32_t grBits2; /* +0x0004 (4) */
         struct {
-            uint16_t fNoScannerDraw : 1, /* +0x0004 (2) @bit0 */
-                fTrialPeriodOver : 1,    /* @bit1 */
-                fClose : 1,              /* @bit2 */
-                fDontCalcBleed : 1,      /* @bit3 */
-                fChgZipOrd : 1,          /* @bit4 */
-                fChgZipProd : 1,         /* @bit5 */
-                fChgScanner : 1,         /* @bit6 */
-                fChgReports : 1,         /* @bit7 */
-                fWriteTurnNum : 1,       /* @bit8 */
-                fHotSeat : 1,            /* @bit9 */
-                fFleetLinkValid : 1,     /* @bit10 */
-                fScoreVictory : 2;       /* @bit11 */
-            uint16_t iCurGraph : 4,      /* +0x0006 (2) @bit0 */
-                fMusic : 1,              /* @bit4 */
-                fPerPlayerDumps : 1,     /* @bit5 */
-                fNoHostNames : 1;        /* @bit6 */
+            uint16_t fNoScannerDraw; /* bitfield: fNoScannerDraw:1, fTrialPeriodOver:1, fClose:1, fDontCalcBleed:1, fChgZipOrd:1, fChgZipProd:1, fChgScanner:1, fChgReports:1, fWriteTurnNum:1, fHotSeat:1, fFleetLinkValid:1, fScoreVictory:2 */
+            uint16_t iCurGraph; /* bitfield: iCurGraph:4, fMusic:1, fPerPlayerDumps:1, fNoHostNames:1 */
         };
     };
-    uint16_t fUnused2 : 14; /* +0x0008 (2) @bit0 */
+    uint16_t fUnused2; /* bitfield: fUnused2:14 */
 } GDATA;                    /* size=0xa */
 
 typedef struct _hb {
@@ -4506,14 +4424,12 @@ typedef struct _hb {
 } HB;                  /* size=0x10 */
 
 typedef struct _hdr {
-    uint16_t cb : 10, /* +0x0000 (2) @bit0 */
-        rt : 6;       /* @bit10 */
+    uint16_t cb; /* bitfield: cb:10, rt:6 */
 } HDR;                /* size=0x2 */
 
 typedef struct _hs {
     HullSlotType grhst;     /* +0x0000 (2) */
-    uint16_t     iItem : 8, /* +0x0002 (2) @bit0 */
-        cItem : 8;          /* @bit8 */
+    uint16_t iItem; /* bitfield: iItem:8, cItem:8 */
 } HS;                       /* size=0x4 */
 
 typedef struct _hul {
@@ -4533,17 +4449,13 @@ typedef struct _hul {
 
 typedef struct _huldef {
     HUL      hul;        /* +0x0000 (123) */
-    uint16_t init : 6,   /* +0x007B (2) @bit0 */
-        imdAttack : 4,   /* @bit6 */
-        imdCategory : 4, /* @bit10 */
-        unused : 2;      /* @bit14 */
+    uint16_t init; /* bitfield: init:6, imdAttack:4, imdCategory:4, unused:2 */
     uint16_t wrcCargo;   /* +0x007D (2) */
     uint8_t  rgbrc[16];  /* +0x007F (16) */
 } HULDEF;                /* size=0x8f */
 
 typedef struct _itemaction {
-    uint16_t cQuan : 12, /* +0x0000 (2) @bit0 */
-        iAction : 4;     /* @bit12 */
+    uint16_t cQuan; /* bitfield: cQuan:12, iAction:4 */
 } ITEMACTION;            /* size=0x2 */
 
 typedef struct _kill {
@@ -4558,9 +4470,7 @@ typedef struct _btlrec {
     uint8_t  itok;       /* +0x0000 (1) */
     uint8_t  brcDest;    /* +0x0001 (1) */
     int16_t  ctok;       /* +0x0002 (2) */
-    uint16_t iRound : 4, /* +0x0004 (2) @bit0 */
-        dzDis : 4,       /* @bit4 */
-        itokAttack : 8;  /* @bit8 */
+    uint16_t iRound; /* bitfield: iRound:4, dzDis:4, itokAttack:8 */
     KILL rgkill[0];      /* +0x0006 (0) */
 } BTLREC;                /* size=0x6 */
 
@@ -4569,9 +4479,7 @@ typedef struct _btlrec26 {
     uint8_t  brcDest;    /* +0x0001 (1) */
     uint8_t  itokAttack; /* +0x0002 (1) */
     uint8_t  ctok;       /* +0x0003 (1) */
-    uint16_t iRound : 4, /* +0x0004 (2) @bit0 */
-        dzDis : 4,       /* @bit4 */
-        unused : 8;      /* @bit8 */
+    uint16_t iRound; /* bitfield: iRound:4, dzDis:4, unused:8 */
     KILL rgkill[0];      /* +0x0006 (0) */
 } BTLREC26;              /* size=0x6 */
 
@@ -4588,18 +4496,12 @@ typedef struct _logxferf {
 } LOGXFERF;                 /* size=0x24 */
 
 typedef struct _lsb {
-    uint16_t isb : 4,      /* +0x0000 (2) @bit0 */
-        pctDp : 12;        /* @bit4 */
-    uint16_t idFling : 10, /* +0x0002 (2) @bit0 */
-        iWarpFling : 4,    /* @bit10 */
-        unused3 : 2;       /* @bit14 */
+    uint16_t isb; /* bitfield: isb:4, pctDp:12 */
+    uint16_t idFling; /* bitfield: idFling:10, iWarpFling:4, unused3:2 */
 } LSB;                     /* size=0x4 */
 
 typedef struct _mdplr {
-    uint16_t reserved : 9, /* +0x0000 (2) @bit0 */
-        fAi : 1,           /* @bit9 */
-        lvlAi : 3,         /* @bit10 */
-        idAi : 3;          /* @bit13 */
+    uint16_t reserved; /* bitfield: reserved:9, fAi:1, lvlAi:3, idAi:3 */
 } MDPLR;                   /* size=0x2 */
 
 typedef struct _mines {
@@ -4631,8 +4533,7 @@ typedef struct _msgbig {
 } MSGBIG;               /* size=0x12 */
 
 typedef struct _msghdr {
-    uint16_t iMsg : 9, /* +0x0000 (2) @bit0 */
-        grWord : 7;    /* @bit9 */
+    uint16_t iMsg; /* bitfield: iMsg:9, grWord:7 */
     int16_t wGoto;     /* +0x0002 (2) */
 } MSGHDR;              /* size=0x4 */
 
@@ -4646,8 +4547,7 @@ typedef struct _msgplr {
 } MSGPLR;                 /* size=0xc */
 
 typedef struct _msgturn {
-    uint8_t iPlr : 4, /* +0x0000 (1) @bit0 */
-        cbParams : 4; /* @bit4 */
+    uint8_t iPlr; /* bitfield: iPlr:4, cbParams:4 */
     MSGHDR msghdr;    /* +0x0001 (4) */
 } MSGTURN;            /* size=0x5 */
 
@@ -4681,10 +4581,7 @@ typedef struct _part {
 } PART; /* size=0x8 */
 
 typedef struct _pl {
-    uint16_t cbItem : 8, /* +0x0000 (2) @bit0 */
-        fMark : 1,       /* @bit8 */
-        ht : 3,          /* @bit9 */
-        cAlloc : 4;      /* @bit12 */
+    uint16_t cbItem; /* bitfield: cbItem:8, fMark:1, ht:3, cAlloc:4 */
     uint8_t iMax;        /* +0x0002 (1) */
     uint8_t iMac;        /* +0x0003 (1) */
     uint8_t rgb[0];      /* +0x0004 (0) */
@@ -4693,52 +4590,32 @@ typedef struct _pl {
 typedef struct _planet {
     int16_t  id;              /* +0x0000 (2) */
     int16_t  iPlayer;         /* +0x0002 (2) */
-    uint16_t det : 8,         /* +0x0004 (2) @bit0 */
-        fInclude : 1,         /* @bit8 */
-        fStarbase : 1,        /* @bit9 */
-        fHomeworld : 1,       /* @bit10 */
-        fFirstYear : 1,       /* @bit11 */
-        unusedC : 1,          /* @bit12 */
-        fWasInhabited : 1,    /* @bit13 */
-        unusedD : 2;          /* @bit14 */
+    uint16_t det; /* bitfield: det:8, fInclude:1, fStarbase:1, fHomeworld:1, fFirstYear:1, unusedC:1, fWasInhabited:1, unusedD:2 */
     uint8_t rgpctMinLevel[3]; /* +0x0006 (3) */
     uint8_t rgMinConc[3];     /* +0x0009 (3) */
     char    rgEnvVar[3];      /* +0x000C (3) */
     char    rgEnvVarOrig[3];  /* +0x000F (3) */
     union {
-        uint16_t uPopGuess : 12, /* +0x0012 (2) @bit0 */
-            uDefGuess : 4;       /* @bit12 */
+        uint16_t uPopGuess; /* bitfield: uPopGuess:12, uDefGuess:4 */
         uint16_t uGuesses;       /* +0x0012 (2) */
     };
     union {
         struct {
-            uint32_t iDeltaPop : 8,  /* +0x0014 (4) @bit0 */
-                cMines : 12,         /* @bit8 */
-                cFactories : 12;     /* @bit20 */
-            uint32_t cDefenses : 12, /* +0x0018 (4) @bit0 */
-                iScanner : 5,        /* @bit12 */
-                unused5 : 5,         /* @bit17 */
-                fArtifact : 1,       /* @bit22 */
-                fNoResearch : 1,     /* @bit23 */
-                unused2 : 8;         /* @bit24 */
+            uint32_t iDeltaPop; /* bitfield: iDeltaPop:8, cMines:12, cFactories:12 */
+            uint32_t cDefenses; /* bitfield: cDefenses:12, iScanner:5, unused5:5, fArtifact:1, fNoResearch:1, unused2:8 */
         };
         uint8_t rgbImp[8]; /* +0x0014 (8) */
     };
     int32_t rgwtMin[4]; /* +0x001C (16) */
     union {
         struct {
-            uint16_t isb : 4,      /* +0x002C (2) @bit0 */
-                pctDp : 12;        /* @bit4 */
-            uint16_t idFling : 10, /* +0x002E (2) @bit0 */
-                iWarpFling : 4,    /* @bit10 */
-                fNoHeal : 1,       /* @bit14 */
-                unused3 : 1;       /* @bit15 */
+            uint16_t isb; /* bitfield: isb:4, pctDp:12 */
+            uint16_t idFling; /* bitfield: idFling:10, iWarpFling:4, fNoHeal:1, unused3:1 */
         };
         int32_t lStarbase; /* +0x002C (4) */
     };
     union {
-        uint16_t idRoute : 10, /* +0x0030 (2) @bit0 */
-            unused4 : 6;       /* @bit10 */
+        uint16_t idRoute; /* bitfield: idRoute:10, unused4:6 */
         uint16_t wRouting;     /* +0x0030 (2) */
     };
     int16_t turn;     /* +0x0032 (2) */
@@ -4759,30 +4636,19 @@ typedef struct _planetary {
 typedef struct _planetminimal {
     int16_t  id;        /* +0x0000 (2) */
     int16_t  iPlayer;   /* +0x0002 (2) */
-    uint16_t det : 8,   /* +0x0004 (2) @bit0 */
-        fInclude : 1,   /* @bit8 */
-        fStarbase : 1,  /* @bit9 */
-        unusedA : 1,    /* @bit10 */
-        fFirstYear : 1, /* @bit11 */
-        unusedB : 4;    /* @bit12 */
+    uint16_t det; /* bitfield: det:8, fInclude:1, fStarbase:1, unusedA:1, fFirstYear:1, unusedB:4 */
 } PLANETMINIMAL;        /* size=0x6 */
 
 typedef struct _planetsome {
     int16_t  id;               /* +0x0000 (2) */
     int16_t  iPlayer;          /* +0x0002 (2) */
-    uint16_t det : 8,          /* +0x0004 (2) @bit0 */
-        fInclude : 1,          /* @bit8 */
-        fStarbase : 1,         /* @bit9 */
-        unusedA : 1,           /* @bit10 */
-        fFirstYear : 1,        /* @bit11 */
-        unusedB : 4;           /* @bit12 */
+    uint16_t det; /* bitfield: det:8, fInclude:1, fStarbase:1, unusedA:1, fFirstYear:1, unusedB:4 */
     uint16_t rgpctMinLevel[3]; /* +0x0006 (6) */
     char     rgMinConc[3];     /* +0x000C (3) */
     char     rgEnvVar[3];      /* +0x000F (3) */
     char     rgEnvVarOrig[3];  /* +0x0012 (3) */
     union {
-        uint16_t uPopGuess : 12, /* +0x0015 (2) @bit0 */
-            uDefGuess : 4;       /* @bit12 */
+        uint16_t uPopGuess; /* bitfield: uPopGuess:12, uDefGuess:4 */
         uint16_t uGuesses;       /* +0x0015 (2) */
     };
 } PLANETSOME; /* size=0x17 */
@@ -4790,20 +4656,10 @@ typedef struct _planetsome {
 typedef struct _fleet {
     union {
         int16_t  id;      /* +0x0000 (2) */
-        uint16_t ifl : 9, /* +0x0000 (2) @bit0 */
-            iplr : 4,     /* @bit9 */
-            junk : 3;     /* @bit13 */
+        uint16_t ifl; /* bitfield: ifl:9, iplr:4, junk:3 */
     };
     int16_t  iPlayer;     /* +0x0002 (2) */
-    uint16_t det : 8,     /* +0x0004 (2) @bit0 */
-        fInclude : 1,     /* @bit8 */
-        fRepOrders : 1,   /* @bit9 */
-        fDead : 1,        /* @bit10 */
-        fDone : 1,        /* @bit11 */
-        fBombed : 1,      /* @bit12 */
-        fHereAllTurn : 1, /* @bit13 */
-        fNoHeal : 1,      /* @bit14 */
-        fMark : 1;        /* @bit15 */
+    uint16_t det; /* bitfield: det:8, fInclude:1, fRepOrders:1, fDead:1, fDone:1, fBombed:1, fHereAllTurn:1, fNoHeal:1, fMark:1 */
     int16_t idPlanet;     /* +0x0006 (2) */
     POINT   pt;           /* +0x0008 (4) */
     int16_t rgcsh[16];    /* +0x000C (32) */
@@ -4828,14 +4684,8 @@ typedef struct _fleet {
     union {
         int32_t dirLong; /* +0x0074 (4) */
         struct {
-            uint16_t dirFltX : 8,  /* +0x0074 (2) @bit0 */
-                dirFltY : 8;       /* @bit8 */
-            uint16_t iwarpFlt : 4, /* +0x0076 (2) @bit0 */
-                fdirValid : 1,     /* @bit4 */
-                fCompChg : 1,      /* @bit5 */
-                fTargeted : 1,     /* @bit6 */
-                fSkipped : 1,      /* @bit7 */
-                fUnused : 8;       /* @bit8 */
+            uint16_t dirFltX; /* bitfield: dirFltX:8, dirFltY:8 */
+            uint16_t iwarpFlt; /* bitfield: iwarpFlt:4, fdirValid:1, fCompChg:1, fTargeted:1, fSkipped:1, fUnused:8 */
         };
     };
     char *lpszName; /* +0x0078 (4) */
@@ -4844,12 +4694,7 @@ typedef struct _fleet {
 typedef struct _fleetsome {
     int16_t  id;        /* +0x0000 (2) */
     int16_t  iPlayer;   /* +0x0002 (2) */
-    uint16_t det : 8,   /* +0x0004 (2) @bit0 */
-        fInclude : 1,   /* @bit8 */
-        fRepOrders : 1, /* @bit9 */
-        fDead : 1,      /* @bit10 */
-        fByteCsh : 1,   /* @bit11 */
-        unused : 4;     /* @bit12 */
+    uint16_t det; /* bitfield: det:8, fInclude:1, fRepOrders:1, fDead:1, fByteCsh:1, unused:4 */
     int16_t idPlanet;   /* +0x0006 (2) */
     POINT   pt;         /* +0x0008 (4) */
 } FLEETSOME;            /* size=0xc */
@@ -4899,18 +4744,11 @@ typedef struct _popupdata {
 } POPUPDATA; /* size=0x16 */
 
 typedef struct _prod {
-    uint32_t cItem : 10, /* +0x0000 (4) @bit0 */
-        iItem : 7,       /* @bit10 */
-        grobj : 3,       /* @bit17 */
-        pct : 7,         /* @bit20 */
-        unused : 5;      /* @bit27 */
+    uint32_t cItem; /* bitfield: cItem:10, iItem:7, grobj:3, pct:7, unused:5 */
 } PROD;                  /* size=0x4 */
 
 typedef struct PLPROD {
-    uint16_t cbItem : 8, /* +0x0000 (2) @bit0 */
-        fMark : 1,       /* @bit8 */
-        ht : 3,          /* @bit9 */
-        cAlloc : 4;      /* @bit12 */
+    uint16_t cbItem; /* bitfield: cbItem:8, fMark:1, ht:3, cAlloc:4 */
     uint8_t iprodMax;    /* +0x0002 (1) */
     uint8_t iprodMac;    /* +0x0003 (1) */
     PROD    rgprod[0];   /* +0x0004 (0) */
@@ -4919,8 +4757,7 @@ typedef struct PLPROD {
 typedef struct _prodq1 {
     union {
         uint16_t w;          /* +0x0000 (2) */
-        uint16_t mdIdle : 6, /* +0x0000 (2) @bit0 */
-            cQuan : 10;      /* @bit6 */
+        uint16_t mdIdle; /* bitfield: mdIdle:6, cQuan:10 */
     };
 } PRODQ1; /* size=0x2 */
 
@@ -4928,10 +4765,7 @@ typedef struct _btn {
     RECT     rc;           /* +0x0000 (8) */
     int16_t  bt;           /* +0x0008 (2) */
     int16_t  iVal;         /* +0x000A (2) */
-    uint16_t fVisible : 1, /* +0x000C (2) @bit0 */
-        fDisabled : 1,     /* @bit1 */
-        iSide : 2,         /* @bit2 */
-        fUnused : 12;      /* @bit4 */
+    uint16_t fVisible; /* bitfield: fVisible:1, fDisabled:1, iSide:2, fUnused:12 */
 } BTN;                     /* size=0xe */
 
 typedef struct _btnt {
@@ -4942,12 +4776,7 @@ typedef struct _btnt {
     int16_t  btf;         /* +0x000E (2) */
     char    *szText;      /* +0x0010 (2) */
     int32_t  lTicks;      /* +0x0012 (4) */
-    uint16_t fFirst : 1,  /* +0x0016 (2) @bit0 */
-        fDown : 1,        /* @bit1 */
-        fInitDown : 1,    /* @bit2 */
-        fCreatedDC : 1,   /* @bit3 */
-        fNoEndRedraw : 1, /* @bit4 */
-        fUnused : 11;     /* @bit5 */
+    uint16_t fFirst; /* bitfield: fFirst:1, fDown:1, fInitDown:1, fCreatedDC:1, fNoEndRedraw:1, fUnused:11 */
 } BTNT;                   /* size=0x18 */
 
 typedef struct _drawcir {
@@ -4986,21 +4815,12 @@ typedef struct _rtbof {
     char    rgid[4]; /* +0x0000 (4) */
     int32_t lidGame; /* +0x0004 (4) */
     union {
-        uint16_t verInc : 5, /* +0x0008 (2) @bit0 */
-            verMinor : 7,    /* @bit5 */
-            verMajor : 4;    /* @bit12 */
+        uint16_t verInc; /* bitfield: verInc:5, verMinor:7, verMajor:4 */
         uint16_t wVersion;   /* +0x0008 (2) */
     };
     uint16_t turn;        /* +0x000A (2) */
-    int16_t  iPlayer : 5, /* +0x000C (2) @bit0 */
-        lSaltTime : 11;   /* @bit5 */
-    uint16_t dt : 8,      /* +0x000E (2) @bit0 */
-        fDone : 1,        /* @bit8 */
-        fInUse : 1,       /* @bit9 */
-        fMulti : 1,       /* @bit10 */
-        fGameOverMan : 1, /* @bit11 */
-        fCrippled : 1,    /* @bit12 */
-        wGen : 3;         /* @bit13 */
+    int16_t iPlayer; /* bitfield: iPlayer:5, lSaltTime:11 */
+    uint16_t dt; /* bitfield: dt:8, fDone:1, fInUse:1, fMulti:1, fGameOverMan:1, fCrippled:1, wGen:3 */
 } RTBOF;                  /* size=0x10 */
 
 typedef struct _rtchgname {
@@ -5013,11 +4833,7 @@ typedef struct _rtChgPlanetLong {
     int16_t id; /* +0x0000 (2) */
     union {
         uint32_t ul;              /* +0x0002 (4) */
-        uint32_t fNoResearch : 1, /* +0x0002 (4) @bit0 */
-            idFling : 10,         /* @bit1 */
-            iWarpFling : 4,       /* @bit11 */
-            idRoute : 10,         /* @bit15 */
-            unused : 7;           /* @bit25 */
+        uint32_t fNoResearch; /* bitfield: fNoResearch:1, idFling:10, iWarpFling:4, idRoute:10, unused:7 */
     };
 } RTCHGPLANETLONG; /* size=0x6 */
 
@@ -5043,27 +4859,13 @@ typedef struct _rtlogthing {
 } RTLOGTHING;           /* size=0x4 */
 
 typedef struct _rtplanet {
-    int16_t id : 11,     /* +0x0000 (2) @bit0 */
-        iPlayer : 5;     /* @bit11 */
-    uint16_t det : 7,    /* +0x0002 (2) @bit0 */
-        fHomeworld : 1,  /* @bit7 */
-        fInclude : 1,    /* @bit8 */
-        fStarbase : 1,   /* @bit9 */
-        fIncEVO : 1,     /* @bit10 */
-        fIncImp : 1,     /* @bit11 */
-        fIsArtifact : 1, /* @bit12 */
-        fIncSurfMin : 1, /* @bit13 */
-        fRouting : 1,    /* @bit14 */
-        fFirstYear : 1;  /* @bit15 */
+    int16_t id; /* bitfield: id:11, iPlayer:5 */
+    uint16_t det; /* bitfield: det:7, fHomeworld:1, fInclude:1, fStarbase:1, fIncEVO:1, fIncImp:1, fIsArtifact:1, fIncSurfMin:1, fRouting:1, fFirstYear:1 */
 } RTPLANET;              /* size=0x4 */
 
 typedef struct _rtshdef {
     union {
-        uint16_t det : 8, /* +0x0000 (2) @bit0 */
-            fInclude : 1, /* @bit8 */
-            fFree : 1,    /* @bit9 */
-            ishdef : 5,   /* @bit10 */
-            fGift : 1;    /* @bit15 */
+        uint16_t det; /* bitfield: det:8, fInclude:1, fFree:1, ishdef:5, fGift:1 */
         uint16_t wFlags;  /* +0x0000 (2) */
     };
     uint8_t ihuldef; /* +0x0002 (1) */
@@ -5080,10 +4882,7 @@ typedef struct _rtshdef {
 } RTSHDEF;            /* size=0x11 */
 
 typedef struct _rtchgshdef {
-    uint16_t mdChg : 4, /* +0x0000 (2) @bit0 */
-        iPlr : 4,       /* @bit4 */
-        ishdef : 5,     /* @bit8 */
-        junk : 3;       /* @bit13 */
+    uint16_t mdChg; /* bitfield: mdChg:4, iPlr:4, ishdef:5, junk:3 */
     RTSHDEF rtshdef;    /* +0x0002 (17) */
 } RTCHGSHDEF;           /* size=0x13 */
 
@@ -5101,8 +4900,7 @@ typedef struct _rtshipint2 {
 typedef struct _rtxfer {
     uint16_t id1;        /* +0x0000 (2) */
     uint16_t id2;        /* +0x0002 (2) */
-    uint8_t  grobj1 : 4, /* +0x0004 (1) @bit0 */
-        grobj2 : 4;      /* @bit4 */
+    uint8_t grobj1; /* bitfield: grobj1:4, grobj2:4 */
     uint8_t grbitItems;  /* +0x0005 (1) */
     char    rgcQuan[1];  /* +0x0006 (1) */
 } RTXFER;                /* size=0x7 */
@@ -5110,8 +4908,7 @@ typedef struct _rtxfer {
 typedef struct _rtxferf {
     uint16_t id1;        /* +0x0000 (2) */
     uint16_t id2;        /* +0x0002 (2) */
-    uint8_t  grobj1 : 4, /* +0x0004 (1) @bit0 */
-        grobj2 : 4;      /* @bit4 */
+    uint8_t grobj1; /* bitfield: grobj1:4, grobj2:4 */
     uint16_t grbitItems; /* +0x0005 (2) */
     int16_t  rgcQuan[1]; /* +0x0007 (2) */
 } RTXFERF;               /* size=0x9 */
@@ -5119,8 +4916,7 @@ typedef struct _rtxferf {
 typedef struct _rtxferl {
     uint16_t id1;        /* +0x0000 (2) */
     uint16_t id2;        /* +0x0002 (2) */
-    uint8_t  grobj1 : 4, /* +0x0004 (1) @bit0 */
-        grobj2 : 4;      /* @bit4 */
+    uint8_t grobj1; /* bitfield: grobj1:4, grobj2:4 */
     uint8_t grbitItems;  /* +0x0005 (1) */
     int32_t rgcQuan[1];  /* +0x0006 (4) */
 } RTXFERL;               /* size=0xa */
@@ -5128,8 +4924,7 @@ typedef struct _rtxferl {
 typedef struct _rtxferx {
     uint16_t id1;        /* +0x0000 (2) */
     uint16_t id2;        /* +0x0002 (2) */
-    uint8_t  grobj1 : 4, /* +0x0004 (1) @bit0 */
-        grobj2 : 4;      /* @bit4 */
+    uint8_t grobj1; /* bitfield: grobj1:4, grobj2:4 */
     uint8_t grbitItems;  /* +0x0005 (1) */
     int16_t rgcQuan[1];  /* +0x0006 (2) */
 } RTXFERX;               /* size=0x8 */
@@ -5176,11 +4971,7 @@ typedef struct _score {
 typedef struct _scorex {
     union {
         uint16_t wWord;       /* +0x0000 (2) */
-        uint16_t iPlayer : 5, /* +0x0000 (2) @bit0 */
-            fValid : 1,       /* @bit5 */
-            grbitVC : 8,      /* @bit6 */
-            fWinner : 1,      /* @bit14 */
-            fHistory : 1;     /* @bit15 */
+        uint16_t iPlayer; /* bitfield: iPlayer:5, fValid:1, grbitVC:8, fWinner:1, fHistory:1 */
     };
     union {
         int16_t  iRank; /* +0x0002 (2) */
@@ -5201,11 +4992,7 @@ typedef struct _selSome {
 typedef struct _shdef {
     HUL hul; /* +0x0000 (123) */
     union {
-        uint16_t det : 8, /* +0x007B (2) @bit0 */
-            fInclude : 1, /* @bit8 */
-            fFree : 1,    /* @bit9 */
-            ishdef : 5,   /* @bit10 */
-            fGift : 1;    /* @bit15 */
+        uint16_t det; /* bitfield: det:8, fInclude:1, fFree:1, ishdef:5, fGift:1 */
         uint16_t wFlags;  /* +0x007B (2) */
     };
     uint16_t turn;   /* +0x007D (2) */
@@ -5257,9 +5044,7 @@ typedef struct _specialsb {
 } SPECIALSB;                 /* size=0x38 */
 
 typedef struct _starpack {
-    uint32_t dx : 10, /* +0x0000 (4) @bit0 */
-        y : 12,       /* @bit10 */
-        id : 10;      /* @bit22 */
+    uint32_t dx; /* bitfield: dx:10, y:12, id:10 */
 } STARPACK;           /* size=0x4 */
 
 typedef struct _tasklaymines {
@@ -5283,12 +5068,7 @@ typedef struct _taskxport {
 typedef struct _order {
     POINT    pt;          /* +0x0000 (4) */
     int16_t  id;          /* +0x0004 (2) */
-    uint16_t grTask : 4,  /* +0x0006 (2) @bit0 */
-        iWarp : 4,        /* @bit4 */
-        grobj : 4,        /* @bit8 */
-        fValidTask : 1,   /* @bit12 */
-        fNoAutoTrack : 1, /* @bit13 */
-        fUnused : 2;      /* @bit14 */
+    uint16_t grTask; /* bitfield: grTask:4, iWarp:4, grobj:4, fValidTask:1, fNoAutoTrack:1, fUnused:2 */
     union {
         TASKXPORT    txp;   /* +0x0008 (10) */
         TASKLAYMINES tlm;   /* +0x0008 (4) */
@@ -5298,10 +5078,7 @@ typedef struct _order {
 } ORDER; /* size=0x12 */
 
 typedef struct PLORD {
-    uint16_t cbItem : 8, /* +0x0000 (2) @bit0 */
-        fMark : 1,       /* @bit8 */
-        ht : 3,          /* @bit9 */
-        cAlloc : 4;      /* @bit12 */
+    uint16_t cbItem; /* bitfield: cbItem:8, fMark:1, ht:3, cAlloc:4 */
     uint8_t iordMax;     /* +0x0002 (1) */
     uint8_t iordMac;     /* +0x0003 (1) */
     ORDER   rgord[0];    /* +0x0004 (0) */
@@ -5333,29 +5110,20 @@ typedef struct _thmine {
 } THMINE;                 /* size=0xa */
 
 typedef struct _thpack {
-    uint16_t idPlanet : 10, /* +0x0000 (2) @bit0 */
-        iWarp : 4,          /* @bit10 */
-        fMoved : 1,         /* @bit14 */
-        fInclude : 1;       /* @bit15 */
+    uint16_t idPlanet; /* bitfield: idPlanet:10, iWarp:4, fMoved:1, fInclude:1 */
     int16_t  rgwtMin[3];    /* +0x0002 (6) */
-    uint16_t wtMax : 14,    /* +0x0008 (2) @bit0 */
-        iDecayRate : 2;     /* @bit14 */
+    uint16_t wtMax; /* bitfield: wtMax:14, iDecayRate:2 */
 } THPACK;                   /* size=0xa */
 
 typedef struct _thtrader {
     POINT    ptDest;      /* +0x0000 (4) */
-    uint16_t iWarp : 4,   /* +0x0004 (2) @bit0 */
-        fInclude : 1,     /* @bit4 */
-        unused : 11;      /* @bit5 */
+    uint16_t iWarp; /* bitfield: iWarp:4, fInclude:1, unused:11 */
     uint16_t grbitPlr;    /* +0x0006 (2) */
     uint16_t grbitTrader; /* +0x0008 (2) */
 } THTRADER;               /* size=0xa */
 
 typedef struct _thworm {
-    uint16_t iStable : 2,  /* +0x0000 (2) @bit0 */
-        cLastMove : 10,    /* @bit2 */
-        fDestKnown : 1,    /* @bit12 */
-        fInclude : 1;      /* @bit13 */
+    uint16_t iStable; /* bitfield: iStable:2, cLastMove:10, fDestKnown:1, fInclude:1 */
     uint16_t grbitPlr;     /* +0x0002 (2) */
     uint16_t grbitPlrTrav; /* +0x0004 (2) */
     uint16_t idPartner;    /* +0x0006 (2) */
@@ -5364,9 +5132,7 @@ typedef struct _thworm {
 typedef struct _thing {
     union {
         uint16_t idFull; /* +0x0000 (2) */
-        uint16_t id : 9, /* +0x0000 (2) @bit0 */
-            iplr : 4,    /* @bit9 */
-            ith : 3;     /* @bit13 */
+        uint16_t id; /* bitfield: id:9, iplr:4, ith:3 */
     };
     POINT pt; /* +0x0002 (4) */
     union {
@@ -5396,15 +5162,8 @@ typedef struct _tile {
     int16_t dyFull;                      /* +0x0002 (2) */
     int16_t grbit;                       /* +0x0004 (2) */
     void (**pfn)(uint16_t, TILE *, OBJ); /* +0x0006 (4) */
-    uint16_t iCol : 3,                   /* +0x000A (2) @bit0 */
-        id : 4,                          /* @bit3 */
-        fPopped : 1,                     /* @bit7 */
-        fNullPtr : 1,                    /* @bit8 */
-        fMinTitle : 1,                   /* @bit9 */
-        fErase : 1,                      /* @bit10 */
-        fFixCtls : 1,                    /* @bit11 */
-        fMinDraw : 1;                    /* @bit12 */
-    uint16_t fUnused : 4;                /* +0x000C (2) @bit0 */
+    uint16_t iCol; /* bitfield: iCol:3, id:4, fPopped:1, fNullPtr:1, fMinTitle:1, fErase:1, fFixCtls:1, fMinDraw:1 */
+    uint16_t fUnused; /* bitfield: fUnused:4 */
     uint16_t idh;                        /* +0x000E (2) */
 } TILE;                                  /* size=0x10 */
 
@@ -5413,8 +5172,7 @@ typedef struct _timer {
     int16_t fAutoGenWhenIn; /* +0x0002 (2) */
     union {
         int16_t  hrsForce;      /* +0x0004 (2) */
-        uint16_t minForce : 12, /* +0x0004 (2) @bit0 */
-            cPlr : 4;           /* @bit12 */
+        uint16_t minForce; /* bitfield: minForce:12, cPlr:4 */
     };
     int32_t tickcount; /* +0x0006 (4) */
 } TIMER;               /* size=0xa */
@@ -5438,23 +5196,10 @@ typedef struct _tok {
     uint16_t   dpShield;      /* +0x0011 (2) */
     uint16_t   csh;           /* +0x0013 (2) */
     DV         dv;            /* +0x0015 (2) */
-    uint16_t   mdTarget1 : 4, /* +0x0017 (2) @bit0 */
-        mdTarget2 : 4,        /* @bit4 */
-        mdTactic : 4,         /* @bit8 */
-        mdTarget0 : 4;        /* @bit12 */
-    uint16_t dxyLim : 4,      /* +0x0019 (2) @bit0 */
-        dxyMax : 4,           /* @bit4 */
-        spd : 4,              /* @bit8 */
-        cTarget : 4;          /* @bit12 */
+    uint16_t mdTarget1; /* bitfield: mdTarget1:4, mdTarget2:4, mdTactic:4, mdTarget0:4 */
+    uint16_t dxyLim; /* bitfield: dxyLim:4, dxyMax:4, spd:4, cTarget:4 */
     union {
-        uint16_t fActive : 1, /* +0x001B (2) @bit0 */
-            fDetector : 1,    /* @bit1 */
-            fTorp : 1,        /* @bit2 */
-            fRegen : 1,       /* @bit3 */
-            fMoved : 1,       /* @bit4 */
-            dzDis : 5,        /* @bit5 */
-            dwt : 4,          /* @bit10 */
-            dMovesLeft : 2;   /* @bit14 */
+        uint16_t fActive; /* bitfield: fActive:1, fDetector:1, fTorp:1, fRegen:1, fMoved:1, dzDis:5, dwt:4, dMovesLeft:2 */
         uint16_t wFlags;      /* +0x001B (2) */
     };
 } TOK; /* size=0x1d */
@@ -5491,35 +5236,18 @@ typedef struct _turnserial {
 } TURNSERIAL;              /* size=0x10 */
 
 typedef struct _vers {
-    uint16_t verInc : 5, /* +0x0000 (2) @bit0 */
-        verMinor : 7,    /* @bit5 */
-        verMajor : 4;    /* @bit12 */
+    uint16_t verInc; /* bitfield: verInc:5, verMinor:7, verMajor:4 */
 } VERS;                  /* size=0x2 */
 
 typedef struct _wn {
     RECT     rc;             /* +0x0000 (8) */
-    uint16_t fMaximized : 1, /* +0x0008 (2) @bit0 */
-        fMinimized : 1,      /* @bit1 */
-        fInitalized : 1,     /* @bit2 */
-        fUnused : 13;        /* @bit3 */
+    uint16_t fMaximized; /* bitfield: fMaximized:1, fMinimized:1, fInitalized:1, fUnused:13 */
 } WN;                        /* size=0xa */
 
 typedef struct _ini {
     WN wnFrame; /* +0x0000 (10) */
     union {
-        uint16_t fStartupFile : 1, /* +0x000A (2) @bit0 */
-            fCmdLine : 1,          /* @bit1 */
-            fWait : 1,             /* @bit2 */
-            fGen : 1,              /* @bit3 */
-            fTry : 1,              /* @bit4 */
-            grobjSel : 4,          /* @bit5 */
-            fBatch : 1,            /* @bit9 */
-            fNewGame : 1,          /* @bit10 */
-            fDumpFleets : 1,       /* @bit11 */
-            fDumpPlanets : 1,      /* @bit12 */
-            fDumpMap : 1,          /* @bit13 */
-            fValidate : 1,         /* @bit14 */
-            fLogging : 1;          /* @bit15 */
+        uint16_t fStartupFile; /* bitfield: fStartupFile:1, fCmdLine:1, fWait:1, fGen:1, fTry:1, grobjSel:4, fBatch:1, fNewGame:1, fDumpFleets:1, fDumpPlanets:1, fDumpMap:1, fValidate:1, fLogging:1 */
         uint16_t wFlags;           /* +0x000A (2) */
     };
     uint16_t turn;     /* +0x000C (2) */
@@ -5543,8 +5271,7 @@ typedef struct _xfer {
 typedef struct _xferfull {
     uint16_t id1;        /* +0x0000 (2) */
     uint16_t id2;        /* +0x0002 (2) */
-    uint8_t  grobj1 : 4, /* +0x0004 (1) @bit0 */
-        grobj2 : 4;      /* @bit4 */
+    uint8_t grobj1; /* bitfield: grobj1:4, grobj2:4 */
     int32_t rgcQuan[5];  /* +0x0005 (20) */
 } XFERFULL;              /* size=0x19 */
 
@@ -5564,17 +5291,9 @@ typedef struct _player {
     char     iPlayer;     /* +0x0000 (1) */
     char     cShDef;      /* +0x0001 (1) */
     int16_t  cPlanet;     /* +0x0002 (2) */
-    uint16_t cFleet : 12, /* +0x0004 (2) @bit0 */
-        cshdefSB : 4;     /* @bit12 */
+    uint16_t cFleet; /* bitfield: cFleet:12, cshdefSB:4 */
     union {
-        uint16_t det : 3, /* +0x0006 (2) @bit0 */
-            reserved : 9, /* @bit0 */
-            iPlrBmp : 5,  /* @bit3 */
-            fInclude : 1, /* @bit8 */
-            mdPlayer : 7, /* @bit9 */
-            fAi : 1,      /* @bit9 */
-            lvlAi : 3,    /* @bit10 */
-            idAi : 3;     /* @bit13 */
+        uint16_t det; /* bitfield: det:3, reserved:9, iPlrBmp:5, fInclude:1, mdPlayer:7, fAi:1, lvlAi:3, idAi:3 */
         uint16_t wMdPlr;  /* +0x0006 (2) */
     };
     int16_t  idPlanetHome;   /* +0x0008 (2) */
@@ -5593,12 +5312,7 @@ typedef struct _player {
     uint32_t grbitAttr;      /* +0x004E (4) */
     uint16_t grbitTrader;    /* +0x0052 (2) */
     union {
-        uint16_t fDead : 1, /* +0x0054 (2) @bit0 */
-            fCrippled : 1,  /* @bit1 */
-            fCheater : 1,   /* @bit2 */
-            fLearned : 1,   /* @bit3 */
-            fHacker : 1,    /* @bit4 */
-            unused : 11;    /* @bit5 */
+        uint16_t fDead; /* bitfield: fDead:1, fCrippled:1, fCheater:1, fLearned:1, fHacker:1, unused:11 */
         uint16_t wFlags;    /* +0x0054 (2) */
     };
     ZIPPRODQ1 zpq1;             /* +0x0056 (26) */
@@ -5610,20 +5324,7 @@ typedef struct _player {
 typedef struct _tutor {
     union {
         int16_t  wFlags;       /* +0x0000 (2) */
-        uint16_t fVisible : 1, /* +0x0000 (2) @bit0 */
-            fGameSaved : 1,    /* @bit1 */
-            fChange : 1,       /* @bit2 */
-            fTurnDone : 1,     /* @bit3 */
-            fTutorDone : 1,    /* @bit4 */
-            fNoErrors : 1,     /* @bit5 */
-            cError : 3,        /* @bit6 */
-            fAutoComplete : 1, /* @bit9 */
-            fProgress : 1,     /* @bit10 */
-            fTBVis : 1,        /* @bit11 */
-            fValidQ : 1,       /* @bit12 */
-            fFreeing : 1,      /* @bit13 */
-            fShowHidMsg : 1,   /* @bit14 */
-            unused : 1;        /* @bit15 */
+        uint16_t fVisible; /* bitfield: fVisible:1, fGameSaved:1, fChange:1, fTurnDone:1, fTutorDone:1, fNoErrors:1, cError:3, fAutoComplete:1, fProgress:1, fTBVis:1, fValidQ:1, fFreeing:1, fShowHidMsg:1, unused:1 */
     };
     int16_t   idt;       /* +0x0002 (2) */
     int16_t   idtBold;   /* +0x0004 (2) */

@@ -60,7 +60,14 @@ across low, mid and high segments.
   game enums (`enums.h`) + the 110 game structs (`structs.h`), stitched into one
   self-contained header that parses on its own. The prelude declares
   `#pragma pack(1)` so the byte-packed 16-bit game structs import at their true
-  size (e.g. `THING`=18, not 24). Regenerate with `gen-types.sh`.
+  size (e.g. `THING`=18, not 24). As a final step `gen-types.sh` runs
+  `strip-bitfields.py` to collapse every C bitfield declaration into a plain
+  scalar field (see **Bitfields** under Notes) so decompilation is not broken by
+  the applied types. Regenerate with `gen-types.sh`.
+- `strip-bitfields.py` — a text filter (used by `gen-types.sh`) that rewrites
+  each bitfield declaration into one plain field of the same base type, keeping
+  the bit layout as a `/* bitfield: … */` comment. Size-preserving for these
+  headers (every Stars! bitfield declaration fills exactly one storage unit).
 - `stars-globals.csv` — `name,ghidra_addr,ne_addr,type` for all 613 NB09
   globals. Regenerate with `gen-globals.sh`.
 - `stars-struct-sizes.csv` — `name,size` for the 110 structs, used by the script
@@ -185,5 +192,20 @@ sanity-check it with `clang -std=c11 -fsyntax-only docs/ghidra/stars-types.h`
   a data-type manager and all **846** prototypes parse via
   `FunctionSignatureParser` (842 directly + the 4 callback functions via the
   `void *` fallback).
+- **Bitfields (why decompilation broke, and the fix):** Ghidra's decompiler is
+  bitfield-unaware — it always renders bitfield access as shift/mask, never as
+  `s->member` — and, worse, it *aborts the whole function* whenever it must form
+  a pointer whose referent is a bitfield:
+  `Pointer reference data-type may not be a bitfield: uint16_t:11`. Applying the
+  NB09 game types therefore **broke decompilation** of every routine that
+  dereferences a struct/union pointer at a bitfield offset — e.g.
+  `CAdvantagePoints` (reads the `PLAYER` flags word at +0x54, a union whose first
+  members are the `fDead..unused:11` bitfields). `gen-types.sh` now collapses all
+  bitfields to plain scalar words via `strip-bitfields.py`, keeping the bit
+  breakdown in a comment. Because the decompiler already showed shift/mask, the
+  decompiler view is unchanged, but the aborts are gone. Verified on this exact
+  binary (PyGhidra, Ghidra 12.1.3): decompiling all 846 functions, the
+  bitfield-abort count drops from **49 → 0** (the one remaining, unrelated
+  failure is present with either header), and every struct keeps its byte size.
 - `symbols publics` (additional public labels) is not yet imported — a possible
   future addition using the same selector mapping.
