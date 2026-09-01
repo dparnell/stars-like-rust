@@ -1,8 +1,14 @@
 # Ghidra ↔ stars-asm symbol bridge
 
 This folder makes the Ghidra project (`ghidra/Stars`, program `stars.2.7j.exe`)
-navigable by the **real function names** from the game's own debug symbols, so
+navigable by the **real names and types** from the game's own debug symbols, so
 Ghidra analysis lines up with the authoritative sources in `tmp/stars-asm`.
+
+There are two bridges, both driven by the same verified address mapping:
+
+- **functions** — `apply_symbols.py` names the 846 internal routines;
+- **types & globals** — `apply_types.py` imports the 110 game structs and 74
+  enums and lays down the 613 typed, named global variables.
 
 ## Why this is needed
 
@@ -36,31 +42,65 @@ across low, mid and high segments.
 
 ## Files
 
+### Functions (names)
+
 - `stars-symbols.csv` — `name,ghidra_addr,ne_addr` for all 846 NB09 functions.
 - `apply_symbols.py` — a Ghidra (Jython) script that reads the CSV and renames
   each function (creating a function/label if none exists yet).
 
-## Applying the names
+### Types & globals (structs, enums, global variables)
+
+- `stars-types.prelude.h` — a small hand-written prelude: fixed-width integer
+  typedefs (sized for the 16-bit target: `int32_t`→`long`=4, handles→2-byte
+  words) plus the few Win16 shims the game types need (`POINT`, `RECT`, the
+  `Hxxx` handles, `COLORREF`).
+- `stars-types.h` — **generated**: the prelude + forward declarations + the 74
+  game enums (`enums.h`) + the 110 game structs (`structs.h`), stitched into one
+  self-contained header that parses on its own. Regenerate with `gen-types.sh`.
+- `stars-globals.csv` — `name,ghidra_addr,ne_addr,type` for all 613 NB09
+  globals. Regenerate with `gen-globals.sh`.
+- `stars-struct-sizes.csv` — `name,size` for the 110 structs, used by the script
+  to verify the imported layouts. Regenerate with `gen-globals.sh`.
+- `apply_types.py` — a Ghidra (Jython) script that parses `stars-types.h` into
+  the program's data-type manager, normalises the four struct-embedded enums to
+  their real 2-byte width, verifies every struct size against
+  `stars-struct-sizes.csv`, and lays down all 613 globals (typed + named) at
+  their addresses.
+- `gen-types.sh`, `gen-globals.sh` — the generators (need the `stars-asm`
+  checkout in `tmp/stars-asm`; `gen-globals.sh` also needs its built CLI).
+
+## Applying the names and types
 
 In the CodeBrowser that has `stars.2.7j.exe` open:
 
 1. **Window → Script Manager**, click **Manage Script Directories**, add this
    `docs/ghidra` folder, and refresh.
-2. Run **`apply_symbols.py`** and, when prompted, pick `stars-symbols.csv`.
-3. It prints a summary (renamed / created / labelled). The project now shows
-   real names, e.g. `FLoadLogFile`, `SetFileXorStream`, `LphuldefFromId`.
+2. Run **`apply_symbols.py`** and, when prompted, pick `stars-symbols.csv`. It
+   prints a summary (renamed / created / labelled). The project now shows real
+   names, e.g. `FLoadLogFile`, `SetFileXorStream`, `LphuldefFromId`.
+3. Run **`apply_types.py`** and, when prompted, pick `stars-types.h` (the two
+   CSVs beside it are found automatically). It parses the header into the
+   data-type manager, prints the struct-size verification, and reports how many
+   globals were typed/named (e.g. `game`, `rghuldef`, `lpPlanets`).
 
-The script is idempotent and safe to re-run. It never edits the volatile Ghidra
-database in git (that stays ignored per the project guidelines); only the CSV +
-script are versioned.
+Run `apply_symbols.py` **before** `apply_types.py` so the globals that live in
+mixed code/data segments attach cleanly. Both scripts are idempotent and safe to
+re-run. They never edit the volatile Ghidra database in git (that stays ignored
+per the project guidelines); only the CSV/header/script inputs are versioned.
 
-## Regenerating the CSV
+## Regenerating the inputs
 
-Requires Go and the stars-asm checkout in `tmp/stars-asm`:
+All inputs are regenerable from the `stars-asm` checkout in `tmp/stars-asm`
+(needs Go to build its CLI once):
+
+```sh
+cd tmp/stars-asm && go build -o ./dist/stars-asm .   # once
+```
+
+**Functions** (`stars-symbols.csv`):
 
 ```sh
 cd tmp/stars-asm
-go build -o ./dist/stars-asm .
 { echo "name,ghidra_addr,ne_addr"; \
   ./dist/stars-asm symbols functions \
   | perl -ne 'if(/^\s*([0-9a-f]{4}):([0-9a-f]{4})\s+(\S+)/){
@@ -69,9 +109,24 @@ go build -o ./dist/stars-asm .
 } > ../../docs/ghidra/stars-symbols.csv
 ```
 
-## Follow-ups
+**Types & globals** (from the repo root):
 
-- stars-asm also exposes `symbols globals` / `symbols publics`; the same
-  selector mapping applies, so data globals can be added to the CSV later.
-- Applying struct/enum types (`RTPLANET`, `SHDEF`, …) from stars-asm to the
-  Ghidra data-type manager is a further enhancement.
+```sh
+bash docs/ghidra/gen-types.sh     # -> stars-types.h
+bash docs/ghidra/gen-globals.sh   # -> stars-globals.csv, stars-struct-sizes.csv
+```
+
+`gen-types.sh` also leaves the header valid, single-namespace C; you can
+sanity-check it with `clang -std=c11 -fsyntax-only docs/ghidra/stars-types.h`
+(sizes still come from Ghidra's 16-bit data organisation, not the host clang).
+
+## Notes & follow-ups
+
+- The header maps `int32_t`/`uint32_t` onto `long` (4 bytes) and Win16 handles
+  onto 2-byte words; this matches the program's Ghidra data organisation
+  (`long`=4, pointer=4, `short`=2), which `apply_types.py` re-checks per struct.
+- `enums.h`'s standalone Windows `MessageBoxResult` enum and a duplicate
+  `VictoryCondition` are dropped by `gen-types.sh` because they collide in C's
+  single enumerator namespace; every game enum is retained.
+- `symbols publics` (additional public labels) is not yet imported — a possible
+  future addition using the same selector mapping.

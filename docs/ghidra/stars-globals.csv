@@ -1,0 +1,614 @@
+name,ghidra_addr,ne_addr,type
+rgPalGray,1000:0000,0001:0000,uint8_t[20]
+rgengine,1008:0000,0002:0000,ENGINE[16]
+rgarmor,1008:04e0,0002:04e0,ARMOR[12]
+rgscanner,1008:0768,0002:0768,SCANNER[16]
+rgshield,1008:0ae8,0002:0ae8,SHIELD[10]
+rgspecialE,1008:0d04,0002:0d04,SPECIAL[17]
+rgspecialM,1008:109a,0002:109a,SPECIAL[11]
+rgmines,1008:12ec,0002:12ec,MINES[10]
+rgmining,1008:1508,0002:1508,MINING[8]
+rgplanetary,1008:16b8,0002:16b8,PLANETARY[15]
+rgterra,1008:19e2,0002:19e2,TERRA[20]
+rgbomb,1008:1e1a,0002:1e1a,BOMB[15]
+rgtorp,1008:2180,0002:2180,TORP[12]
+rgbeam,1008:2450,0002:2450,BEAM[24]
+rghuldef,1008:29f0,0002:29f0,HULDEF[32]
+rgshdefT,1008:3bd0,0002:3bd0,SHDEF[22]
+rghuldefSB,1008:4872,0002:4872,HULDEF[5]
+rgshdefSBT,1008:4b3e,0002:4b3e,SHDEF[4]
+rgspecialSB,1008:4d8a,0002:4d8a,SPECIALSB[16]
+aSTRCmpr,1010:0000,0003:0000,char[28209]
+acSTR,1010:6e32,0003:6e32,uint8_t[1414]
+aiSTRChunkOffset,1010:73b8,0003:73b8,int16_t[23]
+rgSTRLookupTable,1010:73e6,0003:73e6,char[84]
+vrgbShuffleSerial,1020:2870,0005:2870,uint8_t[21]
+rgTOWidth,1020:7702,0005:7702,char[2][2]
+aMSGCmpr,1030:0000,0007:0000,char[22836]
+acMSG,1030:5934,0007:5934,uint8_t[387]
+aiMSGChunkOffset,1030:5ab8,0007:5ab8,int16_t[7]
+rgMSGLookupTable,1030:5ac6,0007:5ac6,char[72]
+rgcMsgArgs,1030:5b0e,0007:5b0e,char[387]
+vrgbTachyon,1038:50be,0008:50be,uint8_t[18]
+rgDSDivCnt,1038:5f7e,0008:5f7e,int32_t[5]
+rgcrDrawStars,1038:5f92,0008:5f92,uint32_t[5]
+rgDSDivCnt2,1038:5fa6,0008:5fa6,int32_t[5]
+rgcrDrawStars2a,1038:5fba,0008:5fba,uint32_t[5]
+rgcrDrawStars2b,1038:5fce,0008:5fce,uint32_t[5]
+aPNCmpr,1040:0000,0009:0000,char[4099]
+acPN,1040:1004,0009:1004,uint8_t[999]
+aiPNChunkOffset,1040:13ec,0009:13ec,int16_t[16]
+rgPNLookupTable,1040:140c,0009:140c,char[52]
+rgPrimes,1040:14ea,0009:14ea,int16_t[128]
+vrgPopRad,1058:0000,000c:0000,int16_t[19]
+rgcrScanMine,1058:0026,000c:0026,uint32_t[3]
+vrgTBBtn,1068:0000,000e:0000,char[29]
+vrgpctZoom,1068:0da4,000e:0da4,int16_t[9]
+mpishdefishTutor,1070:0000,000f:0000,char[6]
+vrgWormholeMin,1078:0000,0010:0000,uint8_t[5]
+vrgWormholeVar,1078:0006,0010:0006,uint8_t[5]
+rgbtlplanT,1078:000c,0010:000c,BTLPLAN[5]
+rgNG3Width,1078:9d4c,0010:9d4c,char[2][9]
+vrgplrComp,1078:a370,0010:a370,PLAYER[4][6]
+vrgvcMax,1078:b5a8,0010:b5a8,int16_t[10]
+vrgAiRobotoidResOrder,1088:02ee,0012:02ee,uint8_t[36]
+vrgRobIshAip,1088:1f34,0012:1f34,uint16_t[38]
+vrgRobAip,1088:1f80,0012:1f80,uint8_t[301]
+vrgTDIshAip,1088:35ae,0012:35ae,uint8_t[19]
+vrgTDAip,1088:35c2,0012:35c2,uint8_t[141]
+vrgAiTurinDroneResOrder,1088:3650,0012:3650,uint8_t[31]
+vrgAiParts,1090:0000,0013:0000,AIPART[150]
+vrgSBAip,1090:7688,0013:7688,uint8_t[85]
+vrgSBMacAisb,1090:76de,0013:76de,uint8_t[6]
+vrgAiPacketDist,1090:7dce,0013:7dce,int32_t[2]
+vrgISIshAip,1098:0064,0014:0064,uint8_t[19]
+vrgISAip,1098:0078,0014:0078,uint8_t[182]
+vrgAiISResOrder,1098:01ce,0014:01ce,uint8_t[18]
+vrgAiMacintiResOrder,10a0:0000,0015:0000,uint8_t[8]
+vrgMacIshAip,10a0:2a06,0015:2a06,uint16_t[31]
+vrgMacAip,10a0:2a44,0015:2a44,uint8_t[248]
+vrgAiCybertronResOrder,10a8:0000,0016:0000,uint8_t[42]
+vrgCyberIshAip,10a8:46b0,0016:46b0,uint16_t[36]
+vrgCyberAip,10a8:46f8,0016:46f8,uint8_t[301]
+rgrgdmgMine,10b0:4f3c,0017:4f3c,int16_t[2][3]
+rgrgdmgMinMine,10b0:4f48,0017:4f48,int16_t[2][3]
+rgpctMineHit,10b0:4f54,0017:4f54,int16_t[3]
+rgiWarpSafe,10b0:4f5a,0017:4f5a,int16_t[3]
+mpimdgrbitBU,10c0:0138,0019:0138,uint16_t[8]
+rghstCat,10c8:0000,001a:0000,HullSlotType[14]
+rgidsCat,10c8:001c,001a:001c,StringId[14]
+rggrbitParts,10c8:0038,001a:0038,uint16_t[13]
+rgidsParts,10c8:0052,001a:0052,int16_t[13]
+rggrbitPartsSB,10c8:006c,001a:006c,uint16_t[8]
+rgidsPartsSB,10c8:007c,001a:007c,int16_t[8]
+rglTechCost,10d8:1d4e,001c:1d4e,int32_t[27]
+rggrbitBrParts,10d8:1eb6,001c:1eb6,uint16_t[17]
+rgRW3Spacing,10e0:2a8c,001d:2a8c,char[7]
+rgRW3Width,10e0:2a94,001d:2a94,char[7]
+rgRW3IStat,10e0:2a9c,001d:2a9c,char[7]
+rgRaceStatMin,10e0:30f4,001d:30f4,char[16]
+rgRaceStatMax,10e0:3104,001d:3104,char[16]
+rgRacePrimaryTrait,10e0:4410,001d:4410,int16_t[10]
+rgRaceAdvDisPts,10e0:4424,001d:4424,int16_t[14]
+rgRaceDisEnvPts,10e0:4440,001d:4440,int16_t[6]
+rgbrcStart,10f0:0000,001f:0000,uint8_t[136]
+rgiaQuikDrop,10f8:0f94,0020:0f94,ITEMACTION[5]
+rgiaQuikLoad,10f8:0f9e,0020:0f9e,ITEMACTION[5]
+rgiaUnloadAllCol,10f8:0fa8,0020:0fa8,ITEMACTION[5]
+rgiaLoadAllCol,10f8:0fb2,0020:0fb2,ITEMACTION[5]
+rgzpqTut,10f8:663a,0020:663a,ZIPPRODQ1[2]
+aTUTCmpr,1100:0000,0021:0000,char[22323]
+acTUT,1100:5734,0021:5734,uint8_t[640]
+aiTUTChunkOffset,1100:59b4,0021:59b4,int16_t[10]
+rgTUTLookupTable,1100:59c8,0021:59c8,char[76]
+mpicolgrbitBU,1108:0000,0022:0000,uint16_t[12]
+hbrButtonFace,1120:0010,0025:0010,HBRUSH
+hbrButtonText,1120:0012,0025:0012,HBRUSH
+hbrButtonHilite,1120:0014,0025:0014,HBRUSH
+hbrButtonShadow,1120:0016,0025:0016,HBRUSH
+hbrWindow,1120:0018,0025:0018,HBRUSH
+hbrWindowText,1120:001a,0025:001a,HBRUSH
+hbrWindowFrame,1120:001c,0025:001c,HBRUSH
+hbrDesktop,1120:001e,0025:001e,HBRUSH
+hbrLightGray,1120:0020,0025:0020,HBRUSH
+hbrGray,1120:0022,0025:0022,HBRUSH
+hbrRed,1120:0024,0025:0024,HBRUSH
+hbrGreen,1120:0026,0025:0026,HBRUSH
+hbrBlue,1120:0028,0025:0028,HBRUSH
+lpfnTutorDlgProc,1120:002a,0025:002a,int32_t() *
+rgcrPlrHistory,1120:002e,0025:002e,uint32_t[16]
+penvMem,1120:006e,0025:006e,jmp_buf[9] *
+game,1120:0070,0025:0070,GAME
+dGal,1120:00f0,0025:00f0,int16_t
+dGalInv,1120:00f2,0025:00f2,int16_t
+dGalMinDist,1120:00f4,0025:00f4,int16_t
+lpPlanets,1120:00f6,0025:00f6,PLANET *
+rglpfl,1120:00fa,0025:00fa,FLEET * *
+rglpshdef,1120:00fe,0025:00fe,SHDEF *[16]
+szHelpFile,1120:014a,0025:014a,char *
+rglpshdefSB,1120:014c,0025:014c,SHDEF *[16]
+idPlayer,1120:018c,0025:018c,int16_t
+hwndBrowser,1120:018e,0025:018e,HWND
+hwndScanner,1120:0190,0025:0190,HWND
+hwndActive,1120:0192,0025:0192,HWND
+hwndMine,1120:0194,0025:0194,HWND
+hwndPlanet,1120:0196,0025:0196,HWND
+hwndMessage,1120:0198,0025:0198,HWND
+hwndTb,1120:019a,0025:019a,HWND
+fLogOut,1120:019c,0025:019c,int16_t
+lpchBatch,1120:019e,0025:019e,char *
+uTimerId,1120:01a2,0025:01a2,uint16_t
+uTimerType,1120:01a4,0025:01a4,uint16_t
+PCTD,1120:01aa,0025:01aa,char *
+PCTLD,1120:01b0,0025:01b0,char *
+PCTDPCTPCT,1120:01b8,0025:01b8,char *
+PCTDKT,1120:01c0,0025:01c0,char *
+MPCTD,1120:01c6,0025:01c6,char *
+PCTDXPCTDPCTPCT,1120:01d0,0025:01d0,char *
+ctickLast,1120:01d2,0025:01d2,uint32_t
+szFrame,1120:01d6,0025:01d6,char[11]
+szScan,1120:01e2,0025:01e2,char[10]
+szMine,1120:01ec,0025:01ec,char[10]
+szPlanet,1120:01f6,0025:01f6,char[12]
+szMessage,1120:0202,0025:0202,char[13]
+szPopup,1120:0210,0025:0210,char[11]
+szBrowser,1120:021c,0025:021c,char[13]
+szTitle,1120:022a,0025:022a,char[11]
+szReport,1120:0236,0025:0236,char[12]
+szTb,1120:0242,0025:0242,char[8]
+szTooltip,1120:024a,0025:024a,char[8]
+szDirName,1120:0252,0025:0252,char[256]
+hwndTitle,1120:0352,0025:0352,HWND
+fFreeingTitle,1120:0354,0025:0354,int16_t
+hiconStars,1120:0356,0025:0356,HICON
+hiconHost,1120:0358,0025:0358,HICON
+hiconWait,1120:035a,0025:035a,HICON
+lSaltCur,1120:035c,0025:035c,int32_t
+lSaltLast,1120:0360,0025:0360,int32_t
+vretExitValue,1120:038c,0025:038c,int16_t
+iPassCnt,1120:03d2,0025:03d2,int16_t
+fProcessingTimer,1120:0414,0025:0414,int16_t
+ptStickyHostModeDlg,1120:0416,0025:0416,POINT
+vhpalSplash,1120:042e,0025:042e,uint16_t
+vhdibTitle,1120:0430,0025:0430,uint16_t
+rghwndBtnSplash,1120:0432,0025:0432,uint16_t[4]
+rgcrMinerals,1120:0448,0025:0448,uint32_t[6]
+rgszPlanetAttr,1120:047e,0025:047e,char *[3]
+rgszPlanetAttrAbbr,1120:0492,0025:0492,char *[3]
+rgszMinerals,1120:04cc,0025:04cc,char *[6]
+rgszMineField,1120:04f2,0025:04f2,char *[3]
+cMinGrafMax,1120:04f8,0025:04f8,int16_t
+mpiTypeiItem,1120:050a,0025:050a,uint8_t[3]
+mpdtsz,1120:0552,0025:0552,char *[8]
+fOrdersVis,1120:0586,0025:0586,int16_t
+grbitScan,1120:0588,0025:0588,uint16_t
+vpctRadarView,1120:058a,0025:058a,int16_t
+vrgScanPO,1120:058c,0025:058c,int16_t[5][2]
+iScanZoom,1120:05a0,0025:05a0,int16_t
+fInScrollSet,1120:05cc,0025:05cc,int16_t
+ptStickyFindDlg,1120:05ce,0025:05ce,POINT
+vrgszMRU,1120:05d2,0025:05d2,char *
+bitTbl,1120:05d6,0025:05d6,int16_t[8]
+rgszArial,1120:06a6,0025:06a6,char[32][4]
+fFileErrSilent,1120:074c,0025:074c,int16_t
+idsFileError,1120:074e,0025:074e,int16_t
+wVersFile,1120:0750,0025:0750,uint16_t
+bogi,1120:0766,0025:0766,uint32_t[25]
+gd,1120:07ca,0025:07ca,GDATA
+szListbox,1120:07dc,0025:07dc,char *
+szCombobox,1120:07e8,0025:07e8,char *
+szEdit,1120:07f0,0025:07f0,char *
+szButton,1120:07fa,0025:07fa,char *
+rgtilePlanet,1120:07fc,0025:07fc,TILE[6]
+rgdxOrderDD,1120:085c,0025:085c,int16_t[3]
+dxBattleDD,1120:0862,0025:0862,int16_t
+dxShipLB,1120:0864,0025:0864,int16_t
+dyShipLB,1120:0866,0025:0866,int16_t
+dxFleetCompLB,1120:0868,0025:0868,int16_t
+dyFleetCompLB,1120:086a,0025:086a,int16_t
+dxPlanetProdLB,1120:086c,0025:086c,int16_t
+dyPlanetProdLB,1120:086e,0025:086e,int16_t
+dxOrderED,1120:0870,0025:0870,int16_t
+iselProd,1120:0872,0025:0872,int16_t
+hwndOrderED,1120:0874,0025:0874,HWND
+vSerialNumber,1120:08ac,0025:08ac,int32_t
+rglPopMac,1120:08cc,0025:08cc,int32_t[5]
+ptStickyRenameDlg,1120:08e0,0025:08e0,POINT
+rgszZipOrder,1120:0906,0025:0906,char *[4]
+rgtileShip,1120:090e,0025:090e,TILE[7]
+mdXferDlg,1120:0984,0025:0984,int16_t
+ptStickyTransferDlg,1120:0986,0025:0986,POINT
+fValidLx,1120:0998,0025:0998,int16_t
+fValidLxf,1120:099a,0025:099a,int16_t
+vlpMemStream,1120:099c,0025:099c,uint8_t *
+lpLog,1120:09a0,0025:09a0,uint8_t *
+imemLogCur,1120:09a4,0025:09a4,int16_t
+imemLogPrev,1120:09a6,0025:09a6,int16_t
+fLogOff,1120:09a8,0025:09a8,int16_t
+vrgts,1120:09b4,0025:09b4,TURNSERIAL *
+vrgPlanResExtra,1120:09b8,0025:09b8,uint16_t *
+lpcd,1120:09bc,0025:09bc,COLDROP *
+lpxf,1120:09c0,0025:09c0,XFERFULL *
+vcBackupDirs,1120:09de,0025:09de,int16_t
+hf,1120:0a22,0025:0a22,int16_t
+lpbDefUni,1120:0a2a,0025:0a2a,char *
+vrgszComputerPlayers,1120:0a7e,0025:0a7e,char *[7]
+vrgszComputerLevel,1120:0aae,0025:0aae,char *[5]
+ptStickyNewDlg,1120:0ad8,0025:0ad8,POINT
+cbbitfMsg,1120:0af6,0025:0af6,int16_t
+lpMsg,1120:0af8,0025:0af8,int16_t *
+imemMsgCur,1120:0afc,0025:0afc,int16_t
+cMsg,1120:0afe,0025:0afe,int16_t
+iMsgCur,1120:0b00,0025:0b00,int16_t
+iMsgSendCur,1120:0b02,0025:0b02,int16_t
+fViewFilteredMsg,1120:0b04,0025:0b04,int16_t
+vlpmsgplrIn,1120:0b06,0025:0b06,MSGPLR *
+vlpmsgplrOut,1120:0b0a,0025:0b0a,MSGPLR *
+vcmsgplrIn,1120:0b0e,0025:0b0e,int16_t
+vcmsgplrOut,1120:0b10,0025:0b10,int16_t
+viInRe,1120:0b12,0025:0b12,int16_t
+vrgszUnits,1120:0b48,0025:0b48,char *[6]
+iLastMsgGet,1120:0b75,0025:0b75,char
+PCTLD00,1120:0b7c,0025:0b7c,char *
+hwndPopup,1120:0b7e,0025:0b7e,HWND
+GlobalPD,1120:0b80,0025:0b80,POPUPDATA
+fInEditUpdate,1120:0c50,0025:0c50,int16_t
+rgmapBuildBmps,1120:0c52,0025:0c52,HullSlotType[21]
+iselSlot,1120:0c7c,0025:0c7c,int16_t
+ptStickySlotDlg,1120:0c7e,0025:0c7e,POINT
+hdibPlaque,1120:0c82,0025:0c82,HGLOBAL
+hwndSlotDlg,1120:0c90,0025:0c90,HWND
+rgszSpeed,1120:0ca0,0025:0ca0,uint8_t[30]
+lpplProdGlob,1120:0cce,0025:0cce,PLPROD *
+hwndProdDlg,1120:0cd2,0025:0cd2,HWND
+fDlgUp,1120:0cd4,0025:0cd4,int16_t
+ptStickyProduceDlg,1120:0cd6,0025:0cd6,POINT
+ptStickyZipProdDlg,1120:0d00,0025:0d00,POINT
+vyZPDStatic,1120:0d04,0025:0d04,int16_t
+pctResGlob,1120:0d06,0025:0d06,int16_t
+ptStickyResDlg,1120:0d08,0025:0d08,POINT
+yTopTechNote,1120:0d0c,0025:0d0c,int16_t
+ptStickyBrowserDlg,1120:0d1e,0025:0d1e,POINT
+fBrowserValid,1120:0d22,0025:0d22,int16_t
+rglphb,1120:0d34,0025:0d34,HB *[12]
+mphtcbAlloc,1120:0d64,0025:0d64,uint16_t[12]
+lpbBattleLog,1120:0d7c,0025:0d7c,uint8_t *
+lpbBattleCur,1120:0d80,0025:0d80,uint8_t *
+lpbBattleT,1120:0d84,0025:0d84,uint8_t *
+vlpwtCargo,1120:0d88,0025:0d88,uint16_t *
+idBattle,1120:0d8c,0025:0d8c,int16_t
+fStarbaseDied,1120:0d8e,0025:0d8e,int16_t
+fStarbaseDamaged,1120:0d90,0025:0d90,int16_t
+ptStickyRelationsDlg,1120:0d92,0025:0d92,POINT
+ptStickyBattlePlansDlg,1120:0d96,0025:0d96,POINT
+iPlanSelDlg,1120:0d9a,0025:0d9a,int16_t
+vrgplrDef,1120:0da2,0025:0da2,PLAYER[7]
+rgidRaceBtn,1120:12e2,0025:12e2,uint16_t[5]
+ptStickyRaceDlg,1120:12ec,0025:12ec,POINT
+vrgszRCWWidth,1120:1304,0025:1304,char *[2]
+szRacePass,1120:1308,0025:1308,char[16]
+szRaceFile,1120:1318,0025:1318,char[16]
+lRandSeed1,1120:1370,0025:1370,int32_t
+lRandSeed2,1120:1374,0025:1374,int32_t
+cRandStack,1120:1378,0025:1378,int16_t
+iLastGet,1120:137a,0025:137a,char
+rgptArrow,1120:138c,0025:138c,POINT[5]
+rgptTriangle,1120:13a0,0025:13a0,POINT[3]
+chbrCache,1120:13ac,0025:13ac,int16_t
+rgcompstrlower,1120:13ae,0025:13ae,int16_t[26]
+rgchcompstrlower,1120:13fe,0025:13fe,char *
+rgchcomp,1120:1400,0025:1400,char[13]
+vcPasswordFailures,1120:140e,0025:140e,uint16_t
+hwndProgressGauge,1120:1410,0025:1410,HWND
+vrgdpVCR,1120:1412,0025:1412,int32_t *
+fAnimate,1120:1416,0025:1416,int16_t
+viSpeedVCR,1120:1418,0025:1418,int16_t
+ptStickyVCRDlg,1120:141a,0025:141a,POINT
+hwndVCRDlg,1120:141e,0025:141e,HWND
+fAi,1120:1442,0025:1442,int16_t
+vlpbAiPlanet,1120:1444,0025:1444,uint8_t *
+vlpbAiData,1120:1448,0025:1448,uint8_t *
+vrglpplAi,1120:144c,0025:144c,PLANET * *
+vrgcAiParts,1120:1450,0025:1450,uint8_t[45]
+iLastStrGet,1120:1484,0025:1484,char
+ptStickyTutorDlg,1120:1486,0025:1486,POINT
+iLastTutGet,1120:1492,0025:1492,int16_t
+vrptPlanet,1120:1494,0025:1494,RPT
+vrptFleet,1120:14ca,0025:14ca,RPT
+vrptEFleet,1120:1500,0025:1500,RPT
+vrptBattle,1120:1536,0025:1536,RPT
+rgsxPlr,1120:156c,0025:156c,SCOREX *[16]
+vprptCur,1120:15ac,0025:15ac,RPT *
+irowEFleetCur,1120:15ae,0025:15ae,int16_t
+vlprgidRep,1120:15b0,0025:15b0,uint16_t *
+vlprgidMisc,1120:15b4,0025:15b4,uint16_t *
+vlprgidPlanet,1120:15b8,0025:15b8,uint16_t *
+vlprgidFleet,1120:15bc,0025:15bc,uint16_t *
+vlprgScoreX,1120:15c0,0025:15c0,SCOREX *
+hwndReportDlg,1120:15c4,0025:15c4,HWND
+szDblDash,1120:15ca,0025:15ca,char *
+ptStickyScoreXDlg,1120:15e0,0025:15e0,POINT
+hwndScoreXDlg,1120:15e4,0025:15e4,HWND
+fInScoreDialog,1120:15e6,0025:15e6,int16_t
+vicolSortPrev,1120:162c,0025:162c,int16_t
+viSubsortPrev,1120:162e,0025:162e,int16_t
+szCRLF,1120:1630,0025:1630,char[3]
+ptStickyPrintMapDlg,1120:1690,0025:1690,POINT
+vrgcPrintMapPage,1120:1694,0025:1694,int16_t[2]
+lpThings,1120:1698,0025:1698,THING *
+cThing,1120:169c,0025:169c,int16_t
+cThingAlloc,1120:169e,0025:169e,int16_t
+ptStickyZipOrderDlg,1120:16b4,0025:16b4,POINT
+hwndZipOrderDlg,1120:16b8,0025:16b8,HWND
+ptStickyMergeFleetsDlg,1120:16c0,0025:16c0,POINT
+hwndTBRadar,1120:16c8,0025:16c8,HWND
+vptTbLast,1120:16ca,0025:16ca,POINT
+hwndTooltip,1120:16d8,0025:16d8,HWND
+vidTimerTooltip,1120:16da,0025:16da,int16_t
+vtickTooltipLast,1120:16dc,0025:16dc,uint32_t
+__fac,1120:1706,0025:1706,double
+_ctype,1120:175e,0025:175e,uint8_t[0]
+lFileSeed1,1120:2272,0025:2272,int32_t
+lFileSeed2,1120:2276,0025:2276,int32_t
+ini,1120:2290,0025:2290,INI
+vpartBrowser,1120:22aa,0025:22aa,PART
+rcMsgText,1120:22b2,0025:22b2,RECT
+crButtonFace,1120:22ba,0025:22ba,COLORREF
+hrgnScratch,1120:22be,0025:22be,HRGN
+vcStepVCR,1120:22c0,0025:22c0,int16_t
+lpfnRealEditProc,1120:22c2,0025:22c2,int32_t() *
+hbrYellow,1120:22c6,0025:22c6,HBRUSH
+szLastGet,1120:22c8,0025:22c8,char[19]
+fMarkedPlanets,1120:22dc,0025:22dc,int16_t
+iWindowLayout,1120:22de,0025:22de,int16_t
+szPassLast,1120:22e0,0025:22e0,char[16]
+hwndBattleDD,1120:22f0,0025:22f0,HWND
+vrgszFileNew,1120:22f2,0025:22f2,char *
+dxyVCRSquare,1120:22f4,0025:22f4,int16_t
+vrgZipProd,1120:22f6,0025:22f6,ZIPPRODQ[5]
+rcCargo,1120:23be,0025:23be,RECT
+dySBar,1120:23c6,0025:23c6,int16_t
+hpenDkYellow,1120:23c8,0025:23c8,HPEN
+vfs,1120:23ca,0025:23ca,FRAMESTUFF
+dxResRadio,1120:23e0,0025:23e0,int16_t
+vlpbdVCRNext,1120:23e2,0025:23e2,BTLDATA *
+hAccel,1120:23e6,0025:23e6,uint16_t
+lpfnRealComboProc,1120:23e8,0025:23e8,int32_t() *
+dxWinFrame,1120:23ec,0025:23ec,int16_t
+dyWinFrame,1120:23ee,0025:23ee,int16_t
+hcurResizeWE,1120:23f0,0025:23f0,HCURSOR
+dxResRight,1120:23f2,0025:23f2,int16_t
+dxShipDD,1120:23f4,0025:23f4,int16_t
+dyArial7,1120:23f6,0025:23f6,int16_t
+dyArial6,1120:23f8,0025:23f8,int16_t
+dyArial8,1120:23fa,0025:23fa,int16_t
+hwndRepCB,1120:23fc,0025:23fc,HWND
+crButtonShadow,1120:23fe,0025:23fe,COLORREF
+lpfnFakeListProc,1120:2402,0025:2402,int32_t() *
+dyShipDD,1120:2406,0025:2406,int16_t
+lpfnGaugeDlgProc,1120:2408,0025:2408,int32_t() *
+grfMissed,1120:240c,0025:240c,uint16_t
+rgcsxPlr,1120:240e,0025:240e,int16_t[16]
+hdibThings,1120:242e,0025:242e,HGLOBAL
+hbrSelect,1120:2430,0025:2430,HBRUSH
+lResBudget,1120:2432,0025:2432,int32_t
+shdefBuild,1120:2436,0025:2436,SHDEF
+lx,1120:24ca,0025:24ca,LOGXFER
+hbmpBackBld,1120:24e2,0025:24e2,HBITMAP
+hwndMDIClient,1120:24e4,0025:24e4,HWND
+rghiconVCR,1120:24e6,0025:24e6,uint16_t[7]
+lxf,1120:24f4,0025:24f4,LOGXFERF
+rghbrCacheUse,1120:2518,0025:2518,uint8_t[32]
+lpfnFakeEditProc,1120:2538,0025:2538,int32_t() *
+lResTotal,1120:253c,0025:253c,int32_t
+rgbtnXfer,1120:2540,0025:2540,BTN *
+csh,1120:2542,0025:2542,int16_t
+lpfnFakeComboProc,1120:2544,0025:2544,int32_t() *
+vszDefPass,1120:2548,0025:2548,char[17]
+hbrRadar,1120:255a,0025:255a,HBRUSH
+rgTechBattle,1120:255c,0025:255c,uint8_t[6]
+rgTechTrader,1120:2562,0025:2562,uint8_t[13]
+yScanTop,1120:2570,0025:2570,int16_t
+xScanTop,1120:2572,0025:2572,int16_t
+crWindow,1120:2574,0025:2574,COLORREF
+vcflMerge,1120:2578,0025:2578,int16_t
+uDateInstalled,1120:257a,0025:257a,uint16_t
+rghbrMineral,1120:257c,0025:257c,uint16_t[5]
+lpfnRealListProc,1120:2586,0025:2586,int32_t() *
+hcurTrashCan,1120:258a,0025:258a,HCURSOR
+hwndFrame,1120:258c,0025:258c,HWND
+rghdibInventory,1120:258e,0025:258e,uint16_t[7]
+szMineralTitle,1120:259c,0025:259c,char[90]
+crButtonText,1120:25f6,0025:25f6,COLORREF
+rgXferValidHulls,1120:25fa,0025:25fa,int16_t *
+vlpbrVCR,1120:25fc,0025:25fc,BTLREC *
+dxyVCRBoard,1120:2600,0025:2600,int16_t
+iPanelActive,1120:2602,0025:2602,int16_t
+hdibRacesX,1120:2604,0025:2604,HGLOBAL
+hdibRacesT,1120:2606,0025:2606,HGLOBAL
+viStore,1120:2608,0025:2608,int16_t
+hbmpMsg,1120:260a,0025:260a,HBITMAP
+viStepVCRCur,1120:260c,0025:260c,int16_t
+cFutureTech,1120:260e,0025:260e,int16_t
+dxMaxMineralQuan,1120:2610,0025:2610,int16_t
+rgcrCache,1120:2612,0025:2612,uint32_t[32]
+hbrPurple,1120:2692,0025:2692,HBRUSH
+vrgplrNew,1120:2694,0025:2694,PLAYER *
+hdrCur,1120:2696,0025:2696,HDR
+rghwndBtn,1120:2698,0025:2698,uint16_t[13]
+fDirtyPlan,1120:26b2,0025:26b2,int16_t
+rghfontArial8,1120:26b4,0025:26b4,uint16_t[5]
+rghfontArial7,1120:26be,0025:26be,uint16_t[1]
+rghfontArial6,1120:26c0,0025:26c0,uint16_t[1]
+hpenDkPurple,1120:26c2,0025:26c2,HPEN
+hpenYellow,1120:26c4,0025:26c4,HPEN
+hcurResizeNS,1120:26c6,0025:26c6,HCURSOR
+vrgrcSlot,1120:26c8,0025:26c8,RECT[16]
+lpfnFakeCEProc,1120:2748,0025:2748,int32_t() *
+dScanPage,1120:274c,0025:274c,int16_t
+vrcTooltip,1120:274e,0025:274e,RECT
+hwndMain,1120:2756,0025:2756,HWND
+viRound,1120:2758,0025:2758,int16_t
+hbrTooltip,1120:275a,0025:275a,HBRUSH
+rcSpinTop,1120:275c,0025:275c,RECT
+rcSpinBot,1120:2764,0025:2764,RECT
+vcRound,1120:276c,0025:276c,int16_t
+rgidPlan,1120:276e,0025:276e,int16_t[999]
+lpfnRealCEProc,1120:2f3c,0025:2f3c,int32_t() *
+rgptPlan,1120:2f40,0025:2f40,POINT[999]
+vptMsg,1120:3edc,0025:3edc,POINT
+yBuildInfoSum,1120:3ee0,0025:3ee0,int16_t
+mdMsgObj,1120:3ee2,0025:3ee2,int16_t
+hcurNoWay,1120:3ee4,0025:3ee4,HCURSOR
+idMsgObj,1120:3ee6,0025:3ee6,int16_t
+ptPlaque,1120:3ee8,0025:3ee8,POINT
+crButtonHilite,1120:3eec,0025:3eec,COLORREF
+vtimer,1120:3ef0,0025:3ef0,TIMER
+hbmpUnknownPlanet,1120:3efa,0025:3efa,HBITMAP
+lpfnReportDlgProc,1120:3efc,0025:3efc,int32_t() *
+rgshdef,1120:3f00,0025:3f00,SHDEF[16]
+rgcbtlplan,1120:4830,0025:4830,uint8_t[16]
+rghfontArial10,1120:4840,0025:4840,uint16_t[2]
+xNewGameDiamond,1120:4844,0025:4844,int16_t
+vrgAiCyberArmadaPotency,1120:4846,0025:4846,uint8_t[4]
+dScanInc,1120:484a,0025:484a,int16_t
+szMsgTitle,1120:484c,0025:484c,char[90]
+crWindowText,1120:48a6,0025:48a6,COLORREF
+hwndRaceParent,1120:48aa,0025:48aa,HWND
+vrgrcRCW,1120:48ac,0025:48ac,RECT *
+hcurArrowHelp,1120:48ae,0025:48ae,HCURSOR
+rgrcRef,1120:48b0,0025:48b0,RECT[19]
+vclpplAi,1120:4948,0025:4948,int16_t
+rcMsgTitle,1120:494a,0025:494a,RECT
+hdibPlanets,1120:4952,0025:4952,HGLOBAL
+yTopFutureTech,1120:4954,0025:4954,int16_t
+sel,1120:4956,0025:4956,SEL
+rghsFutureTech,1120:4a38,0025:4a38,HS[8]
+hAccelTitle,1120:4a58,0025:4a58,uint16_t
+hbmpScanner,1120:4a5a,0025:4a5a,HBITMAP
+grbitScanMines,1120:4a5c,0025:4a5c,uint16_t
+rcProdDiamond,1120:4a5e,0025:4a5e,RECT
+hcurScanner,1120:4a66,0025:4a66,HCURSOR
+pxfer,1120:4a68,0025:4a68,XFER *
+iPopMenuSel,1120:4a6a,0025:4a6a,int16_t
+szPopupBuffer,1120:4a6c,0025:4a6c,char[256]
+dxTip,1120:4b6c,0025:4b6c,int16_t
+rghdibShips,1120:4b6e,0025:4b6e,uint16_t[5]
+hbr50Screen,1120:4b78,0025:4b78,HBRUSH
+hcurOpenGrab,1120:4b7a,0025:4b7a,HCURSOR
+cPlanet,1120:4b7c,0025:4b7c,int16_t
+hbmpScanShip,1120:4b7e,0025:4b7e,HBITMAP
+vrgtok,1120:4b80,0025:4b80,TOK *
+rghwndMsgBtn,1120:4b84,0025:4b84,uint16_t[4]
+vidsTooltip,1120:4b8c,0025:4b8c,int16_t
+vfAscendingPrev,1120:4b8e,0025:4b8e,int16_t
+ptSpeedVCR,1120:4b90,0025:4b90,POINT
+crcRCW,1120:4b94,0025:4b94,COLORREF
+crgbtnXfer,1120:4b96,0025:4b96,COLORREF
+rgbCur,1120:4b98,0025:4b98,char[1024]
+iResTechNow,1120:4f98,0025:4f98,int16_t
+vplr,1120:4f9a,0025:4f9a,PLAYER
+dyTitleBar,1120:505a,0025:505a,int16_t
+szLastMsgGet,1120:505c,0025:505c,char[256]
+vrgAiArmadaPotency,1120:515c,0025:515c,uint8_t[4]
+rghdibShipsT,1120:5160,0025:5160,uint16_t[5]
+bitfMsgSent,1120:516a,0025:516a,uint8_t[49]
+hbrDkYellow,1120:519c,0025:519c,HBRUSH
+vrgbMachineConfig,1120:519e,0025:519e,uint8_t[11]
+grbitScanEShip,1120:51aa,0025:51aa,uint16_t
+iAboutPartial,1120:51ac,0025:51ac,int16_t
+vAiMacRecycleSB,1120:51ae,0025:51ae,uint8_t *
+lpchBatchMac,1120:51b0,0025:51b0,char *
+ptslotGlob,1120:51b4,0025:51b4,POINT
+vpctProgressGauge,1120:51b8,0025:51b8,int16_t
+hwndFleetCompLB,1120:51ba,0025:51ba,HWND
+vrgiflMerge,1120:51bc,0025:51bc,int16_t *
+vrgplrTypeNew,1120:51be,0025:51be,uint8_t[16]
+hcurResize4Way,1120:51ce,0025:51ce,HCURSOR
+lpfnBrowserDlgProc,1120:51d0,0025:51d0,int32_t() *
+btlplan,1120:51d4,0025:51d4,BTLPLAN
+vdxScoreX,1120:51f8,0025:51f8,int16_t
+dxResStrRight,1120:51fa,0025:51fa,int16_t
+hwndMsgDrop,1120:51fc,0025:51fc,HWND
+lpfnHostTimerProc,1120:51fe,0025:51fe,int32_t() *
+lpshdefBuild,1120:5202,0025:5202,SHDEF *
+lpb2k,1120:5206,0025:5206,uint8_t *
+hbrCargo,1120:520a,0025:520a,HBRUSH
+tutor,1120:520c,0025:520c,TUTOR
+rglRandStack,1120:5238,0025:5238,int32_t[2][4]
+cXferValidHulls,1120:5258,0025:5258,int16_t
+hrgnHuge,1120:525a,0025:525a,HRGN
+hwndPlanetProdLB,1120:525c,0025:525c,HWND
+hcurHand,1120:525e,0025:525e,HCURSOR
+hdrPrev,1120:5260,0025:5260,HDR
+hbrDock,1120:5262,0025:5262,HBRUSH
+vrgZip,1120:5264,0025:5264,ZIPORDER[4]
+rghbrCache,1120:52c4,0025:52c4,uint16_t[32]
+hcurCloseGrab,1120:5304,0025:5304,HCURSOR
+vbrcVCRFocus,1120:5306,0025:5306,uint8_t
+grbitScanShip,1120:5308,0025:5308,uint16_t
+dyArial10,1120:530a,0025:530a,int16_t
+ishdefBuild,1120:530c,0025:530c,int16_t
+hwndShipDD,1120:530e,0025:530e,HWND
+hInst,1120:5310,0025:5310,uint16_t
+vcScreenColors,1120:5312,0025:5312,int16_t
+vhpal,1120:5314,0025:5314,uint16_t
+hwndShipLB,1120:5316,0025:5316,HWND
+hbrShip,1120:5318,0025:5318,HBRUSH
+hwndMsgScroll,1120:531a,0025:531a,HWND
+vlpbdVCR,1120:531c,0025:531c,BTLDATA *
+fRCWReadOnly,1120:5320,0025:5320,int16_t
+vrgPlrLosses,1120:5322,0025:5322,uint16_t *
+bitfMsgFiltered,1120:5324,0025:5324,uint8_t[49]
+cFleet,1120:5356,0025:5356,int16_t
+hpenDkGreen,1120:5358,0025:5358,HPEN
+szMsgBuf,1120:535a,0025:535a,char[256]
+lpbDefMac,1120:5462,0025:5462,char *
+mdBuild,1120:5466,0025:5466,MdBuild
+vrgbEnvCur,1120:5468,0025:5468,uint8_t[11]
+hwndBrowserChild,1120:5474,0025:5474,HWND
+hdibRaces,1120:5476,0025:5476,HGLOBAL
+viVCRFocus,1120:5478,0025:5478,int16_t
+szLastStrGet,1120:547a,0025:547a,char[256]
+szBackup,1120:557a,0025:557a,char[256]
+hwndMineCB,1120:567a,0025:567a,HWND
+cXferFull,1120:567c,0025:567c,int16_t
+hpenRadarNear,1120:567e,0025:567e,HPEN
+rghbrPlanetAttr,1120:5680,0025:5680,uint16_t[2][3]
+hpenEnemy,1120:568c,0025:568c,HPEN
+hbrRadarNear,1120:568e,0025:568e,HBRUSH
+hpenDkBlue,1120:5690,0025:5690,HPEN
+rghbrMinSum,1120:5692,0025:5692,uint16_t[2][4]
+szBase,1120:56a2,0025:56a2,char[256]
+hcurScanAdd,1120:57a2,0025:57a2,HCURSOR
+szWork,1120:57a4,0025:57a4,char[360]
+hbrStarbase,1120:590c,0025:590c,HBRUSH
+szFormatNumber,1120:590e,0025:590e,char[12]
+dySysFont,1120:591a,0025:591a,int16_t
+fHullCopy,1120:591c,0025:591c,int16_t
+rghbrPat,1120:591e,0025:591e,uint16_t[3]
+hwndMsgEdit,1120:5924,0025:5924,HWND
+rgrcBuildSpin,1120:5926,0025:5926,RECT[2]
+hpenRadar,1120:5936,0025:5936,HPEN
+rglpbtlplan,1120:5938,0025:5938,BTLPLAN *[16]
+vctok,1120:5978,0025:5978,int16_t
+hbmpNumbers,1120:597a,0025:597a,HBITMAP
+lpthBattle,1120:597c,0025:597c,THING *
+hpenStarbase,1120:5980,0025:5980,HPEN
+vtickTooltip1stVis,1120:5982,0025:5982,uint32_t
+rghwndOrderDD,1120:5986,0025:5986,uint16_t[3]
+hdibToolbar,1120:598c,0025:598c,HGLOBAL
+fStarbaseMode,1120:598e,0025:598e,int16_t
+vcplrNew,1120:5990,0025:5990,int16_t
+hbmpMono,1120:5992,0025:5992,HBITMAP
+iAbout1st,1120:5994,0025:5994,int16_t
+hbrEnemy,1120:5996,0025:5996,HBRUSH
+cColDrop,1120:5998,0025:5998,int16_t
+hbrBBlue,1120:599a,0025:599a,HBRUSH
+dxResLeft,1120:599c,0025:599c,int16_t
+hpenMassPath,1120:599e,0025:599e,HPEN
+pProdGlob,1120:59a0,0025:59a0,PROD *
+rgplr,1120:59a2,0025:59a2,PLAYER[16]
+hpenShip,1120:65a2,0025:65a2,HPEN
+rgOut,1120:65a4,0025:65a4,int16_t[16]
+cProdGlob,1120:65c4,0025:65c4,int16_t
