@@ -62,6 +62,25 @@ typedef struct tagRECT {
 } RECT;
 
 /*
+ * Win16 owner-draw control notification. The game's list/combo owner-draw
+ * routines (HandleFocusState, DrawCBEntireItem, DrawDlgLBEntireItem) take a
+ * `DRAWITEMSTRUCT *`. It is a standard Windows type (not part of the game's own
+ * NB09 structs), and is only ever used here behind a pointer, so this minimal
+ * Win16 layout (UINT=16-bit, DWORD=32-bit) is enough for the parameter to type.
+ */
+typedef struct tagDRAWITEMSTRUCT {
+    uint16_t CtlType;
+    uint16_t CtlID;
+    uint16_t itemID;
+    uint16_t itemAction;
+    uint16_t itemState;
+    HWND     hwndItem;
+    HDC      hDC;
+    RECT     rcItem;
+    uint32_t itemData;
+} DRAWITEMSTRUCT;
+
+/*
  * The 16-bit Stars! structures are byte-packed (their in-memory layout matches
  * the on-disk record layout — e.g. THING is exactly 18 bytes). Without this the
  * C parser inserts natural-alignment padding and structs come out too large

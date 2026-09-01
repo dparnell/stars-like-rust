@@ -4,11 +4,13 @@ This folder makes the Ghidra project (`ghidra/Stars`, program `stars.2.7j.exe`)
 navigable by the **real names and types** from the game's own debug symbols, so
 Ghidra analysis lines up with the authoritative sources in `tmp/stars-asm`.
 
-There are two bridges, both driven by the same verified address mapping:
+There are three bridges, all driven by the same verified address mapping:
 
 - **functions** — `apply_symbols.py` names the 846 internal routines;
 - **types & globals** — `apply_types.py` imports the 110 game structs and 74
-  enums and lays down the 613 typed, named global variables.
+  enums and lays down the 613 typed, named global variables;
+- **function signatures** — `apply_signatures.py` types every function's
+  prototype (return type + each parameter) for all 846 routines.
 
 ## Why this is needed
 
@@ -73,6 +75,21 @@ across low, mid and high segments.
 - `gen-types.sh`, `gen-globals.sh` — the generators (need the `stars-asm`
   checkout in `tmp/stars-asm`; `gen-globals.sh` also needs its built CLI).
 
+### Function signatures (return type + parameter types)
+
+- `stars-signatures.csv` — `name,ghidra_addr,ne_addr,signature` for all 846 NB09
+  functions. `signature` is the full C prototype (e.g.
+  `void GetIniWinRc(char *szSection, char *szIniFile, StringId ids, WN *pwn)`)
+  and is **quoted** because it contains commas. Every type it names is defined in
+  `stars-types.h`. Regenerate with `gen-signatures.sh`.
+- `apply_signatures.py` — a Ghidra Python script that, for each row, parses the
+  prototype with Ghidra's `FunctionSignatureParser` (resolving the named types
+  against the program's data-type manager) and applies it with
+  `ApplyFunctionSignatureCmd`, **preserving the recovered calling convention**
+  (`__cdecl16far`/`__pascal16far`) and leaving the (already-applied) NB09 name
+  untouched. Run `apply_symbols.py` and `apply_types.py` first.
+- `gen-signatures.sh` — the generator (needs the built `stars-asm` CLI).
+
 ## Applying the names and types
 
 In the CodeBrowser that has `stars.2.7j.exe` open:
@@ -86,11 +103,18 @@ In the CodeBrowser that has `stars.2.7j.exe` open:
    CSVs beside it are found automatically). It parses the header into the
    data-type manager, prints the struct-size verification, and reports how many
    globals were typed/named (e.g. `game`, `rghuldef`, `lpPlanets`).
+4. Run **`apply_signatures.py`** and, when prompted, pick `stars-signatures.csv`.
+   It types every function's return value and parameters and prints a summary
+   (`typed (return + params)`, `typed (callback->ptr)`, …). `GetIniWinRc` then
+   reads `void GetIniWinRc(char *szSection, char *szIniFile, StringId ids, WN
+   *pwn)` instead of `undefined2`/`int` parameters.
 
-Run `apply_symbols.py` **before** `apply_types.py` so the globals that live in
-mixed code/data segments attach cleanly. Both scripts are idempotent and safe to
-re-run. They never edit the volatile Ghidra database in git (that stays ignored
-per the project guidelines); only the CSV/header/script inputs are versioned.
+Run the three scripts **in order** — `apply_symbols.py` (names) →
+`apply_types.py` (types + globals) → `apply_signatures.py` (prototypes) — so the
+functions exist and every named type is resolvable before the prototypes are
+applied. All three scripts are idempotent and safe to re-run. They never edit the
+volatile Ghidra database in git (that stays ignored per the project guidelines);
+only the CSV/header/script inputs are versioned.
 
 ## Regenerating the inputs
 
@@ -116,8 +140,9 @@ cd tmp/stars-asm
 **Types & globals** (from the repo root):
 
 ```sh
-bash docs/ghidra/gen-types.sh     # -> stars-types.h
-bash docs/ghidra/gen-globals.sh   # -> stars-globals.csv, stars-struct-sizes.csv
+bash docs/ghidra/gen-types.sh       # -> stars-types.h
+bash docs/ghidra/gen-globals.sh     # -> stars-globals.csv, stars-struct-sizes.csv
+bash docs/ghidra/gen-signatures.sh  # -> stars-signatures.csv
 ```
 
 `gen-types.sh` also leaves the header valid, single-namespace C; you can
@@ -144,5 +169,21 @@ sanity-check it with `clang -std=c11 -fsyntax-only docs/ghidra/stars-types.h`
 - `enums.h`'s standalone Windows `MessageBoxResult` enum and a duplicate
   `VictoryCondition` are dropped by `gen-types.sh` because they collide in C's
   single enumerator namespace; every game enum is retained.
+- **`DRAWITEMSTRUCT`:** three owner-draw routines take a `DRAWITEMSTRUCT *`, a
+  standard Win16 type that is not one of the game's own NB09 structs. The
+  prelude therefore declares a minimal 26-byte Win16 layout for it (matching the
+  game's own `cbDRAWITEMSTRUCT = 26` enum constant); it is the only non-game
+  type any signature names.
+- **Function-pointer parameters:** four enumerator functions (`EnumLogRts`,
+  `LpflFindClosestEnum`, `LpplFindClosestEnum`, `LpplFindBestEnum`) take a
+  callback argument (e.g. `int16_t (**pfn)(FLEET *, FLEET *)`) that Ghidra's
+  `FunctionSignatureParser` cannot express. `apply_signatures.py` collapses just
+  that argument to a same-depth `void *` pointer so the return type and the
+  other parameters are still typed faithfully; these are reported as
+  `typed (callback->ptr)`.
+- Verified offline against Ghidra 12.1.3 (PyGhidra): `stars-types.h` parses into
+  a data-type manager and all **846** prototypes parse via
+  `FunctionSignatureParser` (842 directly + the 4 callback functions via the
+  `void *` fallback).
 - `symbols publics` (additional public labels) is not yet imported — a possible
   future addition using the same selector mapping.
