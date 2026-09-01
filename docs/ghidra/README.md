@@ -56,16 +56,20 @@ across low, mid and high segments.
   `Hxxx` handles, `COLORREF`).
 - `stars-types.h` — **generated**: the prelude + forward declarations + the 74
   game enums (`enums.h`) + the 110 game structs (`structs.h`), stitched into one
-  self-contained header that parses on its own. Regenerate with `gen-types.sh`.
+  self-contained header that parses on its own. The prelude declares
+  `#pragma pack(1)` so the byte-packed 16-bit game structs import at their true
+  size (e.g. `THING`=18, not 24). Regenerate with `gen-types.sh`.
 - `stars-globals.csv` — `name,ghidra_addr,ne_addr,type` for all 613 NB09
   globals. Regenerate with `gen-globals.sh`.
 - `stars-struct-sizes.csv` — `name,size` for the 110 structs, used by the script
   to verify the imported layouts. Regenerate with `gen-globals.sh`.
-- `apply_types.py` — a Ghidra (Jython) script that parses `stars-types.h` into
-  the program's data-type manager, normalises the four struct-embedded enums to
-  their real 2-byte width, verifies every struct size against
-  `stars-struct-sizes.csv`, and lays down all 613 globals (typed + named) at
-  their addresses.
+- `apply_types.py` — a Ghidra Python script (runs under both Jython and
+  PyGhidra) that parses `stars-types.h` into the program's data-type manager,
+  normalises the four struct-embedded enums to their real 2-byte width, verifies
+  every struct size against `stars-struct-sizes.csv`, and lays down all 613
+  globals (typed + named) at their addresses. It drives Ghidra's `CParser` with
+  `storeDataType=True` (see the gotcha under **Notes** below) so the parsed
+  types are actually committed to the program.
 - `gen-types.sh`, `gen-globals.sh` — the generators (need the `stars-asm`
   checkout in `tmp/stars-asm`; `gen-globals.sh` also needs its built CLI).
 
@@ -122,9 +126,21 @@ sanity-check it with `clang -std=c11 -fsyntax-only docs/ghidra/stars-types.h`
 
 ## Notes & follow-ups
 
+- **`CParser` gotcha (why an early run imported nothing):** Ghidra's
+  single-argument `CParser(dtm)` constructor delegates to
+  `new CParser(dtm, /*storeDataType=*/false, null)`, and the parser only calls
+  `dtMgr.addDataType(...)` when `storeDataType` is true. So `CParser(dtm).parse(...)`
+  *succeeds* but commits **nothing** — every struct shows up MISSING and all
+  struct-typed globals become untypable. `apply_types.py` therefore always uses
+  the three-argument `CParser(dtm, True, None)` form (the same one
+  `CParserUtils.parseHeaderFiles` uses for "Parse C Source → program").
+  Verified on Ghidra 12.1.3: 1-arg → 0 structs; 3-arg → 124 structs / 72 enums.
 - The header maps `int32_t`/`uint32_t` onto `long` (4 bytes) and Win16 handles
-  onto 2-byte words; this matches the program's Ghidra data organisation
-  (`long`=4, pointer=4, `short`=2), which `apply_types.py` re-checks per struct.
+  onto 2-byte words, and declares `#pragma pack(1)`; this matches the program's
+  Ghidra data organisation (`long`=4, `short`=2) with no padding, so the
+  org-invariant record structs import at their exact sizes (`GAME`=64,
+  `PLANET`=56, `FLEET`=124, `THING`=18, …), which `apply_types.py` re-checks per
+  struct.
 - `enums.h`'s standalone Windows `MessageBoxResult` enum and a duplicate
   `VictoryCondition` are dropped by `gen-types.sh` because they collide in C's
   single enumerator namespace; every game enum is retained.

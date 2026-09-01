@@ -116,14 +116,30 @@ def resolve_type(dtm, type_str):
 
 
 def parse_c_header(dtm, text):
-    """Parse the consolidated header into the DTM via Ghidra's C parser."""
+    """Parse the consolidated header into the DTM via Ghidra's C parser.
+
+    IMPORTANT: the single-argument ``CParser(dtm)`` constructor forces
+    ``storeDataType=false`` -- in Ghidra's source ``CParser(DataTypeManager)``
+    delegates to ``this(dtmgr, false, null)``, and the grammar only calls
+    ``dtMgr.addDataType(...)`` when ``storeNewDT`` is true. As a result parsing
+    "succeeds" but NOTHING is committed to the program's data-type manager,
+    which is why an earlier version left every struct/enum MISSING and made all
+    struct-typed globals untypable.
+
+    We therefore always use the three-argument form with ``storeDataType=True``
+    (the same as Ghidra's "Parse C Source" / ``CParserUtils.parseHeaderFiles``),
+    so each parsed type is stored into ``dtm``.
+    """
     from ghidra.app.util.cparser.C import CParser
 
-    try:
-        parser = CParser(dtm)
-    except TypeError:
-        parser = CParser(dtm, True, None)
+    parser = CParser(dtm, True, None)
     parser.parse(text)
+
+    try:
+        if parser.didParseSucceed() is False:
+            println("WARNING: C parser reported errors; types may be incomplete.")
+    except Exception:
+        pass
     try:
         msgs = parser.getParseMessages()
         if msgs:

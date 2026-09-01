@@ -61,6 +61,16 @@ typedef struct tagRECT {
     int16_t bottom;
 } RECT;
 
+/*
+ * The 16-bit Stars! structures are byte-packed (their in-memory layout matches
+ * the on-disk record layout — e.g. THING is exactly 18 bytes). Without this the
+ * C parser inserts natural-alignment padding and structs come out too large
+ * (THING -> 24, SHDEF -> 216, ...). Ghidra's CParser honours #pragma pack even
+ * when fed a raw string (no preprocessor run), so declaring it here makes every
+ * generated game struct pack to its true size.
+ */
+#pragma pack(1)
+
 /* ---- forward declarations (make the header order-independent) ---- */
 
 typedef struct _aipart AIPART;
