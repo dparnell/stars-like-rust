@@ -47,7 +47,7 @@ variant.
 | 28 | `rtProdQ` | `ProductionQueue` | production queue |
 | 29 | `rtLogPlanetProdQ` | `ProductionQueueChange` | order: set/clear planet production queue |
 | 30 | `rtBtlPlan` | `BattlePlan` | battle plan |
-| 31 | `rtBtlData` | `Battle` | battle recording data (VCR) |
+| 31 | `rtBtlData` | `Battle` | battle recording data (VCR) — **decoded**, see `battle.md` |
 | 32 | `rtHistHdr` | `HistoryHeader` | history-file (`.hN`) header |
 | 33 | `rtMsgFilt` | `MessagesFilter` | message filter bitfield |
 | 34 | `rtLogResearch` | `ResearchChange` | order: research settings |
@@ -55,7 +55,7 @@ variant.
 | 36 | `rtChgPassword` | `ChangePassword` | order: change password |
 | 37 | `rtLogFleetMerge` | `Other(37)` | order: merge fleets |
 | 38 | `rtLogRelations` | `Other(38)` | order: change player relations |
-| 39 | `rtContinue` | `Other(39)` | battle continuation |
+| 39 | `rtContinue` | `Other(39)` | battle continuation — **decoded**, see `battle.md` |
 | 40 | `rtPlrMsg` | `PlayerMessage` | per-player message |
 | 41 | `rtAiData` | `Other(41)` | opaque AI data blob |
 | 42 | `rtLogFleetPlan` | `Other(42)` | order: set fleet battle plan |

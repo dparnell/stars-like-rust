@@ -38,6 +38,7 @@
 //! | (all)     | Header + cipher     | implemented (byte-perfect on real files) |
 //! | `.mN`     | Player state        | round-trips; typed [`PlayerRecord`]/[`PlanetRecord`]/[`FleetRecord`]/[`WaypointRecord`]/[`DesignRecord`]/[`BattlePlanRecord`]/[`ProductionQueueRecord`]/[`ScoreRecord`] |
 //! | `.hst`    | Host state          | round-trips; typed [`PlayerRecord`]/[`PlanetRecord`]/[`FleetRecord`]/[`WaypointRecord`]/[`DesignRecord`]/[`BattlePlanRecord`]/[`ProductionQueueRecord`]/[`Thing`] |
+//! | (all)     | Battle recordings   | typed [`BattleRecord`] (VCR: tokens + actions + kills) — `docs/formats/battle.md` |
 //! | `.hN`     | Player history      | decode/encode round-trips; typed [`HistoryHeader`]/[`ScoreRecord`]; other records: WIP |
 //! | `.xN`     | Player orders       | round-trips; typed [`OrderLog`] ([`LogHeader`] + classified [`LogRecord`]s: waypoints, cargo, research, routing, …) — `docs/formats/orders-x.md` |
 //! | `.rN`     | Race definition     | round-trips; typed [`RaceRecord`] (hab, growth, research, PRT, LRT) — `docs/formats/race-r.md` |
@@ -48,6 +49,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod battle;
 pub mod battleplan;
 pub mod block;
 pub mod crypt;
@@ -69,6 +71,9 @@ pub mod thing;
 pub mod waypoint;
 pub mod xy;
 
+pub use battle::{
+    battle_records, battle_records_in, BattleAction, BattleRecord, BattleToken, Kill, Square,
+};
 pub use battleplan::{battle_plan_records, BattlePlanRecord};
 pub use block::{
     join_blocks, split_blocks, Block, BlockType, BLOCK_SIZE_MASK, BLOCK_TYPE_SHIFT,
