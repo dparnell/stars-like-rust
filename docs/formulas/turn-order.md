@@ -79,6 +79,29 @@ The queue builds the planetary installations; ship designs are recognised but
 skipped, because turning a completed design into a fleet needs a fleet model
 the pipeline does not have yet.
 
+## How much of a turn is right
+
+`crates/stars-core/tests/differential_turn.rs` loads a year of the Exodus game,
+generates a turn, and compares every planet field against the file the original
+engine wrote for the following year. Over 28 year-pairs and 438 planet-years:
+
+| field | agrees |
+|-------|-------:|
+| population | **87%** |
+| mineral concentrations | **86%** |
+| mines | 65% |
+| factories | 53% |
+| surface minerals | 19% |
+
+The top two are the subsystems the pipeline models end to end, and they match
+their individual differential tests. The rest fall away for understood reasons:
+mines and factories depend on a build queue whose ship items cannot be built
+yet, and surface minerals move with cargo the pipeline does not carry and are
+spent on ships it does not build.
+
+The test asserts the top two and reports the rest, so a regression in what is
+modelled shows up without pretending the rest is finished.
+
 ## Open questions
 
 - Steps 1–9 and 11–24 need fleets, orders and ship designs.
