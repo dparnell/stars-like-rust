@@ -1,12 +1,16 @@
 # The computer players
 
-Status: **identification verified; behaviour mapped but not implemented.**
+Status: **identification verified; terraform decision verified; mine/factory
+decision transcribed but not verified.**
 
 Stars! ships seven computer opponents. This document records which player a
-given save file hands to which opponent — that part is implemented in
-`stars-core::ai` and tested against the fixtures — and maps the roughly 95
-functions that make up their decision-making, which is **not** implemented.
-The last section explains why, and what would unblock it.
+save file hands to which opponent, maps the roughly 95 functions that make up
+their decision-making, and records how far each recovered piece has been
+checked against a real game.
+
+The corpus is `fixtures/games/all-computer-players`: 101 turns (2400-2500) of a
+game with sixteen computer players covering six of the seven personalities and
+all four difficulty settings.
 
 ## Identifying a computer player
 
@@ -17,15 +21,33 @@ The player record's flags byte (offset 7 of a type-6 block, see
 | Bits of the flags byte | Meaning                                    | Confidence |
 |------------------------|--------------------------------------------|------------|
 | 1                      | set for a computer player                  | confirmed  |
-| 2–3                    | believed to be the difficulty setting      | **unconfirmed** |
+| 2–3                    | the difficulty setting                     | confirmed as a four-valued field |
 | 5–7                    | which of the seven opponents               | confirmed  |
 
-The fixtures hold `0x01` for the human player and `0x27` for both computer
-players, which is bit 1 set and `0x27 >> 5 == 1` — Turindrone.
+`fixtures/games/all-computer-players` settles this. Its sixteen players cover
+six of the seven personalities and all four values of bits 2–3:
 
-Bits 2–3 are `1` for every computer player available, so nothing in the data
-distinguishes a difficulty field from any other two-bit value. `stars-core`
-exposes them raw as `skill_bits` rather than naming them.
+| Flags | Personality | Bits 2–3 | Players |
+|-------|-------------|----------|---------|
+| `0x03` | Robotoid   | 0 | 1 |
+| `0x0f` | Robotoid   | 3 | 1 |
+| `0x27` | Turindrone | 1 | 3 |
+| `0x2b` | Turindrone | 2 | 1 |
+| `0x47` | Automitron | 1 | 1 |
+| `0x4f` | Automitron | 3 | 2 |
+| `0x67` | Rototill   | 1 | 2 |
+| `0x6b` | Rototill   | 2 | 1 |
+| `0x87` | Cyber      | 1 | 2 |
+| `0xa3` | Macinti    | 0 | 1 |
+| `0xaf` | Macinti    | 3 | 1 |
+
+Bits 2–3 take all four values independently of the personality, which is what
+a difficulty setting looks like; the game was set up with mixed difficulties.
+Which value is "Easy" is still not read out of the binary, so `stars-core`
+exposes them as `skill_bits` rather than naming them.
+
+The personality numbering is confirmed independently by behaviour, not just by
+the dispatch table — see the terraform signature below.
 
 ### The dispatch table
 
@@ -62,9 +84,8 @@ A player marked dead is skipped entirely.
 
 ## What a personality does
 
-Taking `DoTurinDroneAiTurn` as the worked example — it is the personality both
-computer players in `fixtures/incoming` use — its 42 named callees group into
-six jobs:
+Taking `DoTurinDroneAiTurn` as the worked example — four of the sixteen players
+in the corpus use it — its 42 named callees group into six jobs:
 
 | Job | Functions |
 |-----|-----------|
@@ -102,59 +123,105 @@ that function's return value as the "did anything change" flag.
 6. Queues `mdIdleAlchemy` only once every tech level has reached 26 *and* the
    turn is past 100.
 
-Steps 5 and 6 are read from the decompilation rather than the disassembly, and
-the decompiler has lost the arguments to the bitfield helper at `1118:0e32` at
-every call site, so the exact comparisons in step 5 are not yet pinned down.
+The decompiler loses the arguments to the bitfield helper at `1118:0e32` at
+every call site, which made these item tests unreadable until the queue-entry
+layout was pinned down from `AddItemToQueue` (see `../formats/production.md`).
+With that layout the two shifts are unambiguous: `>> 0x11 & 7` is the entry's
+`GrobjClass` and `>> 0xa & 0x7f` is its item id. How this transcription scores
+is below.
 
-## Why this is not implemented
+## What the corpus confirms
 
-Every other subsystem in this project was recovered the same way: transcribe
-from the binary, then check the transcription against real saved games — 438
-planet-years for the economy, 47 battles for combat, 493 designs for the ship
-model. Where a transcription could not be checked, as with the movement
-scoring, that was reported rather than papered over.
+`fixtures/games/all-computer-players` is 101 turns (2400–2500) of a sixteen-AI
+game. Every turn's `.hst` records each AI planet's queue, which makes the
+production decisions checkable. Across the corpus the AI queued, by item:
 
-The AI cannot currently be checked at all:
+| Item | What | Planet-turns |
+|------|------|--------------|
+| 12 `mdIdleTerraform` | auto terraforming | 5785 |
+| 11 `mdIdleAlchemy` + 3 `iobjAlchemy` | mineral alchemy | ~700 |
+| 7 / 8 `mdIdleFactory` / `mdIdleMine` | factories and mines | 85 |
 
-- The fixtures contain **two** computer players, both Turindrone at the same
-  skill setting, across **one** turn transition (`fixtures/incoming/turn0` to
-  `turn1`). Each owns a single planet.
-- What those two players did on that turn is to queue five ships of design 0,
-  plus one of design 18 for one of them. That exercises the ship-building path,
-  not `FFillProdMinesAndFactories`, and a single sample cannot separate a
-  correct transcription from a plausible one.
-- The Exodus game, which supplies the 40-turn corpus everything else is checked
-  against, has no computer players. The files in `fixtures/games/exodus/Races`
-  have names like `OFFENDER` and `DEFENDER` that read like AI archetypes, but
-  every one has a zero flags byte — they are human races. A test pins this so
-  the mistake is not made later.
+Terraforming dominates; mines and factories are rare.
 
-Writing 95 functions of AI from disassembly against that corpus would produce a
-large body of code that looks right and cannot be shown to be right. That is
-precisely the failure this project's method exists to prevent, and it has
-already caught two such errors: the starbase-armour rule that fitted six of
-seven samples but was not the rule the program implements, and the movement
-scoring that looked 86% accurate until a chance-rate control showed the best
-candidate set was 78% of the field.
+### Terraforming — verified
 
-### What would unblock it
+`FQueueAiTerraforming` (`1090:8d28`) is reached from all seven personalities
+through `HandleBasicAiTasks` (`1090:95a4`). It declines unless the player is
+not Cyber, the planet's population is above 199 (units of 100 colonists), the
+queue holds no auto-terraform entry already, and some environment variable
+differs from the race's ideal. It then queues `min(steps available, 4)`.
 
-A game with computer players, run for enough turns to produce a corpus
-comparable to Exodus. Concretely, the useful artefact is a `.hst` per turn (or a
-`.hst` plus the AI players' `.mN` files) from a game with:
+Three of those read straight off the corpus:
 
-- several computer players, ideally covering more than one of the seven
-  personalities and more than one difficulty setting, which would also settle
-  what bits 2–3 of the flags byte mean;
-- enough turns for the AI to move past its opening — colonisation, ship
-  building and the first attacks are the interesting decisions, and none of
-  them appear in a single turn;
-- at least one AI that comes under attack, so `MarkPlanetsUnderAttack` and the
-  war functions are exercised.
+- **The cap of 4 holds exactly.** Of 5785 entries, none exceeds 4.
+- **Cyber is excluded, and the data shows it.** Counts by personality:
 
-With that in hand the AI becomes tractable in the same way combat was: transcribe
-`FFillProdMinesAndFactories` first, since production is the most constrained
-decision and the easiest to score, then colonisation, then war.
+  | Personality | Counts queued |
+  |-------------|---------------|
+  | Turindrone  | `{1: 139, 2: 145, 3: 165, 4: 114}` |
+  | Automitron  | `{1: 74, 2: 74, 3: 83, 4: 71}` |
+  | Macinti     | `{1: 2970, 2: 251, 3: 286, 4: 723}` |
+  | **Cyber**   | `{1: 690}` |
+  | Robotoid    | none |
+  | Rototill    | none |
+
+  Every personality that reaches the routine uses its full 1–4 range. Cyber —
+  the one the code refuses — shows only ever a count of 1, from some other
+  source. Nothing else in the data would single out that one personality, so
+  this confirms both the gate and that personality 4 really is Cyber.
+
+- **The population gate holds where the routine is the only source**: 14 of 563
+  Turindrone entries and 7 of 302 Automitron entries sit below it (2%), which
+  is consistent with population falling after the queue was set. Macinti is far
+  over (2565 of 4230) because it has a second source: the branch inside
+  `FFillProdMinesAndFactories` that only Macinti takes.
+
+Implemented as `ai::production::queue_ai_terraforming` and asserted in
+`crates/stars-core/tests/ai_production.rs`. The one part still stubbed is how
+many terraform *steps* a planet has available, which needs the terraforming
+model this project does not have yet; the caller supplies it.
+
+Robotoid and Rototill queue no terraforming at all despite calling
+`HandleBasicAiTasks`. That is unexplained and worth chasing.
+
+### Mines and factories — transcribed, not verified
+
+`FFillProdMinesAndFactories` (`10a8:2d72`) is transcribed in
+`ai::production::fill_prod_mines_and_factories`, and it **does not match the
+corpus**:
+
+| | planet-turns |
+|---|---|
+| the original queued mines or factories | 85 |
+| this transcription would | 11,825 |
+
+It fires roughly 140 times too often, and on the 85 real cases it gets the item
+right 30 times and the count right 7. Where the original queues, it almost
+always queues one at a time; this predicts large batches.
+
+The decision logic itself is a faithful reading. What is missing is the gate in
+front of it: `FillProductionQueue` (`10a8:2ce2`) walks
+`vrglpplAi[0..vclpplAi]` — a working list of planets that the personality
+routine selects — not every planet the player owns. Recovering how that list is
+built is the next step, and until then nothing asserts this function.
+
+This is the same discipline the rest of the project uses: the code is kept
+because the transcription is worth having, but it is labelled with its measured
+error rather than presented as working. `cargo run -p stars-core --example
+ai_production -- fixtures/games/all-computer-players` reproduces the numbers.
+
+### Other queue sources
+
+Eighteen functions call `AddItemToQueue`. Besides the two above, the AI-side
+ones are `FQueueAiDefenses` (`1090:939a`), `FQueueAiScanner` (`1090:90d6`),
+`QueueAiStarbases` (`1090:8524`), `FUpgradeAiStarbase` (`1090:882a`),
+`AddMinesToBlockedQueues` (`1090:1792`), `QuickBuildDefenses` (`1090:6a7e`,
+reached from `FixPlanetsUnderAttack`), `FAddPacketToQueue` (`10a8:2bc0`),
+`DoCyberPackets` (`10a8:1a78`), `FAIFling` (`1090:7dd6`) and
+`iAddAttackFleet` (`10a8:4eba`), plus each personality routine directly.
+Attributing a recorded entry to one of these needs more of them transcribed —
+which is why Cyber's always-1 terraform entries have no known source yet.
 
 ## Source
 
@@ -162,6 +229,10 @@ decision and the easiest to score, then colonisation, then war.
 - `DoTurinDroneAiTurn` (`1088:3670`) — the worked example above.
 - `FillProductionQueue` (`10a8:2ce2`), `FFillProdMinesAndFactories`
   (`10a8:2d72`), `AddItemToQueue` (`1090:3e50`).
+- `FQueueAiTerraforming` (`1090:8d28`) and `HandleBasicAiTasks` (`1090:95a4`).
+- `GetResourcesAvailable` (`1090:56d0`) and `GetProdQCost` (`1090:57c0`) —
+  what the production decision reads, via `CMaxOperableMines`,
+  `CMinesOperating` and their factory counterparts.
 - The reconstructed C in `sirgwain/stars-decompile` is almost entirely stubs
   here — `ai.c` 10 of 12, `ai2.c` 5 of 6, `ai3.c` 6 of 6, `ai4.c` 16 of 17 and
   `aiutil.c` 58 of 61 functions are empty — so it is of no help for this

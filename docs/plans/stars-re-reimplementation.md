@@ -259,15 +259,15 @@ Measured against real save files:
 
 Remaining in this step:
 
-1. **The AI players** — identification done, behaviour blocked on fixtures.
-   Which player is a computer opponent, and which of the seven personalities
-   runs it, is decoded in `stars-core::ai` and tested against the saves. The
-   decision-making — roughly 95 functions, and the reconstructed C for it is
-   almost entirely stubs — is mapped in `docs/formulas/ai.md` but not written.
-   The blocker is verification, not effort: the fixtures hold two computer
-   players, both the same personality, across one turn transition, whereas
-   every other subsystem was checked against hundreds of samples. That document
-   states exactly what corpus would unblock it.
+1. **The AI players** — identification and the terraform decision verified;
+   the rest in progress. `fixtures/games/all-computer-players` (101 turns,
+   sixteen computer players, six personalities, four difficulties) makes the
+   AI checkable. Which opponent runs a player is decoded and tested; the
+   auto-terraform decision is transcribed and confirmed against 5785 recorded
+   entries. The mine/factory decision is transcribed but over-fires 140x,
+   because the planet-selection list `vrglpplAi` that gates it has not been
+   recovered — that is the next step. Colonisation, war and fleet dispatch are
+   mapped but unwritten. See `docs/formulas/ai.md`.
 2. **Orders beyond movement** — cargo transfer, colonisation and remote mining
    are decoded by the format layer but not processed, and ship building cannot
    turn a finished design into a fleet. This is now the largest single gap in
