@@ -211,35 +211,70 @@ without the generator in the same state** — the same constraint torpedoes have
 The selection and step-toward logic above are recovered in full and
 implemented. The scoring is not.
 
-### The scoring is not recovered
+### The scoring
 
 `ScoreGuessBattleDamage` (`10f0:598c`) is a stub in the reconstructed sources
-and its decompilation from our binary is too mangled to transcribe: Ghidra
-loses which token is which across the nested `DpFromPtokBrcToBrc` calls. What
-can be read is the shape — over every engageable enemy, take the **best**
-damage the token could deal from the candidate square and the **total** damage
-it would take there, then combine the two by the token's tactic — plus a walk
-over the range band each enemy could close to next round, which is the part
-that does not transcribe.
+and its decompilation loses which token is which across the nested damage
+estimates, so it was transcribed from the disassembly:
 
-That shape is implemented in `battle::score_square`, and **measured rather than
-asserted**:
+```
+dpGivenBest = 0 ; dpTakenTotal = 0
+for each active enemy the mover may attack:
+    straight = distance(candidate square, enemy square)
+    closes   = (enemy moves left >= our moves left) ? 1 : 0
+    if closes == 0:
+        near = far = straight
+    else:
+        near = max(straight - 1, 0)
+        far  = the furthest of the four corners of the enemy's reachable box,
+               clamped to the board, or `straight` if that is greater
 
-| measure | value |
-|---------|-------|
-| engine's chosen square is among our best-rated | 487 of 561 moves (86%) |
-| our best set, as a share of candidate squares | 78% |
+    # the enemy will stand wherever suits them, so assume they do
+    theirBest = 30000000
+    for range in near ..= far:
+        given = damage we would deal them at that range
+        taken = damage they would deal us at that range
+        theirs = score(give = taken, take = given, THEIR tactic)
+        if theirs <= theirBest:
+            theirBest = theirs ; takenAtBest = taken ; givenAtBest = given
 
-The second row is why the first does not count as success. A scorer that rated
-every square identically would score 100% on both. The missing range-band walk
-is what would separate squares that currently tie, so a flat scorer is exactly
-the symptom to expect.
+    dpGivenBest   = max(dpGivenBest, givenAtBest)
+    dpTakenTotal += takenAtBest
 
-`crates/stars-core/tests/battle_replay.rs` keeps both numbers and the stronger
-assertion the pair should eventually satisfy, commented out until the scoring
-is properly transcribed.
+return score(give = dpGivenBest, take = dpTakenTotal, OUR tactic)
+```
 
-## Armour and shields
+The **range band** is the crux, and it is what the earlier attempt was missing.
+A square is not judged by the exchange as things stand, but by the exchange
+after each enemy has moved to whatever range suits *them* — scored with *their*
+tactic. That is what separates squares that would otherwise tie.
+
+Two further details from the disassembly: a disengaging mover passes
+`fProximity`, so threats that cannot quite reach it still count; and the damage
+estimate is capped at what the target could actually absorb.
+
+### How well it does
+
+Measured against the recordings, with each token's real battle tactic:
+
+| measure | before transcription | after |
+|---------|---------------------:|------:|
+| engine's square among our best-rated | 86% | 86% |
+| our best set, as a share of candidates | 78% | 71% |
+| gap | 8 points | **15 points** |
+
+The hit rate should be ~100% for a correct implementation, since the engine
+always picks a square it rates best. Two known gaps account for the rest, and
+both are separate stubs:
+
+- **`DzMoveRangeToConsider`** sets the search radius, which is weapon-range
+  based rather than the movement allowance. Our candidate set is therefore not
+  the engine's, and the engine's chosen square may not even be in it.
+- **`FIsTargetOfMdTarget`** filters enemies by target class; without it every
+  enemy counts as engageable, which inflates the damage a square appears to
+  offer.
+
+## Armour and shields## Armour and shields
 
 Shields **overlap across a whole token**: twenty scouts with 20 shield points
 each present one 400-point pool that must be stripped before any armour is
@@ -284,11 +319,12 @@ accuracy, the starting-square table and Chebyshev distance against
 
 ## Open questions
 
-- **The movement scoring** (`ScoreGuessBattleDamage`) is not recovered; see
-  above. The selection and step-toward logic around it are. Until the scoring
-  lands, a battle can only be replayed with its recorded movement supplied —
-  and even then, exact reproduction needs the RNG, because every tie-break in
-  movement draws from it.
+- **`DzMoveRangeToConsider`** (the movement search radius) and
+  **`FIsTargetOfMdTarget`** (the target-class filter) are both still stubs, and
+  together account for the 14% of moves the scoring does not rate best. Both
+  are small and self-contained.
+- Even complete, movement cannot be reproduced exactly without the RNG, because
+  every tie-break draws from it.
 - Three of the eleven replayable battles still come out inverted. All three are
   symmetric duels where both ships can destroy the other in one volley, so the
   result turns on exactly when in the round each closed to range; firing once

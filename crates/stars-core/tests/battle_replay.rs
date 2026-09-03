@@ -420,7 +420,9 @@ fn first_beam_hits_reproduce_the_recorded_damage() {
 fn beam_only_battles_replay_to_the_recorded_casualties() {
     use std::collections::BTreeMap;
 
-    use stars_core::battle::{fire_round, CombatToken, Damage, Square as CoreSquare, TokenState};
+    use stars_core::battle::{
+        fire_round, CombatToken, Damage, Square as CoreSquare, Tactic, TokenState,
+    };
     use stars_core::design::{DesignSlot, ShipDesign};
     use stars_formats::{design_records, DesignRecord};
 
@@ -495,8 +497,9 @@ fn beam_only_battles_replay_to_the_recorded_casualties() {
                     break;
                 };
                 tokens.push(CombatToken {
-                    tactic: stars_core::battle::Tactic::MaximiseDamage,
+                    tactic: Tactic::from_raw(t.tactic()).unwrap_or(Tactic::MaximiseDamage),
                     speed_index: t.speed(),
+                    moves_left: t.moves_left(),
                     player: t.player,
                     active: true,
                     square: CoreSquare::new(t.square.x, t.square.y),
@@ -605,14 +608,19 @@ fn beam_only_battles_replay_to_the_recorded_casualties() {
 /// checkable is weaker but still meaningful: if the scoring were right, the
 /// square the engine moved to should be among those our scorer rates best.
 ///
-/// This is a **measurement, not an assertion of correctness**, and the
-/// measurement says the scoring is *not* recovered: the engine's square is
-/// among our best-rated in 86% of moves, but our best set averages 78% of all
-/// candidate squares, so chance alone would score nearly as well. The scorer
-/// is rating almost everything equally.
+/// The control is the point of this test: the hit rate alone means nothing
+/// without knowing how selective "among the best" is.
 ///
-/// The control is the point of this test. Without it, 86% would have looked
-/// like success.
+/// Measured with the scoring transcribed from the disassembly and each token's
+/// real battle tactic: **86% hit rate against a 71% chance rate**. The gap was
+/// 8 points before the transcription and is 15 after, so the range-band walk
+/// is doing real work — but a correct implementation should hit ~100%, since
+/// the engine always picks a square it rates best.
+///
+/// Two things are still missing and account for the remaining 14%: the search
+/// radius comes from `DzMoveRangeToConsider`, another stub, so our candidate
+/// set is not the engine's; and `FIsTargetOfMdTarget` is not implemented, so
+/// every enemy counts as engageable.
 #[test]
 fn movement_scoring_rates_the_engines_choice_among_the_best() {
     use std::collections::BTreeMap;
@@ -689,8 +697,9 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
                     break;
                 };
                 tokens.push(CombatToken {
-                    tactic: Tactic::MaximiseDamage,
+                    tactic: Tactic::from_raw(t.tactic()).unwrap_or(Tactic::MaximiseDamage),
                     speed_index: t.speed(),
+                    moves_left: t.moves_left(),
                     player: t.player,
                     active: true,
                     square: CoreSquare::new(t.square.x, t.square.y),
@@ -776,14 +785,11 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
         moves > 100,
         "expected a decent sample of moves, got {moves}"
     );
-    // Measured when written: 86% hit rate against a 78% chance rate. That gap
-    // is far too small to call the scoring recovered — a scorer that rated
-    // every square identically would score 100% on the first number and 100%
-    // on the second. Both are asserted only against regression, and the
-    // *real* test is commented below: it is what should pass once
-    // ScoreGuessBattleDamage is properly transcribed.
+    // Measured when written: 86% against a 71% chance rate. Both are asserted
+    // against regression only. The stronger assertion below is the definition
+    // of done, and needs DzMoveRangeToConsider and FIsTargetOfMdTarget:
     //
-    //     assert!(pct > chance + 20, "...");
+    //     assert!(pct >= 99, "...");
     //
     assert!(
         pct >= 70,
@@ -791,7 +797,12 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
          86% measured when written"
     );
     assert!(
-        chance <= 85,
-        "the best set has grown to {chance}% of candidates, so the hit rate means even less"
+        chance <= 78,
+        "the best set has grown to {chance}% of candidates, so the hit rate means less \
+         than it did when this was written"
+    );
+    assert!(
+        pct >= chance + 10,
+        "the scorer ({pct}%) is no longer meaningfully better than chance ({chance}%)"
     );
 }

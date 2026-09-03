@@ -284,3 +284,72 @@ fn beam_damage_falls_off_with_range() {
     assert_eq!(beam_damage(weapon, 1, 0, 120, 100), 120);
     assert_eq!(beam_damage(weapon, 1, 0, 0, 90), 90);
 }
+
+/// The movement scoring's shape, from `ScoreGuessBattleDamage`.
+#[test]
+fn movement_scoring_prefers_squares_it_can_shoot_from() {
+    use stars_core::battle::{
+        score_square, CombatToken, Damage, Square, Tactic, TokenState, Weapon,
+    };
+
+    let beam = Weapon {
+        torpedo: false,
+        dp: 50,
+        count: 1,
+        range: 1,
+        nominal_range: 1,
+        initiative: 5,
+        accuracy: 100,
+        abilities: 0,
+    };
+    let token = |player: u8, x: u8, y: u8, tactic: Tactic| CombatToken {
+        player,
+        active: true,
+        square: Square::new(x, y),
+        initiative_base: 1,
+        capacitor_pct: 0,
+        beam_deflection_pct: 100,
+        weapons: vec![beam],
+        value: 100,
+        tactic,
+        speed_index: 2,
+        moves_left: 1,
+        state: TokenState {
+            ships: 1,
+            shields: 0,
+            armor: 100,
+            damage: Damage::default(),
+        },
+    };
+
+    // Two ships that want to maximise damage dealt.
+    let tokens = vec![
+        token(0, 5, 5, Tactic::MaximiseDamage),
+        token(1, 8, 8, Tactic::MaximiseDamage),
+    ];
+
+    // Lower is better. Closing on the enemy must score better than fleeing.
+    let closing = score_square(&tokens, 0, Square::new(7, 7));
+    let fleeing = score_square(&tokens, 0, Square::new(0, 0));
+    assert!(
+        closing < fleeing,
+        "an attacker should prefer closing ({closing}) to fleeing ({fleeing})"
+    );
+
+    // A token told to disengage should prefer the opposite.
+    let mut running = tokens.clone();
+    running[0].tactic = Tactic::Disengage;
+    let closing = score_square(&running, 0, Square::new(7, 7));
+    let fleeing = score_square(&running, 0, Square::new(0, 0));
+    assert!(
+        fleeing < closing,
+        "a disengaging token should prefer fleeing ({fleeing}) to closing ({closing})"
+    );
+
+    // With no enemies left there is nothing to weigh, so every square ties.
+    let alone = vec![token(0, 5, 5, Tactic::MaximiseDamage)];
+    assert_eq!(
+        score_square(&alone, 0, Square::new(0, 0)),
+        score_square(&alone, 0, Square::new(9, 9))
+    );
+}

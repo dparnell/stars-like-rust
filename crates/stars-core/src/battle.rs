@@ -609,6 +609,9 @@ pub struct CombatToken {
     /// Battle speed as the stored quarter-square index; see
     /// [`movement_this_round`].
     pub speed_index: u8,
+    /// Squares of movement still available this round, which decides whether
+    /// an enemy can close before the next exchange.
+    pub moves_left: u8,
 }
 
 impl CombatToken {
@@ -962,60 +965,128 @@ fn pick_lowest(scores: &[i32; 3], rng: &mut Rng) -> i32 {
     1
 }
 
+/// Damage one token would do to another at a given range.
+///
+/// Used for the *estimates* that drive movement, not for resolving a shot.
+/// `proximity` makes it ignore the range check, which a disengaging token uses
+/// so it still sees the threat from weapons that cannot quite reach it yet.
+///
+/// Source: `DpFromPtokBrcToBrc` (`10f0:4d2e`).
+#[must_use]
+pub fn damage_estimate(
+    attacker: &CombatToken,
+    target: &CombatToken,
+    range: i32,
+    proximity: bool,
+) -> i32 {
+    let mut total = 0;
+    for w in &attacker.weapons {
+        let out_of_range = range > w.range;
+        if out_of_range && !proximity {
+            continue;
+        }
+        if w.torpedo {
+            // Torpedoes are estimated at their nominal damage; the accuracy
+            // model belongs to resolution, not to this estimate.
+            total += w.dp * w.count * attacker.state.ships;
+            continue;
+        }
+        let mut dp = beam_damage(
+            *w,
+            attacker.state.ships,
+            range.min(w.range),
+            attacker.capacitor_pct,
+            target.beam_deflection_pct,
+        );
+        if out_of_range {
+            // Beyond reach the threat is discounted the further away it is.
+            let divisor = range + 10 - w.range;
+            if divisor > 0 {
+                dp /= divisor;
+            }
+        }
+        total += dp;
+    }
+
+    // No more damage than the target could actually absorb.
+    if !proximity {
+        let capacity = (target.state.armor + target.state.shields) * target.state.ships;
+        if capacity > 0 && total > capacity {
+            total = capacity;
+        }
+    }
+    total
+}
+
 /// How good a square would be for a token, lower being better.
 ///
-/// The shape is `ScoreGuessBattleDamage`'s: over every enemy it could engage,
-/// take the **best** damage it could deal from that square and the **total**
-/// damage it would take there, then combine the two according to the token's
-/// battle tactic.
+/// Source: `ScoreGuessBattleDamage` (`10f0:598c`), transcribed from the
+/// disassembly because the decompiler loses which token is which across the
+/// nested damage-estimate calls.
 ///
-/// **This is a partial recovery.** The routine at `10f0:598c` also walks the
-/// range band each enemy could close to next round, which needs their speeds
-/// and a per-square damage estimate this does not yet reproduce faithfully —
-/// the decompilation loses which token is which in the nested calls. See the
-/// measurement in `docs/formulas/combat.md` for how far the approximation
-/// gets.
+/// For every enemy it could engage, the token asks: *if that enemy moves to
+/// whichever range suits them best, what does the exchange look like there?*
+/// It then keeps the **best damage it could deal** to any one of them and the
+/// **total damage it would take** from all of them, and combines the two by
+/// its own tactic.
+///
+/// The range band an enemy can reach is the crux, and it is what makes the
+/// scoring discriminate between squares that otherwise tie: an enemy with at
+/// least as many moves left as the mover can close by one square, so the band
+/// runs from one nearer to the furthest corner of their reachable box.
 #[must_use]
 pub fn score_square(tokens: &[CombatToken], mover: usize, square: Square) -> i32 {
     let us = &tokens[mover];
     let mut given_best = 0;
     let mut taken_total = 0;
+    let board = i32::from(BOARD_SIZE) - 1;
 
     for (i, them) in tokens.iter().enumerate() {
         if i == mover || !them.alive() || them.player == us.player {
             continue;
         }
-        let range = i32::from(distance(square, them.square));
 
-        let given: i32 = us
-            .weapons
-            .iter()
-            .map(|w| {
-                beam_damage(
-                    *w,
-                    us.state.ships,
-                    range,
-                    us.capacitor_pct,
-                    them.beam_deflection_pct,
-                )
-            })
-            .sum();
-        let taken: i32 = them
-            .weapons
-            .iter()
-            .map(|w| {
-                beam_damage(
-                    *w,
-                    them.state.ships,
-                    range,
-                    them.capacitor_pct,
-                    us.beam_deflection_pct,
-                )
-            })
-            .sum();
+        let straight = i32::from(distance(square, them.square));
 
-        given_best = given_best.max(given);
-        taken_total += taken;
+        // Can this enemy close on us? Only if they have at least as much
+        // movement left as we do.
+        let closes = i32::from(them.moves_left >= us.moves_left);
+        let (near, far) = if closes == 0 {
+            (straight, straight)
+        } else {
+            let ex = i32::from(them.square.x);
+            let ey = i32::from(them.square.y);
+            let mut far = straight;
+            for x in [ex - closes, ex + closes] {
+                for y in [ey - closes, ey + closes] {
+                    let corner = Square::new(x.clamp(0, board) as u8, y.clamp(0, board) as u8);
+                    far = far.max(i32::from(distance(square, corner)));
+                }
+            }
+            ((straight - closes).max(0), far)
+        };
+
+        // The enemy will pick whichever range in that band suits their tactic.
+        let proximity = us.tactic == Tactic::Disengage;
+        let mut their_best = 30_000_000;
+        let mut taken_at_best = 0;
+        let mut given_at_best = 0;
+
+        for range in near..=far {
+            let given = damage_estimate(us, them, range, false);
+            let taken = damage_estimate(them, us, range, proximity);
+            // Scored from the enemy's point of view, with the enemy's tactic:
+            // what they deal is `taken`, what they suffer is `given`.
+            let theirs = target_score(taken, given, them.tactic);
+            if theirs <= their_best {
+                their_best = theirs;
+                taken_at_best = taken;
+                given_at_best = given;
+            }
+        }
+
+        given_best = given_best.max(given_at_best);
+        taken_total += taken_at_best;
     }
 
     target_score(given_best, taken_total, us.tactic)

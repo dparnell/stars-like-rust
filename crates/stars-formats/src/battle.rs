@@ -172,6 +172,30 @@ impl BattleToken {
     pub fn speed(self) -> u8 {
         ((self.movement >> 8) & 0x0f) as u8
     }
+
+    /// The battle-plan tactic, from bits 8..12 of the packed tactics word.
+    #[must_use]
+    pub fn tactic(self) -> u8 {
+        ((self.tactics >> 8) & 0x0f) as u8
+    }
+
+    /// Primary target class, from the low nibble of the tactics word.
+    #[must_use]
+    pub fn primary_target(self) -> u8 {
+        (self.tactics & 0x0f) as u8
+    }
+
+    /// Secondary target class, from the next nibble.
+    #[must_use]
+    pub fn secondary_target(self) -> u8 {
+        ((self.tactics >> 4) & 0x0f) as u8
+    }
+
+    /// Squares of movement still available this round (`dMovesLeft`).
+    #[must_use]
+    pub fn moves_left(self) -> u8 {
+        ((self.flags >> 14) & 0x03) as u8
+    }
 }
 
 /// Damage one token did to another.
