@@ -236,6 +236,8 @@ Done and verified:
 - **Combat** — board, starting positions, movement schedule and search,
   targeting, weapon accuracy, damage resolution and the beam firing loop.
 - **Loading a real saved game** into a `GameState`, and generating a turn on it.
+- **Fleets** — the model, loading with their waypoints, movement along orders,
+  and fuel consumption.
 
 Measured against real save files:
 
@@ -243,6 +245,7 @@ Measured against real save files:
 |-------|--------|
 | whole-turn replay: planet population | 87% of 438 planet-years |
 | whole-turn replay: mineral concentrations | 86% |
+| whole-turn replay: fleet positions | 378 of 438 exact |
 | population growth, isolated | 383 of 438 exact, including the fractional accumulator |
 | research | 11 accumulation years and 5 priced breakthroughs, all exact |
 | ship design mass | 73 of 85 battle tokens exact, rest explained by cargo |
@@ -258,9 +261,10 @@ Remaining in this step:
    recorded in save files the way battles and populations are, so it will need
    a different verification approach — most likely replaying an AI player's
    own turn files and checking the orders it produced.
-2. **Fleets** — the pipeline has no fleet model, so orders, cargo, movement and
-   ship building are all absent. This is the single biggest gap and is what
-   holds the whole-turn replay's mineral and factory figures down.
+2. **Orders beyond movement** — cargo transfer, colonisation and remote mining
+   are decoded by the format layer but not processed, and ship building cannot
+   turn a finished design into a fleet. This is what holds the whole-turn
+   replay's surface-mineral figure at 19% and the factory figure at 53%.
 3. **Torpedo combat resolution**, which needs the RNG in the right state, and
    the residual movement-scoring gap (`docs/formulas/combat.md`).
 4. **Terraforming**, which runs before growth in the turn and currently has to

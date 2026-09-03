@@ -79,11 +79,14 @@ games, and the deterministic planetary economy (Step 3) — habitability,
 population, mining, resources, scanning and fleet movement — is recovered,
 specified and verified against real save files.
 
-Step 4 is well advanced: research, the production queue, the turn pipeline and
-most of combat are implemented. A real saved game now loads and generates a
-turn, and a whole-turn replay against the next year's file reproduces **87% of
-planet populations and 86% of mineral concentrations** exactly. The AI players
-are the main piece not yet started.
+Step 4 is well advanced: research, the production queue, ship designs, fleets
+and most of combat are implemented, and the turn pipeline runs them. A real
+saved game loads and generates a turn, and replaying a year against the file
+the original engine wrote reproduces **87% of planet populations, 86% of
+mineral concentrations and 378 of 438 fleet positions** exactly.
+
+Not yet started: the AI players, and the orders that move cargo and colonise —
+which is what holds the remaining figures down.
 
 See `docs/plans/stars-re-reimplementation.md` for the full delivery plan,
 `docs/formats/README.md` and `docs/formulas/README.md` for the specs, and
