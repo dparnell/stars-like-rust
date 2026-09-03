@@ -1,0 +1,102 @@
+{
+  "$comment": [
+    "Golden vectors for the Step 3 planetary formulas.",
+    "Every case is taken from a statement in the original game manual",
+    "(documentation/MANUAL.PDF) rather than from our implementation, so that a",
+    "regression here means the code drifted from the documented rule and not",
+    "merely from itself. The Ghidra routine each case exercises is named so the",
+    "vector can be re-derived from the binary.",
+    "Population and maximum population are in the game's stored unit of 100",
+    "colonists: 10000 = 1,000,000 people."
+  ],
+
+  "max_population": {
+    "source": "MANUAL.PDF p. 6-3 'Maximum Population'; CalcPlanetMaxPop @ 1048:7096",
+    "cases": [
+      { "why": "an optimal planet supports 1,000,000",
+        "hab": 100, "prt": "Joat", "obrm": false, "expect": 12000 },
+      { "why": "all races but two top out at 1,000,000 on an optimal world",
+        "hab": 100, "prt": "Is", "obrm": false, "expect": 10000 },
+      { "why": "a 50% planet supports only 500,000",
+        "hab": 50, "prt": "Is", "obrm": false, "expect": 5000 },
+      { "why": "Hyper-Expansion is limited to half the typical maximum",
+        "hab": 100, "prt": "He", "obrm": false, "expect": 5000 },
+      { "why": "Jack-of-All-Trades gets 20% more: 1,200,000",
+        "hab": 100, "prt": "Joat", "obrm": false, "expect": 12000 },
+      { "why": "Jack-of-All-Trades with Only Basic Remote Mining: 1,320,000",
+        "hab": 100, "prt": "Joat", "obrm": true, "expect": 13200 },
+      { "why": "planets below 5% are all treated as 5%",
+        "hab": 3, "prt": "Is", "obrm": false, "expect": 500 }
+    ]
+  },
+
+  "population_change": {
+    "source": "MANUAL.PDF pp. 6-3..6-4; ChgPopFromPlanet @ 1038:7082",
+    "cases": [
+      { "why": "a -9% planet kills 0.9% of its colonists a year",
+        "pop": 10000, "hab": -9, "expect_delta": -90 },
+      { "why": "a -1% planet kills 0.1% a year",
+        "pop": 10000, "hab": -1, "expect_delta": -10 },
+      { "why": "deaths from overcrowding reach 12% a year at 400% of capacity",
+        "pop": 40000, "max_pop": 10000, "growth_pct": 15, "hab": 100,
+        "expect_delta": -4800 }
+    ]
+  },
+
+  "resources": {
+    "source": "MANUAL.PDF pp. 6-2..6-3; CResourcesAtPlanet @ 1048:788e",
+    "cases": [
+      { "why": "1,000,000 colonists at 1 resource per 1000 colonists, no factories",
+        "pop": 10000, "factories": 0, "res_gen": 10, "fact_prod": 10, "expect": 1000 },
+      { "why": "1000 factories producing 10 resources per 10 factories",
+        "pop": 10000, "factories": 1000, "res_gen": 10, "fact_prod": 10, "expect": 2000 },
+      { "why": "population between 100% and 300% of capacity works at 50% efficiency",
+        "pop": 20000, "max_pop": 10000, "factories": 0, "res_gen": 10, "fact_prod": 10,
+        "expect": 1500 },
+      { "why": "population past 300% of capacity does no useful work at all",
+        "pop": 50000, "max_pop": 10000, "factories": 0, "res_gen": 10, "fact_prod": 10,
+        "expect": 2000 }
+    ]
+  },
+
+  "mining": {
+    "source": "MANUAL.PDF pp. 13-2..13-3; EstMineralsMined @ 1028:5362",
+    "cases": [
+      { "why": "100 mines at concentration 50, 10 mines producing 10 kT: 50 kT a year",
+        "mines": 100, "concentration": 50, "mine_prod": 10, "expect_kt": 50 },
+      { "why": "10 mines at concentration 100 produce 10 kT",
+        "mines": 10, "concentration": 100, "mine_prod": 10, "expect_kt": 10 },
+      { "why": "two mines per extra kT of germanium at concentration 50",
+        "mines": 102, "concentration": 50, "mine_prod": 10, "expect_kt": 51 }
+    ],
+    "concentration_decay": {
+      "why": "mine-years to reduce a concentration by one is 12500 / concentration",
+      "cases": [
+        { "concentration": 100, "expect_mine_years": 125 },
+        { "concentration": 50, "expect_mine_years": 250 },
+        { "concentration": 25, "expect_mine_years": 500 }
+      ]
+    }
+  },
+
+  "scanning": {
+    "source": "MANUAL.PDF p. 17-2; GetShdefScannerRange @ 1038:50d0",
+    "cases": [
+      { "why": "two 100 ly scanners and one 60 ly scanner combine to 120 ly",
+        "ranges": [100, 100, 60], "expect": 120 },
+      { "why": "a single scanner is its own range",
+        "ranges": [100], "expect": 100 },
+      { "why": "no scanners is no range",
+        "ranges": [], "expect": 0 }
+    ]
+  },
+
+  "movement": {
+    "source": "MANUAL.PDF ch. 16; MoveFleets @ 10b0:32ce",
+    "cases": [
+      { "why": "a fleet covers warp^2 light years a year", "warp": 9, "expect_ly": 81 },
+      { "why": "warp 1 covers 1 light year", "warp": 1, "expect_ly": 1 },
+      { "why": "warp 10 covers 100 light years", "warp": 10, "expect_ly": 100 }
+    ]
+  }
+}

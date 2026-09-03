@@ -7,8 +7,9 @@ Rust. This is **not** a decompilation — correctness comes from differential fi
 tests and spec-driven test vectors.
 
 Delivery plan (scope, architecture decisions, staged steps):
-`docs/plans/stars-re-reimplementation.md`. Steps 1–2 are done; Step 3
-(deterministic simulation core) is in progress.
+`docs/plans/stars-re-reimplementation.md`. Steps 1–3 are done (file formats,
+and the deterministic planetary economy); Step 4 (turn generation, combat,
+research, AI) is in progress.
 
 ## Layout
 
@@ -80,6 +81,17 @@ committing.
 The authoritative source for struct/field names is the CodeView **NB09** debug
 symbols via [`sirgwain/stars-asm`](https://github.com/sirgwain/stars-asm); see
 `docs/formats/nb09-structs.md`. They outrank older tool-derived names.
+[`sirgwain/stars-decompile`](https://github.com/sirgwain/stars-decompile)
+reconstructs the C source and is the fastest way to read a routine, but it
+covers a slightly different build and some functions are still stubs, so treat
+it as a cross-check and confirm anything load-bearing against our own binary in
+Ghidra. Clone either into `tmp/` (git-ignored).
+
+**Game formulas are also documented in `documentation/MANUAL.PDF`.** Consult it
+whenever you recover one: it states the designers' intent in plain language and
+supplies the player-facing units, which makes it far easier to tell a correct
+transcription from a plausible one. The binary still wins on any disagreement —
+cite both in the spec.
 
 ## Ghidra
 

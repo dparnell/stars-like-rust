@@ -11,3 +11,8 @@ authors.workspace = true
 [dependencies]
 stars-formats.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+# Test-only: the golden vectors under docs/vectors/ are JSON so that they stay
+# readable next to the specs. The library itself has no serialization deps.
+serde_json.workspace = true

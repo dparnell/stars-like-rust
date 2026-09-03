@@ -3,114 +3,128 @@
 //! The deterministic, platform-agnostic heart of the Stars! reimplementation.
 //!
 //! This crate owns the game model ([`GameState`]) and the simulation systems
-//! that advance it (production, minerals/resources, population growth, fleet
-//! movement, scanning, combat, research) together with the turn/order
-//! processing pipeline and the AI.
+//! that advance it, together with the turn/order processing pipeline and the
+//! AI.
 //!
 //! ## Non-negotiable constraints
 //!
 //! * **Deterministic** — identical inputs and seed must produce identical
 //!   outputs on every platform (native and wasm). All randomness flows through
-//!   [`Rng`], a reproduction of the original engine's PRNG.
+//!   [`Rng`], a reproduction of the original engine's PRNG. The handful of
+//!   formulas that use floating point (habitability, scanner combination,
+//!   movement geometry) use only `sqrt`, `powf(0.25)` and exactly-representable
+//!   constants, all of which IEEE-754 requires to be correctly rounded.
 //! * **Headless** — no filesystem, no rendering, no platform APIs. File bytes
 //!   enter and leave through `stars-formats`; presentation lives in the UI
 //!   crates.
 //!
-//! The concrete data model and formulas are recovered in Steps 3–4 of the
-//! delivery plan. This file currently establishes the public surface and the
-//! deterministic RNG seam that everything else will build on.
+//! ## Provenance
+//!
+//! Every formula here is reverse-engineered from `stars.2.7j.exe` and written
+//! up under `docs/formulas/`, with the Ghidra address of the original routine
+//! and the `MANUAL.PDF` page that documents the same rule. The specs are the
+//! contract; this code is one implementation of them, and the golden vectors
+//! under `docs/vectors/` are checked against both.
+//!
+//! ## What is implemented
+//!
+//! | Subsystem | Module | Status |
+//! |-----------|--------|--------|
+//! | PRNG | [`rng`] | complete (`Random`/`Randomize`) |
+//! | Habitability & maximum population | [`hab`] | complete except Alternate Reality |
+//! | Population growth & death | [`population`] | complete except Alternate Reality |
+//! | Mining & concentration decay | [`mining`] | complete |
+//! | Resources, mine/factory caps | [`resources`] | complete except Alternate Reality |
+//! | Scanner ranges | [`scanning`] | ranges complete; per-design scanners need ship designs |
+//! | Fleet movement & fuel | [`movement`] | geometry and fuel complete; engine tables need parts data |
+//! | Production, research, combat, AI | — | delivery Step 4 |
+//!
+//! Alternate Reality races live on their starbases, so their population,
+//! mining and scanning all depend on ship designs; those paths return `None`
+//! until the design layer lands in Step 5.
 
 #![forbid(unsafe_code)]
 
-/// A deterministic pseudo-random number generator seam.
-///
-/// The real implementation must reproduce the original Stars! PRNG exactly (to
-/// be recovered from Ghidra in Step 3) so that combat, mineral, and event
-/// outcomes match the original engine bit-for-bit. Until then this is a simple
-/// linear congruential placeholder with a stable, documented sequence so that
-/// higher layers can be written and tested against a fixed seed.
-#[derive(Debug, Clone)]
-pub struct Rng {
-    state: u32,
-}
+pub mod hab;
+pub mod mining;
+pub mod movement;
+pub mod planet;
+pub mod population;
+pub mod race;
+pub mod resources;
+pub mod rng;
+pub mod scanning;
 
-impl Rng {
-    /// Create a generator from an explicit 32-bit seed.
-    pub fn new(seed: u32) -> Self {
-        Self { state: seed }
-    }
-
-    /// Return the next pseudo-random `u32` and advance the state.
-    ///
-    /// NOTE: placeholder algorithm — replaced by the reverse-engineered Stars!
-    /// PRNG in a later step. The public signature is expected to remain stable.
-    pub fn next_u32(&mut self) -> u32 {
-        // Numerical Recipes LCG constants; deterministic and dependency-free.
-        self.state = self
-            .state
-            .wrapping_mul(1_664_525)
-            .wrapping_add(1_013_904_223);
-        self.state
-    }
-}
+pub use hab::{calc_planet_max_pop, max_pop_for_hab, pct_planet_desirability};
+pub use mining::{mine_minerals, minerals_mined, mines_operating};
+pub use movement::{advance, distance, travel_per_year, travel_this_year, FuelStack, Point};
+pub use planet::Planet;
+pub use population::{chg_pop_from_planet, pct_true_max_growth, update_population, PopChange};
+pub use race::{Prt, Race, RaceStat};
+pub use resources::{
+    factories_operating, max_factories, max_mines, max_operable_factories, max_operable_mines,
+    resources_at_planet,
+};
+pub use rng::Rng;
+pub use scanning::{combine_ranges, planet_scanner_range, ScannerRange};
 
 /// The complete, serializable state of a game at a single turn boundary.
 ///
-/// Fields (universe, planets, fleets, players, tech, …) are added in Step 3 as
-/// the data model is reverse-engineered. `turn` and `seed` are present now
-/// because they anchor determinism and are needed by the RNG seam.
-#[derive(Debug, Clone)]
+/// Fleets, designs and the tech tree join this in Step 4; today it carries the
+/// planetary state that the implemented systems operate on.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GameState {
-    /// The current game year / turn number.
-    pub turn: u32,
-    /// The master RNG seed for this game.
+    /// Turn counter, 0-based, matching the file header's field; the in-game
+    /// year is [`GameState::year`].
+    pub turn: i16,
+    /// The game's random seed, as stored in the file header.
     pub seed: u32,
+    /// Every planet in the universe, indexed by planet id.
+    pub planets: Vec<Planet>,
+    /// Every player's race.
+    pub races: Vec<Race>,
 }
 
 impl GameState {
-    /// Construct an (empty) game state for a given seed at turn zero.
+    /// An empty game at turn 0 (year 2400).
+    #[must_use]
     pub fn new(seed: u32) -> Self {
-        Self { turn: 0, seed }
-    }
-}
-
-/// Player orders for a single turn.
-///
-/// Populated in Step 4 alongside the turn-generation pipeline.
-#[derive(Debug, Clone, Default)]
-pub struct PlayerOrders;
-
-/// Advance the game by one full turn given every player's orders.
-///
-/// This is the central deterministic entry point of the engine: for a fixed
-/// input state (including its seed) and a fixed set of orders it must always
-/// produce the same next state. The body is filled in during Step 4; for now
-/// it deterministically bumps the turn counter so the seam is exercisable.
-pub fn generate_turn(state: &GameState, _orders: &[PlayerOrders]) -> GameState {
-    GameState {
-        turn: state.turn + 1,
-        seed: state.seed,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rng_is_deterministic_for_a_seed() {
-        let mut a = Rng::new(42);
-        let mut b = Rng::new(42);
-        for _ in 0..8 {
-            assert_eq!(a.next_u32(), b.next_u32());
+        Self {
+            turn: 0,
+            seed,
+            planets: Vec::new(),
+            races: Vec::new(),
         }
     }
 
-    #[test]
-    fn generate_turn_advances_deterministically() {
-        let state = GameState::new(7);
-        let next = generate_turn(&state, &[]);
-        assert_eq!(next.turn, 1);
-        assert_eq!(next.seed, 7);
+    /// The in-game year: Stars! counts turns from 2400.
+    #[must_use]
+    pub fn year(&self) -> i32 {
+        2400 + i32::from(self.turn)
+    }
+
+    /// The race of the player owning `planet`, if it is owned.
+    #[must_use]
+    pub fn owner_race(&self, planet: &Planet) -> Option<&Race> {
+        let owner = planet.owner?;
+        self.races.get(usize::try_from(owner).ok()?)
+    }
+
+    /// Advance every planet's population by one year.
+    ///
+    /// This is the `UpdatePopulations` step of the original's turn pipeline
+    /// (`FGenerateTurn`, `10b0:0000`). The rest of the pipeline — production,
+    /// movement, combat — lands in Step 4.
+    pub fn update_populations(&mut self) {
+        for i in 0..self.planets.len() {
+            let Some(owner) = self.planets[i].owner else {
+                continue;
+            };
+            let Some(race) = self.races.get(usize::try_from(owner).unwrap_or(usize::MAX)) else {
+                continue;
+            };
+            let race = race.clone();
+            population::update_population(&mut self.planets[i], &race);
+        }
     }
 }

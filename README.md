@@ -54,11 +54,15 @@ cargo run -p stars-desktop  # run the (placeholder) native shell
 
 ## Development status
 
-The file-format layer (delivery Step 2) is decoded and round-trip tested
-against real games; the simulation core (Step 3) is the current work. See
-`docs/plans/stars-re-reimplementation.md` for the full delivery plan,
-`docs/formats/README.md` for the per-format specs, and `docs/ghidra-triage.md`
-for the map of the original binary.
+The file-format layer (Step 2) is decoded and round-trip tested against real
+games, and the deterministic planetary economy (Step 3) — habitability,
+population, mining, resources, scanning and fleet movement — is recovered,
+specified and verified against real save files. Turn generation, combat,
+research and AI (Step 4) are the current work.
+
+See `docs/plans/stars-re-reimplementation.md` for the full delivery plan,
+`docs/formats/README.md` and `docs/formulas/README.md` for the specs, and
+`docs/ghidra-triage.md` for the map of the original binary.
 
 ## Contributing
 

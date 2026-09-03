@@ -24,6 +24,7 @@ stars-formats = { path = "crates/stars-formats" }
 stars-core = { path = "crates/stars-core" }
 stars-ui = { path = "crates/stars-ui" }
 thiserror = "1"
+serde_json = "1"
 
 [profile.release]
 opt-level = 3

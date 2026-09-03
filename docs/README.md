@@ -42,5 +42,10 @@ should trace back to a document here.
 
 ## Status
 
-Scaffolding stage (delivery Step 1): templates and the triage doc exist; the
-format and formula specs are populated in Steps 2–4.
+- **Step 2 (formats)** — complete: `formats/` documents every on-disk record
+  layout, verified by round-trip tests against real games.
+- **Step 3 (planetary economy)** — complete: `formulas/` documents
+  habitability, population, mining, resources, scanning and movement, with
+  golden vectors in `vectors/planetary-economy.json`.
+- **Step 4** — in progress: production, combat, research and terraforming specs
+  are still to be written.

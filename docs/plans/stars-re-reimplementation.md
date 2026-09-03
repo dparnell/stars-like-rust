@@ -181,7 +181,7 @@ A buildable Cargo workspace and a documentation pipeline exist, ready to receive
 - Implement typed models and `read_/write_` pairs per format in `stars-formats`.
 - Add differential round-trip tests asserting `write(read(bytes)) == bytes` on real fixtures plus semantic-equality checks.
 
-### * Step 3: Reverse-engineer and implement the deterministic simulation core
+### ✓ Step 3: Reverse-engineer and implement the deterministic simulation core
 `stars-core` models the universe and reproduces the original's per-subsystem calculations deterministically.
 
 - Define the core data model (`GameState`: universe, planets, fleets, players, tech tree, seed, turn).
@@ -189,7 +189,26 @@ A buildable Cargo workspace and a documentation pipeline exist, ready to receive
 - Capture worked test vectors in `docs/` and add unit tests for each subsystem with fixed seeds.
 - Keep the core free of I/O, rendering, and platform code.
 
-###   Step 4: Implement turn generation, combat, research, and AI
+**Delivered.** The planetary economy is recovered and implemented: the
+simulation PRNG (`Random`/`Randomize`), habitability and maximum population,
+population growth and death, mining and mineral-concentration decay, resource
+output with the operable mine/factory caps, scanner ranges, and fleet movement
+geometry and fuel. Each is specified in `docs/formulas/` citing both the Ghidra
+address and the `MANUAL.PDF` page, with golden vectors in
+`docs/vectors/planetary-economy.json` taken from the manual's own worked
+examples.
+
+Verified two ways: the vectors, and a differential replay of real save files
+(`crates/stars-core/tests/differential_growth.rs`) in which 372 of 426
+planet-years of the 40-turn Exodus game reproduce the original engine's
+population *and* its fractional-population accumulator exactly.
+
+Carried into Step 4/5 rather than done here: everything that depends on ship
+designs or the components table — the Alternate Reality population, mining and
+resource model, per-design scanner ranges, and engine fuel-use tables — plus
+mine-field traversal and stargates.
+
+### * Step 4: Implement turn generation, combat, research, and AI
 `stars-core` can advance a full game turn from player orders and play single-player against AI.
 
 - Implement the order/turn-processing pipeline: `generate_turn(state, orders) -> state`.
