@@ -49,9 +49,15 @@ Layout recovered from the stars-4x `starsapi` project (`DesignBlock.java`).
 ## Notes
 
 - A full design's **mass** and **fuel capacity** are *computed* by the game from
-  a hull/component table (component masses, engine fuel bonuses, …) that this
-  formats crate does not carry, so `DesignRecord` only exposes the directly
+  the hull and component tables, so `DesignRecord` only exposes the directly
   stored partial-design `mass`, not a computed full-design mass.
+  `stars_core::design::ShipDesign` computes them; see
+  `../formulas/design.md`, where the computed mass is checked against the
+  battle recordings.
+- The stored **armour** is a value the host caches while generating a turn. A
+  game's very first files, written before any turn has been generated, carry
+  zero for every design, so a zero there means "not yet computed" rather than
+  "no armour".
 - Slot `category` is a tech-category bitmask (engine, beam weapon, armor,
   scanner, …); resolving `(category, item_id)` to concrete component names needs
   the item database (a later `stars-core` concern).

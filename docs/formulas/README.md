@@ -34,6 +34,7 @@ The PRNG that mining and the turn pipeline draw from is specified separately in
 | `components.md` | The component data tables (engines, weapons, scanners, …) | verified |
 
 | `combat.md` | Board, movement, targeting, weapon accuracy | in progress |
+| `design.md` | Hulls, slots, and the values derived from them | mass verified; armour partly |
 
 Still to come in Step 4:
 

@@ -241,9 +241,15 @@ Remaining, in dependency order:
 5. **The AI players** (six source files), which depend on nearly all of the
    above.
 
-The dependency that now gates everything left in Step 4 is the same one:
-`rghuldef` (32 hulls), the stock designs, and the `.mN` design records, which
-together turn a design slot into a list of weapon and armour slots.
+**The ship-design layer is now in place** (`docs/formulas/design.md`): the 32
+ship hulls and 5 starbase hulls are transcribed alongside the rest of the
+component tables, and `stars_core::design::ShipDesign` derives mass, armour,
+shields, fuel and cargo capacity, scanner range and cost from a hull and its
+slots. Mass is verified against the battle recordings.
+
+What is still open inside it: the armour computation for a recurring group of
+designs in one sample game, battle initiative from battle computers, and the
+stock design tables.
 
 ###   Step 5: Build the egui desktop frontend with faithful core screens
 `stars-desktop` runs a playable single-player game on Windows/macOS/Linux with recreated key screens.
