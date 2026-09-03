@@ -49,16 +49,41 @@ Requires a stable Rust toolchain (developed against Rust 1.98).
 ```sh
 cargo build --workspace     # compile everything
 cargo test  --workspace     # run all tests
-cargo run -p stars-desktop  # run the (placeholder) native shell
+
+# Open a real saved game and see what the engine makes of it:
+cargo run -p stars-desktop -- fixtures/games/exodus/2424/exodus.m6
+cargo run -p stars-desktop -- fixtures/games/exodus/2424/exodus.m6 --turn
 ```
+
+The second of those prints something like:
+
+```text
+fixtures/games/exodus/2424/exodus.m6
+  Turn file, game 0x012e2128, year 2424
+  19 planets simulated, 3 known only at a distance, 13 designs
+  player 5: 19 planets, 818200 colonists, tech [3, 8, 6, 5, 5, 3], 30% to research
+
+generated year 2425
+  1012 kT mined, population +274 (in hundreds)
+  player 5 put 1912 into research, gaining 1 levels
+  not simulated: [Orders, FleetMovement, Things, Combat, Terraforming, RandomEvents, Scores]
+```
+
+The last line is deliberate: the engine reports the parts of a turn it does not
+yet simulate rather than quietly leaving them out.
 
 ## Development status
 
 The file-format layer (Step 2) is decoded and round-trip tested against real
 games, and the deterministic planetary economy (Step 3) — habitability,
 population, mining, resources, scanning and fleet movement — is recovered,
-specified and verified against real save files. Turn generation, combat,
-research and AI (Step 4) are the current work.
+specified and verified against real save files.
+
+Step 4 is well advanced: research, the production queue, the turn pipeline and
+most of combat are implemented. A real saved game now loads and generates a
+turn, and a whole-turn replay against the next year's file reproduces **87% of
+planet populations and 86% of mineral concentrations** exactly. The AI players
+are the main piece not yet started.
 
 See `docs/plans/stars-re-reimplementation.md` for the full delivery plan,
 `docs/formats/README.md` and `docs/formulas/README.md` for the specs, and
