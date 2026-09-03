@@ -321,7 +321,8 @@ impl GameState {
         let mut pending: Option<Fleet> = None;
         for block in blocks {
             match block.type_id {
-                16 | 17 | 18 => {
+                // Fleet blocks: full (16), and the two partial forms.
+                16..=18 => {
                     if let Some(fleet) = pending.take() {
                         state.fleets.push(fleet);
                         report.fleets_loaded += 1;
@@ -330,6 +331,7 @@ impl GameState {
                         .as_ref()
                         .and_then(fleet_from_record);
                 }
+                // Waypoint blocks, which belong to the fleet above them.
                 19 | 20 => {
                     if let (Some(fleet), Some(w)) = (
                         pending.as_mut(),
