@@ -15,7 +15,7 @@
 //! loader takes what is there and leaves the rest out rather than inventing
 //! it — [`LoadReport`] says what was skipped.
 
-use crate::fleet::{Cargo, Fleet, ShipStack};
+use crate::fleet::{Cargo, Fleet, ShipStack, Waypoint};
 use crate::movement::Point;
 use crate::planet::Planet;
 use crate::production::QueueItem;
@@ -24,8 +24,8 @@ use crate::research::{NextField, Research, TECH_FIELDS};
 use crate::{GameState, Player};
 
 use stars_formats::{
-    fleet_records, planet_records_in, player_records_in, production_queue_records, DesignRecord,
-    FleetRecord, PlanetRecord, RaceRecord, StarsFile,
+    planet_records_in, player_records_in, production_queue_records, DesignRecord, FleetRecord,
+    PlanetRecord, RaceRecord, StarsFile,
 };
 
 /// What a load did and did not manage to include.
@@ -174,6 +174,7 @@ pub fn fleet_from_record(record: &FleetRecord) -> Option<Fleet> {
     };
 
     Some(Fleet {
+        waypoints: Vec::new(),
         id: record.id,
         owner: i16::from(record.owner),
         position: Point::new(
@@ -314,11 +315,43 @@ impl GameState {
             }
         }
 
-        for record in fleet_records(file) {
-            if let Some(fleet) = fleet_from_record(&record) {
-                state.fleets.push(fleet);
-                report.fleets_loaded += 1;
+        // Fleets, with the waypoint blocks that follow each one. Association
+        // is by position in the block stream: a fleet's waypoints are written
+        // immediately after it.
+        let mut pending: Option<Fleet> = None;
+        for block in blocks {
+            match block.type_id {
+                16 | 17 | 18 => {
+                    if let Some(fleet) = pending.take() {
+                        state.fleets.push(fleet);
+                        report.fleets_loaded += 1;
+                    }
+                    pending = stars_formats::FleetRecord::decode(&block.data, block.type_id)
+                        .as_ref()
+                        .and_then(fleet_from_record);
+                }
+                19 | 20 => {
+                    if let (Some(fleet), Some(w)) = (
+                        pending.as_mut(),
+                        stars_formats::WaypointRecord::decode(&block.data),
+                    ) {
+                        fleet.waypoints.push(Waypoint {
+                            position: Point::new(
+                                i16::try_from(w.x).unwrap_or(0),
+                                i16::try_from(w.y).unwrap_or(0),
+                            ),
+                            target: w.object_id,
+                            warp: w.warp,
+                            task: w.task,
+                        });
+                    }
+                }
+                _ => {}
             }
+        }
+        if let Some(fleet) = pending.take() {
+            state.fleets.push(fleet);
+            report.fleets_loaded += 1;
         }
 
         (state, report)

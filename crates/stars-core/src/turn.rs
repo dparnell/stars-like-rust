@@ -25,7 +25,9 @@
 //! listed in [`TurnReport::skipped`] rather than silently omitted, so a caller
 //! can never mistake a partial turn for a complete one.
 
+use crate::fleet::Fleet;
 use crate::mining::mine_minerals;
+use crate::movement::{advance, distance, travel_this_year};
 use crate::planet::Planet;
 use crate::population::update_population;
 use crate::production::{
@@ -65,6 +67,8 @@ pub struct TurnReport {
     pub mined: Vec<(i16, [i32; 3])>,
     /// What each planet completed, as `(planet id, [(item id, count)])`.
     pub built: Vec<(i16, Vec<(u16, i32)>)>,
+    /// Fleets that moved, as `(fleet id, light years travelled)`.
+    pub moved: Vec<(u16, i32)>,
     /// Population change per planet id, in units of 100 colonists.
     pub population: Vec<(i16, i32)>,
     /// Resources each player put into research.
@@ -87,7 +91,6 @@ pub fn generate_turn(state: &mut GameState, rng: &mut Rng) -> TurnReport {
     let mut report = TurnReport {
         skipped: vec![
             SkippedStep::Orders,
-            SkippedStep::FleetMovement,
             SkippedStep::Things,
             SkippedStep::Combat,
             SkippedStep::Terraforming,
@@ -98,6 +101,13 @@ pub fn generate_turn(state: &mut GameState, rng: &mut Rng) -> TurnReport {
         breakthroughs: vec![Vec::new(); state.players.len()],
         ..TurnReport::default()
     };
+
+    // --- MoveFleets, which happens before Produce.
+    for fleet in &mut state.fleets {
+        if let Some(travelled) = move_fleet(fleet) {
+            report.moved.push((fleet.id, travelled));
+        }
+    }
 
     // --- Produce: mine first, so this year's minerals are on the surface
     // before anything can spend them.
@@ -261,4 +271,44 @@ fn run_queue(
     queue.retain(|e| e.count > 0 || e.item >= item::AUTO_BUILD_BASE);
     planet.queue = queue;
     completed
+}
+
+/// Move one fleet along its current leg.
+///
+/// A fleet covers `warp^2` light years a year toward its next waypoint,
+/// stopping exactly on it if that would overshoot. On arrival the waypoint is
+/// consumed, so the following one becomes the next leg.
+///
+/// Returns the distance travelled, or `None` if the fleet had nowhere to go.
+///
+/// Fuel is **not** deducted: that needs each design's engine and the cargo
+/// assignment across stacks, which the pipeline does not do yet. A fleet
+/// therefore never runs dry, which is the one way this is knowingly generous.
+fn move_fleet(fleet: &mut Fleet) -> Option<i32> {
+    let (target, warp) = fleet.next_leg()?;
+    let from = fleet.position;
+    let d = distance(from, target);
+    if d <= 0.0 {
+        return None;
+    }
+
+    let travel = travel_this_year(i16::from(warp), d, None);
+    let to = advance(from, target, travel);
+    fleet.position = to;
+
+    if to == target {
+        // Arrived: this waypoint is done with, and the fleet is orbiting
+        // whatever it named.
+        fleet.orbiting = fleet.waypoints.get(1).and_then(|w| w.target);
+        if !fleet.waypoints.is_empty() {
+            fleet.waypoints.remove(0);
+        }
+    } else {
+        fleet.orbiting = None;
+        // The leg continues from where the fleet now is.
+        if let Some(here) = fleet.waypoints.first_mut() {
+            here.position = to;
+        }
+    }
+    Some(travel)
 }

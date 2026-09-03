@@ -129,3 +129,81 @@ fn generating_a_year_reproduces_much_of_the_next_file() {
         pct(total.concentration)
     );
 }
+
+/// Fleet movement checked against where the fleets actually ended up.
+///
+/// A fleet's position is recorded every year, so moving it along its own
+/// waypoints and comparing is exact — no allowance needed, unlike the planet
+/// fields, which depend on orders the pipeline does not process.
+#[test]
+fn fleets_move_to_where_the_engine_put_them() {
+    let root = workspace_root();
+    let games = root.join("fixtures/games/exodus");
+    if !games.is_dir() {
+        eprintln!("skipping: no Exodus fixtures");
+        return;
+    }
+    let mut years: Vec<i32> = std::fs::read_dir(&games)
+        .expect("readable fixture dir")
+        .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
+        .collect();
+    years.sort_unstable();
+
+    let mut moving = 0usize;
+    let mut exact = 0usize;
+    let mut notes = Vec::new();
+
+    for w in years.windows(2) {
+        if w[1] != w[0] + 1 {
+            continue;
+        }
+        let (Some(mut before), Some(after)) = (
+            load(&games.join(w[0].to_string()).join("exodus.m6")),
+            load(&games.join(w[1].to_string()).join("exodus.m6")),
+        ) else {
+            continue;
+        };
+
+        // Only fleets that had somewhere to go are informative.
+        let heading: BTreeMap<u16, _> = before
+            .fleets
+            .iter()
+            .filter(|f| f.next_leg().is_some())
+            .map(|f| (f.id, f.position))
+            .collect();
+
+        let mut rng = Rng::randomize(before.seed);
+        generate_turn(&mut before, &mut rng);
+
+        let actual: BTreeMap<u16, _> = after.fleets.iter().map(|f| (f.id, f.position)).collect();
+
+        for fleet in &before.fleets {
+            if !heading.contains_key(&fleet.id) {
+                continue;
+            }
+            let Some(want) = actual.get(&fleet.id) else {
+                continue; // the fleet is gone: merged, scrapped or destroyed
+            };
+            moving += 1;
+            if fleet.position == *want {
+                exact += 1;
+            } else if notes.len() < 8 {
+                notes.push(format!(
+                    "{}->{}: fleet {} computed ({},{}), engine ({},{})",
+                    w[0], w[1], fleet.id, fleet.position.x, fleet.position.y, want.x, want.y
+                ));
+            }
+        }
+    }
+
+    let pct = (exact * 100).checked_div(moving).unwrap_or(0);
+    eprintln!("fleet movement: {exact} of {moving} moving fleets land exactly right ({pct}%)");
+    for n in &notes {
+        eprintln!("  {n}");
+    }
+    assert!(moving > 20, "expected a decent sample of moving fleets");
+    assert!(
+        pct >= 50,
+        "only {pct}% of fleets moved to where the engine put them"
+    );
+}

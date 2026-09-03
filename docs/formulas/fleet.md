@@ -42,12 +42,33 @@ fleets, 66 of which are built entirely from designs the file also carries:
   check on the design fuel model, since the fuel figure comes from the file and
   the capacity from our component tables.
 
+## Movement
+
+Waypoints are associated with their fleet by position in the block stream: a
+fleet's waypoint blocks are written immediately after it, which is how the
+loader pairs them.
+
+Each turn a fleet covers `warp^2` light years toward its next waypoint,
+stopping exactly on it if that would overshoot, using the geometry in
+`movement.md`. On arrival the waypoint is consumed and the fleet is left
+orbiting whatever it named.
+
+**378 of 438 moving fleets land exactly where the engine put them** — checked
+against the recorded positions in the next year's file, with no allowance made,
+since a fleet's position depends only on its own orders. The remainder are
+fleets whose orders changed, that merged or split, or that ran out of fuel.
+
+Fuel is deliberately *not* deducted yet: that needs each design's engine and
+the cargo assignment across stacks, so a fleet currently never runs dry. That
+is the one place this is knowingly generous, and it is the likeliest cause of
+some of the 60 that do not match.
+
 ## Open questions
 
-- **Orders and waypoints** are decoded by the format layer but not modelled, so
-  fleets do not move, transfer cargo, or colonise. This is the largest single
-  gap in the turn pipeline and is what holds the whole-turn replay's surface
-  mineral figure down to 19%.
+- **Orders** beyond movement — cargo transfer, colonisation, remote mining —
+  are decoded by the format layer but not modelled. This is what holds the
+  whole-turn replay's surface mineral figure down to 19%.
+- Fuel consumption during movement, as above.
 - Ship building: the production queue recognises ship designs but cannot turn a
   completed one into a fleet.
 - Fuel consumption is implemented (`movement.md`) but nothing calls it, because

@@ -43,6 +43,19 @@ impl Cargo {
     }
 }
 
+/// A point a fleet is ordered to travel to, and how fast.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Waypoint {
+    /// Where to go.
+    pub position: Point,
+    /// The planet or fleet it refers to, if any.
+    pub target: Option<u16>,
+    /// Warp factor for the leg **into** this waypoint.
+    pub warp: u8,
+    /// The task to perform on arrival, as stored.
+    pub task: u8,
+}
+
 /// A fleet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fleet {
@@ -62,6 +75,9 @@ pub struct Fleet {
     pub battle_plan: u8,
     /// Warp factor of its current leg, if it is moving.
     pub warp: Option<u8>,
+    /// Ordered waypoints. The first is where the fleet is now; the second, if
+    /// present, is where it is heading.
+    pub waypoints: Vec<Waypoint>,
 }
 
 impl Fleet {
@@ -125,6 +141,13 @@ impl Fleet {
                     * s.count
             })
             .sum()
+    }
+
+    /// Where the fleet is heading, and at what warp, if it has somewhere to go.
+    #[must_use]
+    pub fn next_leg(&self) -> Option<(Point, u8)> {
+        let next = self.waypoints.get(1)?;
+        (next.warp > 0).then_some((next.position, next.warp))
     }
 
     /// Whether any ship in the fleet carries a weapon.
