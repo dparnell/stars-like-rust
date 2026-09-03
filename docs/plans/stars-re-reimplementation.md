@@ -247,9 +247,9 @@ component tables, and `stars_core::design::ShipDesign` derives mass, armour,
 shields, fuel and cargo capacity, scanner range and cost from a hull and its
 slots. Mass is verified against the battle recordings.
 
-What is still open inside it: the armour computation for a recurring group of
-designs in one sample game, battle initiative from battle computers, and the
-stock design tables.
+What is still open inside it: battle initiative from battle computers, and the
+stock design tables. The armour computation was read out of `UpdateShdefCost`
+and now reproduces all 493 designs in the sample games exactly.
 
 ###   Step 5: Build the egui desktop frontend with faithful core screens
 `stars-desktop` runs a playable single-player game on Windows/macOS/Linux with recreated key screens.

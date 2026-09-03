@@ -49,6 +49,8 @@ fn fixture_files() -> Vec<PathBuf> {
         "fixtures/incoming/turn1/Game.hst",
         "fixtures/incoming/turn0/Game.m1",
         "fixtures/incoming/turn1/Game.m1",
+        "fixtures/incoming/turn1/Game.m2",
+        "fixtures/incoming/turn1/Game.m3",
         "fixtures/games/tutorial/tutorial.m1",
     ] {
         let p = root.join(rel);
@@ -141,19 +143,18 @@ fn full_designs_do_not_store_a_mass() {
     );
 }
 
-/// Armour is only partly pinned down, and this test says exactly how far.
+/// Armour, computed the way `UpdateShdefCost` does.
 ///
-/// In the three-player sample game and the shipped tutorial, every ship
-/// design's armour is reproduced exactly by `hull armour + fitted armour`.
-/// In the Exodus game it is not: a Stalwart Defender there is a Destroyer
-/// (200) with two Crobmnium (75 each), which should be 350, and the engine
-/// stored 275. The difference is not a constant factor and goes both ways
-/// across designs, so it is not a simple scaling.
+/// The rule has three parts beyond the hull's own armour: fitted armour is
+/// **halved for a race with Regenerating Shields**, the Croby Sharmor and
+/// Langston Shell shields add 65 apiece, and a Multi Cargo Pod adds 50. The
+/// halving is why this test needs each design's owner: it is a race property,
+/// not a property of the design.
 ///
-/// The routine that computes it is a stub in the reconstructed sources and
-/// has not been read out of our binary yet, so rather than invent a rule that
-/// fits one game, this asserts the games where the model is known to hold and
-/// reports the other. See `docs/formulas/design.md`.
+/// Attributing a design to its owner is the awkward part. In a `.hst` every
+/// player block is written before any design, so position does not identify an
+/// owner; this test therefore reads only **player files**, where the full
+/// designs belong to the player the header names.
 #[test]
 fn computed_armour_matches_what_the_engine_stored() {
     let files = fixture_files();
@@ -162,13 +163,15 @@ fn computed_armour_matches_what_the_engine_stored() {
         return;
     }
 
+    /// Bit 13 of the lesser-racial-trait word.
+    const REGENERATING_SHIELDS: u16 = 1 << 13;
+
     let mut checked = 0;
     let mut uncached = 0;
-    let mut starbases = 0;
-    let mut starbases_matching = 0;
-    let mut loose_total = 0;
-    let mut loose_matching = 0;
+    let mut regenerating = 0;
+    let mut foreign = 0;
     let mut failures = Vec::new();
+
     for path in &files {
         let Ok(bytes) = std::fs::read(path) else {
             continue;
@@ -176,56 +179,75 @@ fn computed_armour_matches_what_the_engine_stored() {
         let Ok(file) = StarsFile::decode(&bytes) else {
             continue;
         };
-        let Ok(records) = design_records(&file) else {
+
+        // A host file carries every player's designs with no way to tell them
+        // apart by position, so only player files are usable here.
+        let segment = file.latest_segment();
+        let owner = segment.header.player;
+        if owner >= 16 {
+            continue;
+        }
+        // Before the first turn is generated the cached values are not yet
+        // meaningful: ships carry zero and the starbase a placeholder.
+        if segment.header.turn == 0 {
+            uncached += 1;
+            continue;
+        }
+        let Ok(players) =
+            stars_formats::player_records_in(file.segment_blocks(file.latest_segment()))
+        else {
             continue;
         };
-        for record in records {
+        let Some(race) = players
+            .iter()
+            .find(|p| p.player_number == owner)
+            .and_then(|p| p.race.as_ref())
+        else {
+            continue;
+        };
+        let owner_regenerating = race.lrt_bits & REGENERATING_SHIELDS != 0;
+
+        for block in file.segment_blocks(file.latest_segment()) {
+            if block.type_id != 26 {
+                continue;
+            }
+            let Ok(record) = DesignRecord::from_payload(&block.data) else {
+                continue;
+            };
             if !record.full_design {
                 continue;
             }
             let Some(expected) = record.armor else {
                 continue;
             };
-            // The stored armour is a value the host caches while generating a
-            // turn. A game's very first files, written before any turn has
-            // been generated, carry zero for every design; there is nothing to
-            // compare against in those.
+            // Zero means the host has not cached it yet (a game's first files).
             if expected == 0 {
                 uncached += 1;
                 continue;
             }
+
             let design = to_design(&record);
-            let Some(armor) = design.armor() else {
+            let Some(armor) = design.armor(owner_regenerating) else {
                 continue;
             };
-
-            let strict = !path.to_string_lossy().contains("exodus");
-            if !strict {
-                loose_total += 1;
-                if i64::from(design.armor().unwrap_or(-1)) == i64::from(expected) {
-                    loose_matching += 1;
-                }
-                continue;
-            }
-
-            if record.starbase {
-                // Starbase armour is only partly understood: fitted armour
-                // counts half, which fits every starbase in the fixtures bar
-                // one stock design that stores twice its hull's value with
-                // nothing fitted. Counted, not asserted — see
-                // docs/formulas/design.md.
-                starbases += 1;
-                if i64::from(armor) == i64::from(expected) {
-                    starbases_matching += 1;
-                }
-                continue;
-            }
-
             checked += 1;
+            if owner_regenerating {
+                regenerating += 1;
+            }
             if i64::from(armor) != i64::from(expected) {
+                // A player file also carries foreign designs, learned in full
+                // by fighting them. Those belong to another race, so the
+                // halving follows that race's traits rather than this file
+                // owner's.
+                let other = design.armor(!owner_regenerating).unwrap_or(-1);
+                if i64::from(other) == i64::from(expected) {
+                    foreign += 1;
+                    continue;
+                }
                 failures.push(format!(
-                    "{}: design {:?} on hull {} computes {armor} armour, engine stored {expected}",
-                    path.file_name().unwrap_or_default().to_string_lossy(),
+                    "{}: design {:?} on hull {} computes {armor} armour, engine stored \
+                     {expected} (regenerating shields: {owner_regenerating})",
+                    path.display(),
                     record.name,
                     record.hull_id
                 ));
@@ -234,31 +256,27 @@ fn computed_armour_matches_what_the_engine_stored() {
     }
 
     eprintln!(
-        "armour: {checked} ship designs match exactly in the sample game and tutorial \
-         ({uncached} not yet cached by the host); {starbases_matching} of {starbases} \
-         starbases match the inferred half-armour rule; in the Exodus game \
-         {loose_matching} of {loose_total} match (see the doc comment)"
+        "{checked} designs checked for armour: {regenerating} under a Regenerating Shields \
+         owner, {foreign} matching the other race's rule (foreign designs learned in \
+         battle), {uncached} files skipped as not yet cached; {} disagree",
+        failures.len()
     );
     for f in failures.iter().take(10) {
         eprintln!("  {f}");
     }
     assert!(checked >= 10, "expected a meaningful sample, got {checked}");
     assert!(
+        regenerating > 0,
+        "no Regenerating Shields design in the sample, so the halving is untested"
+    );
+    assert!(
+        foreign > 0,
+        "expected some foreign designs, whose owner's traits differ from the file's"
+    );
+    assert!(
         failures.is_empty(),
-        "{} ship designs disagree on armour: {failures:?}",
+        "{} designs disagree on armour",
         failures.len()
-    );
-    // The starbase rule is inferred and the Exodus divergence is unexplained,
-    // so both are held to a floor rather than to perfection. A regression in
-    // the hull or armour tables would drop these sharply.
-    assert!(
-        starbases_matching * 10 >= starbases * 7,
-        "only {starbases_matching} of {starbases} starbase designs match the inferred armour rule"
-    );
-    assert!(
-        loose_matching * 10 >= loose_total * 75 / 10,
-        "only {loose_matching} of {loose_total} Exodus designs match; that is worse than the \
-         82% this stood at when the divergence was first measured"
     );
 }
 

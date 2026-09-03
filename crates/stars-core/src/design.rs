@@ -17,6 +17,10 @@ use crate::components::{
 };
 use crate::scanning::{combine_ranges, ScannerRange};
 
+/// Index of the Croby Sharmor in [`SHIELDS`]; it also provides 65 armour points.
+const SHIELD_CROBY_SHARMOR: usize = 3;
+/// Index of the Langston Shell in [`SHIELDS`]; it also provides 65 armour points.
+const SHIELD_LANGSTON_SHELL: usize = 6;
 /// Index of Fielded Kelarium in [`ARMORS`]; it also provides 50 shield points.
 const ARMOR_FIELDED_KELARIUM: usize = 6;
 /// Index of the Mega Poly Shell in [`ARMORS`]; it also provides 100 shield points.
@@ -102,27 +106,45 @@ impl ShipDesign {
         Some(mass)
     }
 
-    /// Armour of one ship, in damage points: the hull's own plus any fitted.
+    /// Armour of one ship, in damage points.
     ///
-    /// On a **starbase**, fitted armour contributes only half its damage
-    /// points. That rule is inferred from the fixtures rather than read out of
-    /// the binary — see the note in `docs/formulas/design.md` — but it holds
-    /// exactly for every starbase design in every sample game, across three
-    /// different hulls and armour counts from 3 to 32.
+    /// The hull's own armour plus three contributions, exactly as
+    /// `UpdateShdefCost` computes them:
+    ///
+    /// * fitted armour, **halved for a race with Regenerating Shields** — the
+    ///   price that trait pays for its shields;
+    /// * 65 per Croby Sharmor or Langston Shell, two shields that also armour;
+    /// * 50 per Multi Cargo Pod.
+    ///
+    /// The slot categories are matched **exactly**, not as a bitmask, which is
+    /// what the original does.
     #[must_use]
-    pub fn armor(&self) -> Option<i32> {
+    pub fn armor(&self, regenerating_shields: bool) -> Option<i32> {
         let hull = self.hull()?;
-        let starbase = self.is_starbase();
-        let mut fitted = 0;
-        for s in self.slots.iter().filter(|s| s.is(slot::ARMOR)) {
-            if let Some(part) = ARMORS.get(usize::from(s.item)) {
-                fitted += i32::from(part.dp) * i32::from(s.count);
+        let mut dp = i32::from(hull.armor);
+
+        for s in &self.slots {
+            if s.count == 0 {
+                continue;
+            }
+            let count = i32::from(s.count);
+            let item = usize::from(s.item);
+
+            if s.category == slot::SHIELD {
+                if item == SHIELD_CROBY_SHARMOR || item == SHIELD_LANGSTON_SHELL {
+                    dp += count * 65;
+                }
+            } else if s.category == slot::ARMOR {
+                let mut fitted = count * ARMORS.get(item).map_or(0, |p| i32::from(p.dp));
+                if regenerating_shields {
+                    fitted /= 2;
+                }
+                dp += fitted;
+            } else if s.category == slot::SPECIAL_M && item == SPECIAL_M_MULTI_CARGO_POD {
+                dp += count * 50;
             }
         }
-        if starbase {
-            fitted /= 2;
-        }
-        Some(i32::from(hull.armor) + fitted)
+        Some(dp)
     }
 
     /// Shield points of one ship.
@@ -141,11 +163,12 @@ impl ShipDesign {
                 continue;
             }
             let count = i32::from(s.count);
-            if s.category & slot::SHIELD != 0 {
+            // Categories are compared exactly, as `DpShieldOfShdef` does.
+            if s.category == slot::SHIELD {
                 if let Some(p) = SHIELDS.get(usize::from(s.item)) {
                     dp += i32::from(p.dp) * count;
                 }
-            } else if s.category & slot::ARMOR != 0 {
+            } else if s.category == slot::ARMOR {
                 match usize::from(s.item) {
                     ARMOR_FIELDED_KELARIUM => dp += count * 50,
                     ARMOR_MEGA_POLY_SHELL => dp += count * 100,

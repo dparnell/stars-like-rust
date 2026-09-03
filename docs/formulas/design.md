@@ -1,7 +1,7 @@
 # Subsystem: Ship & Starbase Design
 
-- **Status:** mass, capacities, shields and scanner ranges verified; armour partly verified
-- **Ghidra routine(s):** `WtMaxShdefStat` (fuel and cargo), `DpShieldOfShdef` (`util.c`), the `rghuldef` / `rghuldefSB` tables
+- **Status:** verified — mass, armour, shields, capacities and scanner ranges
+- **Ghidra routine(s):** `UpdateShdefCost` (armour, mass and cost, `util.c`), `WtMaxShdefStat` (fuel and cargo), `DpShieldOfShdef` (shields), `WriteRtShDef` (`save.c`, which field is stored), the `rghuldef` / `rghuldefSB` tables
 - **Manual reference:** `MANUAL.PDF` ch. 9 (Ship and Starbase Design), ch. 23 (armour and shields)
 - **Uses RNG:** no
 - **Implemented in:** `crates/stars-core/src/design.rs`, hull tables in `crates/stars-core/src/components.rs`
@@ -28,7 +28,7 @@ or armour" is stored as one or the other once something is fitted.
 | Value | Rule |
 |-------|------|
 | Mass | hull `wtEmpty` + Σ component mass × count. **Cargo is not included** |
-| Armour | hull `dp` + Σ armour `dp` × count (halved on a starbase — see below) |
+| Armour | hull `dp` + Σ armour `dp` × count (halved with Regenerating Shields), + 65 per Croby Sharmor or Langston Shell, + 50 per Multi Cargo Pod |
 | Shields | Σ shield `dp` × count, plus 50 per Fielded Kelarium and 100 per Mega Poly Shell; +40% with Regenerating Shields |
 | Fuel capacity | hull `wtFuelMax` + 250/Fuel Tank + 500/Super Fuel Tank + 200/Anti-Matter Generator |
 | Cargo capacity | hull `wtCargoMax` + 50/Cargo Pod + 100/Super Cargo Pod + 250/Multi Cargo Pod |
@@ -49,37 +49,55 @@ That two armours also carry shielding is easy to miss and comes straight from
   which is what a laden freighter looks like. Nothing computes heavier than the
   engine recorded.
 - All 581 full designs across every fixture resolve to a known hull.
+- **Armour is verified exactly**: 493 designs across every player file, with
+  zero disagreements. 461 match their file owner's rule and 32 match the other
+  variant, which is what foreign designs learned in battle must do.
 
-## Armour: what is and is not established
+## Armour
 
-Armour is the one derived value not fully pinned down.
+Read out of `UpdateShdefCost` (`util.c`), which is where the game maintains the
+cached `hul.dp` that a design record stores:
 
-- In the three-player sample game and the shipped tutorial, every ship design's
-  armour is reproduced exactly by `hull armour + fitted armour`.
-- In the Exodus game 426 of 518 do, but a recurring group does not. A Stalwart
-  Defender there is a Destroyer (hull armour 200) carrying two Crobmnium (75
-  each). That should be 350; the engine stored 275. The gap is neither a
-  constant nor a constant factor, and across designs it goes in both
-  directions.
-- For **starbases**, fitted armour appears to count half: an Orbital Fort (100)
-  with three Tritanium (50 each) stores 175, and the same rule gives 400, 900
-  and 1300 for three other starbases on two hulls with armour counts from 12 to
-  32. One stock "Starbase" on a Space Station stores twice its hull's armour
-  with nothing fitted, which this rule does not explain.
+```
+dp = hull.dp
+for each fitted slot:
+    if category == Shield and item is Croby Sharmor or Langston Shell:
+        dp += count * 65
+    else if category == Armor:
+        fitted = count * armour.dp
+        if the owner has Regenerating Shields: fitted /= 2
+        dp += fitted
+    else if category == Multi Cargo Pod:
+        dp += count * 50
+```
 
-The routine that computes armour is a stub in the reconstructed sources, so
-rather than invent a rule that fits one game the implementation uses the
-straightforward sum (with the starbase halving) and the test asserts only the
-games where that is known to hold, reporting the rest. Reading the real
-computation out of our binary is the next step.
+Three things here are easy to get wrong:
 
-Note also that the stored armour is a **cache the host fills in while
-generating a turn**: a game's very first files, written before any turn has run,
-carry zero for every design.
+- **Regenerating Shields halves fitted armour.** That is the price the trait
+  pays for its shields, and it is a property of the *owning race*, not of the
+  design. Because a player file also carries foreign designs learned by
+  fighting them, two designs on the same hull with the same armour in the same
+  file can legitimately store different values.
+- **Two shields are also armour.** The Croby Sharmor and the Langston Shell add
+  65 damage points each, and a Multi Cargo Pod adds 50.
+- **Slot categories are compared exactly, not as bitmasks.** A slot must be
+  exactly `hstShield` or exactly `hstArmor` to count.
+
+The stored value is a **cache the host maintains**, so it is only meaningful
+once a turn has been generated. In a game's very first files ships carry zero
+and the starbase design carries a placeholder; both are skipped rather than
+compared.
+
+### How it was found
+
+The rule was originally guessed at from the data, and the guess was wrong: the
+halving looked like a starbase rule, because the starbases in the fixtures
+happened to belong to Regenerating Shields races. It only resolved by reading
+the computation out of the binary. That is worth remembering — six of seven
+starbases fitted the wrong rule exactly.
 
 ## Open questions
 
-- The armour computation, as above.
 - Battle initiative: the hull's base initiative plus battle computers; the
   bonus each computer gives is in the specials table but the combination rule
   (`InitFromHuldef`) has not been read yet.

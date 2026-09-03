@@ -118,3 +118,33 @@ fn squares_round_trip_through_their_packed_byte() {
         }
     }
 }
+
+#[test]
+fn design_armour_matches_the_vectors() {
+    use stars_core::components::slot;
+    use stars_core::design::{DesignSlot, ShipDesign};
+
+    let v = vectors();
+    for case in v["design_armour"]["cases"].as_array().unwrap() {
+        let hull_id = i16::try_from(i(case, "hull")).unwrap();
+        let count = u8::try_from(i(case, "armor_count")).unwrap();
+        let regenerating = case["regenerating_shields"].as_bool().unwrap();
+
+        let mut slots = Vec::new();
+        if let Some(item) = case["armor_item"].as_i64() {
+            slots.push(DesignSlot {
+                category: slot::ARMOR,
+                item: u8::try_from(item).unwrap(),
+                count,
+            });
+        }
+
+        let design = ShipDesign { hull_id, slots };
+        assert_eq!(
+            i64::from(design.armor(regenerating).expect("known hull")),
+            i(case, "expect"),
+            "{}",
+            case["why"].as_str().unwrap()
+        );
+    }
+}
