@@ -101,7 +101,7 @@ fn exodus_research_allocation_is_bounded_by_our_resource_output() {
             let Some(planet) = planet_from_record(&record) else {
                 continue;
             };
-            let Some(res) = resources_at_planet(&planet, &race) else {
+            let Some(res) = resources_at_planet(&planet, &race, 0) else {
                 continue;
             };
             owned += 1;

@@ -95,16 +95,32 @@ pub fn factories_operating(planet: &Planet, race: &Race) -> i16 {
 /// Population beyond capacity is only half as productive, and population past
 /// 300% of capacity does no useful work at all (`MANUAL.PDF` p. 6-3).
 ///
-/// An inhabited planet always produces at least 1. Returns `None` for
-/// Alternate Reality races, whose output depends on the starbase.
+/// An inhabited planet always produces at least 1.
+///
+/// Alternate Reality races do not use factories at all; `energy_tech` is their
+/// energy technology level, which drives the separate formula in
+/// [`ar_resources_at_planet`] and is ignored for every other race.
+///
+/// Returns `None` only when the planet's maximum population cannot be
+/// determined.
 #[must_use]
-pub fn resources_at_planet(planet: &Planet, race: &Race) -> Option<i16> {
+pub fn resources_at_planet(planet: &Planet, race: &Race, energy_tech: i16) -> Option<i16> {
     if planet.pop == 0 {
         return Some(0);
     }
     if race.is_ar() {
-        return None;
+        // The overcrowding clamp below needs a maximum population, which for
+        // an AR race comes from its starbase hull and is not modelled yet.
+        // Skipping it only matters for a planet holding more than its
+        // starbase supports.
+        return Some(ar_resources_at_planet(
+            planet,
+            race,
+            i64::from(planet.pop),
+            energy_tech,
+        ));
     }
+
     let max_pop = calc_planet_max_pop(planet, race)?;
 
     // Overcrowding: colonists between 100% and 300% of capacity work at half
@@ -134,4 +150,43 @@ pub fn resources_at_planet(planet: &Planet, race: &Race) -> Option<i16> {
     resources += (factories * output + 9) / 10;
 
     Some(i16::try_from(resources.max(1)).unwrap_or(i16::MAX))
+}
+
+/// The energy technology level below which an Alternate Reality planet is
+/// costed as if it had one (`1048:79bf`).
+const AR_MIN_ENERGY: i64 = 1;
+
+/// The habitability value below which an Alternate Reality planet is costed as
+/// if it were 25% (`1048:79cd` compares against `0x19`).
+const AR_MIN_DESIRABILITY: i64 = 25;
+
+/// What one planet yields for an Alternate Reality race.
+///
+/// Source: the `rsMajorAdv == 8` branch of `CResourcesAtPlanet`
+/// (`1048:7990`). AR races have no factories; a planet's output instead grows
+/// with the square root of its population scaled by energy technology, and is
+/// then weighted by how habitable the planet is:
+///
+/// ```text
+/// floor(sqrt(pop * energy / colonists_per_resource) * desirability / 10 + 0.999)
+/// ```
+///
+/// The trailing `0.999` (the double at `1120:1d3e`) makes the truncation a
+/// round *up*. `pop` is the overcrowding-adjusted population the caller has
+/// already computed, in units of 100 colonists.
+#[must_use]
+pub fn ar_resources_at_planet(planet: &Planet, race: &Race, pop: i64, energy_tech: i16) -> i16 {
+    let energy = i64::from(energy_tech).max(AR_MIN_ENERGY);
+    let desirability =
+        i64::from(crate::hab::pct_planet_desirability(planet, race)).max(AR_MIN_DESIRABILITY);
+    let per_resource = i64::from(race.stat(RaceStat::ResGen)).max(1);
+
+    // The original does this division and the square root in the x87 unit, so
+    // it is a real division rather than an integer one.
+    #[allow(clippy::cast_precision_loss)]
+    let scaled = (pop as f64) * (energy as f64) / (per_resource as f64);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    let resources = (scaled.sqrt() * (desirability as f64) / 10.0 + 0.999) as i64;
+
+    i16::try_from(resources.max(1)).unwrap_or(i16::MAX)
 }

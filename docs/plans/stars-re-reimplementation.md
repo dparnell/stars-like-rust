@@ -249,6 +249,8 @@ Measured against real save files:
 | whole-turn replay: surface minerals | 27% |
 | whole-turn replay: fleet positions | 378 of 438 exact |
 | computer players identified | 3 games, all players, exact |
+| mining, isolated | 13,981 of 14,192 readings (98%) |
+| resources cover recorded research | 1580 of 1588 player-years (99%) |
 | population growth, isolated | 383 of 438 exact, including the fractional accumulator |
 | research | 11 accumulation years and 5 priced breakthroughs, all exact |
 | ship design mass | 73 of 85 battle tokens exact, rest explained by cargo |

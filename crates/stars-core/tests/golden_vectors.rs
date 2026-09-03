@@ -162,7 +162,7 @@ fn resource_output_matches_the_manual() {
             );
         }
 
-        let got = resources_at_planet(&planet, &race).expect("not an AR race");
+        let got = resources_at_planet(&planet, &race, 0).expect("not an AR race");
         assert_eq!(
             i64::from(got),
             i(case, "expect"),

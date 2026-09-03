@@ -30,6 +30,10 @@ struct Predicted {
     /// Whether anything else was in the queue competing for the same
     /// resources when the decision was made.
     queue_was_clear: bool,
+    /// Whether the planet could build ships at all. A planet with a starbase
+    /// competes with the AI's shipbuilding for the same resources, and those
+    /// orders are gone from the queue by the time the turn is recorded.
+    starbase: bool,
 }
 
 fn main() {
@@ -68,6 +72,10 @@ fn main() {
     let mut built_exact = 0usize;
     let mut clear_built = 0usize;
     let mut clear_exact = 0usize;
+    let (mut nb_scored, mut nb_exact) = (0usize, 0usize);
+    let (mut nb_built, mut nb_built_exact) = (0usize, 0usize);
+    let mut ferr: std::collections::BTreeMap<i32, usize> = std::collections::BTreeMap::new();
+    let mut merr: std::collections::BTreeMap<i32, usize> = std::collections::BTreeMap::new();
 
     for year in &years {
         let Ok(bytes) = std::fs::read(year.join("Game.hst")) else {
@@ -117,6 +125,22 @@ fn main() {
                     clear_built += 1;
                     if m && f {
                         clear_exact += 1;
+                    }
+                }
+            }
+            *ferr
+                .entry((p.factories - d_factories).clamp(-9, 9))
+                .or_default() += 1;
+            *merr.entry((p.mines - d_mines).clamp(-9, 9)).or_default() += 1;
+            if !p.starbase {
+                nb_scored += 1;
+                if m && f {
+                    nb_exact += 1;
+                }
+                if d_mines + d_factories > 0 {
+                    nb_built += 1;
+                    if m && f {
+                        nb_built_exact += 1;
                     }
                 }
             }
@@ -191,6 +215,7 @@ fn main() {
                     factories: d.factories,
                     from: (planet.mines, planet.factories),
                     queue_was_clear: planet.queue.is_empty(),
+                    starbase: planet.starbase,
                 },
             );
         }
@@ -239,6 +264,20 @@ fn main() {
         "  exact, and nothing else was queued: {clear_exact} of {clear_built} ({}%)",
         pct(clear_exact, clear_built)
     );
+    println!(
+        "\non the {nb_scored} pairs at planets with no starbase (no shipbuilding \
+         competing for resources):"
+    );
+    println!(
+        "  both exact:     {nb_exact} ({}%)",
+        pct(nb_exact, nb_scored)
+    );
+    println!(
+        "  exact where it built: {nb_built_exact} of {nb_built} ({}%)",
+        pct(nb_built_exact, nb_built)
+    );
+    println!("\nfactory error (predicted - actual): {ferr:?}");
+    println!("mine error    (predicted - actual): {merr:?}");
 }
 
 fn pct(n: usize, total: usize) -> usize {

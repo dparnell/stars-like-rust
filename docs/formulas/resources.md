@@ -34,6 +34,33 @@ resources += (factoriesOperating * rsFactProd + 9) / 10     # rounds up
 resources  = max(resources, 1)
 ```
 
+### Alternate Reality
+
+An AR race has no mines or factories on the planet at all — `CMaxOperableMines`
+and `CMaxOperableFactories` both return 0 for `rsMajorAdv == 8`. Its planets
+earn by a different rule entirely, taken from the AR branch of
+`CResourcesAtPlanet` (`1048:7990`):
+
+```
+energy       = max(techLevel[0], 1)                 # 1048:79bf
+desirability = max(pctPlanetDesirability, 25)       # 1048:79cd, 0x19
+resources    = floor(sqrt(pop * energy / rsResGen) * desirability / 10 + 0.999)
+resources    = max(resources, 1)
+```
+
+The division and the square root are done in the x87 unit, so both are real
+rather than integer operations. The trailing `0.999` is the double stored at
+`1120:1d3e`; adding it before truncating makes the result round **up**.
+
+Output therefore grows with the *square root* of population, which is why an AR
+empire spreads across many planets instead of packing a few.
+
+One piece is still missing: the overcrowding clamp above needs a maximum
+population, and for an AR race that comes from the starbase hull
+(`rglPopMac[hull]`), which the ship-design layer does not expose yet. The
+implementation skips the clamp for AR, which only matters on a planet holding
+more than its starbase supports.
+
 ## Units
 
 Population is stored in units of 100 colonists, and the race attribute bytes

@@ -66,8 +66,9 @@ pub fn planet_budget(
     research_pct: u8,
     extra: i32,
     no_research: bool,
+    energy_tech: i16,
 ) -> Option<PlanetBudget> {
-    let base = i32::from(resources_at_planet(planet, race)?);
+    let base = i32::from(resources_at_planet(planet, race, energy_tech)?);
     let total = with_recycled(base, extra);
     if total == 0 {
         return Some(PlanetBudget::default());

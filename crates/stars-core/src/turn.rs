@@ -141,11 +141,17 @@ pub fn generate_turn(state: &mut GameState, rng: &mut Rng) -> TurnReport {
         };
         let race = player.race.clone();
         let research_pct = player.research_pct;
+        let energy_tech = i16::from(player.research.levels[0]);
 
         let no_research = state.planets[index].no_research;
-        let Some(budget) =
-            planet_budget(&state.planets[index], &race, research_pct, 0, no_research)
-        else {
+        let Some(budget) = planet_budget(
+            &state.planets[index],
+            &race,
+            research_pct,
+            0,
+            no_research,
+            energy_tech,
+        ) else {
             continue;
         };
 

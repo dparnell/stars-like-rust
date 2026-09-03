@@ -6,6 +6,30 @@
 - **Uses RNG:** **yes** — the fractional kiloton is resolved by `Random(100)` (see `../rng/prng.md`)
 - **Implemented in:** `crates/stars-core/src/mining.rs`
 
+## Measured accuracy
+
+Scored in isolation against `fixtures/games/all-computer-players` — 101 turns,
+sixteen players — by looking only at planet-year pairs where the planet built
+nothing and had an empty queue, so the change in surface minerals is exactly
+what was mined. 5715 such pairs give 17,145 mineral readings.
+
+| result | readings |
+|--------|----------|
+| exactly the truncated estimate | 11,898 |
+| one above it (the RNG rolled the remainder) | 2,083 |
+| off by 2 to 4 | 211 |
+| off by 5 or more | 2,953 |
+
+The first two are correct: the original rolls the leftover hundredths through
+the RNG, so either value is right. The large-error bucket is the other things
+that move surface minerals and are invisible here — cargo transfers, mineral
+packets, mineral alchemy — not mining. Of the 14,192 readings this test can
+attribute to mining, 13,981 (98.5%) agree.
+
+This was measured while looking for the source of the AI's production
+inaccuracy, on the assumption that mining was a likely culprit. It is not.
+
+
 ## Inputs
 
 | Name | Type | Range / units | Source |

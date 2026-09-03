@@ -119,7 +119,12 @@ impl Decision {
 /// truncates rather than rolling the leftover hundredths, which is why
 /// [`minerals_mined`] is called with no RNG.
 #[must_use]
-pub fn resources_available(planet: &Planet, race: &Race, research_pct: u8) -> [i32; COST_PARTS] {
+pub fn resources_available(
+    planet: &Planet,
+    race: &Race,
+    research_pct: u8,
+    energy_tech: i16,
+) -> [i32; COST_PARTS] {
     let mined = minerals_mined(planet, race, None, None);
     let mut out = [0i32; COST_PARTS];
     for (slot, (mined, surface)) in out
@@ -129,7 +134,7 @@ pub fn resources_available(planet: &Planet, race: &Race, research_pct: u8) -> [i
         *slot = mined.saturating_add(*surface);
     }
 
-    let mut resources = i32::from(resources_at_planet(planet, race).unwrap_or(0));
+    let mut resources = i32::from(resources_at_planet(planet, race, energy_tech).unwrap_or(0));
     if !planet.no_research {
         resources -= resources * i32::from(research_pct) / 100;
     }
@@ -222,7 +227,7 @@ fn affordable(resources: i32, unit: i32) -> i32 {
 pub fn fill_prod_mines_and_factories(planet: &Planet, race: &Race, ctx: &Context) -> Decision {
     let mut decision = Decision::default();
 
-    let available = resources_available(planet, race, ctx.research_pct);
+    let available = resources_available(planet, race, ctx.research_pct, ctx.tech[0].into());
     let committed = queue_cost(&planet.queue, race);
     let mut left = [0i32; COST_PARTS];
     for i in 0..COST_PARTS {

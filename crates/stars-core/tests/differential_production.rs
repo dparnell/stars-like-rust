@@ -91,7 +91,7 @@ fn planets_never_build_more_than_they_could_afford() {
             built_any += 1;
 
             let spent = new_mines * mine.resources + new_factories * factory.resources;
-            let Some(earned) = resources_at_planet(planet, &race) else {
+            let Some(earned) = resources_at_planet(planet, &race, 0) else {
                 continue;
             };
             checked += 1;
