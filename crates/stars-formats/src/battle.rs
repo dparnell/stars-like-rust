@@ -41,7 +41,7 @@
 //! | Offset | Size | Field | Meaning |
 //! |-------:|-----:|-------|---------|
 //! | 0 | 1 | `itok` | the token acting |
-//! | 1 | 1 | `brcDest` | destination square, `y << 4 \| x` |
+//! | 1 | 1 | `brcDest` | destination square, `y << 4 \| x`; `0xFF` means the token left the battle |
 //! | 2 | 2 | `ctok` | **number of `KILL` records that follow** |
 //! | 4 | 2 | `iRound:4, dzDis:4, itokAttack:8` | round, range, and target token |
 //!
@@ -188,13 +188,22 @@ pub struct Kill {
     pub damage: u16,
 }
 
+/// The `brcDest` value that marks a token leaving the battle rather than
+/// moving to a square.
+pub const BRC_DEPARTED: u8 = 0xff;
+
 /// One action in a battle: a move, a shot, or both.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BattleAction {
     /// The token acting.
     pub token: u8,
-    /// Where it moved to.
-    pub destination: Square,
+    /// Where it moved to, or `None` if it left the battle.
+    ///
+    /// A token that disengages is recorded with `brcDest` = `0xFF`, which is
+    /// not a square: taken literally it would read as (15,15), off the 10x10
+    /// board. Of the 941 actions in the Exodus recordings, 31 are this
+    /// sentinel and no other off-board value occurs.
+    pub destination: Option<Square>,
     /// Battle round, 0..=15.
     pub round: u8,
     /// Range to the target, in squares.
@@ -313,9 +322,10 @@ impl BattleRecord {
                 });
             }
 
+            let brc_dest = *data.get(at + 1)?;
             actions.push(BattleAction {
                 token: *data.get(at)?,
-                destination: Square::from_brc(*data.get(at + 1)?),
+                destination: (brc_dest != BRC_DEPARTED).then(|| Square::from_brc(brc_dest)),
                 round: (packed & 0x0f) as u8,
                 range: ((packed >> 4) & 0x0f) as u8,
                 target: (packed >> 8) as u8,

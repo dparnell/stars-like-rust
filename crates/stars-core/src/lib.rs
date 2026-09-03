@@ -45,6 +45,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod battle;
 pub mod components;
 pub mod hab;
 pub mod mining;
@@ -59,6 +60,9 @@ pub mod rng;
 pub mod scanning;
 pub mod turn;
 
+// `battle::distance` is board geometry and `movement::distance` is interstellar,
+// so neither is re-exported bare; use the module path.
+pub use battle::{movement_this_round, start_square, target_score, torpedo_accuracy, Tactic};
 pub use hab::{calc_planet_max_pop, max_pop_for_hab, pct_planet_desirability};
 pub use mining::{mine_minerals, minerals_mined, mines_operating};
 pub use movement::{advance, distance, travel_per_year, travel_this_year, FuelStack, Point};

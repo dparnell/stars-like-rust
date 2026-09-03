@@ -33,9 +33,11 @@ The PRNG that mining and the turn pipeline draw from is specified separately in
 | `production.md` | Resource/research split; the build queue | in progress |
 | `components.md` | The component data tables (engines, weapons, scanners, …) | verified |
 
+| `combat.md` | Board, movement, targeting, weapon accuracy | in progress |
+
 Still to come in Step 4:
 
-- `combat.md` — battle resolution
+- combat **fire resolution**, which needs ship designs
 - `terraforming.md` — auto and remote terraforming
 - the production **build queue**, which needs the components table
 - the AI players

@@ -1,0 +1,66 @@
+{
+  "$comment": [
+    "Golden vectors for the combat formulas (docs/formulas/combat.md).",
+    "The movement table and the torpedo-accuracy examples are quoted from the",
+    "original manual, so they check the implementation against the documented",
+    "game rather than against our own output. The starting squares come from",
+    "the rgbrcStart table in the binary and are confirmed by every one of the",
+    "161 tokens in the Exodus battle recordings."
+  ],
+
+  "movement_per_round": {
+    "source": "MANUAL.PDF p. 23-9 'Movement in Squares per Round'; DxyFromSpdRound in battle.c",
+    "$comment": "speed is the stored quarter-square index: 0 = 1/2 square per round, +1 = +1/4. Rounds are 0-based.",
+    "cases": [
+      { "speed_label": "1/2",   "speed": 0, "rounds": [1, 0, 1, 0, 1, 0, 1, 0] },
+      { "speed_label": "3/4",   "speed": 1, "rounds": [1, 1, 0, 1, 1, 1, 0, 1] },
+      { "speed_label": "1",     "speed": 2, "rounds": [1, 1, 1, 1, 1, 1, 1, 1] },
+      { "speed_label": "1 1/4", "speed": 3, "rounds": [2, 1, 1, 1, 2, 1, 1, 1] },
+      { "speed_label": "1 1/2", "speed": 4, "rounds": [2, 1, 2, 1, 2, 1, 2, 1] },
+      { "speed_label": "1 3/4", "speed": 5, "rounds": [2, 2, 1, 2, 2, 2, 1, 2] },
+      { "speed_label": "2",     "speed": 6, "rounds": [2, 2, 2, 2, 2, 2, 2, 2] },
+      { "speed_label": "2 1/4", "speed": 7, "rounds": [3, 2, 2, 2, 3, 2, 2, 2] },
+      { "speed_label": "2 1/2", "speed": 8, "rounds": [3, 2, 3, 2, 3, 2, 3, 2] }
+    ]
+  },
+
+  "torpedo_accuracy": {
+    "source": "MANUAL.PDF p. 23-6 'Jammers' and 'Battle Computers'; CTorpHit in battle.c",
+    "cases": [
+      { "why": "a plain 75% torpedo with nothing modifying it",
+        "base": 75, "jam": 0, "computer": 0, "expect": 75 },
+      { "why": "a 50% battle computer halves the inaccuracy: 100 - (100-75)*0.5",
+        "base": 75, "jam": 0, "computer": 50, "expect": 88 },
+      { "why": "two 30% computers combine to 51% (1 - 0.7*0.7) before this point: 100 - (100-75)*0.49",
+        "base": 75, "jam": 0, "computer": 51, "expect": 88 },
+      { "why": "50% of jamming against 45% of computer leaves 5% of jamming",
+        "base": 75, "jam": 50, "computer": 45, "expect": 71 },
+      { "why": "30% of jamming against 40% of computer leaves 10% of computer",
+        "base": 75, "jam": 30, "computer": 40, "expect": 78 },
+      { "why": "accuracy never falls below 1%",
+        "base": 1, "jam": 99, "computer": 0, "expect": 1 }
+    ]
+  },
+
+  "start_squares": {
+    "source": "rgbrcStart at the start of the battle code segment",
+    "$comment": "Indexed as base = players*(players-1)/2, then the side index.",
+    "cases": [
+      { "players": 1, "squares": [[4, 4]] },
+      { "players": 2, "squares": [[1, 4], [8, 5]] },
+      { "players": 3, "squares": [[4, 1], [8, 8], [1, 8]] },
+      { "players": 4, "squares": [[1, 1], [8, 8], [1, 8], [8, 1]] }
+    ]
+  },
+
+  "board_distance": {
+    "source": "DzFromBrcBrc in battle.c",
+    "$comment": "Chebyshev distance: diagonals cost the same as orthogonals.",
+    "cases": [
+      { "from": [1, 4], "to": [8, 5], "expect": 7 },
+      { "from": [0, 0], "to": [3, 3], "expect": 3 },
+      { "from": [0, 0], "to": [0, 5], "expect": 5 },
+      { "from": [4, 4], "to": [4, 4], "expect": 0 }
+    ]
+  }
+}

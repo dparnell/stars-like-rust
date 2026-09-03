@@ -231,14 +231,19 @@ Remaining, in dependency order:
 2. **The production build queue** — needs those costs. Auto-build (mines,
    factories, defenses) is tractable first, since those costs are race
    attributes.
-3. **The battle recording (VCR) format**, block type 31 `rtBtlData`. The
-   fixtures contain 40+ recorded battles, so decoding this format is what makes
-   combat *verifiable* rather than merely plausible — the same
-   differential-testing route every other subsystem took.
-4. **Combat** itself (`battle.c`, ~4000 lines), replayed against those
-   recordings.
+3. ~~**The battle recording (VCR) format**~~ — **done.** 47 recordings decode
+   from the Exodus fixture; see `docs/formats/battle.md`.
+4. **Combat** (`battle.c`, ~4000 lines) — *in progress.* The board, starting
+   positions, the movement schedule, target scoring and weapon accuracy are
+   implemented and verified by replaying the recordings
+   (`docs/formulas/combat.md`). **Fire resolution is what remains**, and it
+   needs the ship-design layer, because a token's weapons come from its design.
 5. **The AI players** (six source files), which depend on nearly all of the
    above.
+
+The dependency that now gates everything left in Step 4 is the same one:
+`rghuldef` (32 hulls), the stock designs, and the `.mN` design records, which
+together turn a design slot into a list of weapon and armour slots.
 
 ###   Step 5: Build the egui desktop frontend with faithful core screens
 `stars-desktop` runs a playable single-player game on Windows/macOS/Linux with recreated key screens.

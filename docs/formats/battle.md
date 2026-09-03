@@ -66,7 +66,7 @@ BTLREC ...     6 bytes + 8 per kill, repeated until cbData is reached
 | Offset | Size | Field | Meaning |
 |-------:|-----:|-------|---------|
 | 0 | 1 | `itok` | the token acting |
-| 1 | 1 | `brcDest` | square it moved to, packed as above |
+| 1 | 1 | `brcDest` | square it moved to, packed as above; **`0xFF` means the token left the battle** |
 | 2 | 2 | `ctok` | **number of `KILL` records that follow** |
 | 4 | 2 | packed | `iRound:4, dzDis:4, itokAttack:8` |
 
@@ -92,6 +92,11 @@ From the 47 Exodus recordings:
 - Records with kills are **firing**: `itokAttack` names the victim, and it
   matches the `itok` of the `KILL` that follows.
 - `dzDis` is the range recorded with the action, measured before the move.
+- A token that disengages is written with `brcDest` = `0xFF`, which is not a
+  square — read literally it would be (15,15), off the 10x10 board. Across the
+  941 actions in the Exodus recordings this sentinel occurs 31 times and no
+  other off-board value occurs at all, so `BattleAction::destination` is an
+  `Option<Square>` and `None` means "left the battle".
 - Defenders all start on one square and attackers on another, across the board.
 - A defending planet appears as a token with `grobj == 1` and a starbase design
   slot; its `wt` is `0xFFFF`.

@@ -93,6 +93,9 @@ fn battle_recordings_decode_consistently() {
                 b.tokens.len()
             );
             assert!(a.round < 16, "{where_}: action {i} round {}", a.round);
+            if let Some(dest) = a.destination {
+                assert!(dest.x < 16 && dest.y < 16, "{where_}: action {i} off board");
+            }
             for k in &a.kills {
                 assert!(
                     usize::from(k.token) < b.tokens.len(),
