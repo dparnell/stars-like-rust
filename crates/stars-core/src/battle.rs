@@ -604,6 +604,11 @@ pub struct CombatToken {
     pub value: i32,
     /// Damage state.
     pub state: TokenState,
+    /// The battle plan's tactic, which drives both targeting and movement.
+    pub tactic: Tactic,
+    /// Battle speed as the stored quarter-square index; see
+    /// [`movement_this_round`].
+    pub speed_index: u8,
 }
 
 impl CombatToken {
@@ -815,4 +820,203 @@ pub fn fire_round(tokens: &mut [CombatToken]) -> Vec<DamageEvent> {
     }
 
     events
+}
+
+/// Where a token would like to be, and how it gets there.
+///
+/// Source: `DxyMoveTokTo` (`10f0:5f18`), whose selection and step-toward logic
+/// are recovered in full; the square scoring it relies on
+/// (`ScoreGuessBattleDamage`, `10f0:598c`) is only partly recovered — see
+/// [`score_square`] and `docs/formulas/combat.md`.
+///
+/// Every stage of the choice breaks ties with `Random`, so a token's movement
+/// cannot be reproduced without the generator in the same state.
+///
+/// A token that scores its current square best simply stays.
+pub fn choose_move(tokens: &[CombatToken], mover: usize, radius: i32, rng: &mut Rng) -> Square {
+    let token = &tokens[mover];
+    let here = token.square;
+    if radius <= 0 {
+        return here;
+    }
+
+    let x0 = i32::from(here.x);
+    let y0 = i32::from(here.y);
+    let board = i32::from(BOARD_SIZE) - 1;
+
+    // The eight neighbours plus the current square, kept because the
+    // step-toward logic below chooses among them by score.
+    let mut near = [[i32::MAX; 3]; 3];
+
+    let mut best_score = i32::MAX;
+    let mut best_distance = i32::MAX;
+    let mut ties = 0;
+    let mut best = here;
+
+    for x in (x0 - radius).max(0)..=(x0 + radius).min(board) {
+        for y in (y0 - radius).max(0)..=(y0 + radius).min(board) {
+            let square = Square::new(x as u8, y as u8);
+            let mut score = score_square(tokens, mover, square);
+
+            // Disengaging tokens avoid piling onto friends and prefer to move.
+            if token.tactic == Tactic::Disengage {
+                let crowd = tokens
+                    .iter()
+                    .filter(|t| t.alive() && t.player == token.player && t.square == square)
+                    .count();
+                score += 2 * i32::try_from(crowd).unwrap_or(0);
+                if square == here {
+                    score -= 1;
+                }
+            }
+
+            let away = i32::from(distance(here, square));
+            if away <= 1 {
+                near[(x - x0 + 1) as usize][(y - y0 + 1) as usize] = score;
+            }
+
+            // Better score wins; equal score prefers the nearer square; an
+            // exact tie is broken by reservoir sampling, as the original does.
+            if score < best_score || (score == best_score && away <= best_distance) {
+                if score == best_score && away == best_distance {
+                    ties += 1;
+                    if rng.random(i16::try_from(ties).unwrap_or(i16::MAX)) == 0 {
+                        best = square;
+                    }
+                } else {
+                    ties = 1;
+                    best_score = score;
+                    best_distance = away;
+                    best = square;
+                }
+            }
+        }
+    }
+
+    if distance(here, best) <= 1 {
+        return best;
+    }
+    step_toward(near, here, best, rng)
+}
+
+/// Take one step from `here` toward `target`, choosing among the neighbours by
+/// their scores.
+///
+/// A diagonal target is approached diagonally. When the target is straight
+/// along one axis the token still picks which of the three squares on that
+/// side to use, by score, breaking ties randomly — which is why two identical
+/// ships closing on each other do not always take the same path.
+fn step_toward(near: [[i32; 3]; 3], here: Square, target: Square, rng: &mut Rng) -> Square {
+    let dx = i32::from(target.x) - i32::from(here.x);
+    let dy = i32::from(target.y) - i32::from(here.y);
+    let mut x = i32::from(here.x);
+    let mut y = i32::from(here.y);
+
+    if dx.abs() == dy.abs() {
+        x += dx.signum();
+        y += dy.signum();
+    } else if dx == 0 {
+        let col = usize::from(dy > 0) * 2;
+        y += if dy > 0 { 1 } else { -1 };
+        x += pick_lowest(&[near[0][col], near[1][col], near[2][col]], rng) - 1;
+    } else if dy == 0 {
+        let row = usize::from(dx > 0) * 2;
+        x += if dx > 0 { 1 } else { -1 };
+        y += pick_lowest(&[near[row][0], near[row][1], near[row][2]], rng) - 1;
+    } else {
+        // Neither straight nor diagonal: try the corner, and the square that
+        // keeps moving along the longer axis.
+        let cx = usize::from(dx > 0) * 2;
+        let cy = usize::from(dy > 0) * 2;
+        let second = if dx.abs() > dy.abs() {
+            (cx, 1)
+        } else {
+            (1, cy)
+        };
+        let take_first = near[cx][cy] < near[second.0][second.1]
+            || (near[cx][cy] == near[second.0][second.1] && rng.random(2) == 0);
+        let (px, py) = if take_first { (cx, cy) } else { second };
+        x += i32::try_from(px).unwrap_or(1) - 1;
+        y += i32::try_from(py).unwrap_or(1) - 1;
+    }
+
+    Square::new(
+        x.clamp(0, i32::from(BOARD_SIZE) - 1) as u8,
+        y.clamp(0, i32::from(BOARD_SIZE) - 1) as u8,
+    )
+}
+
+/// Index of the lowest of three scores, ties broken randomly.
+fn pick_lowest(scores: &[i32; 3], rng: &mut Rng) -> i32 {
+    let lowest = *scores.iter().min().unwrap_or(&0);
+    let count = scores.iter().filter(|s| **s == lowest).count();
+    let mut nth = rng.random(i16::try_from(count).unwrap_or(1));
+    for (i, s) in scores.iter().enumerate() {
+        if *s == lowest {
+            if nth == 0 {
+                return i32::try_from(i).unwrap_or(1);
+            }
+            nth -= 1;
+        }
+    }
+    1
+}
+
+/// How good a square would be for a token, lower being better.
+///
+/// The shape is `ScoreGuessBattleDamage`'s: over every enemy it could engage,
+/// take the **best** damage it could deal from that square and the **total**
+/// damage it would take there, then combine the two according to the token's
+/// battle tactic.
+///
+/// **This is a partial recovery.** The routine at `10f0:598c` also walks the
+/// range band each enemy could close to next round, which needs their speeds
+/// and a per-square damage estimate this does not yet reproduce faithfully —
+/// the decompilation loses which token is which in the nested calls. See the
+/// measurement in `docs/formulas/combat.md` for how far the approximation
+/// gets.
+#[must_use]
+pub fn score_square(tokens: &[CombatToken], mover: usize, square: Square) -> i32 {
+    let us = &tokens[mover];
+    let mut given_best = 0;
+    let mut taken_total = 0;
+
+    for (i, them) in tokens.iter().enumerate() {
+        if i == mover || !them.alive() || them.player == us.player {
+            continue;
+        }
+        let range = i32::from(distance(square, them.square));
+
+        let given: i32 = us
+            .weapons
+            .iter()
+            .map(|w| {
+                beam_damage(
+                    *w,
+                    us.state.ships,
+                    range,
+                    us.capacitor_pct,
+                    them.beam_deflection_pct,
+                )
+            })
+            .sum();
+        let taken: i32 = them
+            .weapons
+            .iter()
+            .map(|w| {
+                beam_damage(
+                    *w,
+                    them.state.ships,
+                    range,
+                    them.capacitor_pct,
+                    us.beam_deflection_pct,
+                )
+            })
+            .sum();
+
+        given_best = given_best.max(given);
+        taken_total += taken;
+    }
+
+    target_score(given_best, taken_total, us.tactic)
 }

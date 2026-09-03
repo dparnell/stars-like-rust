@@ -238,9 +238,11 @@ Remaining, in dependency order:
    resolution and the **beam firing loop** are implemented
    (`docs/formulas/combat.md`). Eight of the eleven replayable beam battles
    reproduce the recorded casualties exactly, with movement taken from the
-   recording and everything else computed. What remains: the movement AI, so a
-   battle can be replayed from its starting state alone; torpedo resolution,
-   which needs the RNG in the right state; and the target-class filter.
+   recording and everything else computed. What remains: the movement *scoring*
+   (`ScoreGuessBattleDamage`, which does not decompile cleanly and is measured
+   as barely better than chance — see `docs/formulas/combat.md`); torpedo
+   resolution, which needs the RNG in the right state; and the target-class
+   filter.
 5. **The AI players** (six source files), which depend on nearly all of the
    above.
 

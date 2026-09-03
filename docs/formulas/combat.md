@@ -1,6 +1,6 @@
 # Subsystem: Combat
 
-- **Status:** in progress — board, movement, targeting, accuracy, damage and the beam firing loop implemented; torpedo resolution and the movement AI are not
+- **Status:** in progress — board, movement schedule, targeting, accuracy, damage and the beam firing loop implemented and verified; movement *scoring* and torpedo resolution are not
 - **Ghidra routine(s):** `battle.c` region — `DxyFromSpdRound`, `DzFromBrcBrc`, `CTorpHit`, `ScoreFromGiveAndTakeAndTactic`, `FAttack`, `FDamageTok`, `DxyMoveTokTo`, and the `rgbrcStart` table
 - **Manual reference:** `MANUAL.PDF` pp. 23-2..23-10
 - **Uses RNG:** **yes** — torpedo hits are rolled individually
@@ -191,6 +191,54 @@ target and fires again with the remainder, scaled down in proportion to what
 got through, until nothing is left in range. That is what makes a big volley
 sweep several small tokens.
 
+## Movement AI
+
+`DxyMoveTokTo` decides where a token goes each round:
+
+1. score every square within a search radius of the current one, clamped to the
+   board;
+2. take the lowest score, preferring the **nearer** square on a tie and
+   breaking exact ties with `Random`;
+3. if that square is more than one step away, take a single step toward it,
+   again choosing among the neighbours by score with `Random` breaking ties.
+
+A disengaging token adds 2 to a square's score for each friendly token already
+there and subtracts 1 from staying put, so it spreads out and prefers to run.
+
+Every stage breaks ties randomly, so **a token's movement cannot be reproduced
+without the generator in the same state** — the same constraint torpedoes have.
+
+The selection and step-toward logic above are recovered in full and
+implemented. The scoring is not.
+
+### The scoring is not recovered
+
+`ScoreGuessBattleDamage` (`10f0:598c`) is a stub in the reconstructed sources
+and its decompilation from our binary is too mangled to transcribe: Ghidra
+loses which token is which across the nested `DpFromPtokBrcToBrc` calls. What
+can be read is the shape — over every engageable enemy, take the **best**
+damage the token could deal from the candidate square and the **total** damage
+it would take there, then combine the two by the token's tactic — plus a walk
+over the range band each enemy could close to next round, which is the part
+that does not transcribe.
+
+That shape is implemented in `battle::score_square`, and **measured rather than
+asserted**:
+
+| measure | value |
+|---------|-------|
+| engine's chosen square is among our best-rated | 487 of 561 moves (86%) |
+| our best set, as a share of candidate squares | 78% |
+
+The second row is why the first does not count as success. A scorer that rated
+every square identically would score 100% on both. The missing range-band walk
+is what would separate squares that currently tie, so a flat scorer is exactly
+the symptom to expect.
+
+`crates/stars-core/tests/battle_replay.rs` keeps both numbers and the stronger
+assertion the pair should eventually satisfy, commented out until the scoring
+is properly transcribed.
+
 ## Armour and shields
 
 Shields **overlap across a whole token**: twenty scouts with 20 shield points
@@ -236,9 +284,11 @@ accuracy, the starting-square table and Chebyshev distance against
 
 ## Open questions
 
-- **The movement AI** (`DxyMoveTokTo`) is not implemented, so a battle can only
-  be replayed with its recorded movement supplied. Implementing it would make
-  a battle reproducible from its starting state alone.
+- **The movement scoring** (`ScoreGuessBattleDamage`) is not recovered; see
+  above. The selection and step-toward logic around it are. Until the scoring
+  lands, a battle can only be replayed with its recorded movement supplied —
+  and even then, exact reproduction needs the RNG, because every tie-break in
+  movement draws from it.
 - Three of the eleven replayable battles still come out inverted. All three are
   symmetric duels where both ships can destroy the other in one volley, so the
   result turns on exactly when in the round each closed to range; firing once

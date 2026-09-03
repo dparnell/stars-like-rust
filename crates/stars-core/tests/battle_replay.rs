@@ -495,6 +495,8 @@ fn beam_only_battles_replay_to_the_recorded_casualties() {
                     break;
                 };
                 tokens.push(CombatToken {
+                    tactic: stars_core::battle::Tactic::MaximiseDamage,
+                    speed_index: t.speed(),
                     player: t.player,
                     active: true,
                     square: CoreSquare::new(t.square.x, t.square.y),
@@ -592,5 +594,204 @@ fn beam_only_battles_replay_to_the_recorded_casualties() {
         exact * 10 >= replayed * 6,
         "only {exact} of {replayed} beam-only battles replay exactly; that is below the \
          8 of 11 this stood at when written"
+    );
+}
+
+/// How often the movement scorer rates the square the engine actually chose
+/// as one of the best available.
+///
+/// The engine picks a lowest-scoring square and breaks ties with `Random`, so
+/// an exact match is not reproducible without the generator's state. What *is*
+/// checkable is weaker but still meaningful: if the scoring were right, the
+/// square the engine moved to should be among those our scorer rates best.
+///
+/// This is a **measurement, not an assertion of correctness**, and the
+/// measurement says the scoring is *not* recovered: the engine's square is
+/// among our best-rated in 86% of moves, but our best set averages 78% of all
+/// candidate squares, so chance alone would score nearly as well. The scorer
+/// is rating almost everything equally.
+///
+/// The control is the point of this test. Without it, 86% would have looked
+/// like success.
+#[test]
+fn movement_scoring_rates_the_engines_choice_among_the_best() {
+    use std::collections::BTreeMap;
+
+    use stars_core::battle::{
+        movement_this_round, score_square, CombatToken, Damage, Square as CoreSquare, Tactic,
+        TokenState,
+    };
+    use stars_core::design::{DesignSlot, ShipDesign};
+    use stars_formats::{design_records, DesignRecord};
+
+    let root = workspace_root();
+    let games = root.join("fixtures/games/exodus");
+    if !games.is_dir() {
+        eprintln!("skipping: no Exodus fixtures");
+        return;
+    }
+    let mut years: Vec<i32> = std::fs::read_dir(&games)
+        .expect("readable fixture dir")
+        .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
+        .collect();
+    years.sort_unstable();
+
+    let to_design = |r: &DesignRecord| ShipDesign {
+        hull_id: i16::from(r.hull_id),
+        slots: r
+            .slots
+            .iter()
+            .map(|s| DesignSlot {
+                category: s.category,
+                item: s.item_id,
+                count: s.count,
+            })
+            .collect(),
+    };
+
+    let mut moves = 0usize;
+    let mut among_best = 0usize;
+    let mut candidates = 0usize;
+    let mut best_set = 0usize;
+
+    for year in years {
+        let path = games.join(year.to_string()).join("exodus.m6");
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        let Ok(file) = StarsFile::decode(&bytes) else {
+            continue;
+        };
+        let blocks = file.segment_blocks(file.latest_segment());
+        let Ok(records) = design_records(&file) else {
+            continue;
+        };
+        let by_slot: BTreeMap<u8, ShipDesign> = records
+            .iter()
+            .filter(|r| r.full_design && !r.starbase)
+            .map(|r| (r.design_number, to_design(r)))
+            .collect();
+
+        for battle in battle_records_in(blocks) {
+            let mut tokens = Vec::new();
+            let mut usable = true;
+            for t in &battle.tokens {
+                let Some(design) = (if t.is_starbase() {
+                    None
+                } else {
+                    by_slot.get(&t.design)
+                }) else {
+                    usable = false;
+                    break;
+                };
+                let Some(armor) = design.armor(false) else {
+                    usable = false;
+                    break;
+                };
+                tokens.push(CombatToken {
+                    tactic: Tactic::MaximiseDamage,
+                    speed_index: t.speed(),
+                    player: t.player,
+                    active: true,
+                    square: CoreSquare::new(t.square.x, t.square.y),
+                    initiative_base: i32::from(t.initiative_base),
+                    capacitor_pct: i32::from(t.pct_capacitor),
+                    beam_deflection_pct: i32::from(t.pct_beam_defence),
+                    weapons: design.weapons(),
+                    value: design.cost().map_or(0, |c| c.resources + c.minerals[1]),
+                    state: TokenState {
+                        ships: i32::from(t.ships),
+                        shields: i32::from(t.shields),
+                        armor,
+                        damage: Damage::default(),
+                    },
+                });
+            }
+            if !usable {
+                continue;
+            }
+
+            for action in &battle.actions {
+                let Some(dest) = action.destination else {
+                    continue;
+                };
+                let mover = usize::from(action.token);
+                let Some(token) = tokens.get(mover) else {
+                    continue;
+                };
+                let here = token.square;
+                let to = CoreSquare::new(dest.x, dest.y);
+                if to == here {
+                    continue; // a firing record, not a move
+                }
+
+                // Score every square the token could have stepped to.
+                let allowance =
+                    i32::from(movement_this_round(token.speed_index, action.round)).max(1);
+                let mut best = i32::MAX;
+                let mut best_squares = Vec::new();
+                let mut candidate_count = 0;
+                for x in 0..10u8 {
+                    for y in 0..10u8 {
+                        let square = CoreSquare::new(x, y);
+                        if i32::from(stars_core::battle::distance(here, square)) > allowance {
+                            continue;
+                        }
+                        candidate_count += 1;
+                        let score = score_square(&tokens, mover, square);
+                        if score < best {
+                            best = score;
+                            best_squares.clear();
+                        }
+                        if score == best {
+                            best_squares.push(square);
+                        }
+                    }
+                }
+
+                moves += 1;
+                if best_squares.contains(&to) {
+                    among_best += 1;
+                }
+                // The control: how selective is "among the best"? If our
+                // scorer rated most candidates equally, a high hit rate would
+                // mean nothing.
+                candidates += candidate_count;
+                best_set += best_squares.len();
+                tokens[mover].square = to;
+            }
+        }
+    }
+
+    let pct = (among_best * 100).checked_div(moves).unwrap_or(0);
+    // If the scorer rated every square equally, "among the best" would be
+    // vacuous, so the chance rate says how much the hit rate is worth.
+    let chance = (best_set * 100).checked_div(candidates).unwrap_or(0);
+    eprintln!(
+        "movement scoring: the engine's square was among our best-rated in \
+         {among_best} of {moves} moves ({pct}%); our best set averages {chance}% of \
+         the candidate squares, which is what chance alone would score"
+    );
+    assert!(
+        moves > 100,
+        "expected a decent sample of moves, got {moves}"
+    );
+    // Measured when written: 86% hit rate against a 78% chance rate. That gap
+    // is far too small to call the scoring recovered — a scorer that rated
+    // every square identically would score 100% on the first number and 100%
+    // on the second. Both are asserted only against regression, and the
+    // *real* test is commented below: it is what should pass once
+    // ScoreGuessBattleDamage is properly transcribed.
+    //
+    //     assert!(pct > chance + 20, "...");
+    //
+    assert!(
+        pct >= 70,
+        "movement scoring agreed with the engine on only {pct}% of moves, below the \
+         86% measured when written"
+    );
+    assert!(
+        chance <= 85,
+        "the best set has grown to {chance}% of candidates, so the hit rate means even less"
     );
 }
