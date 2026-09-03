@@ -20,7 +20,8 @@ crates/
   stars-ui/           # shared egui view code (built on stars-core)
   stars-desktop/      # native eframe/winit frontend (binary: `stars`)
   stars-web/          # wasm/eframe frontend (stretch goal)
-docs/                 # reverse-engineering knowledge base (specs, RNG notes, test vectors, Ghidra triage)
+docs/                 # reverse-engineering knowledge base (specs, RNG notes, test vectors, Ghidra bridge)
+docs/plans/           # delivery plan
 fixtures/             # real (anonymized) sample game files used by tests
 binary/               # original game assets (STARS!.EXE, help, sound, …)
 documentation/        # MANUAL.PDF (original game manual)
@@ -53,10 +54,17 @@ cargo run -p stars-desktop  # run the (placeholder) native shell
 
 ## Development status
 
-Early scaffolding. The workspace builds and its smoke tests pass; the
-reverse-engineering knowledge base under `docs/` is set up and ready to be
-populated. See `.junie/plans/stars-re-reimplementation.md` for the full
-delivery plan and `docs/ghidra-triage.md` for the map of the original binary.
+The file-format layer (delivery Step 2) is decoded and round-trip tested
+against real games; the simulation core (Step 3) is the current work. See
+`docs/plans/stars-re-reimplementation.md` for the full delivery plan,
+`docs/formats/README.md` for the per-format specs, and `docs/ghidra-triage.md`
+for the map of the original binary.
+
+## Contributing
+
+`CLAUDE.md` holds the working agreements (commands, commit conventions, code
+and documentation rules) for both humans and Claude Code. Repo-specific Claude
+Code skills and commands live under `.claude/`.
 
 ## License
 

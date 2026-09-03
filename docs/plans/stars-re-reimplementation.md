@@ -1,6 +1,8 @@
----
-sessionId: session-260830-124043-fh9i
----
+# Stars-re delivery plan
+
+The delivery plan for the project: scope, architecture decisions, RE
+methodology, testing strategy and the staged delivery steps. Step status is
+marked in **Delivery Steps** below (`✓` done, `*` in progress).
 
 # Requirements
 

@@ -20,3 +20,6 @@ __pycache__/
 /ghidra/*.rep/
 /ghidra/*.lock
 /ghidra/*.lock~
+
+# Claude Code personal (per-developer) overrides; shared config is .claude/settings.json
+.claude/settings.local.json
