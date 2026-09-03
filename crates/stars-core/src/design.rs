@@ -283,6 +283,49 @@ impl ShipDesign {
         Some(cost)
     }
 
+    /// The weapons fitted to this design, flattened out of their slots.
+    ///
+    /// A starbase reaches one square further than a ship with the same
+    /// weapon, which is applied here so callers do not have to remember it.
+    #[must_use]
+    pub fn weapons(&self) -> Vec<crate::battle::Weapon> {
+        let reach = i32::from(self.is_starbase());
+        let mut out = Vec::new();
+        for s in &self.slots {
+            if s.count == 0 {
+                continue;
+            }
+            let count = i32::from(s.count);
+            let item = usize::from(s.item);
+            if s.category == slot::BEAM {
+                if let Some(p) = BEAMS.get(item) {
+                    out.push(crate::battle::Weapon {
+                        torpedo: false,
+                        dp: i32::from(p.dp),
+                        count,
+                        range: i32::from(p.range_max) + reach,
+                        initiative: i32::from(p.initiative),
+                        accuracy: 100,
+                        abilities: i32::from(p.abilities),
+                    });
+                }
+            } else if s.category == slot::TORPEDO {
+                if let Some(p) = TORPEDOES.get(item) {
+                    out.push(crate::battle::Weapon {
+                        torpedo: true,
+                        dp: i32::from(p.dp),
+                        count,
+                        range: i32::from(p.range_max) + reach,
+                        initiative: i32::from(p.initiative),
+                        accuracy: i32::from(p.hit_chance),
+                        abilities: 0,
+                    });
+                }
+            }
+        }
+        out
+    }
+
     /// Whether the design carries any weapon.
     #[must_use]
     pub fn is_armed(&self) -> bool {

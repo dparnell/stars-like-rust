@@ -148,3 +148,138 @@ fn design_armour_matches_the_vectors() {
         );
     }
 }
+
+/// The manual's worked damage examples (`MANUAL.PDF` p. 23-2).
+///
+/// These exercise the two rules that make stacking ships worthwhile: shields
+/// pool across a whole token, and leftover beam damage is spread thinly over
+/// the survivors instead of finishing another ship.
+#[test]
+fn damage_matches_the_manuals_worked_examples() {
+    use stars_core::battle::{apply_damage, Damage, TokenState};
+
+    // "If the ships had 100 dp armor and 50 dp shields each, then stacked
+    // together the shields would have absorbed all 500dp and no ships would
+    // have been lost."
+    let stacked = TokenState {
+        ships: 10,
+        shields: 50,
+        armor: 100,
+        damage: Damage::default(),
+    };
+    let result = apply_damage(stacked, 500, false);
+    assert_eq!(result.ships_killed, 0, "the pooled shields absorb it all");
+    assert_eq!(result.shield_damage, 500);
+    assert_eq!(result.after.shields, 0, "and are stripped doing so");
+
+    // "If those 10 tokens had been a single token of 10 ships they would have
+    // still lost three ships, but each of the remaining seven ships would have
+    // taken less than 5% damage." — ten ships of 150 armour, no shields.
+    let unshielded = TokenState {
+        ships: 10,
+        shields: 0,
+        armor: 150,
+        damage: Damage::default(),
+    };
+    let result = apply_damage(unshielded, 500, false);
+    assert_eq!(result.ships_killed, 3, "450 of the 500 kills three ships");
+    assert_eq!(result.after.ships, 7);
+    assert_eq!(
+        result.after.damage.pct_ships, 100,
+        "the rest share the damage"
+    );
+    // pct_damage is in 500ths of the design's armour.
+    let pct = f64::from(result.after.damage.pct_damage) / 5.0;
+    assert!(
+        pct < 5.0,
+        "each survivor should carry under 5% damage, got {pct:.1}%"
+    );
+
+    // A single ship of 150 armour takes 500: it dies, and 350 spills over to
+    // whatever else shares its square.
+    let lone = TokenState {
+        ships: 1,
+        shields: 0,
+        armor: 150,
+        damage: Damage::default(),
+    };
+    let result = apply_damage(lone, 500, false);
+    assert_eq!(result.ships_killed, 1);
+    assert_eq!(result.overflow, 350, "the excess spills to other tokens");
+}
+
+#[test]
+fn a_sapper_strips_shields_and_stops() {
+    use stars_core::battle::{apply_damage, Damage, TokenState};
+
+    let token = TokenState {
+        ships: 5,
+        shields: 20,
+        armor: 100,
+        damage: Damage::default(),
+    };
+    let result = apply_damage(token, 500, true);
+    assert_eq!(result.shield_damage, 100, "5 ships x 20 shield points");
+    assert_eq!(result.ships_killed, 0, "a sapper never touches armour");
+    assert_eq!(result.overflow, 0);
+}
+
+#[test]
+fn damaged_ships_are_finished_off_first() {
+    use stars_core::battle::{apply_damage, Damage, TokenState};
+
+    // Ten ships of 100 armour, half of them already at 80% damage: those cost
+    // only 20 apiece to destroy, so 100 damage kills five of them rather than
+    // one fresh ship.
+    let token = TokenState {
+        ships: 10,
+        shields: 0,
+        armor: 100,
+        damage: Damage {
+            pct_ships: 50,
+            pct_damage: 400, // 400/500 of 100 armour = 80 already taken
+        },
+    };
+    let result = apply_damage(token, 100, false);
+    assert_eq!(
+        result.ships_killed, 5,
+        "five hulks at 20 apiece, not one fresh ship"
+    );
+    assert_eq!(result.after.ships, 5);
+}
+
+#[test]
+fn beam_damage_falls_off_with_range() {
+    use stars_core::battle::{beam_damage, Weapon};
+
+    // A range-3 beam doing 100 damage, one launcher, one ship.
+    let weapon = Weapon {
+        torpedo: false,
+        dp: 100,
+        count: 1,
+        range: 3,
+        initiative: 5,
+        accuracy: 100,
+        abilities: 0,
+    };
+
+    assert_eq!(
+        beam_damage(weapon, 1, 0, 0, 100),
+        100,
+        "point blank is full"
+    );
+    // A tenth of the damage is lost across the full range band.
+    assert_eq!(
+        beam_damage(weapon, 1, 3, 0, 100),
+        90,
+        "10% lost at max range"
+    );
+    assert_eq!(beam_damage(weapon, 1, 1, 0, 100), 97);
+    assert_eq!(beam_damage(weapon, 1, 4, 0, 100), 0, "out of range");
+
+    // Damage scales with the number of ships firing.
+    assert_eq!(beam_damage(weapon, 8, 0, 0, 100), 800);
+    // A capacitor scales it up; beam deflection scales it down.
+    assert_eq!(beam_damage(weapon, 1, 0, 120, 100), 120);
+    assert_eq!(beam_damage(weapon, 1, 0, 0, 90), 90);
+}

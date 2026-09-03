@@ -145,7 +145,8 @@ pub struct BattleToken {
     pub pct_beam_defence: u8,
     /// Mass of one ship, in kT.
     pub mass: u16,
-    /// Shield points for the whole stack.
+    /// Shield points **per ship**; the stack's pool is this times [`ships`](Self::ships),
+    /// which is how `FDamageTok` computes what beams have to strip.
     pub shields: u16,
     /// Number of ships in the stack.
     pub ships: u16,

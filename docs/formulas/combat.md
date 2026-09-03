@@ -1,6 +1,6 @@
 # Subsystem: Combat
 
-- **Status:** in progress — board, starting positions, movement, target scoring and weapon accuracy verified; fire resolution needs ship designs
+- **Status:** in progress — board, movement, targeting, accuracy and damage resolution implemented; the firing loop that drives them is not
 - **Ghidra routine(s):** `battle.c` region — `DxyFromSpdRound`, `DzFromBrcBrc`, `CTorpHit`, `ScoreFromGiveAndTakeAndTactic`, `FAttack`, `FDamageTok`, `DxyMoveTokTo`, and the `rgbrcStart` table
 - **Manual reference:** `MANUAL.PDF` pp. 23-2..23-10
 - **Uses RNG:** **yes** — torpedo hits are rolled individually
@@ -100,6 +100,47 @@ Each torpedo is then rolled separately with `Random(100)`, up to 200 of them;
 beyond that the original takes the average instead, which caps the cost of a
 huge salvo and removes its variance.
 
+## Fire resolution
+
+A weapon's damage, from `DpFromPtokBrcToBrc`:
+
+```
+dp = weapon.dp * launchers
+if the attacker has a capacitor:  dp = dp * pctCap / 100
+if range > 0:                     dp -= dp * range / 10 / weapon_range
+if the target deflects beams:     dp = dp * pctBeamDef / 100
+dp = dp * ships_firing
+```
+
+The middle line is the range falloff: a beam loses **a tenth of its damage at
+maximum range**, scaled linearly in between. A starbase reaches one square
+further than a ship carrying the same weapon.
+
+Damage is then applied to a token by `FDamageTok`:
+
+```
+pool = shields_per_ship * ships          # shields pool across the stack
+strip the pool first; a sapper stops here
+
+# already-damaged ships die first, because they cost less to finish
+cost_damaged = armour - damage_already_carried
+kill damaged ships while cost_damaged fits
+# then undamaged ships at full armour each
+kill ships while armour fits
+
+# whatever is left is spread over the survivors as fresh damage
+```
+
+Two consequences the manual calls out (p. 23-2) and which the tests check
+directly: ten ships of 100 armour and 50 shields **stacked in one token** pool
+500 shield points and lose nothing to a 500-damage volley, while the same ships
+in ten separate tokens would lose three; and when a stack of ten 150-armour
+ships takes 500, exactly three die and the surviving seven each carry under 5%
+damage.
+
+Damage in excess of what a token can absorb spills over to other tokens in the
+same square, capped by the number of ships firing.
+
 ## Armour and shields
 
 Shields **overlap across a whole token**: twenty scouts with 20 shield points
@@ -116,6 +157,11 @@ several.
 
 ## Verification
 
+`crates/stars-core/tests/combat_vectors.rs` checks the movement table, torpedo
+accuracy, the starting-square table, Chebyshev distance, beam range falloff and
+the damage model against `../vectors/combat.json` and the manual's worked
+examples.
+
 `crates/stars-core/tests/battle_replay.rs` replays the 47 Exodus recordings:
 
 - **161 token starting positions** all land on a square the `rgbrcStart` table
@@ -126,6 +172,11 @@ several.
   schedule and the speed encoding together, against the original engine.
 - 163 firing actions all occur at range 4 or less.
 - 31 disengages are recognised rather than read as impossible moves.
+- **22 of 31 first beam hits reproduce the recorded damage exactly** — both the
+  shield points stripped and the ships destroyed — computed from the attacker's
+  design, the recorded range and the target's state. Only the *first* damage a
+  token takes is checkable this way, because after that its state depends on
+  the full firing order.
 
 `crates/stars-core/tests/combat_vectors.rs` checks the movement table, torpedo
 accuracy, the starting-square table and Chebyshev distance against
@@ -133,10 +184,17 @@ accuracy, the starting-square table and Chebyshev distance against
 
 ## Open questions
 
-- **Fire resolution** needs the ship-design layer: a token's weapons come from
-  its design, and `rghuldef` and the design records are not yet transcribed.
-- `DpFromPtokBrcToBrc` (beam damage falling off with range) is a stub in the
-  reconstructed sources and must be read from our binary.
+- **The firing loop itself** — which token shoots when, and at what — is not
+  implemented. `FAttack` walks weapon slots in initiative order, picks targets
+  by the tactic scoring above, and spills overkill onto neighbours; the damage
+  each shot does is implemented, but the sequencing is not.
+- Nine of the 31 checkable first beam hits do not reproduce. They differ by one
+  ship killed in both directions, which points either at the "first hit"
+  assumption (a token can be damaged by an attack that recorded no kill entry
+  against it) or at a modifier not yet modelled. Worth revisiting with the
+  firing loop, which would remove the need for that assumption entirely.
+- Torpedo resolution consumes RNG per torpedo, so reproducing a recorded battle
+  needs the generator in the right state — which needs the firing order.
 - `grfWeapon` bit meanings in the kill records are not yet mapped.
 - The three-phase movement order and the heaviest-first rule within a phase are
   documented here from the manual but not yet implemented or checked.

@@ -334,3 +334,243 @@ pub fn apply_beam_damage(
         remaining,
     )
 }
+
+/// Integer division rounding up, which the original spells as `(a + b - 1) / b`.
+fn ceil_div(a: i32, b: i32) -> i32 {
+    if b == 0 {
+        return 0;
+    }
+    (a + b - 1) / b
+}
+
+/// A weapon fitted to a design, flattened out of its slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Weapon {
+    /// Whether this is a beam or a torpedo launcher.
+    pub torpedo: bool,
+    /// Damage points per shot (per launcher, before any modifier).
+    pub dp: i32,
+    /// How many are fitted.
+    pub count: i32,
+    /// Maximum range in squares.
+    pub range: i32,
+    /// Firing initiative.
+    pub initiative: i32,
+    /// Base accuracy, for torpedoes.
+    pub accuracy: i32,
+    /// Ability flags; bit 0 marks a sapper (shields only).
+    pub abilities: i32,
+}
+
+impl Weapon {
+    /// Whether this weapon only damages shields.
+    #[must_use]
+    pub fn is_sapper(self) -> bool {
+        !self.torpedo && self.abilities & 1 != 0
+    }
+}
+
+/// Beam damage a stack does to a target, before shields.
+///
+/// The pieces, in the order `DpFromPtokBrcToBrc` applies them:
+///
+/// * base damage is `weapon dp x launchers x ships firing`;
+/// * a **capacitor** scales it up by the attacker's `pctCap`;
+/// * damage **falls off with range**, losing a tenth of itself at maximum
+///   range: `dp -= dp * range / 10 / max_range`;
+/// * the target's **beam deflection** scales what is left down.
+///
+/// A starbase reaches one square further than its weapons' nominal range.
+#[must_use]
+pub fn beam_damage(
+    weapon: Weapon,
+    ships: i32,
+    range: i32,
+    capacitor_pct: i32,
+    beam_deflection_pct: i32,
+) -> i32 {
+    if weapon.torpedo || range > weapon.range {
+        return 0;
+    }
+    let mut dp = weapon.dp * weapon.count;
+
+    if capacitor_pct != 0 {
+        dp = dp * capacitor_pct / 100;
+    }
+    // Ten percent of the damage is lost across the full range band.
+    if range > 0 && weapon.range > 0 {
+        dp -= dp * range / 10 / weapon.range;
+    }
+    if beam_deflection_pct < 100 {
+        dp = dp * beam_deflection_pct / 100;
+    }
+    dp * ships
+}
+
+/// A token's damage state: how many of its ships are hurt and how badly.
+///
+/// Stored packed as `pctSh:7, pctDp:9` — the percentage of the stack that is
+/// damaged, and the damage each of those carries as a fraction of 500.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Damage {
+    /// Percentage of the stack that is damaged, `0..=100`.
+    pub pct_ships: i32,
+    /// Damage on each of those ships, in 500ths of the design's armour.
+    pub pct_damage: i32,
+}
+
+impl Damage {
+    /// Unpack the stored word.
+    #[must_use]
+    pub fn from_raw(dv: u16) -> Self {
+        Self {
+            pct_ships: i32::from(dv & 0x7f),
+            pct_damage: i32::from(dv >> 7),
+        }
+    }
+
+    /// Pack back to the stored word.
+    #[must_use]
+    pub fn to_raw(self) -> u16 {
+        let ships = u16::try_from(self.pct_ships.clamp(0, 127)).unwrap_or(0);
+        let damage = u16::try_from(self.pct_damage.clamp(0, 511)).unwrap_or(0);
+        ships | (damage << 7)
+    }
+}
+
+/// The state of one token as far as taking damage is concerned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TokenState {
+    /// Ships remaining in the stack.
+    pub ships: i32,
+    /// Shield points **per ship**; the stack's pool is this times `ships`.
+    pub shields: i32,
+    /// The design's armour, per ship.
+    pub armor: i32,
+    /// Accumulated damage.
+    pub damage: Damage,
+}
+
+/// What one attack did to a token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AttackResult {
+    /// Shield points stripped.
+    pub shield_damage: i32,
+    /// Ships destroyed.
+    pub ships_killed: i32,
+    /// The token afterwards.
+    pub after: TokenState,
+    /// Damage left over, which spills onto other tokens in the same square.
+    pub overflow: i32,
+}
+
+/// Apply damage to a token, exactly as `FDamageTok` does.
+///
+/// Shields pool across the whole stack and are stripped first — beam damage
+/// cannot touch armour until they are gone. What remains kills ships one at a
+/// time, and **already-damaged ships die first** because they cost less to
+/// finish off. Whatever is left after that is spread over the survivors as
+/// fresh damage.
+///
+/// `shields_only` marks a sapper, which strips shields and stops.
+#[must_use]
+pub fn apply_damage(state: TokenState, damage: i32, shields_only: bool) -> AttackResult {
+    let mut token = state;
+    let mut dp = damage.max(0);
+
+    // --- shields, pooled across the stack
+    let mut shield_damage = 0;
+    if token.shields > 0 && token.ships > 0 {
+        let pool = token.shields * token.ships;
+        if dp < pool {
+            shield_damage = dp;
+            token.shields = (pool - dp) / token.ships;
+            dp = 0;
+        } else {
+            shield_damage = pool;
+            dp -= pool;
+            token.shields = 0;
+        }
+    }
+
+    if shields_only || dp == 0 || token.ships == 0 || token.armor <= 0 {
+        return AttackResult {
+            shield_damage,
+            ships_killed: 0,
+            after: token,
+            overflow: if shields_only { 0 } else { dp },
+        };
+    }
+
+    // --- armour
+    let ships_before = token.ships;
+    let armor = token.armor;
+
+    // How many ships are already damaged, and by how much each.
+    let (damaged_before, carried) = if token.damage.pct_damage == 0 {
+        (0, 0)
+    } else {
+        (
+            (ships_before * token.damage.pct_ships / 100).max(1),
+            (armor * token.damage.pct_damage / 500).max(1),
+        )
+    };
+
+    let mut ships = ships_before;
+    let mut damaged = damaged_before;
+
+    // Damaged ships die first: they only need finishing off.
+    if damaged_before != 0 {
+        let cost = armor - carried;
+        let mut left = damaged_before;
+        while cost <= dp && left != 0 {
+            dp -= cost;
+            left -= 1;
+        }
+        damaged = left;
+        ships = left + (ships_before - damaged_before);
+    }
+
+    // Then undamaged ships, at the design's full armour each.
+    while armor <= dp && ships != 0 {
+        dp -= armor;
+        ships -= 1;
+    }
+
+    // Whatever is left becomes damage spread over the survivors.
+    let after_damage = if dp == 0 || ships == 0 {
+        if damaged == 0 {
+            Damage::default()
+        } else {
+            Damage {
+                pct_ships: ceil_div(damaged * 100, ships.max(1)),
+                pct_damage: token.damage.pct_damage,
+            }
+        }
+    } else {
+        let mut spread = dp;
+        if damaged != 0 {
+            spread += armor * damaged + (ships - 1);
+        }
+        spread = (spread / ships).max(1);
+        Damage {
+            pct_ships: 100,
+            pct_damage: ceil_div(spread * 500, armor).clamp(1, 499),
+        }
+    };
+
+    let killed = ships_before - ships;
+    token.ships = ships;
+    token.damage = if ships == 0 {
+        Damage::default()
+    } else {
+        after_damage
+    };
+
+    AttackResult {
+        shield_damage,
+        ships_killed: killed,
+        after: token,
+        overflow: if ships == 0 { dp } else { 0 },
+    }
+}

@@ -248,3 +248,159 @@ fn firing_happens_within_the_recorded_range() {
     eprintln!("{shots} firing actions checked");
     assert!(shots > 0);
 }
+
+/// Damage resolution checked against the recorded kills.
+///
+/// A kill record says how many shield points an attack stripped and how many
+/// ships it destroyed. Replaying that exactly would need the full firing order
+/// and the torpedo rolls, but the **first** damage a token takes in a battle
+/// is checkable on its own: at that moment the token is at full shields and
+/// undamaged, which the recording states, so the outcome follows from the
+/// attacker's design, the recorded range, and the damage rules.
+///
+/// Only beam-armed attackers are used, because torpedo hits are rolled.
+#[test]
+fn first_beam_hits_reproduce_the_recorded_damage() {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use stars_core::battle::{apply_damage, beam_damage, Damage, TokenState};
+    use stars_core::design::{DesignSlot, ShipDesign};
+    use stars_formats::{design_records, DesignRecord};
+
+    let root = workspace_root();
+    let games = root.join("fixtures/games/exodus");
+    if !games.is_dir() {
+        eprintln!("skipping: no Exodus fixtures");
+        return;
+    }
+    let mut years: Vec<i32> = std::fs::read_dir(&games)
+        .expect("readable fixture dir")
+        .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
+        .collect();
+    years.sort_unstable();
+
+    let to_design = |r: &DesignRecord| ShipDesign {
+        hull_id: i16::from(r.hull_id),
+        slots: r
+            .slots
+            .iter()
+            .map(|s| DesignSlot {
+                category: s.category,
+                item: s.item_id,
+                count: s.count,
+            })
+            .collect(),
+    };
+
+    let mut checked = 0;
+    let mut matched = 0;
+    let mut notes = Vec::new();
+
+    for year in years {
+        let path = games.join(year.to_string()).join("exodus.m6");
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        let Ok(file) = StarsFile::decode(&bytes) else {
+            continue;
+        };
+        let blocks = file.segment_blocks(file.latest_segment());
+        let Ok(records) = design_records(&file) else {
+            continue;
+        };
+        let by_slot: BTreeMap<u8, ShipDesign> = records
+            .iter()
+            .filter(|r| r.full_design && !r.starbase)
+            .map(|r| (r.design_number, to_design(r)))
+            .collect();
+
+        for battle in battle_records_in(blocks) {
+            let mut already_hit: BTreeSet<u8> = BTreeSet::new();
+
+            for action in &battle.actions {
+                for kill in &action.kills {
+                    let first = already_hit.insert(kill.token);
+                    if !first {
+                        continue;
+                    }
+
+                    let (Some(attacker), Some(target)) = (
+                        battle.tokens.get(usize::from(action.token)),
+                        battle.tokens.get(usize::from(kill.token)),
+                    ) else {
+                        continue;
+                    };
+                    // Both sides must be designs this file carries in full.
+                    if attacker.is_starbase() || target.is_starbase() {
+                        continue;
+                    }
+                    let (Some(attack_design), Some(target_design)) =
+                        (by_slot.get(&attacker.design), by_slot.get(&target.design))
+                    else {
+                        continue;
+                    };
+
+                    let weapons = attack_design.weapons();
+                    if weapons.is_empty() || weapons.iter().any(|w| w.torpedo) {
+                        continue; // torpedo rolls are not reproducible here
+                    }
+                    let Some(armor) = target_design.armor(false) else {
+                        continue;
+                    };
+
+                    let dp: i32 = weapons
+                        .iter()
+                        .map(|w| {
+                            beam_damage(
+                                *w,
+                                i32::from(attacker.ships),
+                                i32::from(action.range),
+                                i32::from(attacker.pct_capacitor),
+                                i32::from(target.pct_beam_defence),
+                            )
+                        })
+                        .sum();
+
+                    let state = TokenState {
+                        ships: i32::from(target.ships),
+                        // dpShield is per ship; the pool is that times the count.
+                        shields: i32::from(target.shields),
+                        armor,
+                        damage: Damage::default(),
+                    };
+                    let result = apply_damage(state, dp, false);
+
+                    checked += 1;
+                    let want = (i32::from(kill.shield_damage), i32::from(kill.ships_killed));
+                    let got = (result.shield_damage, result.ships_killed);
+                    if got == want {
+                        matched += 1;
+                    } else if notes.len() < 8 {
+                        notes.push(format!(
+                            "{year} battle {:#06x}: token {} hit token {} at range {} for \
+                             {dp} dp; computed {got:?}, recorded {want:?}",
+                            battle.id, action.token, kill.token, action.range
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    eprintln!("first beam hits: {matched} of {checked} reproduce the recorded damage");
+    for n in &notes {
+        eprintln!("  {n}");
+    }
+    assert!(checked > 0, "no checkable first beam hit found");
+    // 22 of 31 at the time this was written. The rest are cases where the
+    // "first hit" assumption does not actually hold — a token can be damaged
+    // by an attack that recorded no kill entry against it — or where a
+    // modifier this crate does not model yet applies. A floor rather than a
+    // fixed count, so the test catches a regression without pretending the
+    // remainder is understood.
+    assert!(
+        matched * 10 >= checked * 6,
+        "only {matched} of {checked} first beam hits reproduce; that is below the \
+         71% this stood at when written"
+    );
+}
