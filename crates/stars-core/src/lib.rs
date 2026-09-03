@@ -50,28 +50,64 @@ pub mod mining;
 pub mod movement;
 pub mod planet;
 pub mod population;
+pub mod production;
 pub mod race;
+pub mod research;
 pub mod resources;
 pub mod rng;
 pub mod scanning;
+pub mod turn;
 
 pub use hab::{calc_planet_max_pop, max_pop_for_hab, pct_planet_desirability};
 pub use mining::{mine_minerals, minerals_mined, mines_operating};
 pub use movement::{advance, distance, travel_per_year, travel_this_year, FuelStack, Point};
 pub use planet::Planet;
 pub use population::{chg_pop_from_planet, pct_true_max_growth, update_population, PopChange};
+pub use production::{planet_budget, PlanetBudget};
 pub use race::{Prt, Race, RaceStat};
+pub use research::{add_research, tech_level_cost, NextField, Research, TechField};
 pub use resources::{
     factories_operating, max_factories, max_mines, max_operable_factories, max_operable_mines,
     resources_at_planet,
 };
 pub use rng::Rng;
 pub use scanning::{combine_ranges, planet_scanner_range, ScannerRange};
+pub use turn::{generate_turn, SkippedStep, TurnReport};
+
+/// One player: their race, their research, and the settings that drive both.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Player {
+    /// The player's race.
+    pub race: Race,
+    /// Technology levels and research progress.
+    pub research: research::Research,
+    /// Share of resources spent on research, in percent (`PLAYER.pctResearch`).
+    pub research_pct: u8,
+    /// Resources research received from the most recent turn
+    /// (`PLAYER.lResLastYear`).
+    pub research_last_year: i32,
+    /// Whether the player has been eliminated.
+    pub dead: bool,
+}
+
+impl Player {
+    /// A player with the given race, at zero technology.
+    #[must_use]
+    pub fn new(race: Race) -> Self {
+        Self {
+            race,
+            research: research::Research::default(),
+            // The game's default research allocation.
+            research_pct: 15,
+            research_last_year: 0,
+            dead: false,
+        }
+    }
+}
 
 /// The complete, serializable state of a game at a single turn boundary.
 ///
-/// Fleets, designs and the tech tree join this in Step 4; today it carries the
-/// planetary state that the implemented systems operate on.
+/// Fleets and ship designs join this once the components table is decoded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GameState {
     /// Turn counter, 0-based, matching the file header's field; the in-game
@@ -81,8 +117,10 @@ pub struct GameState {
     pub seed: u32,
     /// Every planet in the universe, indexed by planet id.
     pub planets: Vec<Planet>,
-    /// Every player's race.
-    pub races: Vec<Race>,
+    /// Every player.
+    pub players: Vec<Player>,
+    /// The game's "slower tech advances" option, which doubles research costs.
+    pub slow_tech: bool,
 }
 
 impl GameState {
@@ -93,7 +131,8 @@ impl GameState {
             turn: 0,
             seed,
             planets: Vec::new(),
-            races: Vec::new(),
+            players: Vec::new(),
+            slow_tech: false,
         }
     }
 
@@ -103,28 +142,26 @@ impl GameState {
         2400 + i32::from(self.turn)
     }
 
+    /// The player owning `planet`, if it is owned.
+    #[must_use]
+    pub fn owner(&self, planet: &Planet) -> Option<&Player> {
+        let owner = planet.owner?;
+        self.players.get(usize::try_from(owner).ok()?)
+    }
+
     /// The race of the player owning `planet`, if it is owned.
     #[must_use]
     pub fn owner_race(&self, planet: &Planet) -> Option<&Race> {
-        let owner = planet.owner?;
-        self.races.get(usize::try_from(owner).ok()?)
+        Some(&self.owner(planet)?.race)
     }
 
     /// Advance every planet's population by one year.
     ///
-    /// This is the `UpdatePopulations` step of the original's turn pipeline
-    /// (`FGenerateTurn`, `10b0:0000`). The rest of the pipeline — production,
-    /// movement, combat — lands in Step 4.
+    /// This is the `UpdatePopulations` step on its own; [`turn::generate_turn`]
+    /// runs it in the right place in the pipeline.
     pub fn update_populations(&mut self) {
-        for i in 0..self.planets.len() {
-            let Some(owner) = self.planets[i].owner else {
-                continue;
-            };
-            let Some(race) = self.races.get(usize::try_from(owner).unwrap_or(usize::MAX)) else {
-                continue;
-            };
-            let race = race.clone();
-            population::update_population(&mut self.planets[i], &race);
-        }
+        let players = std::mem::take(&mut self.players);
+        turn::update_populations(&mut self.planets, &players);
+        self.players = players;
     }
 }

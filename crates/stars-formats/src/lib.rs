@@ -89,7 +89,7 @@ pub use orders::{
 pub use planet::{
     planet_records, Concentration, Environment, Installations, Minerals, PlanetRecord, Starbase,
 };
-pub use player::{player_records, PlayerRecord};
+pub use player::{player_records, PlayerRecord, ResearchState};
 pub use production::{production_queue_records, ProductionQueueRecord, QueueItem};
 pub use race::{Economy, HabRange, Lrt, Prt, RaceRecord};
 pub use records::{planet_headers, PlanetHeader, MINIMAL_PLANET_LEN};

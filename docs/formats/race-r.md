@@ -64,11 +64,11 @@ unless noted; multi-byte integers are little-endian.
 | 23     | 1    | temperature high     |                                                                         |
 | 24     | 1    | radiation high       |                                                                         |
 | 25     | 1    | growth rate %        | max population growth (Humanoid 15, Rabbitoid 20, Silicanoid 6, …)       |
-| 26     | 6    | tech levels          | Energy,Weapons,Prop,Const,Elec,Bio; player-block field (`0` in a race file) |
-| 32     | 24   | tech points          | points since previous level per field (4 bytes each); `0` in a race file |
+| 26     | 6    | tech levels          | Energy,Weapons,Prop,Const,Elec,Bio, each `0..=26`; player-block field (`0` in a race file); decoded as `ResearchState::levels` |
+| 32     | 24   | tech points          | resources accumulated toward the next level, per field (4 bytes each); `0` in a race file; decoded as `ResearchState::points` |
 | 56     | 1    | research %           | resources spent on research; defaults to `15` (`0x0F`) — per `StarsRace.pl` |
-| 57     | 1    | resource priority    | current (`>>4`) / next; player-block field (`0` in a race file)         |
-| 58     | 4    | research pts prev yr | player-block field (`0` in a race file)                                 |
+| 57     | 1    | research field       | **current field = low nibble**, next-field policy = high nibble (`0..5` a field, `6` stay, `7` lowest field); player-block field (`0` in a race file) |
+| 58     | 4    | research last year   | resources research received from the most recent turn (`lResLastYear`); player-block field (`0` in a race file) |
 | 62     | 1    | resource/colonist    | colonists per resource, in thousands (Humanoid `10` = 1 res / 1000 pop) |
 | 63     | 1    | produce per factory  | resources per 10 factories (Humanoid `10`)                              |
 | 64     | 1    | factory build cost   | resources to build one factory (Humanoid `10`)                          |
@@ -77,7 +77,7 @@ unless noted; multi-byte integers are little-endian.
 | 67     | 1    | mine build cost      | resources to build one mine (Humanoid `5`)                              |
 | 68     | 1    | mines operated       | mines per 10,000 colonists (Humanoid `10`)                             |
 | 69     | 1    | spend leftover pts   | selector for surplus advantage points (Humanoid `0`, Rabbitoid `4`)     |
-| 70     | 6    | research cost/field  | one byte per tech field (Energy,Weapons,Prop,Const,Elec,Bio); `0/1/2` = costs-less/normal/costs-more; Humanoid = all `1` |
+| 70     | 6    | research cost/field  | one byte per tech field (Energy,Weapons,Prop,Const,Elec,Bio); **`0` = costs 75% extra, `1` = normal, `2` = costs 50% less**; Humanoid = all `1` |
 | 76     | 1    | **PRT**              | primary racial trait: `0`=HE `1`=SS `2`=WM `3`=CA `4`=IS `5`=SD `6`=PP `7`=IT `8`=AR `9`=JOAT |
 | 77     | 1    | (unknown)            | always `0` in samples; possibly a second PRT byte (per `StarsRace.pl`)   |
 | 78     | 2    | **LRT bitfield**     | lesser racial traits, little-endian u16 (bit layout below); Humanoid = `0` |
@@ -85,6 +85,17 @@ unless noted; multi-byte integers are little-endian.
 | 82     | 2    | MT items             | u16; player-block field (`0` in a race file)                            |
 | 112    | var  | player relations     | `len = d[112]`, then one byte per player; `0`-length in a race file; the names follow |
 | var    | var  | race names           | two length-prefixed, nibble-packed strings (singular + plural); see below |
+
+> **Corrected in delivery Step 4.** Two fields were previously documented the
+> wrong way round. The per-field research cost at offset 70 was recorded as
+> `0/1/2 = costs-less/normal/costs-more`; `GetTechLevelCost` (`10d8:1dba`)
+> shows the opposite — a stored `0` multiplies the cost by 1.75 and a stored
+> `2` halves it, so `0` is *costs 75% extra*. Offset 57 was recorded as
+> "current (`>>4`) / next"; `UpdateResearchStatus` (`10b8:80fe`) reads the
+> **current** field from the low nibble. Both are confirmed by the Exodus
+> fixture, whose War Monger player stores `2` for Weapons and `0` for every
+> other field, and whose research points accumulate in the field named by the
+> low nibble.
 
 > The habitability layout was confirmed by the perfectly-centred **Humanoid**
 > race (center 50 / low 15 / high 85 on all three axes) and cross-checked

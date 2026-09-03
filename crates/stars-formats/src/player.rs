@@ -40,6 +40,33 @@ use crate::file::StarsFile;
 use crate::race::RaceRecord;
 use crate::{FormatError, Result};
 
+/// Number of technology fields (Energy, Weapons, Propulsion, Construction,
+/// Electronics, Biotechnology).
+pub const TECH_FIELDS: usize = 6;
+
+/// A player's research state, from the player-block fields the race-only
+/// (`.rN`) form leaves zeroed.
+///
+/// Offsets are absolute within the type-6 payload, matching the table in
+/// `docs/formats/race-r.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResearchState {
+    /// Current level in each field (offset 26), `0..=26`.
+    pub levels: [u8; TECH_FIELDS],
+    /// Resources accumulated toward the next level in each field (offset 32,
+    /// four bytes each).
+    pub points: [u32; TECH_FIELDS],
+    /// Share of resources spent on research, in percent (offset 56).
+    pub budget_pct: u8,
+    /// The field currently being researched (offset 57, low nibble).
+    pub current_field: u8,
+    /// What to research next (offset 57, high nibble): a field index `0..=5`,
+    /// `6` to stay on the current field, or `7` for whichever field is lowest.
+    pub next_field: u8,
+    /// Resources put into research by the most recent turn (offset 58).
+    pub last_year_resources: u32,
+}
+
 /// The minimum length of a player block (the fixed 8-byte header).
 const HEADER_LEN: usize = 8;
 
@@ -77,6 +104,9 @@ pub struct PlayerRecord {
     pub singular_name: String,
     /// Plural race/player name (e.g. `"Humanoids"`); may be empty.
     pub plural_name: String,
+    /// Research state, present only when [`full_data`](Self::full_data) is set
+    /// (it is all zero in a race-only `.rN` block).
+    pub research: Option<ResearchState>,
 }
 
 impl PlayerRecord {
@@ -106,6 +136,7 @@ impl PlayerRecord {
         // `fullData` region: 0x68-byte race struct at offset 8, then a
         // length-prefixed player-relations table at offset 0x70.
         let mut player_relations = Vec::new();
+        let mut research = None;
         let mut race = None;
         if full_data {
             let relations_index = 0x70;
@@ -125,6 +156,7 @@ impl PlayerRecord {
             // The race struct occupies the same absolute offsets as a `.rN`
             // file, so `RaceRecord` decodes the whole payload directly.
             race = Some(RaceRecord::from_payload(data)?);
+            research = decode_research(data);
         }
 
         // Names: reuse the race decoder's result when available (it already
@@ -148,8 +180,41 @@ impl PlayerRecord {
             race,
             singular_name,
             plural_name,
+            research,
         })
     }
+}
+
+/// Decode the research fields of a full-data player block.
+///
+/// These sit inside the same struct as the race fields but are player state,
+/// not race definition: they are all zero in a race-only `.rN` block.
+fn decode_research(data: &[u8]) -> Option<ResearchState> {
+    // Offset 58..62 is the last field read, so 62 bytes must be present.
+    if data.len() < 62 {
+        return None;
+    }
+    let mut levels = [0u8; TECH_FIELDS];
+    levels.copy_from_slice(&data[26..32]);
+
+    let mut points = [0u32; TECH_FIELDS];
+    for (i, slot) in points.iter_mut().enumerate() {
+        let o = 32 + i * 4;
+        *slot = u32::from_le_bytes([data[o], data[o + 1], data[o + 2], data[o + 3]]);
+    }
+
+    Some(ResearchState {
+        levels,
+        points,
+        budget_pct: data[56],
+        // The game stores the *current* field in the low nibble and the
+        // next-field policy in the high nibble (`PLAYER.iTechCur`, read as
+        // `iTechCur & 0xf` / `iTechCur >> 4` in `UpdateResearchStatus`
+        // @ 10b8:80fe).
+        current_field: data[57] & 0x0f,
+        next_field: data[57] >> 4,
+        last_year_resources: u32::from_le_bytes([data[58], data[59], data[60], data[61]]),
+    })
 }
 
 /// Decode the packed singular/plural names of a **short** (non-fullData) player

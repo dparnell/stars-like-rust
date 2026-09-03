@@ -1,0 +1,43 @@
+{
+  "$comment": [
+    "Golden vectors for the research formulas (docs/formulas/research.md).",
+    "The cost table is verified byte-for-byte against rglTechCost at 10d8:1d4e.",
+    "The worked cases come from the Exodus fixture, where the original engine's",
+    "own accounting shows exactly what each level cost."
+  ],
+
+  "tech_level_cost": {
+    "source": "GetTechLevelCost @ 10d8:1dba; MANUAL.PDF p. 8-5",
+    "$comment": "cost = sum(levels)*10 + rglTechCost[level], then the per-field setting, then slow tech.",
+    "cases": [
+      { "why": "Exodus player 5 took Weapons 10->11 for exactly this, cheap field",
+        "levels": [3, 10, 7, 7, 5, 4], "field": 1, "level": 11, "setting": 2,
+        "slow_tech": false, "expect": 3230 },
+      { "why": "the same base cost at the normal setting",
+        "levels": [3, 10, 7, 7, 5, 4], "field": 1, "level": 11, "setting": 1,
+        "slow_tech": false, "expect": 6460 },
+      { "why": "an expensive field costs 75% extra",
+        "levels": [3, 10, 7, 7, 5, 4], "field": 1, "level": 11, "setting": 0,
+        "slow_tech": false, "expect": 11305 },
+      { "why": "the slower-tech-advances option doubles everything",
+        "levels": [3, 10, 7, 7, 5, 4], "field": 1, "level": 11, "setting": 1,
+        "slow_tech": true, "expect": 12920 },
+      { "why": "level 1 from nothing is the bare table entry",
+        "levels": [0, 0, 0, 0, 0, 0], "field": 0, "level": 1, "setting": 1,
+        "slow_tech": false, "expect": 50 },
+      { "why": "the added cost is 10 per level already held, across all fields",
+        "levels": [1, 1, 1, 1, 1, 1], "field": 0, "level": 2, "setting": 1,
+        "slow_tech": false, "expect": 140 }
+    ]
+  },
+
+  "generalized_research": {
+    "source": "UpdateResearchStatus @ 10b8:80fe; MANUAL.PDF p. 8-6 sidebar",
+    "$comment": "Half the budget to the primary field, 15% of the budget to each of the other five.",
+    "cases": [
+      { "why": "half of 1000 to the primary field", "budget": 1000, "expect_primary": 500 },
+      { "why": "15% of 1000 to each other field", "budget": 1000, "expect_other": 150 },
+      { "why": "both shares round up", "budget": 999, "expect_primary": 500, "expect_other": 150 }
+    ]
+  }
+}

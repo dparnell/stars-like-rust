@@ -24,12 +24,20 @@ examples make good golden vectors.
 The PRNG that mining and the turn pipeline draw from is specified separately in
 `../rng/prng.md`; it is the same generator as the file cipher's.
 
-## Delivery Step 4 — still to come
+## Delivery Step 4 — turn generation
 
-- `production.md` — the production queue and build costs
+| Spec | Subsystem | Status |
+|------|-----------|--------|
+| `turn-order.md` | The order a year happens in | verified |
+| `research.md` | Tech costs, the annual advance, Generalized Research | verified |
+| `production.md` | Resource/research split; the build queue | in progress |
+
+Still to come in Step 4:
+
 - `combat.md` — battle resolution
-- `research.md` — research and tech advancement
 - `terraforming.md` — auto and remote terraforming
+- the production **build queue**, which needs the components table
+- the AI players
 
 ## Verification
 

@@ -31,6 +31,10 @@ pub enum RaceStat {
     MineOperate = 6,
     /// Leftover-resource policy.
     UseLeftover = 7,
+    /// Per-field research cost setting for Energy: `0` costs 75% extra, `1`
+    /// normal, `2` costs 50% less. The remaining five fields follow at
+    /// consecutive indices.
+    TechBonus1 = 8,
     /// The primary racial trait (see [`Prt`]).
     MajorAdv = 14,
 }
