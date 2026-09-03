@@ -9,11 +9,12 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use stars_core::load::{planet_from_record, race_from_record};
 use stars_core::planet::Planet;
 use stars_core::production::{item, planetary_item_cost};
-use stars_core::race::{Prt as CorePrt, Race, RaceStat};
+use stars_core::race::Race;
 use stars_core::resources::resources_at_planet;
-use stars_formats::{planet_records_in, player_records_in, PlanetRecord, StarsFile};
+use stars_formats::{planet_records_in, player_records_in, StarsFile};
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -21,72 +22,6 @@ fn workspace_root() -> PathBuf {
         .and_then(Path::parent)
         .expect("crates/<name> has a workspace root")
         .to_path_buf()
-}
-
-fn to_core_race(r: &stars_formats::RaceRecord) -> Race {
-    let mut attrs = [0i16; 16];
-    attrs[RaceStat::ResGen as usize] = i16::from(r.economy.resource_per_colonist);
-    attrs[RaceStat::FactProd as usize] = i16::from(r.economy.produce_per_factory);
-    attrs[RaceStat::FactBuild as usize] = i16::from(r.economy.factory_build_cost);
-    attrs[RaceStat::FactOperate as usize] = i16::from(r.economy.factories_operated);
-    attrs[RaceStat::MineProd as usize] = i16::from(r.economy.produce_per_mine);
-    attrs[RaceStat::MineBuild as usize] = i16::from(r.economy.mine_build_cost);
-    attrs[RaceStat::MineOperate as usize] = i16::from(r.economy.mines_operated);
-    attrs[RaceStat::MajorAdv as usize] = match r.prt.abbrev() {
-        "HE" => CorePrt::He,
-        "SS" => CorePrt::Ss,
-        "WM" => CorePrt::Wm,
-        "CA" => CorePrt::Ca,
-        "IS" => CorePrt::Is,
-        "SD" => CorePrt::Sd,
-        "PP" => CorePrt::Pp,
-        "IT" => CorePrt::It,
-        "AR" => CorePrt::Ar,
-        _ => CorePrt::Joat,
-    } as i16;
-    let axis = |h: stars_formats::HabRange| match (h.center, h.low, h.high) {
-        (Some(c), Some(l), Some(x)) => (c as i8, l as i8, x as i8),
-        _ => (0, 0, -1),
-    };
-    let (gc, gl, gh) = axis(r.gravity);
-    let (tc, tl, th) = axis(r.temperature);
-    let (rc, rl, rh) = axis(r.radiation);
-    Race {
-        attrs,
-        lrt_bits: u32::from(r.lrt_bits),
-        env_center: [gc, tc, rc],
-        env_min: [gl, tl, rl],
-        env_max: [gh, th, rh],
-        pct_ideal_growth: r.growth_rate as i8,
-    }
-}
-
-fn to_core_planet(r: &PlanetRecord) -> Option<Planet> {
-    let owner = r.owner?;
-    let env = r.environment?;
-    let conc = r.concentration?;
-    let pop = r.population?;
-    let imp = r.installations?;
-    Some(Planet {
-        id: i16::try_from(r.id).ok()?,
-        owner: Some(i16::from(owner)),
-        env: [
-            env.gravity as i8,
-            env.temperature as i8,
-            env.radiation as i8,
-        ],
-        min_conc: [conc.ironium, conc.boranium, conc.germanium],
-        min_level: [0, 0, 0],
-        surface_min: [0, 0, 0],
-        pop: i32::try_from(pop / 100).ok()?,
-        delta_pop: imp.delta_pop,
-        mines: i16::try_from(imp.mines).ok()?,
-        factories: i16::try_from(imp.factories).ok()?,
-        homeworld: r.homeworld,
-        starbase: r.has_starbase,
-        queue: Vec::new(),
-        no_research: imp.no_research,
-    })
 }
 
 /// What a planet built between two years cannot have cost more than it earned.
@@ -119,11 +54,11 @@ fn planets_never_build_more_than_they_could_afford() {
             .iter()
             .find(|p| p.player_number == owner)
             .and_then(|p| p.race.as_ref())
-            .map(to_core_race)?;
+            .map(race_from_record)?;
         let planets = planet_records_in(blocks)
             .into_iter()
             .filter(|r| r.owner == Some(owner))
-            .filter_map(|r| to_core_planet(&r).map(|c| (r.id, c)))
+            .filter_map(|r| planet_from_record(&r).map(|c| (r.id, c)))
             .collect();
         Some((race, planets))
     };

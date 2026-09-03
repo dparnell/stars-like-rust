@@ -10,7 +10,8 @@
 
 use std::path::{Path, PathBuf};
 
-use stars_core::race::{Race, RaceStat};
+use stars_core::load::race_from_record;
+use stars_core::race::Race;
 use stars_core::research::{tech_level_cost, NextField, Research, TECH_FIELDS};
 use stars_formats::{player_records_in, ResearchState, StarsFile};
 
@@ -30,18 +31,7 @@ fn load(path: &Path, player: u8) -> Option<(Race, ResearchState)> {
     let players = player_records_in(file.segment_blocks(file.latest_segment())).ok()?;
     let record = players.iter().find(|p| p.player_number == player)?;
     let race = record.race.as_ref()?;
-    Some((to_core_race(race), record.research?))
-}
-
-fn to_core_race(r: &stars_formats::RaceRecord) -> Race {
-    let mut race = Race::humanoid();
-    // Only the research settings matter here; the six per-field costs sit at
-    // rgAttr[rsTechBonus1..], in field order.
-    for (field, cost) in r.research_cost.iter().enumerate() {
-        race.attrs[RaceStat::TechBonus1 as usize + field] = i16::from(*cost);
-    }
-    race.lrt_bits = u32::from(r.lrt_bits);
-    race
+    Some((race_from_record(race), record.research?))
 }
 
 fn to_core_research(s: &ResearchState) -> Research {

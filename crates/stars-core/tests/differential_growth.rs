@@ -12,10 +12,11 @@
 
 use std::path::{Path, PathBuf};
 
+use stars_core::load::{planet_from_record, race_from_record};
 use stars_core::planet::Planet;
 use stars_core::population::chg_pop_from_planet;
-use stars_core::race::{Prt as CorePrt, Race, RaceStat};
-use stars_formats::{planet_records_in, player_records_in, PlanetRecord, StarsFile};
+use stars_core::race::Race;
+use stars_formats::{planet_records_in, player_records_in, StarsFile};
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -48,105 +49,17 @@ fn load(path: &Path) -> Option<Snapshot> {
             races.resize(idx + 1, None);
         }
         if let Some(race) = record.race.as_ref() {
-            races[idx] = Some(to_core_race(race));
+            races[idx] = Some(race_from_record(race));
         }
     }
 
     let planets = planet_records_in(blocks)
         .into_iter()
-        .filter_map(|p| to_core_planet(&p).map(|c| (p.id, c)))
+        .filter_map(|p| planet_from_record(&p).map(|c| (p.id, c)))
         .collect();
     Some((races, planets))
 }
 
-fn to_core_race(r: &stars_formats::RaceRecord) -> Race {
-    let mut attrs = [0i16; 16];
-    attrs[RaceStat::ResGen as usize] = i16::from(r.economy.resource_per_colonist);
-    attrs[RaceStat::FactProd as usize] = i16::from(r.economy.produce_per_factory);
-    attrs[RaceStat::FactBuild as usize] = i16::from(r.economy.factory_build_cost);
-    attrs[RaceStat::FactOperate as usize] = i16::from(r.economy.factories_operated);
-    attrs[RaceStat::MineProd as usize] = i16::from(r.economy.produce_per_mine);
-    attrs[RaceStat::MineBuild as usize] = i16::from(r.economy.mine_build_cost);
-    attrs[RaceStat::MineOperate as usize] = i16::from(r.economy.mines_operated);
-    attrs[RaceStat::MajorAdv as usize] = prt_to_core(r.prt) as i16;
-
-    // A `0xFF` bound marks the race immune on that axis; the simulation
-    // detects that through a negative upper bound.
-    let axis = |h: stars_formats::HabRange| -> (i8, i8, i8) {
-        match (h.center, h.low, h.high) {
-            (Some(c), Some(l), Some(x)) => (c as i8, l as i8, x as i8),
-            _ => (0, 0, -1),
-        }
-    };
-    let (gc, gl, gh) = axis(r.gravity);
-    let (tc, tl, th) = axis(r.temperature);
-    let (rc, rl, rh) = axis(r.radiation);
-
-    Race {
-        attrs,
-        lrt_bits: u32::from(r.lrt_bits),
-        env_center: [gc, tc, rc],
-        env_min: [gl, tl, rl],
-        env_max: [gh, th, rh],
-        pct_ideal_growth: r.growth_rate as i8,
-    }
-}
-
-fn prt_to_core(p: stars_formats::Prt) -> CorePrt {
-    match p.abbrev() {
-        "HE" => CorePrt::He,
-        "SS" => CorePrt::Ss,
-        "WM" => CorePrt::Wm,
-        "CA" => CorePrt::Ca,
-        "IS" => CorePrt::Is,
-        "SD" => CorePrt::Sd,
-        "PP" => CorePrt::Pp,
-        "IT" => CorePrt::It,
-        "AR" => CorePrt::Ar,
-        _ => CorePrt::Joat,
-    }
-}
-
-/// Convert a decoded record into simulation state, but only when the record
-/// carries everything the population formula needs.
-fn to_core_planet(r: &PlanetRecord) -> Option<Planet> {
-    let owner = r.owner?;
-    let env = r.environment?;
-    let conc = r.concentration?;
-    let pop = r.population?;
-    let imp = r.installations?;
-    let surface = r.surface_minerals?;
-
-    Some(Planet {
-        id: i16::try_from(r.id).ok()?,
-        owner: Some(i16::from(owner)),
-        env: [
-            env.gravity as i8,
-            env.temperature as i8,
-            env.radiation as i8,
-        ],
-        min_conc: [conc.ironium, conc.boranium, conc.germanium],
-        min_level: [0, 0, 0],
-        surface_min: [
-            surface.ironium as i32,
-            surface.boranium as i32,
-            surface.germanium as i32,
-        ],
-        // Stored on disk in hundreds of colonists; `PlanetRecord` multiplies
-        // that out, and the simulation works in the stored unit.
-        pop: i32::try_from(pop / 100).ok()?,
-        delta_pop: imp.delta_pop,
-        mines: i16::try_from(imp.mines).ok()?,
-        factories: i16::try_from(imp.factories).ok()?,
-        homeworld: r.homeworld,
-        starbase: r.has_starbase,
-        queue: Vec::new(),
-        no_research: imp.no_research,
-    })
-}
-
-/// Predict year N+1 population for every planet present in both files.
-///
 /// Outcome of comparing one year-step.
 #[derive(Default)]
 struct Tally {
