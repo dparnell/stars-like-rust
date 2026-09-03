@@ -58,17 +58,27 @@ against the recorded positions in the next year's file, with no allowance made,
 since a fleet's position depends only on its own orders. The remainder are
 fleets whose orders changed, that merged or split, or that ran out of fuel.
 
-Fuel is deliberately *not* deducted yet: that needs each design's engine and
-the cargo assignment across stacks, so a fleet currently never runs dry. That
-is the one place this is knowingly generous, and it is the likeliest cause of
-some of the 60 that do not match.
+Fuel **is** deducted. The subtlety, from `EstFuelUse`, is the cargo: it is
+assigned to the **most fuel-efficient designs first**, filling each to its
+capacity, so a fleet carries its load in whatever burns least to move it. Each
+design then burns `mass * engine figure * distance / 2000`, and the total is
+divided by ten, rounding up; Improved Fuel Efficiency cuts each engine's figure
+by 15% first. A fleet that cannot afford its whole leg travels only as far as
+its fuel allows.
+
+Adding fuel did not change the 86%, which is the reassuring outcome: it means
+the model is not cutting fleets short that the engine let through.
 
 ## Open questions
 
 - **Orders** beyond movement — cargo transfer, colonisation, remote mining —
   are decoded by the format layer but not modelled. This is what holds the
   whole-turn replay's surface mineral figure down to 19%.
-- Fuel consumption during movement, as above.
+- Ramscoops gain fuel in flight (`LCalcFuelGainFromRamScoops`); not modelled,
+  so a ramscoop fleet loses fuel it should be collecting.
+- When a fleet cannot afford its ordered warp the original searches downward
+  for one it can fuel and messages the player; here it simply travels as far as
+  the fuel reaches.
 - Ship building: the production queue recognises ship designs but cannot turn a
   completed one into a fleet.
 - Fuel consumption is implemented (`movement.md`) but nothing calls it, because

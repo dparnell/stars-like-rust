@@ -150,6 +150,79 @@ impl Fleet {
         (next.warp > 0).then_some((next.position, next.warp))
     }
 
+    /// Fuel the fleet burns covering `distance` light years at `warp`.
+    ///
+    /// Source: `EstFuelUse` (`1050:9fe4`). The subtlety is the cargo: it is
+    /// assigned to the **most fuel-efficient designs first**, filling each up
+    /// to its capacity, so a fleet carries its load in whatever burns least to
+    /// move it. Each design then burns
+    /// `mass * engine figure * distance / 2000`, and the total is divided by
+    /// ten, rounding up.
+    ///
+    /// Improved Fuel Efficiency cuts each engine's figure by 15% first.
+    #[must_use]
+    pub fn fuel_use(
+        &self,
+        designs: &[ShipDesign],
+        warp: u8,
+        distance: i32,
+        improved_fuel_efficiency: bool,
+    ) -> i32 {
+        // Pair each stack with its engine's fuel figure at this warp; a stack
+        // with no usable engine is treated as very thirsty, as the original
+        // does.
+        let mut stacks: Vec<(i32, &ShipStack, &ShipDesign)> = Vec::new();
+        for stack in &self.stacks {
+            let Some(design) = designs.get(usize::from(stack.design)) else {
+                continue;
+            };
+            let efficiency = design
+                .engine()
+                .and_then(|e| e.fuel_used.get(usize::from(warp)).map(|f| i32::from(*f)))
+                .unwrap_or(99_999);
+            stacks.push((efficiency, stack, design));
+        }
+        // Cheapest to move first.
+        stacks.sort_by_key(|(efficiency, _, _)| *efficiency);
+
+        let mut cargo_left = self.cargo.mass();
+        let mut total: i64 = 0;
+        for (efficiency, stack, design) in stacks {
+            let mut efficiency = i64::from(efficiency);
+            if improved_fuel_efficiency {
+                efficiency -= efficiency * 15 / 100;
+            }
+            let capacity = design.cargo_capacity().unwrap_or(0) * stack.count;
+            let carried = cargo_left.min(capacity.max(0));
+            cargo_left -= carried;
+
+            let mass =
+                i64::from(carried) + i64::from(stack.count) * i64::from(design.mass().unwrap_or(0));
+            let scaled = efficiency * i64::from(distance);
+            if mass <= 0 || scaled <= 0 {
+                continue;
+            }
+            total += mass * scaled / 2000;
+        }
+        i32::try_from((total + 9) / 10).unwrap_or(i32::MAX)
+    }
+
+    /// How far the fleet could travel at `warp` on the fuel it has.
+    #[must_use]
+    pub fn fuel_range(
+        &self,
+        designs: &[ShipDesign],
+        warp: u8,
+        improved_fuel_efficiency: bool,
+    ) -> i32 {
+        // The original measures use over a nominal 1000 light years and scales.
+        let per_1000 = self.fuel_use(designs, warp, 1000, improved_fuel_efficiency);
+        if per_1000 <= 0 {
+            return i32::MAX; // a ramscoop at a free warp
+        }
+        i32::try_from(i64::from(self.cargo.fuel) * 1000 / i64::from(per_1000)).unwrap_or(i32::MAX)
+    }
+
     /// Whether any ship in the fleet carries a weapon.
     #[must_use]
     pub fn is_armed(&self, designs: &[ShipDesign]) -> bool {

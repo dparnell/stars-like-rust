@@ -245,3 +245,115 @@ fn fleets_load_and_cost_out_sensibly() {
     assert!(total_fleets > 0, "no fleet loaded from any sample");
     assert!(costed > 0, "no fleet could be costed");
 }
+
+/// Fuel is burned by movement, and never more than a fleet had.
+#[test]
+fn moving_fleets_burn_fuel_they_actually_have() {
+    let root = workspace_root();
+    let path = root.join("fixtures/games/exodus/2424/exodus.m6");
+    let Ok(bytes) = std::fs::read(&path) else {
+        eprintln!("skipping: {} absent", path.display());
+        return;
+    };
+    let file = StarsFile::decode(&bytes).expect("fixture decodes");
+    let (mut state, _) = GameState::from_file(&file);
+
+    let before: std::collections::BTreeMap<u16, i32> =
+        state.fleets.iter().map(|f| (f.id, f.cargo.fuel)).collect();
+    let moving: Vec<u16> = state
+        .fleets
+        .iter()
+        .filter(|f| f.next_leg().is_some())
+        .map(|f| f.id)
+        .collect();
+    assert!(!moving.is_empty(), "the sample should have moving fleets");
+
+    let mut rng = stars_core::rng::Rng::randomize(state.seed);
+    let turn = generate_turn(&mut state, &mut rng);
+    assert!(!turn.moved.is_empty(), "fleets should have moved");
+
+    let mut burned_any = false;
+    for fleet in &state.fleets {
+        let had = before[&fleet.id];
+        assert!(
+            fleet.cargo.fuel <= had,
+            "fleet {} gained fuel by moving: {had} -> {}",
+            fleet.id,
+            fleet.cargo.fuel
+        );
+        assert!(
+            fleet.cargo.fuel >= 0,
+            "fleet {} has negative fuel",
+            fleet.id
+        );
+        if fleet.cargo.fuel < had {
+            burned_any = true;
+        }
+    }
+    assert!(burned_any, "no fleet burned any fuel while moving");
+
+    eprintln!(
+        "{} fleets moved; fuel burned by {} of them",
+        turn.moved.len(),
+        state
+            .fleets
+            .iter()
+            .filter(|f| f.cargo.fuel < before[&f.id])
+            .count()
+    );
+}
+
+/// A ramscoop at a free warp has unlimited range; a thirsty engine does not.
+#[test]
+fn fuel_range_reflects_the_engine_table() {
+    use stars_core::components::slot;
+    use stars_core::design::{DesignSlot, ShipDesign};
+    use stars_core::fleet::{Cargo, Fleet, ShipStack};
+    use stars_core::movement::Point;
+
+    // Design 0: a Long Hump 6 (index 3) in a Scout hull (4).
+    let design = ShipDesign {
+        hull_id: 4,
+        slots: vec![DesignSlot {
+            category: slot::ENGINE,
+            item: 3,
+            count: 1,
+        }],
+    };
+    let designs = vec![design];
+
+    let fleet = Fleet {
+        id: 0,
+        owner: 0,
+        position: Point::new(0, 0),
+        orbiting: None,
+        stacks: vec![ShipStack {
+            design: 0,
+            count: 1,
+            damaged_pct: 0,
+            damage_pct: 0,
+        }],
+        cargo: Cargo {
+            fuel: 300,
+            ..Cargo::default()
+        },
+        battle_plan: 0,
+        warp: None,
+        waypoints: Vec::new(),
+    };
+
+    // Below the engine's free warp nothing is burned, so range is unbounded.
+    let free = fleet.fuel_range(&designs, 1, false);
+    assert_eq!(free, i32::MAX, "a free warp costs nothing");
+
+    // At a warp the engine charges for, range is finite and fuel is burned.
+    let fast = fleet.fuel_use(&designs, 9, 100, false);
+    assert!(fast > 0, "warp 9 should cost fuel, got {fast}");
+
+    // Improved Fuel Efficiency makes the same trip cheaper.
+    let efficient = fleet.fuel_use(&designs, 9, 100, true);
+    assert!(
+        efficient < fast,
+        "IFE should reduce {fast} but gave {efficient}"
+    );
+}

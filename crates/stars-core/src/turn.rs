@@ -103,9 +103,15 @@ pub fn generate_turn(state: &mut GameState, rng: &mut Rng) -> TurnReport {
     };
 
     // --- MoveFleets, which happens before Produce.
-    for fleet in &mut state.fleets {
-        if let Some(travelled) = move_fleet(fleet) {
-            report.moved.push((fleet.id, travelled));
+    for index in 0..state.fleets.len() {
+        let owner = usize::try_from(state.fleets[index].owner).unwrap_or(usize::MAX);
+        let designs = state.designs.get(owner).cloned().unwrap_or_default();
+        let ife = state
+            .players
+            .get(owner)
+            .is_some_and(|p| p.race.has_lrt(crate::race::lrt::IFE));
+        if let Some(travelled) = move_fleet(&mut state.fleets[index], &designs, ife) {
+            report.moved.push((state.fleets[index].id, travelled));
         }
     }
 
@@ -279,12 +285,12 @@ fn run_queue(
 /// stopping exactly on it if that would overshoot. On arrival the waypoint is
 /// consumed, so the following one becomes the next leg.
 ///
-/// Returns the distance travelled, or `None` if the fleet had nowhere to go.
+/// Fuel is deducted, and a fleet that cannot afford the whole leg travels only
+/// as far as its fuel allows and arrives empty — which is what the original
+/// does before dropping the fleet's warp.
 ///
-/// Fuel is **not** deducted: that needs each design's engine and the cargo
-/// assignment across stacks, which the pipeline does not do yet. A fleet
-/// therefore never runs dry, which is the one way this is knowingly generous.
-fn move_fleet(fleet: &mut Fleet) -> Option<i32> {
+/// Returns the distance travelled, or `None` if the fleet had nowhere to go.
+fn move_fleet(fleet: &mut Fleet, designs: &[crate::design::ShipDesign], ife: bool) -> Option<i32> {
     let (target, warp) = fleet.next_leg()?;
     let from = fleet.position;
     let d = distance(from, target);
@@ -292,7 +298,16 @@ fn move_fleet(fleet: &mut Fleet) -> Option<i32> {
         return None;
     }
 
-    let travel = travel_this_year(i16::from(warp), d, None);
+    let range = if designs.is_empty() {
+        None
+    } else {
+        Some(fleet.fuel_range(designs, warp, ife))
+    };
+    let travel = travel_this_year(i16::from(warp), d, range);
+    if travel > 0 && !designs.is_empty() {
+        let burned = fleet.fuel_use(designs, warp, travel, ife);
+        fleet.cargo.fuel = (fleet.cargo.fuel - burned).max(0);
+    }
     let to = advance(from, target, travel);
     fleet.position = to;
 
