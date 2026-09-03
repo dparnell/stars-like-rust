@@ -47,5 +47,8 @@ should trace back to a document here.
 - **Step 3 (planetary economy)** — complete: `formulas/` documents
   habitability, population, mining, resources, scanning and movement, with
   golden vectors in `vectors/planetary-economy.json`.
-- **Step 4** — in progress: production, combat, research and terraforming specs
-  are still to be written.
+- **Step 4 (turn generation)** — well advanced: `formulas/` now also documents
+  the turn order, research, production, ship design, the component tables and
+  combat, and `formats/battle.md` covers the battle recordings. A real saved
+  game loads and generates a turn. The AI players and a fleet model are the
+  main pieces not started.

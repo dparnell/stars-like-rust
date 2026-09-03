@@ -217,46 +217,54 @@ mine-field traversal and stargates.
 - Implement single-player AI opponents (behavior derived from RE + manual).
 - Validate turn output against reference next-turn states via spec vectors (and optionally original-engine reference runs).
 
-**Progress.** Done: the turn pipeline's order (`docs/formulas/turn-order.md`),
-**research** in full, the per-planet **resource and research accounting**, and
-the **component data tables** (engines, armour, shields, scanners, planetary,
-beams, torpedoes), which closed the fuel and scanner-range gaps left open in
-Step 3. `generate_turn` runs the recovered steps and names the rest in
-`TurnReport::skipped`.
+**Progress.**
 
-Remaining, in dependency order:
+Done and verified:
 
-1. **Hull and stock-design tables** (`rghuldef` and friends) — the last of the
-   component data.
-2. **The production build queue** — needs those costs. Auto-build (mines,
-   factories, defenses) is tractable first, since those costs are race
-   attributes.
-3. ~~**The battle recording (VCR) format**~~ — **done.** 47 recordings decode
-   from the Exodus fixture; see `docs/formats/battle.md`.
-4. **Combat** (`battle.c`, ~4000 lines) — *in progress.* The board, starting
-   positions, movement schedule, target scoring, weapon accuracy, damage
-   resolution and the **beam firing loop** are implemented
-   (`docs/formulas/combat.md`). Eight of the eleven replayable beam battles
-   reproduce the recorded casualties exactly, with movement taken from the
-   recording and everything else computed. The movement scoring is transcribed from
-   the disassembly (`ScoreGuessBattleDamage`) and rates the engine's chosen
-   square among its best in 86% of moves against a 71% chance rate. The movement search radius and the
-   target-class filter are in too: 94% of beeline moves close on their target
-   and 92% of scored moves land on a square we rate best, against an 81%
-   chance rate. What remains: torpedo resolution, which needs the RNG in the
-   right state, and the unexplained residual.
-5. **The AI players** (six source files), which depend on nearly all of the
-   above.
+- **The turn pipeline's order** (`docs/formulas/turn-order.md`), recovered from
+  `FGenerateTurn`.
+- **Research** in full — the cost table, the annual advance, field switching,
+  Generalized Research and Super Stealth's theft.
+- **The production queue** — item costs and the per-item build loop, wired into
+  `generate_turn`.
+- **The component tables** — engines, armour, shields, scanners, planetary
+  items, beams, torpedoes, specials, bombs, mining and mine layers, plus the 32
+  ship hulls and 5 starbase hulls.
+- **The ship design layer** — mass, armour, shields, capacities, scanner range
+  and cost derived from a hull and its slots.
+- **The battle recording (VCR) format**, which is what makes combat testable.
+- **Combat** — board, starting positions, movement schedule and search,
+  targeting, weapon accuracy, damage resolution and the beam firing loop.
+- **Loading a real saved game** into a `GameState`, and generating a turn on it.
 
-**The ship-design layer is now in place** (`docs/formulas/design.md`): the 32
-ship hulls and 5 starbase hulls are transcribed alongside the rest of the
-component tables, and `stars_core::design::ShipDesign` derives mass, armour,
-shields, fuel and cargo capacity, scanner range and cost from a hull and its
-slots. Mass is verified against the battle recordings.
+Measured against real save files:
 
-What is still open inside it: battle initiative from battle computers, and the
-stock design tables. The armour computation was read out of `UpdateShdefCost`
-and now reproduces all 493 designs in the sample games exactly.
+| check | result |
+|-------|--------|
+| whole-turn replay: planet population | 87% of 438 planet-years |
+| whole-turn replay: mineral concentrations | 86% |
+| population growth, isolated | 383 of 438 exact, including the fractional accumulator |
+| research | 11 accumulation years and 5 priced breakthroughs, all exact |
+| ship design mass | 73 of 85 battle tokens exact, rest explained by cargo |
+| ship design armour | 493 designs, zero disagreements |
+| battle replay, beam-only | 8 of 11 battles reproduce recorded casualties |
+| battle movement, beeline | 105 of 111 close on their target |
+| battle movement, scored | 379 of 450 among our best-rated (chance 72%) |
+
+Remaining in this step:
+
+1. **The AI players** (`ai.c`, `ai2.c`, `ai3.c`, `ai4.c`, `aiu.c`, `aiutil.c` —
+   roughly 1,800 lines). Not started. Note that AI behaviour is not directly
+   recorded in save files the way battles and populations are, so it will need
+   a different verification approach — most likely replaying an AI player's
+   own turn files and checking the orders it produced.
+2. **Fleets** — the pipeline has no fleet model, so orders, cargo, movement and
+   ship building are all absent. This is the single biggest gap and is what
+   holds the whole-turn replay's mineral and factory figures down.
+3. **Torpedo combat resolution**, which needs the RNG in the right state, and
+   the residual movement-scoring gap (`docs/formulas/combat.md`).
+4. **Terraforming**, which runs before growth in the turn and currently has to
+   be supplied from the recorded files for the differential tests.
 
 ###   Step 5: Build the egui desktop frontend with faithful core screens
 `stars-desktop` runs a playable single-player game on Windows/macOS/Linux with recreated key screens.
