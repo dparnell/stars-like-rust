@@ -277,3 +277,84 @@ fn planetary_item_costs_match_the_manual() {
     // Ship designs are costed elsewhere.
     assert!(planetary_item_cost(999, &humanoid, false).is_none());
 }
+
+/// The build loop's behaviour, from `CBuildProdItem`.
+#[test]
+fn building_completes_whole_units_then_banks_the_rest() {
+    use stars_core::production::{build_item, ItemCost};
+
+    // A factory: 10 resources and 4 germanium.
+    let factory = ItemCost {
+        minerals: [0, 0, 4],
+        resources: 10,
+    };
+
+    // Plenty of everything: build all three outright.
+    let mut have = [0, 0, 100, 100];
+    let out = build_item(factory, 3, 0, &mut have, false);
+    assert_eq!(out.built, 3);
+    assert_eq!(out.remaining, 0);
+    assert_eq!(
+        have,
+        [0, 0, 88, 70],
+        "three factories cost 12 germanium, 30 resources"
+    );
+
+    // Enough for one and part of another: the remainder is banked.
+    let mut have = [0, 0, 100, 15];
+    let out = build_item(factory, 3, 0, &mut have, false);
+    assert_eq!(out.built, 1);
+    assert_eq!(out.remaining, 2);
+    assert!(
+        out.completion_pct > 0 && out.completion_pct < 100,
+        "part of the next factory should be paid for, got {}%",
+        out.completion_pct
+    );
+
+    // Carrying that progress forward finishes it more cheaply.
+    let mut have = [0, 0, 100, 6];
+    let out = build_item(factory, 1, 50, &mut have, false);
+    assert_eq!(out.built, 1, "half-paid, so 5 more resources finishes it");
+
+    // An auto-build item blocked on minerals banks nothing.
+    let mut have = [0, 0, 1, 100];
+    let out = build_item(factory, 2, 0, &mut have, true);
+    assert_eq!(out.built, 0);
+    assert!(out.mineral_blocked);
+    assert_eq!(out.completion_pct, 0, "auto-build does not part-pay");
+    assert_eq!(have, [0, 0, 1, 100], "and spends nothing");
+
+    // The same shortage on a manual item does part-pay.
+    let mut have = [0, 0, 1, 100];
+    let out = build_item(factory, 2, 0, &mut have, false);
+    assert!(out.completion_pct > 0, "a manual item banks what it can");
+    assert!(have[2] < 1 || have[3] < 100, "and spends something");
+}
+
+/// Auto-build keeps pace with what the population can operate.
+#[test]
+fn auto_build_is_capped_by_what_can_be_operated() {
+    use stars_core::production::{auto_build_cap, item};
+
+    let race = Race::humanoid();
+    let mut planet = Planet::unowned(0);
+    planet.owner = Some(0);
+    planet.env = race.env_center;
+    planet.pop = 1000; // 100,000 colonists
+    planet.factories = 0;
+
+    // Ten factories per 10,000 colonists, so 100 for this population.
+    let cap = auto_build_cap(&planet, &race, item::FACTORY);
+    assert!(cap > 0, "a populated planet can add factories");
+
+    // Already at the cap: nothing more to add.
+    planet.factories = i16::try_from(cap).unwrap();
+    assert_eq!(auto_build_cap(&planet, &race, item::FACTORY), 0);
+
+    // The auto-build id and the plain id cost and cap the same.
+    planet.factories = 0;
+    assert_eq!(
+        auto_build_cap(&planet, &race, item::FACTORY),
+        auto_build_cap(&planet, &race, item::FACTORY + item::AUTO_BUILD_BASE)
+    );
+}

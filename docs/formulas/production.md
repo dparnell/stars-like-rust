@@ -100,11 +100,40 @@ A queue item carries partial progress in its `completion` field, so a colony
 earning 2 resources a year does eventually finish a 9-resource factory. Any
 check on what a planet could afford has to allow for one carried item.
 
+## Building an item
+
+From `CBuildProdItem` (`10b8:0c92`):
+
+```
+paid = cost * carried percentage / 100      # progress from previous years
+
+while some are still wanted:
+    if every input covers (cost - paid):
+        complete one; reset paid; continue
+    # cannot finish the next one: pay for as much of it as possible
+    pct = the smallest, over the four inputs, of (available + paid) * 100 / cost
+    if blocked on minerals and this is an auto-build item: stop, banking nothing
+    else: pay pct's worth, bank pct, stop
+```
+
+Whole units are completed while they can be afforded outright; the leftover
+part-pays the next one and is banked as a percentage. That is what lets a
+colony earning 2 resources a year eventually finish a 9-resource factory.
+
+The one asymmetry: an **auto-build** item blocked for want of *minerals* banks
+nothing and stops, rather than part-paying something it cannot finish. Blocked
+on resources it behaves like any other item.
+
+Auto-build mines and factories are additionally capped by what the planet will
+be able to **operate** next year, not by what it could ever hold, so an
+auto-build queue keeps pace with population instead of racing ahead of it.
+
 ## Open questions
 
-- Running the queue itself — deciding how much of the budget each item takes,
-  in what order, and what happens when minerals run out — is still to do. The
-  costs above are the input it needs.
+- Ordering the queue as a whole — which item runs first, how a partially built
+  item is re-inserted at the front, and the alchemy chaining that lets mineral
+  alchemy feed the item behind it — is still to do. The per-item build above is
+  the piece it drives.
 - Starbase upgrades are costed part-by-part against the existing base, with
   full credit for identical components and 80% for same-category
   replacements; that path is read but not implemented.

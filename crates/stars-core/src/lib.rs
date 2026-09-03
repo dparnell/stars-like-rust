@@ -70,7 +70,10 @@ pub use mining::{mine_minerals, minerals_mined, mines_operating};
 pub use movement::{advance, distance, travel_per_year, travel_this_year, FuelStack, Point};
 pub use planet::Planet;
 pub use population::{chg_pop_from_planet, pct_true_max_growth, update_population, PopChange};
-pub use production::{planet_budget, planetary_item_cost, ItemCost, PlanetBudget, QueueItem};
+pub use production::{
+    auto_build_cap, build_item, planet_budget, planetary_item_cost, BuildOutcome, ItemCost,
+    PlanetBudget, QueueItem,
+};
 pub use race::{Prt, Race, RaceStat};
 pub use research::{add_research, tech_level_cost, NextField, Research, TechField};
 pub use resources::{

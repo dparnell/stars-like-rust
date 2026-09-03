@@ -206,3 +206,153 @@ pub fn planetary_item_cost(item: u16, race: &Race, tutorial: bool) -> Option<Ite
         _ => return None,
     })
 }
+
+/// The four things a build consumes: ironium, boranium, germanium, resources.
+pub const COST_PARTS: usize = 4;
+
+/// What one queue item did when the planet tried to build it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BuildOutcome {
+    /// Units completed this year.
+    pub built: i32,
+    /// Units still wanted.
+    pub remaining: i32,
+    /// Progress on the next unit, as a percentage, carried to next year.
+    pub completion_pct: i32,
+    /// Whether the item stopped because minerals ran out rather than
+    /// resources. An auto-build item blocked this way banks nothing.
+    pub mineral_blocked: bool,
+}
+
+/// Try to build `count` of an item from what the planet has available.
+///
+/// Source: `CBuildProdItem` (`10b8:0c92`). Whole units are completed while
+/// they can be afforded outright; when the next one cannot be, as much of it
+/// as possible is paid for and banked as a percentage, so a poor colony
+/// finishes a factory over several years.
+///
+/// `available` is `[ironium, boranium, germanium, resources]` and is debited
+/// in place. `auto_build` marks the automatic queue items, which differ in one
+/// way: if they are blocked for want of **minerals** they bank nothing and
+/// stop, rather than part-paying a unit they cannot finish.
+pub fn build_item(
+    cost: ItemCost,
+    count: i32,
+    completion_pct: i32,
+    available: &mut [i32; COST_PARTS],
+    auto_build: bool,
+) -> BuildOutcome {
+    let unit = [
+        cost.minerals[0],
+        cost.minerals[1],
+        cost.minerals[2],
+        cost.resources,
+    ];
+    // What the carried percentage has already paid for.
+    let mut paid = unit.map(|c| c * completion_pct / 100);
+
+    let mut built = 0;
+    let mut remaining = count.max(0);
+    let mut pct = completion_pct;
+
+    loop {
+        if remaining == 0 {
+            return BuildOutcome {
+                built,
+                remaining,
+                completion_pct: pct,
+                mineral_blocked: false,
+            };
+        }
+
+        // Can the next whole unit be afforded outright?
+        if (0..COST_PARTS).all(|i| available[i] >= unit[i] - paid[i]) {
+            built += 1;
+            remaining -= 1;
+            pct = 0;
+            for i in 0..COST_PARTS {
+                available[i] -= unit[i] - paid[i];
+                paid[i] = 0;
+            }
+            continue;
+        }
+
+        // Not affordable: work out how much of it can be paid for, taking the
+        // most constrained of the four.
+        let mut best = 100;
+        let mut mineral_blocked = false;
+        for i in 0..COST_PARTS {
+            if unit[i] <= 0 {
+                continue;
+            }
+            let mut share = if available[i] < unit[i] {
+                let exact = (available[i] + paid[i]) * 100 / unit[i];
+                // The original nudges up to just under the next percent when
+                // one more unit of input would cross the boundary.
+                let generous = (available[i] + paid[i] + 1) * 100 / unit[i];
+                if exact < generous {
+                    generous - 1
+                } else {
+                    exact
+                }
+            } else {
+                100
+            };
+            if share > 100 {
+                share = 100;
+            }
+            if share < best {
+                best = share;
+                mineral_blocked = i < 3;
+            }
+        }
+
+        if mineral_blocked && auto_build {
+            // An auto-build item does not part-pay for something it cannot
+            // finish for want of minerals.
+            return BuildOutcome {
+                built,
+                remaining,
+                completion_pct: pct,
+                mineral_blocked: true,
+            };
+        }
+
+        for i in 0..COST_PARTS {
+            let add = unit[i] * best / 100 - paid[i];
+            available[i] -= add;
+            paid[i] += add;
+        }
+        return BuildOutcome {
+            built,
+            remaining,
+            completion_pct: best,
+            mineral_blocked,
+        };
+    }
+}
+
+/// How many of an auto-build installation a planet may still add.
+///
+/// Auto-build mines, factories and defences are capped by what the planet will
+/// be able to *operate* next year, not by what it could ever hold — which is
+/// why an auto-build queue keeps pace with population rather than racing ahead
+/// of it.
+#[must_use]
+pub fn auto_build_cap(planet: &Planet, race: &Race, item: u16) -> i32 {
+    use crate::resources::{max_operable_factories, max_operable_mines};
+
+    let item = if item >= item::AUTO_BUILD_BASE {
+        item - item::AUTO_BUILD_BASE
+    } else {
+        item
+    };
+    let cap = match item {
+        item::MINE => i32::from(max_operable_mines(planet, race, true)) - i32::from(planet.mines),
+        item::FACTORY => {
+            i32::from(max_operable_factories(planet, race, true)) - i32::from(planet.factories)
+        }
+        _ => return 1000,
+    };
+    cap.max(0)
+}
