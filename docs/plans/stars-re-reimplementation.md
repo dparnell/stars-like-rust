@@ -245,7 +245,10 @@ Measured against real save files:
 |-------|--------|
 | whole-turn replay: planet population | 87% of 438 planet-years |
 | whole-turn replay: mineral concentrations | 86% |
+| whole-turn replay: mines / factories | 67% / 71% |
+| whole-turn replay: surface minerals | 27% |
 | whole-turn replay: fleet positions | 378 of 438 exact |
+| computer players identified | 3 games, all players, exact |
 | population growth, isolated | 383 of 438 exact, including the fractional accumulator |
 | research | 11 accumulation years and 5 priced breakthroughs, all exact |
 | ship design mass | 73 of 85 battle tokens exact, rest explained by cargo |
@@ -256,15 +259,20 @@ Measured against real save files:
 
 Remaining in this step:
 
-1. **The AI players** (`ai.c`, `ai2.c`, `ai3.c`, `ai4.c`, `aiu.c`, `aiutil.c` —
-   roughly 1,800 lines). Not started. Note that AI behaviour is not directly
-   recorded in save files the way battles and populations are, so it will need
-   a different verification approach — most likely replaying an AI player's
-   own turn files and checking the orders it produced.
+1. **The AI players** — identification done, behaviour blocked on fixtures.
+   Which player is a computer opponent, and which of the seven personalities
+   runs it, is decoded in `stars-core::ai` and tested against the saves. The
+   decision-making — roughly 95 functions, and the reconstructed C for it is
+   almost entirely stubs — is mapped in `docs/formulas/ai.md` but not written.
+   The blocker is verification, not effort: the fixtures hold two computer
+   players, both the same personality, across one turn transition, whereas
+   every other subsystem was checked against hundreds of samples. That document
+   states exactly what corpus would unblock it.
 2. **Orders beyond movement** — cargo transfer, colonisation and remote mining
    are decoded by the format layer but not processed, and ship building cannot
-   turn a finished design into a fleet. This is what holds the whole-turn
-   replay's surface-mineral figure at 19% and the factory figure at 53%.
+   turn a finished design into a fleet. This is now the largest single gap in
+   the whole-turn replay: it holds surface minerals at 27% and factories at
+   71%.
 3. **Torpedo combat resolution**, which needs the RNG in the right state, and
    the residual movement-scoring gap (`docs/formulas/combat.md`).
 4. **Terraforming**, which runs before growth in the turn and currently has to

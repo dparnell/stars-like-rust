@@ -45,6 +45,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod ai;
 pub mod battle;
 pub mod components;
 pub mod design;
@@ -102,6 +103,12 @@ pub struct Player {
     pub research_last_year: i32,
     /// Whether the player has been eliminated.
     pub dead: bool,
+    /// Whether a person or one of the built-in opponents plays this slot.
+    ///
+    /// Defaults to [`ai::Control::Human`], which is the safe reading for a
+    /// player whose record was not in the file: the engine waits for orders
+    /// rather than inventing them.
+    pub control: ai::Control,
 }
 
 impl Player {
@@ -115,6 +122,7 @@ impl Player {
             research_pct: 15,
             research_last_year: 0,
             dead: false,
+            control: ai::Control::Human,
         }
     }
 }

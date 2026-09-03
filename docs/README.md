@@ -48,7 +48,9 @@ should trace back to a document here.
   habitability, population, mining, resources, scanning and movement, with
   golden vectors in `vectors/planetary-economy.json`.
 - **Step 4 (turn generation)** — well advanced: `formulas/` now also documents
-  the turn order, research, production, ship design, the component tables and
-  combat, and `formats/battle.md` covers the battle recordings. A real saved
-  game loads and generates a turn. The AI players and a fleet model are the
-  main pieces not started.
+  the turn order, research, production, ship design, the component tables,
+  combat and the computer players, and `formats/battle.md` covers the battle
+  recordings. A real saved game loads and generates a turn. Orders beyond
+  movement and a fleet model are the main pieces not started; `formulas/ai.md`
+  explains why the AI's decision-making is blocked on fixtures rather than on
+  effort.

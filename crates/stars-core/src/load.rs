@@ -246,6 +246,7 @@ impl GameState {
                 }
                 if let Some(race) = record.race.as_ref() {
                     let mut player = Player::new(race_from_record(race));
+                    player.control = crate::ai::Control::from_flags(record.flags_byte);
                     player.research_pct = race.research_percentage;
                     if let Some(research) = record.research {
                         player.research = Research {
