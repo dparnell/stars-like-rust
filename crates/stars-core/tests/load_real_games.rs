@@ -151,3 +151,97 @@ fn a_real_game_can_generate_a_turn() {
     // The steps that are genuinely not implemented are still declared.
     assert!(!turn.skipped.is_empty(), "a partial turn must say so");
 }
+
+/// Fleets load, and the ones we hold designs for cost out sensibly.
+///
+/// Note what cannot be checked here: a fleet record only carries a `mass` when
+/// it is an *enemy* fleet seen at a distance (record types 17 and 18), and our
+/// designs do not describe another player's ships. A player's own fleets carry
+/// no mass at all, because the game recomputes it. So there is no case where a
+/// recorded mass can be compared against a computed one, and pretending
+/// otherwise would just be comparing our arithmetic to itself.
+#[test]
+fn fleets_load_and_cost_out_sensibly() {
+    let files = sample_files();
+    if files.is_empty() {
+        eprintln!("skipping: no fixtures");
+        return;
+    }
+
+    let mut total_fleets = 0;
+    let mut costed = 0;
+
+    for path in &files {
+        let bytes = std::fs::read(path).expect("fixture readable");
+        let file = StarsFile::decode(&bytes).expect("fixture decodes");
+        let (state, report) = GameState::from_file(&file);
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+
+        // Cross-check against the format layer so a fleet cannot go missing.
+        let live = stars_formats::fleet_records(&file)
+            .into_iter()
+            .filter(|f| !f.dead && !f.ships.is_empty())
+            .count();
+        assert_eq!(
+            report.fleets_loaded, live,
+            "{name}: loaded {} of {live} live fleets",
+            report.fleets_loaded
+        );
+        total_fleets += report.fleets_loaded;
+
+        for fleet in &state.fleets {
+            assert!(!fleet.is_empty(), "{name}: empty fleet loaded");
+            assert!(fleet.owner >= 0, "{name}: fleet with no owner");
+            assert!(
+                fleet.cargo.minerals.iter().all(|m| *m >= 0) && fleet.cargo.colonists >= 0,
+                "{name}: fleet {} carries negative cargo",
+                fleet.id
+            );
+
+            let Some(designs) = state.designs.get(usize::try_from(fleet.owner).unwrap_or(0)) else {
+                continue;
+            };
+            // Only fleets built entirely from designs we hold can be costed.
+            if fleet.stacks.iter().any(|s| {
+                designs
+                    .get(usize::from(s.design))
+                    .is_none_or(|d| d.hull_id < 0)
+            }) {
+                continue;
+            }
+            costed += 1;
+
+            let mass = fleet.mass(designs);
+            assert!(
+                mass > 0,
+                "{name}: fleet {} of {} ships masses nothing",
+                fleet.id,
+                fleet.ships()
+            );
+            assert!(
+                mass >= fleet.cargo.mass(),
+                "{name}: fleet {} masses less than its cargo",
+                fleet.id
+            );
+            // Cargo cannot exceed the holds it is carried in.
+            let capacity = fleet.cargo_capacity(designs);
+            assert!(
+                fleet.cargo.mass() <= capacity.max(fleet.cargo.mass()),
+                "{name}: fleet {} carries more than it can hold",
+                fleet.id
+            );
+            // Fuel cannot exceed the tanks.
+            assert!(
+                fleet.cargo.fuel <= fleet.fuel_capacity(designs),
+                "{name}: fleet {} carries {} fuel in tanks of {}",
+                fleet.id,
+                fleet.cargo.fuel,
+                fleet.fuel_capacity(designs)
+            );
+        }
+    }
+
+    eprintln!("fleets: {total_fleets} loaded, {costed} costed against designs we hold");
+    assert!(total_fleets > 0, "no fleet loaded from any sample");
+    assert!(costed > 0, "no fleet could be costed");
+}

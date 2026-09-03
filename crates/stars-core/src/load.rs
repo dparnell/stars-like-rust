@@ -15,6 +15,8 @@
 //! loader takes what is there and leaves the rest out rather than inventing
 //! it — [`LoadReport`] says what was skipped.
 
+use crate::fleet::{Cargo, Fleet, ShipStack};
+use crate::movement::Point;
 use crate::planet::Planet;
 use crate::production::QueueItem;
 use crate::race::{Prt, Race, RaceStat};
@@ -22,8 +24,8 @@ use crate::research::{NextField, Research, TECH_FIELDS};
 use crate::{GameState, Player};
 
 use stars_formats::{
-    planet_records_in, player_records_in, production_queue_records, DesignRecord, PlanetRecord,
-    RaceRecord, StarsFile,
+    fleet_records, planet_records_in, player_records_in, production_queue_records, DesignRecord,
+    FleetRecord, PlanetRecord, RaceRecord, StarsFile,
 };
 
 /// What a load did and did not manage to include.
@@ -38,6 +40,8 @@ pub struct LoadReport {
     pub players_loaded: usize,
     /// Ship and starbase designs loaded.
     pub designs_loaded: usize,
+    /// Fleets loaded.
+    pub fleets_loaded: usize,
 }
 
 /// Convert a decoded race record into the simulation's race.
@@ -141,6 +145,61 @@ pub fn planet_from_record(record: &PlanetRecord) -> Option<Planet> {
     })
 }
 
+/// Convert a decoded fleet record.
+///
+/// A fleet seen only at a distance carries no ship list; those are skipped,
+/// because a fleet with no stacks is not something the simulation can act on.
+#[must_use]
+pub fn fleet_from_record(record: &FleetRecord) -> Option<Fleet> {
+    if record.dead || record.ships.is_empty() {
+        return None;
+    }
+    let cargo = record.cargo.map_or(Cargo::default(), |c| Cargo {
+        minerals: [
+            i32::try_from(c.ironium).unwrap_or(0),
+            i32::try_from(c.boranium).unwrap_or(0),
+            i32::try_from(c.germanium).unwrap_or(0),
+        ],
+        colonists: i32::try_from(c.population).unwrap_or(0),
+        fuel: i32::try_from(c.fuel).unwrap_or(0),
+    });
+
+    // Damage is recorded per design slot, so it is matched onto the stacks.
+    let damage_for = |slot: u8| -> (i32, i32) {
+        record
+            .damage
+            .iter()
+            .find(|d| d.design_slot == slot)
+            .map_or((0, 0), |d| (i32::from(d.ships_pct), i32::from(d.armor_pct)))
+    };
+
+    Some(Fleet {
+        id: record.id,
+        owner: i16::from(record.owner),
+        position: Point::new(
+            i16::try_from(record.x).unwrap_or(0),
+            i16::try_from(record.y).unwrap_or(0),
+        ),
+        orbiting: record.orbiting,
+        stacks: record
+            .ships
+            .iter()
+            .map(|s| {
+                let (damaged_pct, damage_pct) = damage_for(s.design_slot);
+                ShipStack {
+                    design: s.design_slot,
+                    count: i32::from(s.count),
+                    damaged_pct,
+                    damage_pct,
+                }
+            })
+            .collect(),
+        cargo,
+        battle_plan: record.battle_plan.unwrap_or(0),
+        warp: record.warp,
+    })
+}
+
 /// Convert a decoded design record.
 #[must_use]
 pub fn design_from_record(record: &DesignRecord) -> crate::design::ShipDesign {
@@ -231,9 +290,36 @@ impl GameState {
                 .collect();
         }
 
-        report.designs_loaded = stars_formats::design_records(file)
-            .map(|d| d.len())
-            .unwrap_or(0);
+        // Designs, indexed by owner and then by design slot.
+        if let Ok(designs) = stars_formats::design_records(file) {
+            report.designs_loaded = designs.len();
+            for record in &designs {
+                if !record.full_design || record.starbase {
+                    continue;
+                }
+                // A player file carries its own designs and any it has learned;
+                // index them by slot for the file's own player.
+                let owner = usize::from(segment.header.player).min(15);
+                if state.designs.len() <= owner {
+                    state.designs.resize_with(owner + 1, Vec::new);
+                }
+                let slot = usize::from(record.design_number);
+                if state.designs[owner].len() <= slot {
+                    state.designs[owner].resize_with(slot + 1, || crate::design::ShipDesign {
+                        hull_id: -1,
+                        slots: Vec::new(),
+                    });
+                }
+                state.designs[owner][slot] = design_from_record(record);
+            }
+        }
+
+        for record in fleet_records(file) {
+            if let Some(fleet) = fleet_from_record(&record) {
+                state.fleets.push(fleet);
+                report.fleets_loaded += 1;
+            }
+        }
 
         (state, report)
     }

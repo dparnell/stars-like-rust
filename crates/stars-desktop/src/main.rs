@@ -71,8 +71,8 @@ fn summarise(path: &str, file: &StarsFile, state: &GameState, report: &stars_cor
         );
     }
     println!(
-        "  {} planets simulated, {} known only at a distance, {} designs",
-        report.planets_loaded, report.planets_partial, report.designs_loaded
+        "  {} planets simulated, {} known only at a distance, {} designs, {} fleets",
+        report.planets_loaded, report.planets_partial, report.designs_loaded, report.fleets_loaded
     );
 
     for (i, player) in state.players.iter().enumerate() {
@@ -90,8 +90,20 @@ fn summarise(path: &str, file: &StarsFile, state: &GameState, report: &stars_cor
             .filter(|p| p.owner == i16::try_from(i).ok())
             .map(|p| p.colonists())
             .sum();
+        let fleets = state
+            .fleets
+            .iter()
+            .filter(|f| f.owner == i16::try_from(i).unwrap_or(-1))
+            .count();
+        let ships: i32 = state
+            .fleets
+            .iter()
+            .filter(|f| f.owner == i16::try_from(i).unwrap_or(-1))
+            .map(stars_core::Fleet::ships)
+            .sum();
         println!(
-            "  player {i}: {owned} planets, {pop} colonists, tech {:?}, {}% to research",
+            "  player {i}: {owned} planets, {pop} colonists, {fleets} fleets ({ships} ships), \
+             tech {:?}, {}% to research",
             player.research.levels, player.research_pct
         );
     }
