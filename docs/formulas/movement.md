@@ -88,9 +88,11 @@ Captured at: `../vectors/planetary-economy.json` (`movement`).
 
 ## Open questions
 
-- Engine fuel-use tables live in the components data, which is not yet decoded;
-  the fuel function is therefore parameterised by the caller rather than
-  looking parts up itself.
+- ~~Engine fuel-use tables live in the components data, which is not yet
+  decoded.~~ **Resolved in Step 4:** `rgengine` is transcribed in
+  `components.md` and `movement::engine_fuel_use` reads it. `fuel_used` is
+  still parameterised by the caller, because assigning cargo to designs needs
+  the hull table.
 - Mine-field traversal (`FTravelThroughMineFields`, `10b0:4f60`), stargates and
   the chase loop are specified only in outline here; they belong with order
   processing in Step 4.

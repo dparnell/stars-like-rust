@@ -9,6 +9,7 @@
 //! space; a **penetrating** range additionally sees through planets, revealing
 //! orbiting fleets and sub-surface mineral concentrations.
 
+use crate::components::best_planetary_scanner;
 use crate::planet::Planet;
 use crate::race::{lrt, Race};
 
@@ -93,4 +94,24 @@ pub fn planet_scanner_range(
         normal,
         penetrating,
     }
+}
+
+/// The scanning range of a planet, looking the owner's best planetary scanner
+/// up from their technology levels.
+///
+/// This is [`planet_scanner_range`] with the component lookup done for you; it
+/// is what the turn engine uses.
+#[must_use]
+pub fn planet_scanner_range_for_tech(
+    planet: &Planet,
+    race: &Race,
+    tech_levels: &[u8; 6],
+    has_scanner: bool,
+) -> ScannerRange {
+    let best = if has_scanner {
+        best_planetary_scanner(tech_levels).map(|p| i32::from(p.ability))
+    } else {
+        None
+    };
+    planet_scanner_range(planet, race, best)
 }

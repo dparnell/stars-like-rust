@@ -93,6 +93,17 @@ pub fn advance(from: Point, to: Point, travel: i32) -> Point {
     }
 }
 
+/// The fuel an engine burns at a given warp, from the component table.
+///
+/// A zero result means the engine runs free at that speed — which is how
+/// ramscoops, and the low warps of ordinary engines, are expressed.
+#[must_use]
+pub fn engine_fuel_use(engine_id: i16, warp: i16) -> Option<i32> {
+    let engine = crate::components::engine(engine_id)?;
+    let index = usize::try_from(warp).ok()?;
+    engine.fuel_used.get(index).map(|f| i32::from(*f))
+}
+
 /// One ship design's contribution to a fleet's fuel burn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FuelStack {

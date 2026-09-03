@@ -1,0 +1,49 @@
+{
+  "$comment": [
+    "Component-table entries captured directly out of stars.2.7j.exe, to hold",
+    "the transcribed tables in crates/stars-core/src/components.rs honest.",
+    "Each case records the address the bytes were read from, the raw little-endian",
+    "bytes as hex, and the decoded fields. Regenerate by reading the same address",
+    "with the Ghidra bridge applied (docs/ghidra/README.md).",
+    "Layout: every component starts with id (2), tech levels (6), name (32),",
+    "mass (2), resource cost (2), ore cost (6), bitmap index (2), then",
+    "type-specific fields."
+  ],
+  "cases": [
+    {
+      "table": "ENGINES", "index": 0, "address": "1008:0000",
+      "hex": "0100000000000000536574746c657227732044656c69676874000000000000000000000000000000020002000100000001000800010000000000000000000000000000008c001301e00140020000",
+      "expect": {
+        "id": 1, "name": "Settler's Delight", "tech": [0, 0, 0, 0, 0, 0],
+        "mass": 2, "resource_cost": 2, "ore_cost": [1, 0, 1], "abilities": 1,
+        "fuel_used": [0, 0, 0, 0, 0, 0, 0, 140, 275, 480, 576, 0]
+      }
+    },
+    {
+      "table": "ARMORS", "index": 0, "address": "1008:04e0",
+      "hex": "010000000000000054726974616e69756d00000000000000000000000000000000000000000000003c000a0005000000000040003200",
+      "expect": {
+        "id": 1, "name": "Tritanium", "tech": [0, 0, 0, 0, 0, 0],
+        "mass": 60, "resource_cost": 10, "ore_cost": [5, 0, 0], "dp": 50
+      }
+    },
+    {
+      "table": "BEAMS", "index": 0, "address": "1008:2450",
+      "hex": "01000000000000004c61736572000000000000000000000000000000000000000000000000000000010005000000060000001c0001000a0009000000",
+      "expect": {
+        "id": 1, "name": "Laser", "tech": [0, 0, 0, 0, 0, 0],
+        "mass": 1, "resource_cost": 5, "ore_cost": [0, 6, 0],
+        "range_max": 1, "dp": 10, "initiative": 9, "abilities": 0
+      }
+    },
+    {
+      "table": "PLANETARY", "index": 5, "address": "1008:17c6",
+      "$comment": "A penetrating scanner: the stored range is negative and the penetrating range is half its magnitude.",
+      "hex": "0600030000000a03536e6f6f70657220333230580000000000000000000000000000000000000000000064000a000a0046005400c0fe",
+      "expect": {
+        "id": 6, "name": "Snooper 320X", "tech": [3, 0, 0, 0, 10, 3],
+        "mass": 0, "resource_cost": 100, "ore_cost": [10, 10, 70], "ability": -320
+      }
+    }
+  ]
+}

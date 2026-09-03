@@ -45,6 +45,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod components;
 pub mod hab;
 pub mod mining;
 pub mod movement;

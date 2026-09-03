@@ -74,5 +74,8 @@ Captured at: `../vectors/planetary-economy.json` (`scanning`).
   per-design path must be read from our binary directly when ship designs land
   in Step 5. The combination rule itself is confirmed by the manual and is
   implemented.
-- The stored ranges of individual scanner parts come from the components table,
-  which is not yet decoded.
+- ~~The stored ranges of individual scanner parts come from the components
+  table, which is not yet decoded.~~ **Resolved in Step 4:** the scanner and
+  planetary tables are transcribed in `components.md`, and
+  `scanning::planet_scanner_range_for_tech` looks the best planetary scanner up
+  from a player's technology levels.

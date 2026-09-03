@@ -209,12 +209,36 @@ resource model, per-design scanner ranges, and engine fuel-use tables — plus
 mine-field traversal and stargates.
 
 ### * Step 4: Implement turn generation, combat, research, and AI
+
 `stars-core` can advance a full game turn from player orders and play single-player against AI.
 
 - Implement the order/turn-processing pipeline: `generate_turn(state, orders) -> state`.
 - Reverse-engineer and implement combat resolution and the research/tech-advance system with RNG fidelity.
 - Implement single-player AI opponents (behavior derived from RE + manual).
 - Validate turn output against reference next-turn states via spec vectors (and optionally original-engine reference runs).
+
+**Progress.** Done: the turn pipeline's order (`docs/formulas/turn-order.md`),
+**research** in full, the per-planet **resource and research accounting**, and
+the **component data tables** (engines, armour, shields, scanners, planetary,
+beams, torpedoes), which closed the fuel and scanner-range gaps left open in
+Step 3. `generate_turn` runs the recovered steps and names the rest in
+`TurnReport::skipped`.
+
+Remaining, in dependency order:
+
+1. **Hull and stock-design tables** (`rghuldef` and friends) — the last of the
+   component data.
+2. **The production build queue** — needs those costs. Auto-build (mines,
+   factories, defenses) is tractable first, since those costs are race
+   attributes.
+3. **The battle recording (VCR) format**, block type 31 `rtBtlData`. The
+   fixtures contain 40+ recorded battles, so decoding this format is what makes
+   combat *verifiable* rather than merely plausible — the same
+   differential-testing route every other subsystem took.
+4. **Combat** itself (`battle.c`, ~4000 lines), replayed against those
+   recordings.
+5. **The AI players** (six source files), which depend on nearly all of the
+   above.
 
 ###   Step 5: Build the egui desktop frontend with faithful core screens
 `stars-desktop` runs a playable single-player game on Windows/macOS/Linux with recreated key screens.

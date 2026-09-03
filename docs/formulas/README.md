@@ -31,6 +31,7 @@ The PRNG that mining and the turn pipeline draw from is specified separately in
 | `turn-order.md` | The order a year happens in | verified |
 | `research.md` | Tech costs, the annual advance, Generalized Research | verified |
 | `production.md` | Resource/research split; the build queue | in progress |
+| `components.md` | The component data tables (engines, weapons, scanners, …) | verified |
 
 Still to come in Step 4:
 
