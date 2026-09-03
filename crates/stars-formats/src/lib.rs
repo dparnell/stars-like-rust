@@ -76,7 +76,7 @@ pub use block::{
 };
 pub use crypt::{StarsRng, PRIMES};
 pub use design::{design_records, DesignRecord, Slot};
-pub use file::{StarsFile, FILE_FOOTER_BLOCK};
+pub use file::{Segment, StarsFile, FILE_FOOTER_BLOCK};
 pub use fleet::{fleet_records, Cargo, FleetRecord, ShipDamage, ShipStack};
 pub use header::{FileHeader, FileType};
 pub use history::{history_header, HistoryHeader};
@@ -87,9 +87,10 @@ pub use orders::{
     WaypointOrder, LOG_HEADER_BLOCK,
 };
 pub use planet::{
-    planet_records, Concentration, Environment, Installations, Minerals, PlanetRecord, Starbase,
+    planet_records, planet_records_in, Concentration, Environment, Installations, Minerals,
+    PlanetRecord, Starbase,
 };
-pub use player::{player_records, PlayerRecord, ResearchState};
+pub use player::{player_records, player_records_in, PlayerRecord, ResearchState};
 pub use production::{production_queue_records, ProductionQueueRecord, QueueItem};
 pub use race::{Economy, HabRange, Lrt, Prt, RaceRecord};
 pub use records::{planet_headers, PlanetHeader, MINIMAL_PLANET_LEN};

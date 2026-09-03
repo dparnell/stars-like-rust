@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use stars_core::race::{Race, RaceStat};
 use stars_core::research::{tech_level_cost, NextField, Research, TECH_FIELDS};
-use stars_formats::{player_records, ResearchState, StarsFile};
+use stars_formats::{player_records_in, ResearchState, StarsFile};
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -26,7 +26,8 @@ fn workspace_root() -> PathBuf {
 fn load(path: &Path, player: u8) -> Option<(Race, ResearchState)> {
     let bytes = std::fs::read(path).ok()?;
     let file = StarsFile::decode(&bytes).ok()?;
-    let players = player_records(&file).ok()?;
+    // Read the current turn, not an older one still sitting in the file.
+    let players = player_records_in(file.segment_blocks(file.latest_segment())).ok()?;
     let record = players.iter().find(|p| p.player_number == player)?;
     let race = record.race.as_ref()?;
     Some((to_core_race(race), record.research?))

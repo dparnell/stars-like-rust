@@ -368,7 +368,17 @@ impl PlanetRecord {
 /// For a host file this yields one [`PlanetRecord`] per galaxy planet.
 #[must_use]
 pub fn planet_records(file: &StarsFile) -> Vec<PlanetRecord> {
-    file.blocks
+    planet_records_in(&file.blocks)
+}
+
+/// Decode every planet record in a slice of blocks.
+///
+/// Use this with [`StarsFile::segment_blocks`] when a file holds more than one
+/// concatenated turn: passing the whole file would mix the turns together, and
+/// the older one comes first.
+#[must_use]
+pub fn planet_records_in(blocks: &[crate::block::Block]) -> Vec<PlanetRecord> {
+    blocks
         .iter()
         .filter_map(|b| {
             let type_id = match b.block_type() {

@@ -170,3 +170,32 @@ distinct turn value.
 - `.rN` race file layout — **decoded** from `fixtures/r/` (see `race-r.md`): a
   single type-6 block holding habitability, growth, economy, research, PRT and
   LRTs.
+
+## A file can contain several files
+
+A `.mN` may hold more than one complete Stars! file, one after another: header,
+blocks, footer, then another header. It happens when a player receives a new
+turn before opening the previous one — the new turn is **appended** rather than
+replacing what is already there.
+
+`fixtures/games/exodus/2416/exodus.m6` is one: 297 blocks, with a file header at
+index 0 (turn 15, player 5) and another at index 147 (turn 16, player 5).
+
+This matters because the keystream is seeded from the header's game id, salt,
+turn and player. **Each segment must be decrypted with its own keystream.**
+Decrypting the whole stream from the first header produces correct bytes for
+the first segment and noise for everything after it.
+
+That bug survived in this project until delivery Step 4 because it is invisible
+to a round-trip test: re-encrypting the noise with the same wrong keystream
+reproduces the input byte-for-byte. It was found only when the battle records —
+which happen to sit at the very start of a segment — decoded as high-entropy
+garbage in exactly those files that carry two turns.
+
+The lesson generalises: `write(read(x)) == x` proves the container is
+*reversible*, not that it was *understood*. Semantic checks on decoded content
+are what catch this class of error.
+
+`StarsFile::segments` exposes the boundaries; `StarsFile::latest_segment` is
+the current turn. `planet_records_in` and `player_records_in` take a block
+slice so callers can decode one segment rather than mixing turns together.

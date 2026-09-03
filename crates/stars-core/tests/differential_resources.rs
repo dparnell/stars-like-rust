@@ -31,7 +31,7 @@ use std::path::{Path, PathBuf};
 use stars_core::planet::Planet;
 use stars_core::race::{Prt as CorePrt, Race, RaceStat};
 use stars_core::resources::resources_at_planet;
-use stars_formats::{planet_records, player_records, PlanetRecord, StarsFile};
+use stars_formats::{planet_records_in, player_records_in, PlanetRecord, StarsFile};
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -143,7 +143,9 @@ fn exodus_research_allocation_is_bounded_by_our_resource_output() {
         let (Ok(f0), Ok(f1)) = (StarsFile::decode(&b0), StarsFile::decode(&b1)) else {
             continue;
         };
-        let (Ok(p0), Ok(p1)) = (player_records(&f0), player_records(&f1)) else {
+        let b0 = f0.segment_blocks(f0.latest_segment());
+        let b1 = f1.segment_blocks(f1.latest_segment());
+        let (Ok(p0), Ok(p1)) = (player_records_in(b0), player_records_in(b1)) else {
             continue;
         };
         let Some(rec0) = p0.iter().find(|p| p.player_number == 5) else {
@@ -162,7 +164,7 @@ fn exodus_research_allocation_is_bounded_by_our_resource_output() {
         let mut total = 0i32;
         let mut skim = 0i32;
         let mut owned = 0;
-        for record in planet_records(&f0) {
+        for record in planet_records_in(b0) {
             if record.owner != Some(5) {
                 continue;
             }

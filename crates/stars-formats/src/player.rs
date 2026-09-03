@@ -242,7 +242,18 @@ fn decode_short_names(data: &[u8]) -> (String, String) {
 /// # Errors
 /// Returns [`FormatError::Malformed`] if any player block is malformed.
 pub fn player_records(file: &StarsFile) -> Result<Vec<PlayerRecord>> {
-    file.blocks
+    player_records_in(&file.blocks)
+}
+
+/// Decode every player record in a slice of blocks.
+///
+/// Use this with [`StarsFile::segment_blocks`] when a file holds more than one
+/// concatenated turn.
+///
+/// # Errors
+/// Propagates [`PlayerRecord::from_payload`] errors.
+pub fn player_records_in(blocks: &[crate::block::Block]) -> Result<Vec<PlayerRecord>> {
+    blocks
         .iter()
         .filter(|b| b.type_id == 6)
         .map(|b| PlayerRecord::from_payload(&b.data))

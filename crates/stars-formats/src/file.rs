@@ -4,11 +4,26 @@
 //!
 //! 1. [`crate::block`] splits the raw bytes into framed blocks (plaintext
 //!    headers, verbatim payloads).
-//! 2. [`crate::header::FileHeader`] parses the first block and seeds the
+//! 2. [`crate::header::FileHeader`] parses each header block and seeds the
 //!    [`crate::crypt::StarsRng`].
 //! 3. Every block other than the plaintext header ([`FILE_HEADER_BLOCK`]) and
-//!    footer ([`FILE_FOOTER_BLOCK`]) has its payload run through the keystream,
-//!    which advances continuously across the file.
+//!    footer ([`FILE_FOOTER_BLOCK`]) has its payload run through the keystream.
+//!
+//! ## Files can contain more than one file
+//!
+//! A `.mN` can hold several complete Stars! files back to back — header,
+//! blocks, footer, then another header. It happens when a player receives a
+//! new turn before opening the previous one: the new turn is appended rather
+//! than replacing what is there. `fixtures/games/exodus/2416/exodus.m6` is one,
+//! carrying turns 15 and 16 for player 5.
+//!
+//! This matters because the keystream is seeded from the header's game id,
+//! salt, turn and player, so **each segment must be decrypted with its own
+//! keystream**. Decrypting the whole file from the first header yields correct
+//! bytes for the first segment and noise for the rest — and, because
+//! re-encrypting with the same wrong keystream reproduces the input, a
+//! round-trip test cannot detect it. [`StarsFile::segments`] exposes the
+//! boundaries.
 //!
 //! [`StarsFile::decode`] yields blocks with **decrypted** payloads;
 //! [`StarsFile::encode`] reverses the process and, for real game files, is
@@ -32,14 +47,30 @@ use crate::{FormatError, Result};
 /// year (`.m`/`.hst`) or a checksum (`.r`).
 pub const FILE_FOOTER_BLOCK: u8 = 0;
 
+/// One complete Stars! file within a (possibly concatenated) stream.
+#[derive(Debug, Clone)]
+pub struct Segment {
+    /// The parsed header that starts this segment and seeds its keystream.
+    pub header: FileHeader,
+    /// Index of this segment's header block within [`StarsFile::blocks`].
+    pub start: usize,
+    /// One past the index of this segment's last block.
+    pub end: usize,
+}
+
 /// A decoded Stars! file: its parsed [`FileHeader`] and its blocks with
 /// **decrypted** payloads (the header and footer blocks are kept verbatim).
 #[derive(Debug, Clone)]
 pub struct StarsFile {
-    /// The parsed file-header block.
+    /// The parsed header of the **first** segment.
+    ///
+    /// Most files have exactly one segment; see [`StarsFile::segments`] when
+    /// they do not.
     pub header: FileHeader,
     /// All blocks in file order, with non-header/footer payloads decrypted.
     pub blocks: Vec<Block>,
+    /// The concatenated files this stream holds, in order. Always at least one.
+    pub segments: Vec<Segment>,
 }
 
 impl StarsFile {
@@ -65,11 +96,27 @@ impl StarsFile {
         }
 
         let header = FileHeader::parse(&first.data)?;
-        let mut rng = header.init_rng();
 
         let mut blocks = Vec::with_capacity(raw.len());
-        for block in raw {
-            if is_plaintext(block.type_id) {
+        let mut segments: Vec<Segment> = Vec::new();
+        // Seeded afresh at every header block, because the seed is derived from
+        // that header's turn and player.
+        let mut rng = header.init_rng();
+
+        for (index, block) in raw.into_iter().enumerate() {
+            if block.type_id == FILE_HEADER_BLOCK {
+                let parsed = FileHeader::parse(&block.data)?;
+                rng = parsed.init_rng();
+                if let Some(previous) = segments.last_mut() {
+                    previous.end = index;
+                }
+                segments.push(Segment {
+                    header: parsed,
+                    start: index,
+                    end: index,
+                });
+                blocks.push(block);
+            } else if is_plaintext(block.type_id) {
                 blocks.push(block);
             } else {
                 let data = rng.apply(&block.data);
@@ -77,7 +124,38 @@ impl StarsFile {
             }
         }
 
-        Ok(Self { header, blocks })
+        if let Some(last) = segments.last_mut() {
+            last.end = blocks.len();
+        }
+
+        Ok(Self {
+            header,
+            blocks,
+            segments,
+        })
+    }
+
+    /// The concatenated files this stream holds.
+    ///
+    /// Nearly every real file has exactly one; a `.mN` holding an unopened turn
+    /// plus the next one has two. See the module documentation.
+    #[must_use]
+    pub fn segments(&self) -> &[Segment] {
+        &self.segments
+    }
+
+    /// The blocks belonging to one segment, header and footer included.
+    #[must_use]
+    pub fn segment_blocks(&self, segment: &Segment) -> &[Block] {
+        &self.blocks[segment.start..segment.end]
+    }
+
+    /// The last segment, which is the current turn when a file holds several.
+    #[must_use]
+    pub fn latest_segment(&self) -> &Segment {
+        self.segments
+            .last()
+            .expect("decode always records at least one segment")
     }
 
     /// Re-encode a decoded file back to raw bytes.
@@ -94,7 +172,12 @@ impl StarsFile {
         let mut rng = self.header.init_rng();
         let mut raw = Vec::with_capacity(self.blocks.len());
         for block in &self.blocks {
-            if is_plaintext(block.type_id) {
+            if block.type_id == FILE_HEADER_BLOCK {
+                // Re-seed exactly as decoding did, so a stream of concatenated
+                // files re-encrypts segment by segment.
+                rng = FileHeader::parse(&block.data)?.init_rng();
+                raw.push(block.clone());
+            } else if is_plaintext(block.type_id) {
                 raw.push(block.clone());
             } else {
                 let data = rng.apply(&block.data);

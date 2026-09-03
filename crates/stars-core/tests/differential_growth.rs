@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use stars_core::planet::Planet;
 use stars_core::population::chg_pop_from_planet;
 use stars_core::race::{Prt as CorePrt, Race, RaceStat};
-use stars_formats::{planet_records, player_records, PlanetRecord, StarsFile};
+use stars_formats::{planet_records_in, player_records_in, PlanetRecord, StarsFile};
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -36,8 +36,11 @@ type Snapshot = (Vec<Option<Race>>, Vec<(u16, Planet)>);
 fn load(path: &Path) -> Option<Snapshot> {
     let bytes = std::fs::read(path).ok()?;
     let file = StarsFile::decode(&bytes).ok()?;
+    // A .mN can hold an unopened turn followed by the current one; the year we
+    // want is the last segment.
+    let blocks = file.segment_blocks(file.latest_segment());
 
-    let players = player_records(&file).ok()?;
+    let players = player_records_in(blocks).ok()?;
     let mut races: Vec<Option<Race>> = Vec::new();
     for record in &players {
         let idx = usize::from(record.player_number);
@@ -49,7 +52,7 @@ fn load(path: &Path) -> Option<Snapshot> {
         }
     }
 
-    let planets = planet_records(&file)
+    let planets = planet_records_in(blocks)
         .into_iter()
         .filter_map(|p| to_core_planet(&p).map(|c| (p.id, c)))
         .collect();
