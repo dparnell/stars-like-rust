@@ -85,3 +85,124 @@ pub fn planet_budget(
         production: total - research,
     })
 }
+
+/// A production-queue item, as a planet's build list stores it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QueueItem {
+    /// How many to build.
+    pub count: i32,
+    /// Item id. Below 256 these are the planetary items and ship designs;
+    /// 256 and above are the auto-build variants of the same things.
+    pub item: u16,
+    /// Resources and minerals already applied to the first unit.
+    pub completion: i32,
+}
+
+/// Planetary item ids (the game's `iobj` enum). Ship designs occupy their own
+/// range above these.
+pub mod item {
+    /// A mine.
+    pub const MINE: u16 = 0;
+    /// A factory.
+    pub const FACTORY: u16 = 1;
+    /// A planetary defence.
+    pub const DEFENSE: u16 = 2;
+    /// Mineral alchemy: resources into one kT of each mineral.
+    pub const ALCHEMY: u16 = 3;
+    /// Terraform one step toward the race's ideal.
+    pub const MIN_TERRAFORM: u16 = 4;
+    /// Terraform as far as technology allows.
+    pub const MAX_TERRAFORM: u16 = 5;
+    /// The first planetary-scanner id.
+    pub const PLANETARY_SCANNER_FIRST: u16 = 18;
+    /// Anything at or above this is the auto-build form of the item below it.
+    pub const AUTO_BUILD_BASE: u16 = 256;
+}
+
+/// What one unit of a queue item costs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ItemCost {
+    /// Ironium, boranium, germanium.
+    pub minerals: [i32; 3],
+    /// Resources.
+    pub resources: i32,
+}
+
+/// The cost of one planetary item.
+///
+/// Source: `GetProductionCosts` (`produce.c`). Ship designs are costed by
+/// [`crate::design::ShipDesign::cost`] instead; this covers the things a
+/// planet builds directly.
+///
+/// Returns `None` for an id this does not cover, which includes ship designs
+/// and the packet and scanner ranges.
+#[must_use]
+pub fn planetary_item_cost(item: u16, race: &Race, tutorial: bool) -> Option<ItemCost> {
+    use crate::race::{lrt, Prt, RaceStat};
+
+    let item = if item >= item::AUTO_BUILD_BASE {
+        item - item::AUTO_BUILD_BASE
+    } else {
+        item
+    };
+
+    Some(match item {
+        item::MINE => ItemCost {
+            minerals: [0, 0, 0],
+            resources: i32::from(race.stat(RaceStat::MineBuild)),
+        },
+        item::FACTORY => {
+            // Cheap Factories saves a germanium.
+            let saving = i32::from(race.has_lrt(lrt::CHEAP_FACT));
+            ItemCost {
+                minerals: if tutorial {
+                    [2 - saving, 2 - saving, 2 - saving]
+                } else {
+                    [0, 0, 4 - saving]
+                },
+                resources: i32::from(race.stat(RaceStat::FactBuild)),
+            }
+        }
+        item::DEFENSE => {
+            // The SDI's entry in the planetary table is the cost of any
+            // defence; Inner Strength pays three fifths of it.
+            let sdi = crate::components::PLANETARY
+                .iter()
+                .find(|p| p.name == "SDI")?;
+            let mut cost = ItemCost {
+                minerals: [
+                    i32::from(sdi.ore_cost[0]),
+                    i32::from(sdi.ore_cost[1]),
+                    i32::from(sdi.ore_cost[2]),
+                ],
+                resources: i32::from(sdi.resource_cost),
+            };
+            if race.prt() == Some(Prt::Is) {
+                cost.resources = cost.resources * 3 / 5;
+                for m in &mut cost.minerals {
+                    *m = *m * 3 / 5;
+                }
+            }
+            cost
+        }
+        item::ALCHEMY => ItemCost {
+            minerals: [0, 0, 0],
+            resources: if race.has_lrt(lrt::MINERAL_ALCHEMY) {
+                25
+            } else {
+                100
+            },
+        },
+        item::MIN_TERRAFORM | item::MAX_TERRAFORM => {
+            let mut resources = if race.has_lrt(lrt::TT) { 70 } else { 100 };
+            if race.prt() == Some(Prt::Ca) {
+                resources /= 2;
+            }
+            ItemCost {
+                minerals: [0, 0, 0],
+                resources,
+            }
+        }
+        _ => return None,
+    })
+}
