@@ -1,6 +1,6 @@
 # Subsystem: Combat
 
-- **Status:** in progress — board, movement, targeting, accuracy and damage resolution implemented; the firing loop that drives them is not
+- **Status:** in progress — board, movement, targeting, accuracy, damage and the beam firing loop implemented; torpedo resolution and the movement AI are not
 - **Ghidra routine(s):** `battle.c` region — `DxyFromSpdRound`, `DzFromBrcBrc`, `CTorpHit`, `ScoreFromGiveAndTakeAndTactic`, `FAttack`, `FDamageTok`, `DxyMoveTokTo`, and the `rgbrcStart` table
 - **Manual reference:** `MANUAL.PDF` pp. 23-2..23-10
 - **Uses RNG:** **yes** — torpedo hits are rolled individually
@@ -141,6 +141,56 @@ damage.
 Damage in excess of what a token can absorb spills over to other tokens in the
 same square, capped by the number of ships firing.
 
+## The firing loop
+
+`FDoCoolBattle` runs each round, and within a round drives `FAttack` once per
+token per initiative level:
+
+```
+for initiative from highest down to lowest:
+    for itok from the LAST token down to 0:        # note the direction
+        for each weapon at this initiative:
+            pick the best target in range
+            fire; spill any overkill onto the next-best target
+```
+
+A weapon's firing initiative is **its own plus its hull's base**, capped at 63.
+
+### The scan runs backwards, and it matters
+
+The token loop is `itokScan = vctok - 1; while (itokScan >= 0) … itokScan--`.
+Where two tokens fire at the same initiative, the one later in the array shoots
+first. In a symmetric duel — two identical scouts, same initiative, both in
+range — that single detail decides which one survives. Replaying the recordings
+with the loop running forwards gets those battles exactly backwards; running it
+the right way fixed five of them at once.
+
+The array order is not arbitrary either: `RandomizeTokOrder` shuffles it at the
+start of the battle with the game's PRNG, and a recording stores it
+post-shuffle, so replaying from a recording inherits the real order.
+
+### Target selection
+
+Each weapon scores every enemy token in range that matches its primary target
+class, falling back to the secondary class if none does, and takes the
+**highest** score — value per point of work:
+
+```
+value = (design resource cost + boranium cost) * ships, then * 100
+if the target deflects beams: value = value * pctBeamDef / 100
+score = value * 100 / (armour left + shields left + 1)      # minimum 1
+```
+
+A sapper scores against shields alone and is worthless against a token with
+none.
+
+### Overkill
+
+Damage beyond what the target can absorb does not vanish: the weapon re-picks a
+target and fires again with the remainder, scaled down in proportion to what
+got through, until nothing is left in range. That is what makes a big volley
+sweep several small tokens.
+
 ## Armour and shields
 
 Shields **overlap across a whole token**: twenty scouts with 20 shield points
@@ -174,9 +224,11 @@ examples.
 - 31 disengages are recognised rather than read as impossible moves.
 - **22 of 31 first beam hits reproduce the recorded damage exactly** — both the
   shield points stripped and the ships destroyed — computed from the attacker's
-  design, the recorded range and the target's state. Only the *first* damage a
-  token takes is checkable this way, because after that its state depends on
-  the full firing order.
+  design, the recorded range and the target's state.
+- **8 of 11 beam-only battles replay to the recorded casualties exactly.** This
+  is the strongest check available: the movement is taken from the recording,
+  but every shot, target choice and casualty is computed, and each token's
+  state is carried forward through the whole battle rather than assumed.
 
 `crates/stars-core/tests/combat_vectors.rs` checks the movement table, torpedo
 accuracy, the starting-square table and Chebyshev distance against
@@ -184,17 +236,20 @@ accuracy, the starting-square table and Chebyshev distance against
 
 ## Open questions
 
-- **The firing loop itself** — which token shoots when, and at what — is not
-  implemented. `FAttack` walks weapon slots in initiative order, picks targets
-  by the tactic scoring above, and spills overkill onto neighbours; the damage
-  each shot does is implemented, but the sequencing is not.
-- Nine of the 31 checkable first beam hits do not reproduce. They differ by one
-  ship killed in both directions, which points either at the "first hit"
-  assumption (a token can be damaged by an attack that recorded no kill entry
-  against it) or at a modifier not yet modelled. Worth revisiting with the
-  firing loop, which would remove the need for that assumption entirely.
-- Torpedo resolution consumes RNG per torpedo, so reproducing a recorded battle
-  needs the generator in the right state — which needs the firing order.
+- **The movement AI** (`DxyMoveTokTo`) is not implemented, so a battle can only
+  be replayed with its recorded movement supplied. Implementing it would make
+  a battle reproducible from its starting state alone.
+- Three of the eleven replayable battles still come out inverted. All three are
+  symmetric duels where both ships can destroy the other in one volley, so the
+  result turns on exactly when in the round each closed to range; firing once
+  at the end of the round is an approximation there.
+- **Torpedo resolution** is specified but not driven: hits are rolled per
+  torpedo, so reproducing a recorded battle needs the generator in the right
+  state, which in turn needs every earlier draw in the turn.
+- Gattling weapons, which hit every target in range rather than one, are
+  described in `FAttack` but not implemented.
+- `FIsTargetOfMdTarget` — the primary/secondary target-class filter — is not
+  implemented, so target selection currently considers every enemy in range.
 - `grfWeapon` bit meanings in the kill records are not yet mapped.
 - The three-phase movement order and the heaviest-first rule within a phase are
   documented here from the manual but not yet implemented or checked.

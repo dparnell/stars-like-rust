@@ -352,9 +352,12 @@ pub struct Weapon {
     pub dp: i32,
     /// How many are fitted.
     pub count: i32,
-    /// Maximum range in squares.
+    /// Maximum range in squares, including the extra square a starbase gets.
     pub range: i32,
-    /// Firing initiative.
+    /// The weapon's own maximum range, which is what the falloff is measured
+    /// against.
+    pub nominal_range: i32,
+    /// Firing initiative: the weapon's own, before the hull's base is added.
     pub initiative: i32,
     /// Base accuracy, for torpedoes.
     pub accuracy: i32,
@@ -372,15 +375,16 @@ impl Weapon {
 
 /// Beam damage a stack does to a target, before shields.
 ///
-/// The pieces, in the order `DpFromPtokBrcToBrc` applies them:
+/// The order matters, because each step truncates. `FAttack` computes the base
+/// as `weapon dp x launchers x ships` **first**, then applies:
 ///
-/// * base damage is `weapon dp x launchers x ships firing`;
-/// * a **capacitor** scales it up by the attacker's `pctCap`;
-/// * damage **falls off with range**, losing a tenth of itself at maximum
-///   range: `dp -= dp * range / 10 / max_range`;
-/// * the target's **beam deflection** scales what is left down.
+/// 1. the attacker's **capacitor**, scaling up;
+/// 2. the target's **beam deflection**, scaling down;
+/// 3. **range falloff**: `dp * (100 - 10 * range / max_range) / 100`, so a
+///    tenth of the damage is lost at maximum range.
 ///
-/// A starbase reaches one square further than its weapons' nominal range.
+/// Note that the nominal range used for the falloff is the weapon's own, not
+/// the extra square a starbase reaches with it.
 #[must_use]
 pub fn beam_damage(
     weapon: Weapon,
@@ -392,19 +396,18 @@ pub fn beam_damage(
     if weapon.torpedo || range > weapon.range {
         return 0;
     }
-    let mut dp = weapon.dp * weapon.count;
+    let mut dp = weapon.dp * weapon.count * ships;
 
     if capacitor_pct != 0 {
         dp = dp * capacitor_pct / 100;
     }
-    // Ten percent of the damage is lost across the full range band.
-    if range > 0 && weapon.range > 0 {
-        dp -= dp * range / 10 / weapon.range;
-    }
     if beam_deflection_pct < 100 {
         dp = dp * beam_deflection_pct / 100;
     }
-    dp * ships
+    if range > 0 && weapon.nominal_range > 0 {
+        dp = dp * (100 - 10 * range / weapon.nominal_range) / 100;
+    }
+    dp
 }
 
 /// A token's damage state: how many of its ships are hurt and how badly.
@@ -573,4 +576,243 @@ pub fn apply_damage(state: TokenState, damage: i32, shields_only: bool) -> Attac
         after: token,
         overflow: if ships == 0 { dp } else { 0 },
     }
+}
+
+/// The highest firing initiative the game tracks.
+pub const MAX_INITIATIVE: i32 = 63;
+
+/// A token as the firing loop sees it: where it is, what it has, what it can
+/// still take.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CombatToken {
+    /// Owning player.
+    pub player: u8,
+    /// Whether the token is still in the battle.
+    pub active: bool,
+    /// Current square.
+    pub square: Square,
+    /// The hull's base initiative, added to each weapon's own.
+    pub initiative_base: i32,
+    /// Capacitor bonus, as a percentage; `0` for none.
+    pub capacitor_pct: i32,
+    /// Beam deflection, as a percentage; `100` for none.
+    pub beam_deflection_pct: i32,
+    /// Weapons fitted, from the design.
+    pub weapons: Vec<Weapon>,
+    /// Resource-plus-boranium cost of one ship, which sets how valuable this
+    /// token is as a target.
+    pub value: i32,
+    /// Damage state.
+    pub state: TokenState,
+}
+
+impl CombatToken {
+    /// Whether this token can still shoot or be shot at.
+    #[must_use]
+    pub fn alive(&self) -> bool {
+        self.active && self.state.ships > 0
+    }
+
+    /// The initiative each of this token's weapons fires at.
+    #[must_use]
+    pub fn firing_initiatives(&self) -> Vec<i32> {
+        let mut out: Vec<i32> = self
+            .weapons
+            .iter()
+            .map(|w| (w.initiative + self.initiative_base).min(MAX_INITIATIVE))
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+}
+
+/// One token damaging another.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DamageEvent {
+    /// The token that fired.
+    pub attacker: usize,
+    /// The token that was hit.
+    pub target: usize,
+    /// Shield points stripped.
+    pub shield_damage: i32,
+    /// Ships destroyed.
+    pub ships_killed: i32,
+}
+
+/// How attractive a token is as a target for a beam weapon.
+///
+/// The original scores value against how much damage it would take to get
+/// through, and picks the **highest**: cost per point of work. A token that is
+/// expensive and nearly dead scores best.
+#[must_use]
+pub fn beam_target_score(target: &CombatToken, sapper: bool) -> i32 {
+    let ships = target.state.ships;
+    if ships <= 0 {
+        return 0;
+    }
+    let mut value = target.value.saturating_mul(ships);
+    value = if value < 100_000 {
+        value * 100
+    } else {
+        10_000_000
+    };
+    if target.beam_deflection_pct < 100 {
+        value = value * target.beam_deflection_pct / 100;
+    }
+
+    let shields_left = target.state.shields * ships;
+    let armor_single = target.state.armor;
+    let mut armor_left = armor_single * ships;
+    if target.state.damage.pct_damage != 0 {
+        armor_left -=
+            armor_single * target.state.damage.pct_damage / 10 * target.state.damage.pct_ships / 10
+                * ships
+                / 500;
+    }
+    if armor_left <= 0 {
+        armor_left = 1;
+    }
+
+    if sapper {
+        // A sapper only cares about shields, and is useless without them.
+        if shields_left <= 0 {
+            0
+        } else {
+            ceil_div(value * 100, shields_left)
+        }
+    } else {
+        (value * 100 / (armor_left + shields_left + 1)).max(1)
+    }
+}
+
+/// Fire one weapon, spilling any overkill onto the next-best target.
+///
+/// Returns the damage done, in order. The original re-picks a target after
+/// each kill and scales the surviving damage down in proportion to what got
+/// through, which is what stops one enormous volley from sweeping a whole
+/// side.
+fn fire_weapon(
+    tokens: &mut [CombatToken],
+    attacker: usize,
+    weapon: Weapon,
+    events: &mut Vec<DamageEvent>,
+) {
+    if weapon.torpedo {
+        // Torpedoes roll per shot; not resolved here (see the module note).
+        return;
+    }
+    let (player, square, capacitor, ships) = {
+        let t = &tokens[attacker];
+        (t.player, t.square, t.capacitor_pct, t.state.ships)
+    };
+    let sapper = weapon.is_sapper();
+    let mut remaining = weapon.dp * weapon.count * ships;
+
+    // Up to one pass per token: each pass either damages something or stops.
+    for _ in 0..tokens.len() {
+        if remaining <= 0 {
+            break;
+        }
+
+        // Pick the best target in range.
+        let mut best: Option<(usize, i32)> = None;
+        for (i, t) in tokens.iter().enumerate() {
+            if i == attacker || !t.alive() || t.player == player {
+                continue;
+            }
+            if i32::from(distance(square, t.square)) > weapon.range {
+                continue;
+            }
+            let score = beam_target_score(t, sapper);
+            if score > 0 && best.is_none_or(|(_, b)| score > b) {
+                best = Some((i, score));
+            }
+        }
+        let Some((target, _)) = best else { break };
+
+        let range = distance(square, tokens[target].square);
+        let deflection = tokens[target].beam_deflection_pct;
+
+        // Recompute this volley's damage against this particular target, then
+        // scale it to whatever is left of the weapon's output.
+        let full = weapon.dp * weapon.count * ships;
+        let mut dp = beam_damage(weapon, ships, i32::from(range), capacitor, deflection);
+        if full > 0 {
+            dp = (i64::from(dp) * i64::from(remaining) / i64::from(full)) as i32;
+        }
+        if dp <= 0 {
+            break;
+        }
+
+        let before = tokens[target].state;
+        let result = apply_damage(before, dp, sapper);
+        tokens[target].state = result.after;
+        if result.after.ships == 0 {
+            tokens[target].active = false;
+        }
+
+        if result.shield_damage > 0 || result.ships_killed > 0 {
+            events.push(DamageEvent {
+                attacker,
+                target,
+                shield_damage: result.shield_damage,
+                ships_killed: result.ships_killed,
+            });
+        }
+
+        // Overkill spills, scaled down in proportion to what got through.
+        if result.overflow > 0 && dp > 0 {
+            let scaled = i64::from(remaining) * i64::from(result.overflow) / i64::from(dp);
+            remaining = (remaining - 1).min(scaled as i32);
+        } else {
+            remaining = 0;
+        }
+    }
+}
+
+/// Resolve one round of firing at the tokens' current positions.
+///
+/// Weapons fire in **initiative order**, highest first, where a weapon's
+/// initiative is its own plus its hull's base. Everything at the same
+/// initiative fires before anything below it, so a fast ship can destroy a
+/// slower one before it ever shoots.
+///
+/// Within one initiative the original scans the token array **backwards**, so
+/// the later token fires first. The array itself was shuffled at the start of
+/// the battle (`RandomizeTokOrder`), and a recording stores it post-shuffle —
+/// so replaying from a recording gets the real order for free.
+///
+/// Torpedoes are skipped: they roll per shot, and reproducing a recorded
+/// battle needs the generator in the right state.
+pub fn fire_round(tokens: &mut [CombatToken]) -> Vec<DamageEvent> {
+    let mut events = Vec::new();
+
+    for initiative in (0..=MAX_INITIATIVE).rev() {
+        // The original scans tokens from the **last** index down to zero, so
+        // where two tokens fire at the same initiative the later one shoots
+        // first. In a symmetric duel that decides who survives, which is why
+        // the direction matters rather than being an implementation detail.
+        for attacker in (0..tokens.len()).rev() {
+            if !tokens[attacker].alive() {
+                continue;
+            }
+            let base = tokens[attacker].initiative_base;
+            let firing: Vec<Weapon> = tokens[attacker]
+                .weapons
+                .iter()
+                .filter(|w| (w.initiative + base).min(MAX_INITIATIVE) == initiative)
+                .copied()
+                .collect();
+
+            for weapon in firing {
+                if !tokens[attacker].alive() {
+                    break;
+                }
+                fire_weapon(tokens, attacker, weapon, &mut events);
+            }
+        }
+    }
+
+    events
 }

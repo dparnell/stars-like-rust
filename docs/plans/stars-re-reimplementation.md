@@ -234,11 +234,13 @@ Remaining, in dependency order:
 3. ~~**The battle recording (VCR) format**~~ — **done.** 47 recordings decode
    from the Exodus fixture; see `docs/formats/battle.md`.
 4. **Combat** (`battle.c`, ~4000 lines) — *in progress.* The board, starting
-   positions, the movement schedule, target scoring, weapon accuracy and
-   **damage resolution** are implemented and verified against the recordings
-   (`docs/formulas/combat.md`). What remains is the **firing loop** — which
-   token shoots when and at what — which is `FAttack`; the damage each shot
-   does is done, the sequencing is not.
+   positions, movement schedule, target scoring, weapon accuracy, damage
+   resolution and the **beam firing loop** are implemented
+   (`docs/formulas/combat.md`). Eight of the eleven replayable beam battles
+   reproduce the recorded casualties exactly, with movement taken from the
+   recording and everything else computed. What remains: the movement AI, so a
+   battle can be replayed from its starting state alone; torpedo resolution,
+   which needs the RNG in the right state; and the target-class filter.
 5. **The AI players** (six source files), which depend on nearly all of the
    above.
 

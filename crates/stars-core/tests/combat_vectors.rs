@@ -258,6 +258,7 @@ fn beam_damage_falls_off_with_range() {
         dp: 100,
         count: 1,
         range: 3,
+        nominal_range: 3,
         initiative: 5,
         accuracy: 100,
         abilities: 0,

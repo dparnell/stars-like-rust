@@ -404,3 +404,193 @@ fn first_beam_hits_reproduce_the_recorded_damage() {
          71% this stood at when written"
     );
 }
+
+/// Replay whole battles: take the recorded movement as given, compute the
+/// firing, and compare against what the engine recorded.
+///
+/// This is a stronger check than the first-hit one above, because it carries
+/// each token's state forward through the battle instead of assuming it. Only
+/// the movement is taken from the recording; every shot, target choice and
+/// casualty is computed.
+///
+/// Battles involving torpedoes or starbases are skipped: torpedo hits are
+/// rolled per shot, and a starbase's design lives in a table this file does
+/// not carry.
+#[test]
+fn beam_only_battles_replay_to_the_recorded_casualties() {
+    use std::collections::BTreeMap;
+
+    use stars_core::battle::{fire_round, CombatToken, Damage, Square as CoreSquare, TokenState};
+    use stars_core::design::{DesignSlot, ShipDesign};
+    use stars_formats::{design_records, DesignRecord};
+
+    let root = workspace_root();
+    let games = root.join("fixtures/games/exodus");
+    if !games.is_dir() {
+        eprintln!("skipping: no Exodus fixtures");
+        return;
+    }
+    let mut years: Vec<i32> = std::fs::read_dir(&games)
+        .expect("readable fixture dir")
+        .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
+        .collect();
+    years.sort_unstable();
+
+    let to_design = |r: &DesignRecord| ShipDesign {
+        hull_id: i16::from(r.hull_id),
+        slots: r
+            .slots
+            .iter()
+            .map(|s| DesignSlot {
+                category: s.category,
+                item: s.item_id,
+                count: s.count,
+            })
+            .collect(),
+    };
+
+    let mut replayed = 0;
+    let mut exact = 0;
+    let mut notes = Vec::new();
+
+    for year in years {
+        let path = games.join(year.to_string()).join("exodus.m6");
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        let Ok(file) = StarsFile::decode(&bytes) else {
+            continue;
+        };
+        let blocks = file.segment_blocks(file.latest_segment());
+        let Ok(records) = design_records(&file) else {
+            continue;
+        };
+        let by_slot: BTreeMap<u8, ShipDesign> = records
+            .iter()
+            .filter(|r| r.full_design && !r.starbase)
+            .map(|r| (r.design_number, to_design(r)))
+            .collect();
+
+        for battle in battle_records_in(blocks) {
+            // Every token must be a ship design we hold in full, and nothing
+            // may carry a torpedo.
+            let mut tokens = Vec::new();
+            let mut usable = true;
+            for t in &battle.tokens {
+                let Some(design) = (if t.is_starbase() {
+                    None
+                } else {
+                    by_slot.get(&t.design)
+                }) else {
+                    usable = false;
+                    break;
+                };
+                let weapons = design.weapons();
+                if weapons.iter().any(|w| w.torpedo) {
+                    usable = false;
+                    break;
+                }
+                let Some(armor) = design.armor(false) else {
+                    usable = false;
+                    break;
+                };
+                tokens.push(CombatToken {
+                    player: t.player,
+                    active: true,
+                    square: CoreSquare::new(t.square.x, t.square.y),
+                    initiative_base: i32::from(t.initiative_base),
+                    capacitor_pct: i32::from(t.pct_capacitor),
+                    beam_deflection_pct: i32::from(t.pct_beam_defence),
+                    weapons,
+                    value: design.cost().map_or(0, |c| c.resources + c.minerals[1]),
+                    state: TokenState {
+                        ships: i32::from(t.ships),
+                        shields: i32::from(t.shields),
+                        armor,
+                        damage: Damage::default(),
+                    },
+                });
+            }
+            if !usable || tokens.len() < 2 {
+                continue;
+            }
+            // Only battles that actually did something are informative.
+            if battle.ships_destroyed() == 0 {
+                continue;
+            }
+
+            // Walk the rounds, moving tokens where the recording says and
+            // firing at the end of each.
+            let mut killed = vec![0i32; tokens.len()];
+            let mut round = 0u8;
+            let mut fired_any = false;
+            for action in battle.actions.iter().chain(std::iter::once(
+                // A sentinel so the last round still fires.
+                &stars_formats::BattleAction {
+                    token: 0,
+                    destination: None,
+                    round: u8::MAX,
+                    range: 0,
+                    target: 0,
+                    kills: Vec::new(),
+                },
+            )) {
+                if action.round != round {
+                    for event in fire_round(&mut tokens) {
+                        killed[event.target] += event.ships_killed;
+                        fired_any = true;
+                    }
+                    round = action.round;
+                }
+                if let Some(dest) = action.destination {
+                    if let Some(t) = tokens.get_mut(usize::from(action.token)) {
+                        t.square = CoreSquare::new(dest.x, dest.y);
+                    }
+                }
+            }
+            if !fired_any {
+                continue;
+            }
+
+            // Compare per-player casualties, the figure the game itself
+            // reports after a battle.
+            let mut want: BTreeMap<u8, u32> = BTreeMap::new();
+            let mut got: BTreeMap<u8, u32> = BTreeMap::new();
+            for player in battle.participants() {
+                want.insert(player, battle.ships_destroyed_for(player));
+                let mine: i32 = killed
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| battle.tokens[*i].player == player)
+                    .map(|(_, k)| *k)
+                    .sum();
+                got.insert(player, u32::try_from(mine).unwrap_or(0));
+            }
+
+            replayed += 1;
+            if want == got {
+                exact += 1;
+            } else if notes.len() < 6 {
+                notes.push(format!(
+                    "{year} battle {:#06x}: computed losses {got:?}, recorded {want:?}",
+                    battle.id
+                ));
+            }
+        }
+    }
+
+    eprintln!("beam-only replays: {exact} of {replayed} match the recorded casualties exactly");
+    for n in &notes {
+        eprintln!("  {n}");
+    }
+    assert!(replayed > 0, "no beam-only battle was replayable");
+    // 8 of 11 when written. The three that differ are symmetric duels — two
+    // identical ships, same initiative — where the outcome turns on exactly
+    // when in the round each closed to range, which this implementation
+    // approximates by firing once at the end of the round.
+    assert!(
+        exact * 10 >= replayed * 6,
+        "only {exact} of {replayed} beam-only battles replay exactly; that is below the \
+         8 of 11 this stood at when written"
+    );
+}
