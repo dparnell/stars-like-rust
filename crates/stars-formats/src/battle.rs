@@ -191,6 +191,20 @@ impl BattleToken {
         ((self.tactics >> 4) & 0x0f) as u8
     }
 
+    /// The token's weapon reach limit (`dxyLim`), from the low nibble of the
+    /// packed movement word.
+    #[must_use]
+    pub fn weapon_reach(self) -> u8 {
+        (self.movement & 0x0f) as u8
+    }
+
+    /// The reach the token prefers to fight at (`dxyMax`), from the next
+    /// nibble.
+    #[must_use]
+    pub fn preferred_reach(self) -> u8 {
+        ((self.movement >> 4) & 0x0f) as u8
+    }
+
     /// The token's own class, from the top nibble of the tactics word, which
     /// is what other tokens' target filters match against.
     #[must_use]

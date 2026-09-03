@@ -620,8 +620,12 @@ pub struct CombatToken {
     pub secondary_target: TargetClass,
     /// Whether it is a starbase.
     pub is_starbase: bool,
-    /// The reach of its longest useful weapon, in squares.
+    /// The reach of its longest useful weapon, in squares (`dxyLim`).
     pub weapon_reach: i32,
+    /// Torpedo jamming, as a percentage.
+    pub pct_jam: i32,
+    /// Battle-computer accuracy bonus, as a percentage.
+    pub pct_computer: i32,
 }
 
 impl CombatToken {
@@ -977,11 +981,13 @@ fn pick_lowest(scores: &[i32; 3], rng: &mut Rng) -> i32 {
 
 /// Damage one token would do to another at a given range.
 ///
-/// Used for the *estimates* that drive movement, not for resolving a shot.
-/// `proximity` makes it ignore the range check, which a disengaging token uses
-/// so it still sees the threat from weapons that cannot quite reach it yet.
+/// Source: `DpFromPtokBrcToBrc` (`10f0:4d2e`), transcribed from the
+/// disassembly. This is the *estimate* that drives target scoring and
+/// movement, not the resolution of an actual shot — the two differ, and it is
+/// worth knowing which is which.
 ///
-/// Source: `DpFromPtokBrcToBrc` (`10f0:4d2e`).
+/// `proximity` drops both the range checks, so a token can weigh threats that
+/// cannot quite reach it yet. A disengaging token uses it.
 #[must_use]
 pub fn damage_estimate(
     attacker: &CombatToken,
@@ -989,39 +995,86 @@ pub fn damage_estimate(
     range: i32,
     proximity: bool,
 ) -> i32 {
+    // A token-level reach check comes first: past its longest weapon, nothing
+    // it carries is worth evaluating.
+    if !proximity && range > attacker.weapon_reach {
+        return 0;
+    }
+
     let mut total = 0;
     for w in &attacker.weapons {
         let out_of_range = range > w.range;
         if out_of_range && !proximity {
             continue;
         }
-        if w.torpedo {
-            // Torpedoes are estimated at their nominal damage; the accuracy
-            // model belongs to resolution, not to this estimate.
-            total += w.dp * w.count * attacker.state.ships;
-            continue;
-        }
-        let mut dp = beam_damage(
-            *w,
-            attacker.state.ships,
-            range.min(w.range),
-            attacker.capacitor_pct,
-            target.beam_deflection_pct,
-        );
+
+        let mut dp = if w.torpedo {
+            // The count is scaled by 200 so that misses can contribute a
+            // fraction of a torpedo's damage to shields.
+            let salvo = w.count * attacker.state.ships * 200;
+            let hits =
+                salvo * torpedo_accuracy(w.accuracy, target.pct_jam, attacker.pct_computer) / 100;
+            let mut dp = hits * w.dp / 200;
+            if target.state.shields > 0 {
+                // Collateral: torpedoes that miss still splash the shields,
+                // for an eighth of their damage each.
+                dp += (salvo - hits) * w.dp / 1600;
+            }
+            dp
+        } else {
+            // Note the order: the estimate applies the range falloff *before*
+            // beam deflection, where `FAttack` applies deflection first. Each
+            // step truncates, so they are not interchangeable.
+            let mut dp = w.dp * w.count;
+            if attacker.capacitor_pct != 0 {
+                dp = dp * attacker.capacitor_pct / 100;
+            }
+            let effective = range.min(w.range);
+            if effective > 0 && w.nominal_range > 0 {
+                dp -= dp * effective / 10 / w.nominal_range;
+            }
+            if target.beam_deflection_pct < 100 {
+                dp = dp * target.beam_deflection_pct / 100;
+            }
+            if w.is_sapper() {
+                // A sapper cannot do more than the shields it is there to
+                // strip.
+                dp = dp.min(target.state.shields * attacker.state.ships);
+            }
+            dp
+        };
+
         if out_of_range {
-            // Beyond reach the threat is discounted the further away it is.
+            // Beyond reach the threat is discounted the further away it is,
+            // but never below one point per launcher.
             let divisor = range + 10 - w.range;
             if divisor > 0 {
                 dp /= divisor;
             }
+            dp = dp.max(w.count);
         }
-        total += dp;
+
+        // Beam damage is per ship; the torpedo path already folded the count in.
+        total += if w.torpedo {
+            dp
+        } else {
+            dp * attacker.state.ships
+        };
     }
 
-    // No more damage than the target could actually absorb.
+    // Never more than the target could still absorb: shields plus armour,
+    // less whatever damage it is already carrying.
     if !proximity {
-        let capacity = (target.state.armor + target.state.shields) * target.state.ships;
-        if capacity > 0 && total > capacity {
+        let ships = target.state.ships;
+        let mut capacity = (target.state.shields + target.state.armor) * ships;
+        let dv = target.state.damage;
+        if (dv.pct_ships != 0 || dv.pct_damage != 0) && capacity > 0 {
+            capacity -= target.state.armor * dv.pct_damage / 10 * dv.pct_ships / 10 * ships / 500;
+            if capacity <= 0 {
+                capacity = 1;
+            }
+        }
+        if total > capacity {
             total = capacity;
         }
     }

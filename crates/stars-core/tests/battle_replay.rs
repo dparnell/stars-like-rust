@@ -506,6 +506,8 @@ fn beam_only_battles_replay_to_the_recorded_casualties() {
                         t.secondary_target(),
                     ),
                     is_starbase: t.is_starbase(),
+                    pct_jam: i32::from(t.pct_jam),
+                    pct_computer: i32::from(t.pct_computer),
                     weapon_reach: design.weapons().iter().map(|w| w.range).max().unwrap_or(0),
                     player: t.player,
                     active: true,
@@ -627,8 +629,15 @@ fn beam_only_battles_replay_to_the_recorded_casualties() {
 /// Otherwise the token scores the squares within its remaining movement. The
 /// engine picks a lowest-scoring square and breaks ties with `Random`, so an
 /// exact match is not reproducible; what is checkable is that its choice is
-/// among the squares we rate best. **414 of 450, against an 81% chance rate**
+/// among the squares we rate best. **379 of 450, against a 72% chance rate**
 /// — the chance rate being what makes the hit rate mean anything at all.
+///
+/// That hit rate went *down* (from 92%) when `damage_estimate` was transcribed
+/// from the disassembly, while the chance rate fell too (from 81%), leaving the
+/// gap unchanged. The faithful version was kept anyway: the metric is a proxy
+/// and the binary is the specification. Something in the movement path is still
+/// wrong, and this records that rather than choosing whichever version happens
+/// to score better.
 #[test]
 fn movement_scoring_rates_the_engines_choice_among_the_best() {
     use std::collections::BTreeMap;
@@ -715,6 +724,8 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
                         t.secondary_target(),
                     ),
                     is_starbase: t.is_starbase(),
+                    pct_jam: i32::from(t.pct_jam),
+                    pct_computer: i32::from(t.pct_computer),
                     weapon_reach: design.weapons().iter().map(|w| w.range).max().unwrap_or(0),
                     player: t.player,
                     active: true,
@@ -767,7 +778,8 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
                     continue;
                 }
 
-                let allowance = search.radius.max(1);
+                let allowance = search.radius.max(1)
+                    + std::env::var("RADIUS_PLUS").map_or(0, |v| v.parse().unwrap_or(0));
                 let mut best = i32::MAX;
                 let mut best_squares = Vec::new();
                 let mut candidate_count = 0;
@@ -824,12 +836,12 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
     //     assert!(pct >= 99, "...");
     //
     assert!(
-        pct >= 88,
+        pct >= 80,
         "movement scoring agreed with the engine on only {pct}% of scored moves, below \
-         the 92% measured when written"
+         the 84% measured when written"
     );
     assert!(
-        chance <= 85,
+        chance <= 78,
         "the best set has grown to {chance}% of candidates, so the hit rate means less \
          than it did when this was written"
     );

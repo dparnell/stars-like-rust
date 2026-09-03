@@ -319,6 +319,8 @@ fn movement_scoring_prefers_squares_it_can_shoot_from() {
         secondary_target: stars_core::battle::TargetClass::Any,
         is_starbase: false,
         weapon_reach: 1,
+        pct_jam: 0,
+        pct_computer: 0,
         state: TokenState {
             ships: 1,
             shields: 0,
@@ -384,6 +386,8 @@ fn target_classes_match_the_filter() {
         secondary_target: TargetClass::Any,
         is_starbase: starbase,
         weapon_reach: 0,
+        pct_jam: 0,
+        pct_computer: 0,
         state: TokenState {
             ships: 1,
             shields: 0,
