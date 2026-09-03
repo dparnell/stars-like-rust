@@ -292,7 +292,7 @@ fn auto_build_is_capped_by_what_can_be_operated() {
     planet.factories = 0;
     assert_eq!(
         auto_build_cap(&planet, &race, item::FACTORY),
-        auto_build_cap(&planet, &race, item::FACTORY + item::AUTO_BUILD_BASE)
+        auto_build_cap(&planet, &race, item::AUTO_FACTORY)
     );
 }
 
@@ -314,6 +314,7 @@ fn a_generated_turn_builds_from_the_queue() {
     planet.queue = vec![QueueItem {
         count: 5,
         item: item::FACTORY,
+        ship: false,
         completion: 0,
     }];
 

@@ -27,17 +27,42 @@
 use crate::block::BlockType;
 use crate::file::StarsFile;
 
+/// What a queue entry builds: a planetary installation or a ship.
+///
+/// This is the game's `GrobjClass`, stored in bits 17-19 of the entry. Only
+/// these two values appear in a production queue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueueClass {
+    /// A planetary item — the id is a [`crate::production`] `ProdItemType`.
+    Planet,
+    /// A ship or starbase — the id is a design slot.
+    Fleet,
+    /// Anything else; the raw 3-bit class is kept so nothing is silently lost.
+    Other(u8),
+}
+
 /// One entry in a production queue.
+///
+/// The entry is one 32-bit little-endian word, packed as recovered from
+/// `AddItemToQueue` (`1090:407b`), which writes each field with an explicit
+/// shift and mask:
+///
+/// | Bits    | Width | Field                                              |
+/// |---------|-------|----------------------------------------------------|
+/// | 0-9     | 10    | `count`                                            |
+/// | 10-16   | 7     | `item` (shift `0xa`, mask `0x7f`)                  |
+/// | 17-19   | 3     | `class` (shift `0x11`, mask `0x7`)                 |
+/// | 20-26   | 7     | `completion`, a percentage; zeroed when queued      |
+/// | 27-31   | 5     | unknown; zeroed when queued, and 0 in every fixture |
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QueueItem {
     /// How many of the item to build (10-bit field).
     pub count: u16,
-    /// The item id being built (10-bit field). Ids `< 256` are ship/starbase
-    /// designs and other concrete items; ids `>= 256` are the "auto build"
-    /// pseudo-items (auto factories/mines/defenses/etc.). Exposed raw.
+    /// The item id being built (7-bit field), interpreted per [`Self::class`].
     pub item: u16,
-    /// Resources/minerals already applied to the *first* unit of this item
-    /// (12-bit field); a rough completion indicator.
+    /// Whether this entry builds a planetary item or a ship.
+    pub class: QueueClass,
+    /// How far the *first* unit has been paid for, as a percentage (0-99).
     pub completion: u16,
 }
 
@@ -49,6 +74,10 @@ pub struct ProductionQueueRecord {
     pub planet_id: Option<u16>,
     /// The queued items, in build order.
     pub items: Vec<QueueItem>,
+}
+
+fn read16(d: &[u8], o: usize) -> Option<u16> {
+    Some(u16::from_le_bytes([*d.get(o)?, *d.get(o + 1)?]))
 }
 
 fn read32(d: &[u8], o: usize) -> Option<u32> {
@@ -67,8 +96,13 @@ fn decode_items(data: &[u8]) -> Vec<QueueItem> {
         let w = read32(data, i).unwrap_or(0);
         items.push(QueueItem {
             count: (w & 0x3FF) as u16,
-            item: ((w >> 10) & 0x3FF) as u16,
-            completion: ((w >> 20) & 0xFFF) as u16,
+            item: ((w >> 10) & 0x7F) as u16,
+            class: match (w >> 17) & 0x7 {
+                1 => QueueClass::Planet,
+                2 => QueueClass::Fleet,
+                other => QueueClass::Other(other as u8),
+            },
+            completion: ((w >> 20) & 0x7F) as u16,
         });
         i += 4;
     }
@@ -108,6 +142,10 @@ impl ProductionQueueRecord {
 ///
 /// This decodes only the type-28 form found in `.mN`/`.hst`; the type-29 `.xN`
 /// order form is decoded on demand via [`ProductionQueueRecord::decode_change`].
+///
+/// A type-28 block carries no planet id of its own, so this bare list cannot
+/// say which planet each queue belongs to. Prefer
+/// [`production_queues_by_planet`], which recovers the owner from block order.
 #[must_use]
 pub fn production_queue_records(file: &StarsFile) -> Vec<ProductionQueueRecord> {
     file.blocks
@@ -117,34 +155,93 @@ pub fn production_queue_records(file: &StarsFile) -> Vec<ProductionQueueRecord> 
         .collect()
 }
 
+/// Decode the production-queue blocks in one segment, each paired with the id
+/// of the planet it belongs to.
+///
+/// A type-28 block stores only a list of items; the planet is implied by
+/// position, because the queue block immediately follows its own planet block.
+/// Only planets that have a queue get a block at all, so the queues cannot be
+/// matched to planets by index — in `fixtures/incoming/turn1/Game.hst` the two
+/// queues belong to planets 32 and 112 while planet 69, which lies between
+/// them, has none.
+#[must_use]
+pub fn production_queues_by_planet(
+    blocks: &[crate::block::Block],
+) -> Vec<(u16, ProductionQueueRecord)> {
+    let mut out = Vec::new();
+    let mut current: Option<u16> = None;
+    for b in blocks {
+        match b.block_type() {
+            BlockType::Planet => current = read16(&b.data, 0).map(|w| w & 0x3FF),
+            BlockType::PartialPlanet | BlockType::MinimalPlanet => current = None,
+            BlockType::ProductionQueue => {
+                if let Some(id) = current.take() {
+                    out.push((id, ProductionQueueRecord::decode(&b.data)));
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Encode a queue item into its packed 32-bit word (test helper).
-    fn item_word(count: u32, item: u32, completion: u32) -> [u8; 4] {
-        let w = (count & 0x3FF) | ((item & 0x3FF) << 10) | ((completion & 0xFFF) << 20);
+    /// Encode a queue item into its packed 32-bit word (test helper), using the
+    /// field layout `AddItemToQueue` writes.
+    fn item_word(count: u32, item: u32, class: u32, completion: u32) -> [u8; 4] {
+        let w = (count & 0x3FF)
+            | ((item & 0x7F) << 10)
+            | ((class & 0x7) << 17)
+            | ((completion & 0x7F) << 20);
         w.to_le_bytes()
     }
 
     #[test]
     fn decodes_items() {
         let mut d = Vec::new();
-        d.extend_from_slice(&item_word(1, 256, 81));
-        d.extend_from_slice(&item_word(5, 274, 0));
+        d.extend_from_slice(&item_word(1, 8, 1, 81)); // auto mines, 81% paid
+        d.extend_from_slice(&item_word(5, 3, 2, 0)); // five of ship design 3
         let q = ProductionQueueRecord::decode(&d);
         assert_eq!(q.planet_id, None);
         assert_eq!(q.items.len(), 2);
         assert_eq!(q.items[0].count, 1);
-        assert_eq!(q.items[0].item, 256);
+        assert_eq!(q.items[0].item, 8);
+        assert_eq!(q.items[0].class, QueueClass::Planet);
         assert_eq!(q.items[0].completion, 81);
         assert_eq!(q.items[1].count, 5);
-        assert_eq!(q.items[1].item, 274);
+        assert_eq!(q.items[1].item, 3);
+        assert_eq!(q.items[1].class, QueueClass::Fleet);
+    }
+
+    /// The real words from the two AI planets in
+    /// `fixtures/incoming/turn1/Game.hst`, which is where the layout was
+    /// pinned down: five scouts and a starbase, not "auto mines".
+    #[test]
+    fn decodes_recorded_ai_queue() {
+        let mut d = Vec::new();
+        for w in [0x0514_0001u32, 0x0004_0001, 0x0004_4801] {
+            d.extend_from_slice(&w.to_le_bytes());
+        }
+        let q = ProductionQueueRecord::decode(&d);
+        assert_eq!(
+            q.items
+                .iter()
+                .map(|i| (i.count, i.item, i.class, i.completion))
+                .collect::<Vec<_>>(),
+            vec![
+                (1, 0, QueueClass::Fleet, 81),
+                (1, 0, QueueClass::Fleet, 0),
+                (1, 18, QueueClass::Fleet, 0),
+            ]
+        );
     }
 
     #[test]
     fn ignores_trailing_partial_word() {
-        let mut d = item_word(2, 3, 4).to_vec();
+        let mut d = item_word(2, 3, 1, 4).to_vec();
         d.extend_from_slice(&[0xAA, 0xBB]); // stray 2 bytes, not a full item
         let q = ProductionQueueRecord::decode(&d);
         assert_eq!(q.items.len(), 1);
@@ -153,7 +250,7 @@ mod tests {
     #[test]
     fn decodes_change_with_planet_id() {
         let mut d = 42u16.to_le_bytes().to_vec();
-        d.extend_from_slice(&item_word(1, 256, 0));
+        d.extend_from_slice(&item_word(1, 8, 1, 0));
         let q = ProductionQueueRecord::decode_change(&d).unwrap();
         assert_eq!(q.planet_id, Some(42));
         assert_eq!(q.items.len(), 1);

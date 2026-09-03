@@ -24,7 +24,7 @@ use crate::research::{NextField, Research, TECH_FIELDS};
 use crate::{GameState, Player};
 
 use stars_formats::{
-    planet_records_in, player_records_in, production_queue_records, DesignRecord, FleetRecord,
+    planet_records_in, player_records_in, production_queues_by_planet, DesignRecord, FleetRecord,
     PlanetRecord, RaceRecord, StarsFile,
 };
 
@@ -277,15 +277,21 @@ impl GameState {
             }
         }
 
-        // Queues are stored in planet order for the planets that have one.
-        let queues = production_queue_records(file);
-        for (queue, planet) in queues.iter().zip(state.planets.iter_mut()) {
+        // A queue block carries no planet id: it belongs to the planet block it
+        // immediately follows, and only planets that have a queue get one. They
+        // therefore cannot be zipped against the planet list by index.
+        for (id, queue) in production_queues_by_planet(blocks) {
+            let Ok(id) = i16::try_from(id) else { continue };
+            let Some(planet) = state.planets.iter_mut().find(|p| p.id == id) else {
+                continue;
+            };
             planet.queue = queue
                 .items
                 .iter()
                 .map(|i| QueueItem {
                     count: i32::from(i.count),
                     item: i.item,
+                    ship: i.class == stars_formats::QueueClass::Fleet,
                     completion: i32::from(i.completion),
                 })
                 .collect();

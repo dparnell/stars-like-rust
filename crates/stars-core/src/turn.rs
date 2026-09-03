@@ -242,10 +242,13 @@ fn run_queue(
     let mut queue = std::mem::take(&mut planet.queue);
 
     for entry in &mut queue {
+        if entry.ship {
+            continue; // built into a fleet, which the turn pipeline lacks
+        }
         let Some(cost) = planetary_item_cost(entry.item, race, false) else {
-            continue; // a ship design; not built here yet
+            continue; // an item this does not cost yet, such as a packet
         };
-        let auto = entry.item >= item::AUTO_BUILD_BASE;
+        let auto = entry.is_auto();
 
         // Auto-build installations are capped by what the planet will be able
         // to operate; a manual order was already clamped when it was queued.
@@ -256,12 +259,7 @@ fn run_queue(
 
         let outcome = build_item(cost, wanted, entry.completion, available, auto);
         if outcome.built > 0 {
-            let bare = if auto {
-                entry.item - item::AUTO_BUILD_BASE
-            } else {
-                entry.item
-            };
-            match bare {
+            match item::auto_builds(entry.item).unwrap_or(entry.item) {
                 item::MINE => planet.mines += i16::try_from(outcome.built).unwrap_or(0),
                 item::FACTORY => planet.factories += i16::try_from(outcome.built).unwrap_or(0),
                 _ => {}
@@ -274,7 +272,7 @@ fn run_queue(
 
     // Drop anything finished; an auto-build entry stays even at zero, because
     // it becomes buildable again as the planet grows.
-    queue.retain(|e| e.count > 0 || e.item >= item::AUTO_BUILD_BASE);
+    queue.retain(|e| e.count > 0 || e.is_auto());
     planet.queue = queue;
     completed
 }

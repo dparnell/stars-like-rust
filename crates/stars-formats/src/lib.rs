@@ -96,7 +96,10 @@ pub use planet::{
     PlanetRecord, Starbase,
 };
 pub use player::{player_records, player_records_in, PlayerRecord, ResearchState};
-pub use production::{production_queue_records, ProductionQueueRecord, QueueItem};
+pub use production::{
+    production_queue_records, production_queues_by_planet, ProductionQueueRecord, QueueClass,
+    QueueItem,
+};
 pub use race::{Economy, HabRange, Lrt, Prt, RaceRecord};
 pub use records::{planet_headers, PlanetHeader, MINIMAL_PLANET_LEN};
 pub use score::{score_records, ScoreRecord, VictoryConditions};

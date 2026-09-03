@@ -91,15 +91,35 @@ pub fn planet_budget(
 pub struct QueueItem {
     /// How many to build.
     pub count: i32,
-    /// Item id. Below 256 these are the planetary items and ship designs;
-    /// 256 and above are the auto-build variants of the same things.
+    /// Item id: an [`item`] constant when [`Self::ship`] is false, otherwise a
+    /// ship or starbase design slot.
     pub item: u16,
-    /// Resources and minerals already applied to the first unit.
+    /// Whether this entry builds a ship rather than a planetary installation.
+    pub ship: bool,
+    /// How far the first unit has been paid for, as a percentage.
     pub completion: i32,
 }
 
-/// Planetary item ids (the game's `iobj` enum). Ship designs occupy their own
-/// range above these.
+impl QueueItem {
+    /// Whether this entry is an auto-build installation, which keeps building
+    /// as the planet grows rather than counting down to zero.
+    #[must_use]
+    pub fn is_auto(&self) -> bool {
+        !self.ship && item::auto_builds(self.item).is_some()
+    }
+}
+
+/// Planetary item ids — the game's `ProdItemType` enum, recovered from the
+/// binary's own debug symbols.
+///
+/// A queue entry's 7-bit item field holds one of these when the entry's class
+/// is [`stars_formats::QueueClass::Planet`], and a ship design slot when it is
+/// `Fleet`.
+///
+/// The `AUTO_*` ids are the game's `mdIdle*` values: they are the **auto-build**
+/// form of the item, which keeps building as the planet grows instead of
+/// counting down. Auto-build is therefore its own set of item ids, not a flag
+/// on an ordinary one.
 pub mod item {
     /// A mine.
     pub const MINE: u16 = 0;
@@ -113,10 +133,34 @@ pub mod item {
     pub const MIN_TERRAFORM: u16 = 4;
     /// Terraform as far as technology allows.
     pub const MAX_TERRAFORM: u16 = 5;
+    /// A mineral packet.
+    pub const PACKET: u16 = 6;
+    /// Auto-build factories (`mdIdleFactory`).
+    pub const AUTO_FACTORY: u16 = 7;
+    /// Auto-build mines (`mdIdleMine`).
+    pub const AUTO_MINE: u16 = 8;
+    /// Auto-build defences (`mdIdleDefense`).
+    pub const AUTO_DEFENSE: u16 = 9;
+    /// Auto-build mineral alchemy (`mdIdleAlchemy`).
+    pub const AUTO_ALCHEMY: u16 = 11;
+    /// Auto-build terraforming (`mdIdleTerraform`).
+    pub const AUTO_TERRAFORM: u16 = 12;
     /// The first planetary-scanner id.
     pub const PLANETARY_SCANNER_FIRST: u16 = 18;
-    /// Anything at or above this is the auto-build form of the item below it.
-    pub const AUTO_BUILD_BASE: u16 = 256;
+
+    /// The ordinary item an auto-build id builds, or `None` if `item` is not
+    /// an auto-build id.
+    #[must_use]
+    pub fn auto_builds(item: u16) -> Option<u16> {
+        Some(match item {
+            AUTO_FACTORY => FACTORY,
+            AUTO_MINE => MINE,
+            AUTO_DEFENSE => DEFENSE,
+            AUTO_ALCHEMY => ALCHEMY,
+            AUTO_TERRAFORM => MAX_TERRAFORM,
+            _ => return None,
+        })
+    }
 }
 
 /// What one unit of a queue item costs.
@@ -140,11 +184,7 @@ pub struct ItemCost {
 pub fn planetary_item_cost(item: u16, race: &Race, tutorial: bool) -> Option<ItemCost> {
     use crate::race::{lrt, Prt, RaceStat};
 
-    let item = if item >= item::AUTO_BUILD_BASE {
-        item - item::AUTO_BUILD_BASE
-    } else {
-        item
-    };
+    let item = item::auto_builds(item).unwrap_or(item);
 
     Some(match item {
         item::MINE => ItemCost {
@@ -342,11 +382,7 @@ pub fn build_item(
 pub fn auto_build_cap(planet: &Planet, race: &Race, item: u16) -> i32 {
     use crate::resources::{max_operable_factories, max_operable_mines};
 
-    let item = if item >= item::AUTO_BUILD_BASE {
-        item - item::AUTO_BUILD_BASE
-    } else {
-        item
-    };
+    let item = item::auto_builds(item).unwrap_or(item);
     let cap = match item {
         item::MINE => i32::from(max_operable_mines(planet, race, true)) - i32::from(planet.mines),
         item::FACTORY => {
