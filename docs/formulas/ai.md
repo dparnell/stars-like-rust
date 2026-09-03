@@ -1,7 +1,7 @@
 # The computer players
 
-Status: **identification verified; terraform decision verified; mine/factory
-decision transcribed but not verified.**
+Status: **identification and the planet list verified; terraform decision
+verified; mine/factory decision reproduces the choice but not the amounts.**
 
 Stars! ships seven computer opponents. This document records which player a
 save file hands to which opponent, maps the roughly 95 functions that make up
@@ -77,8 +77,9 @@ The preparation is the same for all seven:
 2. `MarkPlanetsUnderAttack` — flag the AI's planets with enemies in orbit.
 3. `IncreaseAIMinefieldSizes` — the AI's minefields grow for free. This is one
    of the concrete advantages a computer opponent is given.
-4. `InitRandomPlanetList` — shuffle the planet list, so the AI does not always
-   consider planets in id order.
+4. `InitRandomPlanetList` — collect every planet the player owns and shuffle
+   it, so the AI does not always consider planets in id order. This is the list
+   every per-planet routine walks; see below.
 
 A player marked dead is skipped entirely.
 
@@ -185,31 +186,74 @@ model this project does not have yet; the caller supplies it.
 Robotoid and Rototill queue no terraforming at all despite calling
 `HandleBasicAiTasks`. That is unexplained and worth chasing.
 
-### Mines and factories — transcribed, not verified
+### Which planets an AI considers — recovered
 
-`FFillProdMinesAndFactories` (`10a8:2d72`) is transcribed in
-`ai::production::fill_prod_mines_and_factories`, and it **does not match the
-corpus**:
+`InitRandomPlanetList` (`1090:a0d7`) builds `vrglpplAi`, the list every
+per-planet AI routine walks, and sets `vclpplAi` to its length. It is one of
+`DoAiTurn`'s four preparation steps, and it is simple:
 
-| | planet-turns |
-|---|---|
-| the original queued mines or factories | 85 |
-| this transcription would | 11,825 |
+```c
+vclpplAi = 0;
+for (p in every planet)
+    if (p->iPlayer == idPlayer)
+        vrglpplAi[vclpplAi++] = p;
+if (!(gameFlags >> 11 & 1))
+    for (i = 0; i < vclpplAi - 1; i++)
+        swap(vrglpplAi[i], vrglpplAi[i + Random(vclpplAi - i)]);
+```
 
-It fires roughly 140 times too often, and on the 85 real cases it gets the item
-right 30 times and the count right 7. Where the original queues, it almost
-always queues one at a time; this predicts large batches.
+It collects **every planet the player owns** and shuffles it with a forward
+Fisher-Yates using the game's own `Random`. It is not a filtered working set,
+which is what an earlier revision of this document guessed it was. Implemented
+as `ai::planet_order`.
 
-The decision logic itself is a faithful reading. What is missing is the gate in
-front of it: `FillProductionQueue` (`10a8:2ce2`) walks
-`vrglpplAi[0..vclpplAi]` — a working list of planets that the personality
-routine selects — not every planet the player owns. Recovering how that list is
-built is the next step, and until then nothing asserts this function.
+The shuffle is skipped when bit 11 of the game flags word is set — the same
+flag `FFillProdMinesAndFactories` tests when costing factories — which makes an
+AI turn reproducible.
 
-This is the same discipline the rest of the project uses: the code is kept
-because the transcription is worth having, but it is labelled with its measured
-error rather than presented as working. `cargo run -p stars-core --example
-ai_production -- fixtures/games/all-computer-players` reproduces the numbers.
+### Mines and factories — the decision is right, the amounts are not
+
+Because there is no selection gate, `FFillProdMinesAndFactories` runs on every
+AI planet every turn, and the transcription in
+`ai::production::fill_prod_mines_and_factories` was scored against that.
+
+**The recorded queue is the wrong observable.** The next turn's production
+builds these entries and empties the queue, so across the corpus mines or
+factories grow on 7684 planet-year pairs while only 80 ever show a queue entry.
+An earlier revision of this document scored against the queue and concluded the
+transcription "over-fires 140x". That was an artifact of the observable, not a
+property of the routine, and it is withdrawn.
+
+Scored against the change in a planet's mine and factory counts, over 21,508
+planet-year pairs:
+
+| measure | result |
+|---------|--------|
+| said it would build, and it did (recall) | 7735 of 7764 (99%) |
+| said build, and it did (precision) | 7735 of 10728 (72%) |
+| exact counts, where it built | 2699 of 7764 (34%) |
+| exact counts, nothing else queued | 2565 of 6458 (39%) |
+
+*When* the AI builds is reproduced almost exactly; *how much* is right about a
+third of the time.
+
+Two controls, because the headline number is misleading on its own. Overall
+agreement is 62%, and simply predicting "nothing is ever built" scores 63% —
+most planet-years build nothing, so that comparison says nothing either way.
+Scoring each prediction against a different planet's outcome from the same year
+gives 33%. The split above is the measure that carries information.
+
+Part of the residual is structural rather than a transcription error: the queue
+is chosen from one year's resources but built from the next year's, after
+anything else queued takes its share. Restricting to planets with nothing else
+queued moves exact counts from 34% to only 39%, so most of the gap lies
+elsewhere. The likely candidates are the estimated mining in
+`GetResourcesAvailable` and the planet's resource output, both of which the
+whole-turn replay already shows are imperfect (67% on mines, 71% on factories)
+— which means this may improve for free as the economy does.
+
+`cargo run --release -p stars-core --example ai_production --
+fixtures/games/all-computer-players` reproduces every figure here.
 
 ### Other queue sources
 

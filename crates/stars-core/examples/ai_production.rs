@@ -1,19 +1,36 @@
 //! Score the AI production transcription against a recorded game.
 //!
-//! For every AI-owned planet in every turn of a saved game, work out what
-//! `FFillProdMinesAndFactories` would queue and compare it with what the
-//! original actually left in the queue.
+//! `FFillProdMinesAndFactories` queues auto-build mines and factories, and the
+//! next turn's production step builds them and empties the queue. The recorded
+//! queue is therefore almost always empty even though the AI is building
+//! constantly — across `all-computer-players` there are 7684 planet-year pairs
+//! where mines or factories grew while the queue was empty, against 80 where a
+//! queue entry was visible. The observable to score against is the **change**
+//! in a planet's mine and factory counts, not the queue.
 //!
 //! ```text
-//! cargo run -p stars-core --example ai_production -- fixtures/games/all-computer-players
+//! cargo run --release -p stars-core --example ai_production -- \
+//!     fixtures/games/all-computer-players
 //! ```
 
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 use stars_core::ai::production::{fill_prod_mines_and_factories, Context};
 use stars_core::ai::Control;
+use stars_core::rng::Rng;
 use stars_core::GameState;
 use stars_formats::StarsFile;
+
+/// What we predicted for a planet in one year, kept until the next year shows
+/// what actually happened.
+struct Predicted {
+    mines: i32,
+    factories: i32,
+    from: (i16, i16),
+    /// Whether anything else was in the queue competing for the same
+    /// resources when the decision was made.
+    queue_was_clear: bool,
+}
 
 fn main() {
     let dir = std::env::args().nth(1).expect("usage: ai_production <dir>");
@@ -26,16 +43,34 @@ fn main() {
         .collect();
     years.sort();
 
-    let mut total = 0usize;
-    let mut item_ok = 0usize;
-    let mut exact = 0usize;
-    let mut empty_recorded = 0usize;
-    let mut by_item: BTreeMap<(String, String), usize> = BTreeMap::new();
+    let mut pending: HashMap<i16, Predicted> = HashMap::new();
+    let mut scored = 0usize;
+    let mut both_exact = 0usize;
+    let mut factories_exact = 0usize;
+    let mut mines_exact = 0usize;
+    let mut within_one = 0usize;
     let mut shown = 0usize;
 
-    for year_dir in &years {
-        let path = year_dir.join("Game.hst");
-        let Ok(bytes) = std::fs::read(&path) else {
+    // Chance control: score each prediction against a *different* planet's
+    // recorded outcome from the same year. A rule no better than this is not a
+    // rule.
+    let mut rng = Rng::randomize(12345);
+    let mut chance_both = 0usize;
+    let mut chance_total = 0usize;
+    // The other control that matters: predicting nothing at all. Most planets
+    // build nothing on most turns, so a rule has to beat this to be worth
+    // anything.
+    let mut zero_both = 0usize;
+    // Precision and recall on "did this planet build anything at all".
+    let mut built = 0usize;
+    let mut predicted_some = 0usize;
+    let mut true_positive = 0usize;
+    let mut built_exact = 0usize;
+    let mut clear_built = 0usize;
+    let mut clear_exact = 0usize;
+
+    for year in &years {
+        let Ok(bytes) = std::fs::read(year.join("Game.hst")) else {
             continue;
         };
         let Ok(file) = StarsFile::decode(&bytes) else {
@@ -44,6 +79,90 @@ fn main() {
         let (state, _) = GameState::from_file(&file);
         let turn = state.year() - 2400;
 
+        // Score last year's predictions against this year's counts.
+        let mut deltas: Vec<(i32, i32)> = Vec::new();
+        for planet in &state.planets {
+            let Some(p) = pending.get(&planet.id) else {
+                continue;
+            };
+            let d_mines = i32::from(planet.mines - p.from.0);
+            let d_factories = i32::from(planet.factories - p.from.1);
+            // A planet that lost buildings changed hands or was bombed; that is
+            // not a production outcome.
+            if d_mines < 0 || d_factories < 0 {
+                continue;
+            }
+            scored += 1;
+            deltas.push((d_mines, d_factories));
+
+            let m = p.mines == d_mines;
+            let f = p.factories == d_factories;
+            if m {
+                mines_exact += 1;
+            }
+            if f {
+                factories_exact += 1;
+            }
+            if m && f {
+                both_exact += 1;
+            }
+            if d_mines == 0 && d_factories == 0 {
+                zero_both += 1;
+            } else {
+                built += 1;
+                if m && f {
+                    built_exact += 1;
+                }
+                if p.queue_was_clear {
+                    clear_built += 1;
+                    if m && f {
+                        clear_exact += 1;
+                    }
+                }
+            }
+            let says_some = p.mines + p.factories > 0;
+            let did_some = d_mines + d_factories > 0;
+            if says_some {
+                predicted_some += 1;
+                if did_some {
+                    true_positive += 1;
+                }
+            }
+            if (p.mines - d_mines).abs() <= 1 && (p.factories - d_factories).abs() <= 1 {
+                within_one += 1;
+            } else if verbose && shown < 15 {
+                shown += 1;
+                println!(
+                    "  {} planet {:>3}: predicted {}m {}f, actual {d_mines}m {d_factories}f \
+                     (had {}m {}f)",
+                    state.year(),
+                    planet.id,
+                    p.mines,
+                    p.factories,
+                    p.from.0,
+                    p.from.1
+                );
+            }
+        }
+
+        // The same predictions against someone else's outcome.
+        for planet in &state.planets {
+            if deltas.is_empty() {
+                break;
+            }
+            let Some(p) = pending.get(&planet.id) else {
+                continue;
+            };
+            let i = (rng.next_raw().unsigned_abs() as usize) % deltas.len();
+            let (dm, df) = deltas[i];
+            chance_total += 1;
+            if p.mines == dm && p.factories == df {
+                chance_both += 1;
+            }
+        }
+
+        // Predict for this year, to be scored against the next.
+        pending.clear();
         for planet in &state.planets {
             let Some(owner) = planet.owner else { continue };
             let Some(player) = state.players.get(owner as usize) else {
@@ -52,16 +171,10 @@ fn main() {
             let Control::Computer { personality, .. } = player.control else {
                 continue;
             };
-
             let mut tech = [0u8; 6];
-            for (i, t) in player.research.levels.iter().enumerate().take(6) {
-                tech[i] = *t;
+            for (slot, level) in tech.iter_mut().zip(player.research.levels.iter()) {
+                *slot = *level;
             }
-
-            // The AI decides from an empty queue: its previous entry has been
-            // consumed by the production step that ran before it.
-            let mut bare = planet.clone();
-            bare.queue.clear();
             let ctx = Context {
                 personality,
                 research_pct: player.research_pct,
@@ -70,82 +183,65 @@ fn main() {
                 terraform_steps: 0,
                 factories_cost_all_minerals: false,
             };
-            let predicted = fill_prod_mines_and_factories(&bare, &player.race, &ctx).entries();
-
-            let recorded: Vec<_> = planet
-                .queue
-                .iter()
-                .filter(|e| !e.ship)
-                .map(|e| (e.item, e.count))
-                .collect();
-            let got: Vec<_> = predicted.iter().map(|e| (e.item, e.count)).collect();
-
-            // Only the entries this routine is responsible for. Terraforming,
-            // defences, scanners, starbases and packets are queued by other AI
-            // routines that are not implemented yet.
-            let mine_or_factory = |v: &[(u16, i32)]| -> Vec<(u16, i32)> {
-                v.iter()
-                    .filter(|(i, _)| *i == 7 || *i == 8)
-                    .copied()
-                    .collect()
-            };
-            let recorded = mine_or_factory(&recorded);
-            let got = mine_or_factory(&got);
-            if recorded.is_empty() {
-                if !got.is_empty() {
-                    empty_recorded += 1;
-                }
-                continue;
-            }
-            total += 1;
-
-            let name = |v: &[(u16, i32)]| {
-                v.iter()
-                    .map(|(i, c)| format!("{i}x{c}"))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            };
-            *by_item.entry((name(&recorded), name(&got))).or_default() += 1;
-
-            let items_match: Vec<u16> = recorded.iter().map(|(i, _)| *i).collect();
-            let got_items: Vec<u16> = got.iter().map(|(i, _)| *i).collect();
-            if items_match == got_items {
-                item_ok += 1;
-                if recorded == got {
-                    exact += 1;
-                } else if verbose && shown < 25 {
-                    shown += 1;
-                    println!(
-                        "  {} planet {:>3} owner {owner}: recorded {} predicted {} \
-                         (mines {} facts {} pop {})",
-                        state.year(),
-                        planet.id,
-                        name(&recorded),
-                        name(&got),
-                        planet.mines,
-                        planet.factories,
-                        planet.pop
-                    );
-                }
-            }
+            let d = fill_prod_mines_and_factories(planet, &player.race, &ctx);
+            pending.insert(
+                planet.id,
+                Predicted {
+                    mines: d.mines,
+                    factories: d.factories,
+                    from: (planet.mines, planet.factories),
+                    queue_was_clear: planet.queue.is_empty(),
+                },
+            );
         }
     }
 
-    println!("{total} AI planet-turns where the game queued mines or factories");
-    println!("  {empty_recorded} more where it queued none but we would have");
-    println!("  right item(s):  {item_ok} ({}%)", percent(item_ok, total));
-    println!("  item and count: {exact} ({}%)", percent(exact, total));
-
-    println!("\nmost common (recorded -> predicted):");
-    let mut pairs: Vec<_> = by_item.into_iter().collect();
-    pairs.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
-    for ((rec, got), n) in pairs.into_iter().take(15) {
-        let mark = if rec == got { "ok " } else { "BAD" };
-        println!("  {mark} {n:>5}  {rec:<16} -> {got}");
-    }
+    println!("{scored} AI planet-year pairs scored");
+    println!(
+        "  mines exact:      {mines_exact} ({}%)",
+        pct(mines_exact, scored)
+    );
+    println!(
+        "  factories exact:  {factories_exact} ({}%)",
+        pct(factories_exact, scored)
+    );
+    println!(
+        "  both exact:       {both_exact} ({}%)",
+        pct(both_exact, scored)
+    );
+    println!(
+        "  both within 1:    {within_one} ({}%)",
+        pct(within_one, scored)
+    );
+    println!(
+        "  chance control:   {chance_both} of {chance_total} ({}%) — same predictions, \
+         another planet's outcome",
+        pct(chance_both, chance_total)
+    );
+    println!(
+        "  predict-nothing:  {zero_both} ({}%) — how often the planet built nothing",
+        pct(zero_both, scored)
+    );
+    println!("\non the {built} pairs where the planet actually built something:");
+    println!(
+        "  exact:          {built_exact} ({}%)",
+        pct(built_exact, built)
+    );
+    println!(
+        "  recall:         {true_positive} of {built} ({}%) — we said it would build",
+        pct(true_positive, built)
+    );
+    println!(
+        "  precision:      {true_positive} of {predicted_some} ({}%) — we said build, it did",
+        pct(true_positive, predicted_some)
+    );
+    println!(
+        "  exact, and nothing else was queued: {clear_exact} of {clear_built} ({}%)",
+        pct(clear_exact, clear_built)
+    );
 }
 
-fn percent(n: usize, total: usize) -> usize {
+fn pct(n: usize, total: usize) -> usize {
     n.checked_mul(100)
         .and_then(|x| x.checked_div(total))
         .unwrap_or(0)

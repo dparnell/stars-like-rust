@@ -5,9 +5,9 @@
 //! all four skill settings. That makes the AI's queue decisions checkable for
 //! the first time.
 //!
-//! What these tests pin is what the corpus actually confirms. The mine and
-//! factory decision is deliberately **not** asserted: see
-//! `docs/formulas/ai.md` for the measured result and why.
+//! What these tests pin is what the corpus actually confirms, with the
+//! measured accuracy of each piece. See `docs/formulas/ai.md` for the full
+//! numbers and the controls behind them.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -223,4 +223,101 @@ fn the_transcription_honours_its_gates() {
         completion: 0,
     });
     assert_eq!(queue_ai_terraforming(&queued, &race, &base), 0);
+}
+
+/// The mine and factory decision reproduces *whether* the AI builds, even
+/// though it often gets the amount wrong.
+///
+/// The queue is not the observable here: the next turn's production builds
+/// these entries and empties it, so mines or factories grow on thousands of
+/// planet-year pairs that show no queue entry at all. This scores the change
+/// in the planet's counts instead.
+///
+/// The thresholds are set below the measured values (99% recall, 72%
+/// precision) so that a real regression trips them without normal drift doing
+/// so. Exact counts are only right about a third of the time and are
+/// deliberately not asserted.
+#[test]
+fn the_mine_and_factory_decision_predicts_when_the_ai_builds() {
+    use stars_core::ai::production::{fill_prod_mines_and_factories, Context};
+
+    let dir = workspace_root().join("fixtures/games/all-computer-players");
+    if !dir.is_dir() {
+        eprintln!("skipping: all-computer-players fixture absent");
+        return;
+    }
+    let mut years: Vec<_> = std::fs::read_dir(&dir)
+        .expect("game directory")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.is_dir())
+        .collect();
+    years.sort();
+
+    // planet id -> (predicted total, mines before, factories before)
+    let mut pending: BTreeMap<i16, (i32, i16, i16)> = BTreeMap::new();
+    let (mut built, mut predicted_some, mut true_positive) = (0usize, 0usize, 0usize);
+
+    for year in &years {
+        let Ok(bytes) = std::fs::read(year.join("Game.hst")) else {
+            continue;
+        };
+        let Ok(file) = StarsFile::decode(&bytes) else {
+            continue;
+        };
+        let (state, _) = GameState::from_file(&file);
+        let turn = state.year() - 2400;
+
+        for planet in &state.planets {
+            let Some(&(predicted, was_mines, was_factories)) = pending.get(&planet.id) else {
+                continue;
+            };
+            let grew =
+                i32::from(planet.mines - was_mines) + i32::from(planet.factories - was_factories);
+            if grew < 0 {
+                continue; // changed hands or was bombed
+            }
+            if grew > 0 {
+                built += 1;
+            }
+            if predicted > 0 {
+                predicted_some += 1;
+                if grew > 0 {
+                    true_positive += 1;
+                }
+            }
+        }
+
+        pending.clear();
+        for planet in &state.planets {
+            let Some(owner) = planet.owner else { continue };
+            let Some(player) = state.players.get(owner as usize) else {
+                continue;
+            };
+            let Control::Computer { personality, .. } = player.control else {
+                continue;
+            };
+            let mut tech = [0u8; 6];
+            for (slot, level) in tech.iter_mut().zip(player.research.levels.iter()) {
+                *slot = *level;
+            }
+            let ctx = Context {
+                personality,
+                research_pct: player.research_pct,
+                tech,
+                turn,
+                ..Context::default()
+            };
+            let d = fill_prod_mines_and_factories(planet, &player.race, &ctx);
+            pending.insert(
+                planet.id,
+                (d.mines + d.factories, planet.mines, planet.factories),
+            );
+        }
+    }
+
+    assert!(built > 5000, "expected a large sample, got {built}");
+    let recall = true_positive * 100 / built;
+    let precision = true_positive * 100 / predicted_some.max(1);
+    assert!(recall >= 95, "recall fell to {recall}% (was 99%)");
+    assert!(precision >= 65, "precision fell to {precision}% (was 72%)");
 }

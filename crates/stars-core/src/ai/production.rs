@@ -184,20 +184,40 @@ fn affordable(resources: i32, unit: i32) -> i32 {
 /// 4. Queue mineral alchemy only once every technology has reached 26 and the
 ///    game is past turn 100.
 ///
-/// # This transcription is not verified
+/// # How well this matches
 ///
 /// Scored against `fixtures/games/all-computer-players` — 101 turns of sixteen
-/// computer players — the original queued mines or factories on **85**
-/// planet-turns. This function would queue them on **11,825**: it fires about
-/// 140 times too often, and where the original does queue, it almost always
-/// queues one at a time while this predicts far larger batches.
+/// computer players, 21,508 planet-year pairs.
 ///
-/// The decision logic above is a faithful reading of the routine. What is
-/// missing is the gate in front of it: `FillProductionQueue` (`10a8:2ce2`)
-/// walks `vrglpplAi[0..vclpplAi]`, a working list of planets the personality
-/// routine selects, not every planet the player owns. Until that selection is
-/// recovered this cannot be scored properly, so nothing asserts it — see
-/// `docs/formulas/ai.md`.
+/// The queue is the wrong thing to score against: the next turn's production
+/// builds these entries and empties it, so mines or factories grow on 7684
+/// planet-year pairs while only 80 ever show a queue entry. The observable is
+/// the **change** in the planet's mine and factory counts.
+///
+/// | measure | result |
+/// |---------|--------|
+/// | said it would build, and it did (recall) | 7735 of 7764 (99%) |
+/// | said build, and it did (precision) | 7735 of 10728 (72%) |
+/// | exact counts, where it built | 2699 of 7764 (34%) |
+/// | exact counts, nothing else queued | 2565 of 6458 (39%) |
+///
+/// So *when* the AI builds is reproduced almost exactly, and *how much* is
+/// right about a third of the time. Overall agreement is 62% against a 63%
+/// "predict nothing" baseline — that comparison is uninformative, because
+/// most planet-years build nothing, which is why the split above is the one
+/// that matters.
+///
+/// Part of the residual is structural rather than a transcription error: the
+/// queue is chosen from one year's resources but built from the next year's,
+/// after anything else in the queue takes its share. Restricting to planets
+/// with nothing else queued moves exact counts only from 34% to 39%, so most
+/// of the gap is elsewhere — the estimated mining in
+/// [`resources_available`] and the planet's resource output are the
+/// candidates, both of which the whole-turn replay already shows are
+/// imperfect.
+///
+/// `cargo run --release -p stars-core --example ai_production` reproduces all
+/// of these.
 #[must_use]
 pub fn fill_prod_mines_and_factories(planet: &Planet, race: &Race, ctx: &Context) -> Decision {
     let mut decision = Decision::default();

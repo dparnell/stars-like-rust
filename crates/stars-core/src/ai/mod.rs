@@ -127,8 +127,8 @@ pub enum TurnStep {
     /// `IncreaseAIMinefieldSizes` — the AI's minefields grow for free, which is
     /// one of the ways a computer opponent is handed an advantage.
     GrowMinefields,
-    /// `InitRandomPlanetList` — shuffle the planet list, so the AI does not
-    /// always consider planets in id order.
+    /// `InitRandomPlanetList` — collect every planet the player owns and
+    /// shuffle it. See [`planet_order`].
     ShufflePlanets,
     /// The personality's own routine.
     Personality,
@@ -144,6 +144,38 @@ pub const TURN_STEPS: [TurnStep; 5] = [
     TurnStep::ShufflePlanets,
     TurnStep::Personality,
 ];
+
+/// The order in which an AI considers its planets, and the list every
+/// per-planet AI routine walks.
+///
+/// Source: `InitRandomPlanetList` (`1090:a0d7`), one of the four preparation
+/// steps in [`TURN_STEPS`]. It collects **every** planet the player owns — it
+/// is not a filtered working set — and then shuffles it, so the AI does not
+/// always consider its planets in id order.
+///
+/// The shuffle is a forward Fisher-Yates using the game's own `Random`: for
+/// each position `i` below the last, swap with a position drawn from
+/// `i .. i + Random(n - i)`. It is skipped when bit 11 of the game flags word
+/// is set (the same flag `FFillProdMinesAndFactories` tests when costing
+/// factories), which makes an AI turn reproducible for debugging.
+///
+/// `planets` is the planet ids the player owns, in id order.
+#[must_use]
+pub fn planet_order(planets: &[i16], rng: &mut crate::rng::Rng, shuffle: bool) -> Vec<i16> {
+    let mut out = planets.to_vec();
+    if !shuffle {
+        return out;
+    }
+    let n = i16::try_from(out.len()).unwrap_or(i16::MAX);
+    for i in 0..out.len().saturating_sub(1) {
+        let span = n - i16::try_from(i).unwrap_or(0);
+        let j = i + usize::try_from(rng.random(span)).unwrap_or(0);
+        if j < out.len() {
+            out.swap(i, j);
+        }
+    }
+    out
+}
 
 #[cfg(test)]
 mod tests {
@@ -164,6 +196,22 @@ mod tests {
                 skill_bits: 1,
             }
         );
+    }
+
+    /// The planet list is a permutation of everything the player owns — the
+    /// routine filters nothing out.
+    #[test]
+    fn planet_order_keeps_every_planet() {
+        let planets: Vec<i16> = (0..25).collect();
+        let mut rng = crate::rng::Rng::randomize(7);
+        let shuffled = planet_order(&planets, &mut rng, true);
+        let mut sorted = shuffled.clone();
+        sorted.sort_unstable();
+        assert_eq!(sorted, planets);
+        assert_ne!(shuffled, planets, "a 25-planet shuffle should reorder");
+
+        let mut rng = crate::rng::Rng::randomize(7);
+        assert_eq!(planet_order(&planets, &mut rng, false), planets);
     }
 
     /// `DoAiTurn`'s jump table has no case 6; it falls through to `default`.

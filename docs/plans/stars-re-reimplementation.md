@@ -264,10 +264,13 @@ Remaining in this step:
    sixteen computer players, six personalities, four difficulties) makes the
    AI checkable. Which opponent runs a player is decoded and tested; the
    auto-terraform decision is transcribed and confirmed against 5785 recorded
-   entries. The mine/factory decision is transcribed but over-fires 140x,
-   because the planet-selection list `vrglpplAi` that gates it has not been
-   recovered — that is the next step. Colonisation, war and fleet dispatch are
-   mapped but unwritten. See `docs/formulas/ai.md`.
+   entries. `vrglpplAi`, the planet list every per-planet AI routine walks, is
+   recovered: it is every planet the player owns, shuffled. The mine/factory
+   decision reproduces *whether* the AI builds (99% recall, 72% precision over
+   21,508 planet-year pairs) but gets the amount right only a third of the
+   time; the residual most likely lies in the economy rather than the AI.
+   Colonisation, war and fleet dispatch are mapped but unwritten. See
+   `docs/formulas/ai.md`.
 2. **Orders beyond movement** — cargo transfer, colonisation and remote mining
    are decoded by the format layer but not processed, and ship building cannot
    turn a finished design into a fleet. This is now the largest single gap in
