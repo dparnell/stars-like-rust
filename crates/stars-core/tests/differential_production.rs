@@ -84,6 +84,8 @@ fn to_core_planet(r: &PlanetRecord) -> Option<Planet> {
         factories: i16::try_from(imp.factories).ok()?,
         homeworld: r.homeworld,
         starbase: r.has_starbase,
+        queue: Vec::new(),
+        no_research: imp.no_research,
     })
 }
 
@@ -357,4 +359,60 @@ fn auto_build_is_capped_by_what_can_be_operated() {
         auto_build_cap(&planet, &race, item::FACTORY),
         auto_build_cap(&planet, &race, item::FACTORY + item::AUTO_BUILD_BASE)
     );
+}
+
+/// A whole turn's production, end to end.
+#[test]
+fn a_generated_turn_builds_from_the_queue() {
+    use stars_core::production::{item, QueueItem};
+    use stars_core::rng::Rng;
+    use stars_core::{generate_turn, GameState, Player, SkippedStep};
+
+    let race = Race::humanoid();
+    let mut planet = Planet::unowned(0);
+    planet.owner = Some(0);
+    planet.env = race.env_center;
+    planet.pop = 2500; // 250,000 colonists: plenty of resources
+    planet.factories = 10;
+    planet.mines = 10;
+    planet.surface_min = [500, 500, 500];
+    planet.queue = vec![QueueItem {
+        count: 5,
+        item: item::FACTORY,
+        completion: 0,
+    }];
+
+    let mut state = GameState::new(1);
+    state.planets = vec![planet];
+    state.players = vec![Player::new(race)];
+
+    let mut rng = Rng::randomize(7);
+    let report = generate_turn(&mut state, &mut rng);
+
+    assert_eq!(report.year, 2401);
+    let built: i32 = report
+        .built
+        .iter()
+        .flat_map(|(_, items)| items.iter())
+        .filter(|(id, _)| *id == item::FACTORY)
+        .map(|(_, n)| *n)
+        .sum();
+    assert!(built > 0, "the planet should have built some factories");
+    assert_eq!(
+        state.planets[0].factories,
+        10 + i16::try_from(built).unwrap(),
+        "and they should be on the planet"
+    );
+    assert!(
+        state.planets[0].surface_min[2] < 500,
+        "germanium should have been spent"
+    );
+
+    // The build queue is no longer listed as skipped.
+    assert!(
+        !report.skipped.contains(&SkippedStep::BuildQueue),
+        "the queue now runs"
+    );
+    // Research still receives whatever production did not spend.
+    assert!(report.research_spending[0] > 0);
 }

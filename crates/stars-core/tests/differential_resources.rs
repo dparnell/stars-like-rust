@@ -107,6 +107,8 @@ fn to_core_planet(r: &PlanetRecord) -> Option<Planet> {
         factories: i16::try_from(imp.factories).ok()?,
         homeworld: r.homeworld,
         starbase: r.has_starbase,
+        queue: Vec::new(),
+        no_research: imp.no_research,
     })
 }
 

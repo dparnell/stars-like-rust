@@ -70,9 +70,14 @@ UpdatePopulations → UpdateResearchStatus → RandomEvents
 ## What `generate_turn` currently performs
 
 `crates/stars-core/src/turn.rs` runs mining, the per-planet resource split,
-population growth and the research advance — the steps whose formulas are
-recovered. Every other step is returned in `TurnReport::skipped` rather than
-quietly omitted, so a partial turn cannot be mistaken for a complete one.
+**the production queue**, population growth and the research advance — the
+steps whose formulas are recovered. Every other step is returned in
+`TurnReport::skipped` rather than quietly omitted, so a partial turn cannot be
+mistaken for a complete one.
+
+The queue builds the planetary installations; ship designs are recognised but
+skipped, because turning a completed design into a fleet needs a fleet model
+the pipeline does not have yet.
 
 ## Open questions
 

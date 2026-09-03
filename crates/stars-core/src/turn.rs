@@ -28,7 +28,9 @@
 use crate::mining::mine_minerals;
 use crate::planet::Planet;
 use crate::population::update_population;
-use crate::production::planet_budget;
+use crate::production::{
+    auto_build_cap, build_item, item, planet_budget, planetary_item_cost, COST_PARTS,
+};
 use crate::research::{add_research, Breakthrough};
 use crate::rng::Rng;
 use crate::{GameState, Player};
@@ -61,6 +63,8 @@ pub struct TurnReport {
     pub year: i32,
     /// Minerals mined, per planet id, in kT.
     pub mined: Vec<(i16, [i32; 3])>,
+    /// What each planet completed, as `(planet id, [(item id, count)])`.
+    pub built: Vec<(i16, Vec<(u16, i32)>)>,
     /// Population change per planet id, in units of 100 colonists.
     pub population: Vec<(i16, i32)>,
     /// Resources each player put into research.
@@ -85,7 +89,6 @@ pub fn generate_turn(state: &mut GameState, rng: &mut Rng) -> TurnReport {
             SkippedStep::Orders,
             SkippedStep::FleetMovement,
             SkippedStep::Things,
-            SkippedStep::BuildQueue,
             SkippedStep::Combat,
             SkippedStep::Terraforming,
             SkippedStep::RandomEvents,
@@ -123,11 +126,33 @@ pub fn generate_turn(state: &mut GameState, rng: &mut Rng) -> TurnReport {
         let race = player.race.clone();
         let research_pct = player.research_pct;
 
-        if let Some(budget) = planet_budget(&state.planets[index], &race, research_pct, 0, false) {
-            // The queue is not run, so its unspent share also falls through to
-            // research, exactly as an empty queue would.
-            report.research_spending[owner_index] += budget.total;
+        let no_research = state.planets[index].no_research;
+        let Some(budget) =
+            planet_budget(&state.planets[index], &race, research_pct, 0, no_research)
+        else {
+            continue;
+        };
+
+        // Run the build queue against the planet's minerals and its share of
+        // the resources.
+        let mut available = [
+            state.planets[index].surface_min[0],
+            state.planets[index].surface_min[1],
+            state.planets[index].surface_min[2],
+            budget.production,
+        ];
+        let built = run_queue(&mut state.planets[index], &race, &mut available);
+        for (i, slot) in state.planets[index].surface_min.iter_mut().enumerate() {
+            *slot = available[i];
         }
+        if !built.is_empty() {
+            let id = state.planets[index].id;
+            report.built.push((id, built));
+        }
+
+        // Whatever the queue did not spend falls through to research, along
+        // with the skim.
+        report.research_spending[owner_index] += budget.research + available[COST_PARTS - 1];
     }
 
     // --- Produce: population update.
@@ -181,4 +206,59 @@ pub fn update_populations(planets: &mut [Planet], players: &[Player]) {
         };
         update_population(planet, &player.race);
     }
+}
+
+/// Run a planet's production queue for one year.
+///
+/// Items are taken in order, each spending from what is left. An item that
+/// completes everything it wanted is dropped; one that is only part-built
+/// keeps its progress for next year.
+///
+/// Returns what was completed, as `(item id, count)` pairs. Only the planetary
+/// installations are built here — ship designs need the design layer wired to
+/// a fleet, which the turn pipeline does not have yet.
+fn run_queue(
+    planet: &mut Planet,
+    race: &crate::Race,
+    available: &mut [i32; COST_PARTS],
+) -> Vec<(u16, i32)> {
+    let mut completed: Vec<(u16, i32)> = Vec::new();
+    let mut queue = std::mem::take(&mut planet.queue);
+
+    for entry in &mut queue {
+        let Some(cost) = planetary_item_cost(entry.item, race, false) else {
+            continue; // a ship design; not built here yet
+        };
+        let auto = entry.item >= item::AUTO_BUILD_BASE;
+
+        // Auto-build installations are capped by what the planet will be able
+        // to operate; a manual order was already clamped when it was queued.
+        let mut wanted = entry.count;
+        if auto {
+            wanted = wanted.min(auto_build_cap(planet, race, entry.item));
+        }
+
+        let outcome = build_item(cost, wanted, entry.completion, available, auto);
+        if outcome.built > 0 {
+            let bare = if auto {
+                entry.item - item::AUTO_BUILD_BASE
+            } else {
+                entry.item
+            };
+            match bare {
+                item::MINE => planet.mines += i16::try_from(outcome.built).unwrap_or(0),
+                item::FACTORY => planet.factories += i16::try_from(outcome.built).unwrap_or(0),
+                _ => {}
+            }
+            completed.push((entry.item, outcome.built));
+        }
+        entry.count = outcome.remaining;
+        entry.completion = outcome.completion_pct;
+    }
+
+    // Drop anything finished; an auto-build entry stays even at zero, because
+    // it becomes buildable again as the planet grows.
+    queue.retain(|e| e.count > 0 || e.item >= item::AUTO_BUILD_BASE);
+    planet.queue = queue;
+    completed
 }

@@ -47,6 +47,10 @@ pub struct Planet {
     pub homeworld: bool,
     /// Whether the planet has a starbase (`fStarbase`).
     pub starbase: bool,
+    /// The planet's production queue, in build order.
+    pub queue: Vec<crate::production::QueueItem>,
+    /// Whether this planet is exempt from the research skim (`fNoResearch`).
+    pub no_research: bool,
 }
 
 impl Planet {
@@ -66,6 +70,8 @@ impl Planet {
             factories: 0,
             homeworld: false,
             starbase: false,
+            queue: Vec::new(),
+            no_research: false,
         }
     }
 
