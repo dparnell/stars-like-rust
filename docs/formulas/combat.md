@@ -1,6 +1,6 @@
 # Subsystem: Combat
 
-- **Status:** in progress — board, movement schedule, targeting, accuracy, damage and the beam firing loop implemented and verified; movement *scoring* and torpedo resolution are not
+- **Status:** in progress — board, movement (schedule, search, scoring), targeting, accuracy, damage and the beam firing loop implemented and verified; torpedo resolution is not
 - **Ghidra routine(s):** `battle.c` region — `DxyFromSpdRound`, `DzFromBrcBrc`, `CTorpHit`, `ScoreFromGiveAndTakeAndTactic`, `FAttack`, `FDamageTok`, `DxyMoveTokTo`, and the `rgbrcStart` table
 - **Manual reference:** `MANUAL.PDF` pp. 23-2..23-10
 - **Uses RNG:** **yes** — torpedo hits are rolled individually
@@ -253,28 +253,71 @@ Two further details from the disassembly: a disengaging mover passes
 `fProximity`, so threats that cannot quite reach it still count; and the damage
 estimate is capped at what the target could actually absorb.
 
+### The search radius, and the beeline
+
+`DzMoveRangeToConsider` (`10f0:5312`) decides how far a token looks, and it has
+two outcomes:
+
+```
+reach = weapon reach + our moves left
+for each enemy of the class we hunt:
+    dz = distance to it, plus one if it can close as fast as we can
+    if dz <= reach:
+        return (radius = our moves left, no beeline)   # something is engageable
+    otherwise remember the nearest one we could actually hurt
+
+return (radius = 1, beeline to that nearest enemy)
+```
+
+The second branch matters more than it looks: when nothing is in reach the
+token **does not score squares at all**. `DxyMoveTokTo` overrides its chosen
+destination with the remembered enemy square and simply steps toward it. That
+is why fleets close across an empty board in a straight line instead of
+dithering, and it is the single largest reason an earlier version of this
+scoring looked flat — most opening moves never go through the scorer.
+
+### The target-class filter
+
+`FIsTargetOfMdTarget` matches a token against the class a battle plan hunts.
+Two classes are broader than their names: "bombers and freighters" also matches
+plain freighters, and "unarmed ships" matches freighters and fuel transports
+too.
+
+It gates only the damage a token **deals**. An enemy of the wrong class still
+threatens it, and still counts toward the damage it would take — so a plan set
+to hunt freighters does not walk blindly into a battleship.
+
+The class to hunt is chosen once per movement decision, not per square: the
+primary class if anything of that class is present (`FDoesPrimaryTargetTypeExist`),
+otherwise the secondary.
+
 ### How well it does
 
-Measured against the recordings, with each token's real battle tactic:
+Measured against the recordings, splitting the two paths a move can take:
 
-| measure | before transcription | after |
-|---------|---------------------:|------:|
-| engine's square among our best-rated | 86% | 86% |
-| our best set, as a share of candidates | 78% | 71% |
-| gap | 8 points | **15 points** |
+| path | result |
+|------|--------|
+| beeline moves (nothing in reach) | **105 of 111 close on the target — 94%** |
+| scored moves | **414 of 450 among our best-rated — 92%**, against an 81% chance rate |
 
-The hit rate should be ~100% for a correct implementation, since the engine
-always picks a square it rates best. Two known gaps account for the rest, and
-both are separate stubs:
+The chance rate is what makes the second number mean anything: a scorer that
+rated every square identically would hit 100% on the first figure and 100% on
+the second.
 
-- **`DzMoveRangeToConsider`** sets the search radius, which is weapon-range
-  based rather than the movement allowance. Our candidate set is therefore not
-  the engine's, and the engine's chosen square may not even be in it.
-- **`FIsTargetOfMdTarget`** filters enemies by target class; without it every
-  enemy counts as engageable, which inflates the damage a square appears to
-  offer.
+For reference, as the pieces landed:
 
-## Armour and shields## Armour and shields
+| | hit rate | chance rate | gap |
+|-|---------:|------------:|----:|
+| shape only, default tactics | 86% | 78% | 8 |
+| scoring transcribed, real tactics | 86% | 71% | 15 |
+| plus search radius and class filter | 92% | 81% | 11 |
+
+The residual — 6 beeline moves and 36 scored ones — is not yet explained. The
+likeliest candidate is the damage estimate `DpFromPtokBrcToBrc` itself, which
+is transcribed from a decompilation rather than the disassembly and still has
+loose ends (the sapper cap and the torpedo path in particular).
+
+## Armour and shields## Armour and shields## Armour and shields
 
 Shields **overlap across a whole token**: twenty scouts with 20 shield points
 each present one 400-point pool that must be stripped before any armour is
@@ -319,10 +362,10 @@ accuracy, the starting-square table and Chebyshev distance against
 
 ## Open questions
 
-- **`DzMoveRangeToConsider`** (the movement search radius) and
-  **`FIsTargetOfMdTarget`** (the target-class filter) are both still stubs, and
-  together account for the 14% of moves the scoring does not rate best. Both
-  are small and self-contained.
+- The residual 8% of scored moves and 6 beeline moves are unexplained; the
+  damage estimate `DpFromPtokBrcToBrc` is the likeliest culprit, since it is
+  the one piece of the movement path still taken from a decompilation rather
+  than the disassembly.
 - Even complete, movement cannot be reproduced exactly without the RNG, because
   every tie-break draws from it.
 - Three of the eleven replayable battles still come out inverted. All three are

@@ -240,10 +240,11 @@ Remaining, in dependency order:
    reproduce the recorded casualties exactly, with movement taken from the
    recording and everything else computed. The movement scoring is transcribed from
    the disassembly (`ScoreGuessBattleDamage`) and rates the engine's chosen
-   square among its best in 86% of moves against a 71% chance rate. What
-   remains: `DzMoveRangeToConsider` and `FIsTargetOfMdTarget`, two small stubs
-   that together explain the residual; and torpedo resolution, which needs the
-   RNG in the right state.
+   square among its best in 86% of moves against a 71% chance rate. The movement search radius and the
+   target-class filter are in too: 94% of beeline moves close on their target
+   and 92% of scored moves land on a square we rate best, against an 81%
+   chance rate. What remains: torpedo resolution, which needs the RNG in the
+   right state, and the unexplained residual.
 5. **The AI players** (six source files), which depend on nearly all of the
    above.
 

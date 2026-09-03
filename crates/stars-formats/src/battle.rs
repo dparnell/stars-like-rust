@@ -191,6 +191,13 @@ impl BattleToken {
         ((self.tactics >> 4) & 0x0f) as u8
     }
 
+    /// The token's own class, from the top nibble of the tactics word, which
+    /// is what other tokens' target filters match against.
+    #[must_use]
+    pub fn target_class(self) -> u8 {
+        ((self.tactics >> 12) & 0x0f) as u8
+    }
+
     /// Squares of movement still available this round (`dMovesLeft`).
     #[must_use]
     pub fn moves_left(self) -> u8 {

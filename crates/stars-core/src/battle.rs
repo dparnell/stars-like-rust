@@ -612,6 +612,16 @@ pub struct CombatToken {
     /// Squares of movement still available this round, which decides whether
     /// an enemy can close before the next exchange.
     pub moves_left: u8,
+    /// The class this token belongs to, for other tokens' target filters.
+    pub class: TargetClass,
+    /// What this token shoots at by preference.
+    pub primary_target: TargetClass,
+    /// What it falls back to.
+    pub secondary_target: TargetClass,
+    /// Whether it is a starbase.
+    pub is_starbase: bool,
+    /// The reach of its longest useful weapon, in squares.
+    pub weapon_reach: i32,
 }
 
 impl CombatToken {
@@ -1041,10 +1051,23 @@ pub fn score_square(tokens: &[CombatToken], mover: usize, square: Square) -> i32
     let mut taken_total = 0;
     let board = i32::from(BOARD_SIZE) - 1;
 
+    // The plan hunts its primary class if anything of that class is present,
+    // and falls back to the secondary otherwise — decided once, for the whole
+    // scoring pass, exactly as `DxyMoveTokTo` does.
+    let hunting = if primary_target_exists(tokens, mover) {
+        us.primary_target
+    } else {
+        us.secondary_target
+    };
+
     for (i, them) in tokens.iter().enumerate() {
         if i == mover || !them.alive() || them.player == us.player {
             continue;
         }
+        // A token of the wrong class still threatens us; we just cannot shoot
+        // back at it. So it contributes to what we take but not to what we
+        // deal.
+        let we_attack = is_target_of(them, hunting);
 
         let straight = i32::from(distance(square, them.square));
 
@@ -1073,7 +1096,11 @@ pub fn score_square(tokens: &[CombatToken], mover: usize, square: Square) -> i32
         let mut given_at_best = 0;
 
         for range in near..=far {
-            let given = damage_estimate(us, them, range, false);
+            let given = if we_attack {
+                damage_estimate(us, them, range, false)
+            } else {
+                0
+            };
             let taken = damage_estimate(them, us, range, proximity);
             // Scored from the enemy's point of view, with the enemy's tactic:
             // what they deal is `taken`, what they suffer is `given`.
@@ -1090,4 +1117,152 @@ pub fn score_square(tokens: &[CombatToken], mover: usize, square: Square) -> i32
     }
 
     target_score(given_best, taken_total, us.tactic)
+}
+
+/// What class of ship a battle plan will shoot at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum TargetClass {
+    /// Nothing; the token is disengaging.
+    None = 0,
+    /// Anything.
+    Any = 1,
+    /// Starbases only.
+    Starbase = 2,
+    /// Armed ships.
+    ArmedShips = 3,
+    /// Bombers and freighters.
+    BombersFreighters = 4,
+    /// Unarmed ships.
+    UnarmedShips = 5,
+    /// Fuel transports.
+    FuelTransports = 6,
+    /// Freighters.
+    Freighters = 7,
+}
+
+impl TargetClass {
+    /// Decode a stored target nibble.
+    #[must_use]
+    pub fn from_raw(v: u8) -> Self {
+        match v {
+            1 => Self::Any,
+            2 => Self::Starbase,
+            3 => Self::ArmedShips,
+            4 => Self::BombersFreighters,
+            5 => Self::UnarmedShips,
+            6 => Self::FuelTransports,
+            7 => Self::Freighters,
+            _ => Self::None,
+        }
+    }
+}
+
+/// Whether a token belongs to the class a battle plan is hunting.
+///
+/// Source: `FIsTargetOfMdTarget` (`battle.c`). Two classes are broader than
+/// their name: "bombers and freighters" also matches plain freighters, and
+/// "unarmed ships" matches freighters and fuel transports too.
+#[must_use]
+pub fn is_target_of(token: &CombatToken, class: TargetClass) -> bool {
+    match class {
+        TargetClass::None => false,
+        TargetClass::Any => true,
+        TargetClass::Starbase => token.is_starbase,
+        TargetClass::ArmedShips | TargetClass::FuelTransports | TargetClass::Freighters => {
+            token.class == class
+        }
+        TargetClass::BombersFreighters => {
+            token.class == TargetClass::BombersFreighters || token.class == TargetClass::Freighters
+        }
+        TargetClass::UnarmedShips => {
+            token.class == TargetClass::UnarmedShips
+                || token.class == TargetClass::Freighters
+                || token.class == TargetClass::FuelTransports
+        }
+    }
+}
+
+/// Whether any enemy of the token's primary target class is present.
+///
+/// Source: `FDoesPrimaryTargetTypeExist`. Decided once per movement decision,
+/// not per candidate square.
+#[must_use]
+pub fn primary_target_exists(tokens: &[CombatToken], mover: usize) -> bool {
+    let us = &tokens[mover];
+    tokens.iter().enumerate().any(|(i, them)| {
+        i != mover
+            && them.alive()
+            && them.player != us.player
+            && is_target_of(them, us.primary_target)
+    })
+}
+
+/// How far a token looks when deciding where to move, and where to head if
+/// nothing is worth engaging.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MoveSearch {
+    /// Radius of squares to score around the current position.
+    pub radius: i32,
+    /// When no valid target is within reach, the square to head toward
+    /// instead — the nearest enemy the token could actually hurt.
+    pub beeline: Option<Square>,
+}
+
+/// Decide the search radius for a token's move.
+///
+/// Source: `DzMoveRangeToConsider` (`10f0:5312`).
+///
+/// If any target of the right class is close enough that the token could
+/// engage it — its distance, plus one if that enemy can close as fast, within
+/// the token's weapon reach plus its remaining movement — the token searches
+/// out to its full remaining movement and picks a square normally.
+///
+/// If nothing is in reach it stops scoring the neighbourhood and simply heads
+/// for the nearest enemy it could hurt, which is why fleets close across an
+/// empty board in a straight line rather than dithering.
+#[must_use]
+pub fn move_search(tokens: &[CombatToken], mover: usize, primary: bool) -> MoveSearch {
+    let us = &tokens[mover];
+    let moves = i32::from(us.moves_left);
+    let class = if primary {
+        us.primary_target
+    } else {
+        us.secondary_target
+    };
+    let reach = us.weapon_reach + moves;
+
+    let mut nearest: Option<(i32, Square)> = None;
+
+    for (i, them) in tokens.iter().enumerate() {
+        if i == mover || !them.alive() || them.player == us.player {
+            continue;
+        }
+        if !is_target_of(them, class) {
+            continue;
+        }
+
+        let mut dz = i32::from(distance(us.square, them.square));
+        if them.moves_left >= us.moves_left {
+            dz += 1;
+        }
+
+        if dz <= reach {
+            // Something is engageable: search the full movement allowance.
+            return MoveSearch {
+                radius: moves,
+                beeline: None,
+            };
+        }
+
+        // Otherwise remember the nearest enemy this token could actually hurt.
+        if nearest.is_none_or(|(best, _)| dz < best) && damage_estimate(us, them, dz, true) > 0 {
+            nearest = Some((dz, them.square));
+        }
+    }
+
+    MoveSearch {
+        radius: 1,
+        beeline: nearest.map(|(_, square)| square),
+    }
 }

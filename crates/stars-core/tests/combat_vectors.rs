@@ -314,6 +314,11 @@ fn movement_scoring_prefers_squares_it_can_shoot_from() {
         tactic,
         speed_index: 2,
         moves_left: 1,
+        class: stars_core::battle::TargetClass::ArmedShips,
+        primary_target: stars_core::battle::TargetClass::Any,
+        secondary_target: stars_core::battle::TargetClass::Any,
+        is_starbase: false,
+        weapon_reach: 1,
         state: TokenState {
             ships: 1,
             shields: 0,
@@ -352,4 +357,64 @@ fn movement_scoring_prefers_squares_it_can_shoot_from() {
         score_square(&alone, 0, Square::new(0, 0)),
         score_square(&alone, 0, Square::new(9, 9))
     );
+}
+
+/// The two target classes that are broader than their names
+/// (`FIsTargetOfMdTarget`).
+#[test]
+fn target_classes_match_the_filter() {
+    use stars_core::battle::{
+        is_target_of, CombatToken, Damage, Square, Tactic, TargetClass, TokenState,
+    };
+
+    let of_class = |class: TargetClass, starbase: bool| CombatToken {
+        player: 1,
+        active: true,
+        square: Square::new(0, 0),
+        initiative_base: 0,
+        capacitor_pct: 0,
+        beam_deflection_pct: 100,
+        weapons: Vec::new(),
+        value: 1,
+        tactic: Tactic::MaximiseDamage,
+        speed_index: 2,
+        moves_left: 1,
+        class,
+        primary_target: TargetClass::Any,
+        secondary_target: TargetClass::Any,
+        is_starbase: starbase,
+        weapon_reach: 0,
+        state: TokenState {
+            ships: 1,
+            shields: 0,
+            armor: 1,
+            damage: Damage::default(),
+        },
+    };
+
+    let freighter = of_class(TargetClass::Freighters, false);
+    let tanker = of_class(TargetClass::FuelTransports, false);
+    let armed = of_class(TargetClass::ArmedShips, false);
+    let base = of_class(TargetClass::ArmedShips, true);
+
+    // "Any" takes everything; "None" takes nothing.
+    assert!(is_target_of(&armed, TargetClass::Any));
+    assert!(!is_target_of(&armed, TargetClass::None));
+
+    // A starbase is recognised by being one, not by its class nibble.
+    assert!(is_target_of(&base, TargetClass::Starbase));
+    assert!(!is_target_of(&armed, TargetClass::Starbase));
+
+    // "Bombers and freighters" also catches plain freighters.
+    assert!(is_target_of(&freighter, TargetClass::BombersFreighters));
+    assert!(!is_target_of(&armed, TargetClass::BombersFreighters));
+
+    // "Unarmed ships" catches freighters and fuel transports too.
+    assert!(is_target_of(&freighter, TargetClass::UnarmedShips));
+    assert!(is_target_of(&tanker, TargetClass::UnarmedShips));
+    assert!(!is_target_of(&armed, TargetClass::UnarmedShips));
+
+    // Exact classes match only themselves.
+    assert!(is_target_of(&armed, TargetClass::ArmedShips));
+    assert!(!is_target_of(&freighter, TargetClass::ArmedShips));
 }

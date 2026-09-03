@@ -500,6 +500,13 @@ fn beam_only_battles_replay_to_the_recorded_casualties() {
                     tactic: Tactic::from_raw(t.tactic()).unwrap_or(Tactic::MaximiseDamage),
                     speed_index: t.speed(),
                     moves_left: t.moves_left(),
+                    class: stars_core::battle::TargetClass::from_raw(t.target_class()),
+                    primary_target: stars_core::battle::TargetClass::from_raw(t.primary_target()),
+                    secondary_target: stars_core::battle::TargetClass::from_raw(
+                        t.secondary_target(),
+                    ),
+                    is_starbase: t.is_starbase(),
+                    weapon_reach: design.weapons().iter().map(|w| w.range).max().unwrap_or(0),
                     player: t.player,
                     active: true,
                     square: CoreSquare::new(t.square.x, t.square.y),
@@ -611,23 +618,23 @@ fn beam_only_battles_replay_to_the_recorded_casualties() {
 /// The control is the point of this test: the hit rate alone means nothing
 /// without knowing how selective "among the best" is.
 ///
-/// Measured with the scoring transcribed from the disassembly and each token's
-/// real battle tactic: **86% hit rate against a 71% chance rate**. The gap was
-/// 8 points before the transcription and is 15 after, so the range-band walk
-/// is doing real work — but a correct implementation should hit ~100%, since
-/// the engine always picks a square it rates best.
+/// A token's move takes one of two paths, and both are checked here.
 ///
-/// Two things are still missing and account for the remaining 14%: the search
-/// radius comes from `DzMoveRangeToConsider`, another stub, so our candidate
-/// set is not the engine's; and `FIsTargetOfMdTarget` is not implemented, so
-/// every enemy counts as engageable.
+/// When nothing of the right class is within reach, `DzMoveRangeToConsider`
+/// stops the token scoring squares at all and sends it at the nearest enemy it
+/// could hurt. **105 of 111 such moves close on that target.**
+///
+/// Otherwise the token scores the squares within its remaining movement. The
+/// engine picks a lowest-scoring square and breaks ties with `Random`, so an
+/// exact match is not reproducible; what is checkable is that its choice is
+/// among the squares we rate best. **414 of 450, against an 81% chance rate**
+/// — the chance rate being what makes the hit rate mean anything at all.
 #[test]
 fn movement_scoring_rates_the_engines_choice_among_the_best() {
     use std::collections::BTreeMap;
 
     use stars_core::battle::{
-        movement_this_round, score_square, CombatToken, Damage, Square as CoreSquare, Tactic,
-        TokenState,
+        score_square, CombatToken, Damage, Square as CoreSquare, Tactic, TokenState,
     };
     use stars_core::design::{DesignSlot, ShipDesign};
     use stars_formats::{design_records, DesignRecord};
@@ -659,6 +666,8 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
 
     let mut moves = 0usize;
     let mut among_best = 0usize;
+    let mut beelines = 0usize;
+    let mut beelines_toward = 0usize;
     let mut candidates = 0usize;
     let mut best_set = 0usize;
 
@@ -700,6 +709,13 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
                     tactic: Tactic::from_raw(t.tactic()).unwrap_or(Tactic::MaximiseDamage),
                     speed_index: t.speed(),
                     moves_left: t.moves_left(),
+                    class: stars_core::battle::TargetClass::from_raw(t.target_class()),
+                    primary_target: stars_core::battle::TargetClass::from_raw(t.primary_target()),
+                    secondary_target: stars_core::battle::TargetClass::from_raw(
+                        t.secondary_target(),
+                    ),
+                    is_starbase: t.is_starbase(),
+                    weapon_reach: design.weapons().iter().map(|w| w.range).max().unwrap_or(0),
                     player: t.player,
                     active: true,
                     square: CoreSquare::new(t.square.x, t.square.y),
@@ -734,9 +750,24 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
                     continue; // a firing record, not a move
                 }
 
-                // Score every square the token could have stepped to.
-                let allowance =
-                    i32::from(movement_this_round(token.speed_index, action.round)).max(1);
+                // What the engine would have done: if nothing is in reach
+                // it heads for the nearest enemy rather than scoring squares.
+                let search = stars_core::battle::move_search(&tokens, mover, true);
+
+                if let Some(target) = search.beeline {
+                    // A beeline: the move must reduce the distance to that
+                    // enemy, which is what stepping toward it means.
+                    beelines += 1;
+                    let before = stars_core::battle::distance(here, target);
+                    let after = stars_core::battle::distance(to, target);
+                    if after < before || (after == before && before <= 1) {
+                        beelines_toward += 1;
+                    }
+                    tokens[mover].square = to;
+                    continue;
+                }
+
+                let allowance = search.radius.max(1);
                 let mut best = i32::MAX;
                 let mut best_squares = Vec::new();
                 let mut candidate_count = 0;
@@ -776,10 +807,11 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
     // If the scorer rated every square equally, "among the best" would be
     // vacuous, so the chance rate says how much the hit rate is worth.
     let chance = (best_set * 100).checked_div(candidates).unwrap_or(0);
+    let beeline_pct = (beelines_toward * 100).checked_div(beelines).unwrap_or(0);
     eprintln!(
-        "movement scoring: the engine's square was among our best-rated in \
-         {among_best} of {moves} moves ({pct}%); our best set averages {chance}% of \
-         the candidate squares, which is what chance alone would score"
+        "movement: {beelines_toward} of {beelines} beeline moves close on the target \
+         ({beeline_pct}%); of the {moves} scored moves the engine's square was among \
+         our best-rated {among_best} times ({pct}%), against a {chance}% chance rate"
     );
     assert!(
         moves > 100,
@@ -792,17 +824,17 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
     //     assert!(pct >= 99, "...");
     //
     assert!(
-        pct >= 70,
-        "movement scoring agreed with the engine on only {pct}% of moves, below the \
-         86% measured when written"
+        pct >= 88,
+        "movement scoring agreed with the engine on only {pct}% of scored moves, below \
+         the 92% measured when written"
     );
     assert!(
-        chance <= 78,
+        chance <= 85,
         "the best set has grown to {chance}% of candidates, so the hit rate means less \
          than it did when this was written"
     );
     assert!(
-        pct >= chance + 10,
+        pct >= chance + 8,
         "the scorer ({pct}%) is no longer meaningfully better than chance ({chance}%)"
     );
 }
