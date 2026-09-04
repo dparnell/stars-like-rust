@@ -49,6 +49,10 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             });
         });
 
+    // Chosen inside the panel, applied after it: the planet is borrowed from
+    // `app` for the whole closure.
+    let mut add: Option<u16> = None;
+
     egui::CentralPanel::default().show_inside(ui, |ui| {
         let Some(planet) = app.selected_planet() else {
             ui.label("No planet selected.");
@@ -152,34 +156,82 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 }
             });
 
-        if !planet.queue.is_empty() {
+        // The queue, which the player can change. Everything above is read
+        // from the file; this is the one place a screen writes back.
+        let owned_in_full = planet.detail.is_full() && planet.owner.is_some();
+        let queue: Vec<(i32, u16, bool, i32)> = planet
+            .queue
+            .iter()
+            .map(|e| (e.count, e.item, e.ship, e.completion))
+            .collect();
+
+        if owned_in_full {
             ui.separator();
             ui.heading("production queue");
             ui.label(
                 egui::RichText::new(
                     "Counts are what is left to build, not what was ordered — a queue \
-                     entry is a running balance.",
+                     entry is a running balance. Items are worked from the top, so what \
+                     is first takes its resources first.",
                 )
                 .weak()
                 .small(),
             );
+
+            let mut remove: Option<usize> = None;
+            let mut shift: Option<(usize, isize)> = None;
             egui::Grid::new("queue")
-                .num_columns(3)
-                .spacing([16.0, 2.0])
+                .num_columns(5)
+                .spacing([12.0, 2.0])
                 .show(ui, |ui| {
-                    for entry in &planet.queue {
-                        ui.label(format!("{} x", entry.count));
-                        ui.label(if entry.ship {
-                            format!("design {}", entry.item)
+                    for (index, (count, item, ship, completion)) in queue.iter().enumerate() {
+                        ui.label(format!("{count} x"));
+                        ui.label(if *ship {
+                            format!("design {item}")
                         } else {
-                            item_name(entry.item)
+                            item_name(*item)
                         });
-                        ui.label(format!("{}% paid", entry.completion));
+                        ui.label(format!("{completion}% paid"));
+                        ui.horizontal(|ui| {
+                            if ui.small_button("▲").clicked() {
+                                shift = Some((index, -1));
+                            }
+                            if ui.small_button("▼").clicked() {
+                                shift = Some((index, 1));
+                            }
+                        });
+                        if ui.small_button("remove").clicked() {
+                            remove = Some(index);
+                        }
                         ui.end_row();
                     }
                 });
+            if queue.is_empty() {
+                ui.label(egui::RichText::new("nothing queued").weak());
+            }
+
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.label("add:");
+                for (id, name) in app.buildable_items() {
+                    if ui.button(name).clicked() {
+                        add = Some(id);
+                    }
+                }
+            });
+
+            if let Some((index, delta)) = shift {
+                app.queue_move(index, delta);
+            }
+            if let Some(index) = remove {
+                app.queue_remove(index);
+            }
         }
     });
+
+    if let Some(item) = add {
+        app.queue_add(item, 1);
+    }
 }
 
 /// The name of a planetary production item.

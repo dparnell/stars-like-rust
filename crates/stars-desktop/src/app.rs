@@ -62,6 +62,18 @@ impl eframe::App for StarsApp {
                     }
                 });
                 ui.separator();
+                if ui
+                    .add_enabled(self.app.game.is_some(), egui::Button::new("Generate turn"))
+                    .on_hover_text(
+                        "Advance one year. The rolls will differ from the original \
+                         engine's: its generator is seeded from the clock and its state \
+                         is in no save file.",
+                    )
+                    .clicked()
+                {
+                    self.app.generate_turn();
+                }
+                ui.separator();
                 for screen in Screen::ALL {
                     let enabled = self.app.game.is_some();
                     if ui
@@ -86,6 +98,32 @@ impl eframe::App for StarsApp {
                     ui.colored_label(egui::Color32::from_rgb(0xff, 0x8a, 0x8a), &error);
                     if ui.button("dismiss").clicked() {
                         self.app.error = None;
+                    }
+                });
+            });
+        }
+
+        if let Some(turn) = self.app.last_turn.clone() {
+            egui::TopBottomPanel::bottom("turn").show(ctx, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(format!(
+                        "Year {} — {} planets mined, population {:+}, {} ships built",
+                        turn.year, turn.mined, turn.population, turn.ships
+                    ));
+                    for (player, fields) in &turn.breakthroughs {
+                        ui.label(format!("· player {player} gained {fields} levels"));
+                    }
+                    if !turn.skipped.is_empty() {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "· not simulated: {}",
+                                turn.skipped.join(", ")
+                            ))
+                            .weak(),
+                        );
+                    }
+                    if ui.button("dismiss").clicked() {
+                        self.app.last_turn = None;
                     }
                 });
             });

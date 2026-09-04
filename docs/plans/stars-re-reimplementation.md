@@ -524,12 +524,19 @@ disagree.
    including the two habitability figures, the terraforming band, and a
    production queue presented as the running balance it is. The environment
    *graph* is still a table of numbers rather than a drawing.
-5. **The production dialog** — the *editable* one. What exists today shows a
-   planet's queue; adding, removing and reordering items, driven off the race
-   filter in `ground::template_allows`, is the next real piece of work.
-6. **Order entry** — the other half of `TurnOrders`. The turn generator consumes
-   orders; nothing yet produces them from a UI. This is what stands between the
-   current read-only shell and a playable game.
+5. ~~**The production dialog.**~~ **Done.** A planet's queue can be added to,
+   reordered and emptied, with the build list coming from
+   `ground::template_allows` rather than a fixed menu — so a Claim Adjuster is
+   never offered terraforming and an Alternate Reality race is offered no
+   installation at all. **Turn generation** is wired to a button, and reports
+   what it did *and what it did not simulate*.
+6. **Order entry** — the other half of `TurnOrders`, and what now stands between
+   this and a playable game. Production is editable; fleet waypoints, cargo
+   transfers and research settings are not. The turn generator already consumes
+   a `TurnOrders`, so this is plumbing a UI into a shape the engine takes.
+   **Saving** is the other half of it: nothing writes a file back yet, though
+   `stars-formats` round-trips every format byte-for-byte, so the machinery is
+   there.
 7. **The race wizard**, which needs `CAdvantagePoints` to price a race. It is
    located (`10e0:444c`, in `docs/ghidra/stars-signatures.csv`) but not
    transcribed, and remains the largest unknown in this step. `FGenerateTurn`
