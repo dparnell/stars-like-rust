@@ -50,6 +50,7 @@ pub mod battle;
 pub mod components;
 pub mod design;
 pub mod fleet;
+pub mod ground;
 pub mod hab;
 pub mod load;
 pub mod mining;
