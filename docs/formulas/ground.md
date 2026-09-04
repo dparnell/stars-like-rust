@@ -53,8 +53,8 @@ the original's formula.
 
 ## Also in `DropColonists`, not yet transcribed
 
-- **Mineral discovery.** A settling can grant a random mineral concentration
-  bonus, gated on a game flag and `Random(6)` / `Random(301)`.
+*(nothing outstanding — see the sections below.)*
+
 
 
 ## The inherited production queue
@@ -152,3 +152,42 @@ Nothing in the fixtures exercises this. Only 56 planets change hands across
 without the fleet orders, and a credited research cost is indistinguishable in
 a save file from research the player paid for itself. The transcription is
 structural, and the unit tests check its shape rather than its output.
+
+
+## The artifact a settling turns up
+
+A planet carrying `fIsArtifact` gives its new owner a windfall when it is
+settled, and the flag is cleared so it is found only once. Implemented as
+`ground::artifact_bonus`.
+
+```
+field     = Random(6)
+resources = Random(301) + 100
+if colonists < 10: resources = colonists * resources / 10
+```
+
+**It pays research, not minerals.** An earlier revision of this document called
+it "a random mineral concentration bonus", written from a skim of the
+decompilation. It is not: the amount goes into `rgResSpent` for the chosen
+technology field, at `player * 0xc0 + 0x59c2 + field * 4`, which is the same
+place [wreckage salvage](#wreckage-salvage) credits. The two mechanics pay out
+in exactly the same currency.
+
+A thin first landing is worth proportionally less — a colony below ten (a
+thousand colonists) scales the windfall by its size — so dropping a token
+colonist load to grab an artifact is deliberately unrewarding.
+
+Two gates sit around it, and the caller applies them: the planet must carry the
+artifact, and bit 7 of the game options word must be clear. That bit is the
+option that switches artifacts off; this project has not identified its label
+in the binary, so it is described by what it does.
+
+`stars-core`'s `Planet` now carries `artifact`, which the format layer was
+already decoding from bit 12 of the planet flags word and the loader was
+discarding.
+
+### Not verified
+
+As with the salvage, nothing in the fixtures exercises it: a research credit is
+indistinguishable in a save from research the player paid for, and no fixture
+records a planet with an artifact being settled.

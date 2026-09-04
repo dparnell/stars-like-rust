@@ -83,6 +83,10 @@ pub struct Planet {
     pub homeworld: bool,
     /// Whether the planet has a starbase (`fStarbase`).
     pub starbase: bool,
+    /// Whether an undiscovered Mystery Trader artifact lies here
+    /// (`fIsArtifact`). Settling the planet finds it — see
+    /// [`crate::ground::artifact_bonus`] — and clears the flag.
+    pub artifact: bool,
     /// The starbase's design index (`isb`), when one is present.
     ///
     /// The AI treats a value above 9 as "no usable starbase" — only 0-9 are
@@ -114,6 +118,7 @@ impl Planet {
             homeworld: false,
             starbase: false,
             starbase_design: None,
+            artifact: false,
             queue: Vec::new(),
             no_research: false,
         }

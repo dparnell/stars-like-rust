@@ -245,6 +245,54 @@ pub fn learn_from_wreckage(
     None
 }
 
+/// The smallest research windfall an artifact can hold.
+pub const ARTIFACT_MIN: i32 = 100;
+
+/// The span of the roll above [`ARTIFACT_MIN`] (`Random(0x12d)`, so 0 to 300).
+pub const ARTIFACT_SPAN: i16 = 0x12d;
+
+/// The population, in units of 100, below which the windfall is scaled down.
+pub const ARTIFACT_FULL_POP: i32 = 10;
+
+/// What settling a planet turned up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Artifact {
+    /// The technology field the find advances, 0 to 5.
+    pub field: usize,
+    /// Resources credited to that field's research.
+    pub resources: i32,
+}
+
+/// The Mystery Trader artifact a newly settled planet yields.
+///
+/// Source: the tail of `DropColonists` (`10b8:4460`). A planet carrying
+/// `fIsArtifact` gives its new owner a research windfall, and the flag is
+/// cleared so it is found only once.
+///
+/// ```text
+/// field     = Random(6)
+/// resources = Random(301) + 100
+/// if colonists < 10: resources = colonists * resources / 10
+/// ```
+///
+/// Despite what the message looks like, this is **research**, not minerals:
+/// the amount is added to `rgResSpent` for the chosen field, exactly as
+/// [`learn_from_wreckage`] does. A thin first landing is worth proportionally
+/// less, which is why the count is scaled below [`ARTIFACT_FULL_POP`].
+///
+/// The caller is responsible for the two gates the routine applies around
+/// this: the planet must actually carry an artifact, and bit 7 of the game
+/// options word must be clear — the option that switches artifacts off.
+#[must_use]
+pub fn artifact_bonus(colonists: i32, rng: &mut Rng) -> Artifact {
+    let field = usize::try_from(rng.random(6)).unwrap_or(0);
+    let mut resources = i32::from(rng.random(ARTIFACT_SPAN)) + ARTIFACT_MIN;
+    if colonists < ARTIFACT_FULL_POP {
+        resources = colonists.saturating_mul(resources) / ARTIFACT_FULL_POP;
+    }
+    Artifact { field, resources }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -415,6 +463,29 @@ mod tests {
             "expected salvage to fire sometimes, got {taught}"
         );
         assert!(taught < 200, "and not always");
+    }
+
+    /// The windfall is a research credit in one field, scaled down for a thin
+    /// first landing.
+    #[test]
+    fn an_artifact_pays_research_and_scales_with_the_landing() {
+        for seed in 0..40u32 {
+            let mut rng = Rng::randomize(seed);
+            let full = artifact_bonus(5_000, &mut rng);
+            assert!(full.field < 6, "a field of six: {full:?}");
+            assert!(
+                (ARTIFACT_MIN..=ARTIFACT_MIN + i32::from(ARTIFACT_SPAN)).contains(&full.resources),
+                "{full:?}"
+            );
+        }
+
+        // A landing of one hundredth the threshold is worth a tenth as much.
+        let mut a = Rng::randomize(7);
+        let mut b = Rng::randomize(7);
+        let big = artifact_bonus(ARTIFACT_FULL_POP, &mut a);
+        let small = artifact_bonus(1, &mut b);
+        assert_eq!(small.field, big.field, "the same roll picks the same field");
+        assert_eq!(small.resources, big.resources / 10);
     }
 
     #[test]
