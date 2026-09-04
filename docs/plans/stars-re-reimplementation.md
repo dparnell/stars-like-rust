@@ -243,7 +243,7 @@ Measured against real save files:
 
 | check | result |
 |-------|--------|
-| whole-turn replay: planet population | 87% of 438 planet-years |
+| whole-turn replay: planet population | 85% of 438 planet-years, self-contained |
 | whole-turn replay: mineral concentrations | 86% |
 | whole-turn replay: mines / factories | 67% / 71% |
 | whole-turn replay: surface minerals | 27% all three, 83% per mineral within 1 kT |
@@ -330,17 +330,14 @@ Remaining in this step:
    residual is the 8% of readings off by six or more — a far smaller target
    than 73%. Also the residual movement-scoring gap
    (`docs/formulas/combat.md`).
-4. **Terraforming** — the reach model is recovered and verified (96% of 10,165
-   planet-turns), which unblocks `PctPlanetOptValue` and the colonisation gate.
-   The step count matches 70% of the AI's fresh terraform orders. Applying the
-   step during the turn was written and then **backed out**: it costs five
-   points of whole-turn population accuracy (87% to 82%), because the
-   environment drives habitability and so growth. Getting the count right is
-   not enough — the choice of *which factor* to terraform must match too, and
-   the manual's "furthest out of range" does not reproduce it. `turn.rs` keeps
-   `apply_terraforming` with that finding recorded; recovering the factor
-   choice from the binary is the prerequisite. See
-   `docs/formulas/terraforming.md`.
+4. **Terraforming** — recovered and applied during the turn. The reach model
+   is verified (96% of 10,165 planet-turns) and unblocks `PctPlanetOptValue`
+   and the colonisation gate; the step count matches 70% of the AI's fresh
+   terraform orders; and the factor a step moves is `IBestTerraform`'s gain per
+   click, **not** the manual's "furthest out of range". Wiring it in let the
+   whole-turn replay stop feeding itself the recorded environment: population
+   is now 85% standing on its own, against 82% without terraforming and an
+   87% that was reading the answer. See `docs/formulas/terraforming.md`.
 
 ###   Step 5: Build the egui desktop frontend with faithful core screens
 `stars-desktop` runs a playable single-player game on Windows/macOS/Linux with recreated key screens.

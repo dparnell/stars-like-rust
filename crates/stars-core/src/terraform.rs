@@ -180,6 +180,72 @@ pub fn terraform_steps(planet: &Planet, race: &Race, tech: [u8; 6]) -> i32 {
         .sum()
 }
 
+/// Which environment variable the next terraforming step should move.
+///
+/// Source: `IBestTerraform` (`1048:5dd2`), called from `FBuildObject` when a
+/// terraforming item is built.
+///
+/// For each variable it moves that variable all the way to its reachable
+/// bound, measures how much the planet's habitability changes, and scores the
+/// variable by the **gain per click**:
+///
+/// ```text
+/// score[v] = |desirability(v at its bound) - desirability(now)| * 100 / clicks + 1
+/// ```
+///
+/// The highest score wins, and a tie goes to the lowest index. The trailing
+/// `+ 1` matters: a variable that can move but gains nothing still scores 1 and
+/// so beats one that cannot move at all, which scores 0.
+///
+/// Returns the variable index, or `None` when nothing can usefully move.
+///
+/// # This is not what the manual says
+///
+/// `MANUAL.PDF` p. 6-15 describes the task as always working on "the factor
+/// that is the furthest out of range". That is not what the code does, and
+/// implementing the manual's rule instead cost five points of whole-turn
+/// population accuracy. Distance from the ideal does not decide it; efficiency
+/// does — a variable two clicks from a large habitability gain beats one ten
+/// clicks from a small one.
+#[must_use]
+pub fn best_terraform_factor(planet: &Planet, race: &Race, tech: [u8; 6]) -> Option<usize> {
+    let target = optimal_env(planet, race, tech);
+    let base = i32::from(crate::hab::pct_planet_desirability(planet, race));
+
+    let mut best: Option<(i32, usize)> = None;
+    for (v, want) in target.iter().enumerate() {
+        let clicks = i32::from((i16::from(*want) - i16::from(planet.env[v])).abs());
+        if clicks == 0 {
+            continue; // scores zero: it cannot move
+        }
+        let mut probe = planet.clone();
+        probe.env[v] = *want;
+        let moved = i32::from(crate::hab::pct_planet_desirability(&probe, race));
+        let score = (moved - base).abs() * 100 / clicks + 1;
+        // Strictly greater, so a tie keeps the lower index.
+        if best.is_none_or(|(b, _)| score > b) {
+            best = Some((score, v));
+        }
+    }
+    best.map(|(_, v)| v)
+}
+
+/// Move a planet one click along the variable [`best_terraform_factor`] picks.
+///
+/// Returns whether anything moved.
+pub fn terraform_one_step(planet: &mut Planet, race: &Race, tech: [u8; 6]) -> bool {
+    let Some(v) = best_terraform_factor(planet, race, tech) else {
+        return false;
+    };
+    let target = optimal_env(planet, race, tech);
+    match planet.env[v].cmp(&target[v]) {
+        std::cmp::Ordering::Less => planet.env[v] += 1,
+        std::cmp::Ordering::Greater => planet.env[v] -= 1,
+        std::cmp::Ordering::Equal => return false,
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

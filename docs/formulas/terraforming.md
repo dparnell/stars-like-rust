@@ -101,23 +101,48 @@ for some players: several residual cases land exactly right with a reach two
 smaller. It does not fit all of them, and narrowing the reach to make it fit
 would be tuning to the data rather than reading the binary, so it is left open.
 
-## Applying a step during the turn
+## Which factor a step moves
 
-Writing this and wiring it into the production queue makes the whole-turn
-replay **worse**: population falls from 87% to 82% over 438 planet-years. A
-planet's environment drives its habitability and so its growth, so a
-terraforming step applied to the wrong factor is worse than none at all.
+`IBestTerraform` (`1048:5dd2`), called from `FBuildObject` when a terraforming
+item is built, decides. For each of the three variables it moves that variable
+all the way to its reachable bound, measures how much the planet's habitability
+changes, and scores it by the **gain per click**:
 
-`MANUAL.PDF` p. 6-15 says the task "always works on the factor that is the
-furthest out of range", and that is what was implemented — pick the variable
-furthest from the race's ideal that can still move inside its band, and move it
-one click. It does not reproduce the original. Getting the *count* of steps
-right is not enough; the choice of factor has to match as well.
+```
+score[v] = |desirability(v at its bound) - desirability(now)| * 100 / clicks + 1
+best     = the highest score, ties to the lowest index
+```
 
-`turn.rs::apply_terraforming` keeps the implementation with this recorded
-against it, and the turn leaves the environment alone, which is the more
-accurate of the two options. Recovering the factor choice from the binary
-rather than the manual is the prerequisite for turning it on.
+The trailing `+ 1` matters: a variable that can move but gains nothing still
+scores 1, and so beats one that cannot move at all, which scores 0.
+
+**This is not what the manual says.** `MANUAL.PDF` p. 6-15 describes the task as
+always working on "the factor that is the furthest out of range". The code does
+not measure distance from the ideal at all — it measures efficiency. A variable
+two clicks from a large habitability gain beats one ten clicks from a small
+one. Implementing the manual's rule first cost five points of whole-turn
+population accuracy, which is what sent this back to the binary.
+
+## Measured
+
+Terraforming is now applied during the turn, and the whole-turn replay no
+longer needs the recorded environment fed into it. That allowance was hiding
+how much the missing model cost:
+
+| configuration | population |
+|---------------|------------|
+| recorded environment fed in, no terraforming | 87% |
+| self-contained, no terraforming | 82% |
+| self-contained, terraforming modelled | **85%** |
+
+The old 87% was an oracle: the test copied each planet's *next* year
+environment into the starting state, so habitability and growth were computed
+from the answer. Removing that and modelling terraforming instead is worth
+three points over not modelling it, and leaves the replay standing on its own.
+
+The two points still separating it from the oracle are this model's own error —
+the reach, the step count and the factor choice compounding — and are the
+honest measure of what remains.
 
 ## Open questions
 

@@ -177,10 +177,15 @@ pub fn generate_turn(state: &mut GameState, rng: &mut Rng) -> TurnReport {
         ];
         let designs = state.designs.get(owner_index).cloned().unwrap_or_default();
         let mut ships_built: Vec<(u8, i32)> = Vec::new();
+        let tech = state
+            .players
+            .get(owner_index)
+            .map_or([0u8; 6], |p| p.research.levels);
         let built = run_queue(
             &mut state.planets[index],
             &race,
             &designs,
+            tech,
             &mut available,
             &mut ships_built,
         );
@@ -257,53 +262,6 @@ pub fn update_populations(planets: &mut [Planet], players: &[Player]) {
     }
 }
 
-/// Move a planet's environment toward the race's ideal, one click per step.
-///
-/// `MANUAL.PDF` p. 6-15: "The terraforming task that appears in the production
-/// dialog always works on the factor that is the furthest out of range. ... Each
-/// 1% Terraforming task executed will modify one of the environmental factors
-/// by 1%."
-///
-/// Each step picks the variable furthest from the race's ideal that can still
-/// be moved inside the band [`crate::terraform::reachable_band`] allows, and
-/// moves it one click.
-///
-/// # Not wired into the turn
-///
-/// Calling this from the production queue costs five points of whole-turn
-/// population accuracy — 87% to 82% over 438 planet-years — because a planet's
-/// environment drives its habitability and so its growth. Getting the *count*
-/// of steps right is not enough; the **choice of factor** has to match the
-/// original too, and "furthest out of range" as written above evidently does
-/// not reproduce it. Until that choice is recovered from the binary rather
-/// than the manual, the turn leaves the environment alone, which is the more
-/// accurate of the two options.
-#[allow(dead_code)]
-fn apply_terraforming(planet: &mut Planet, race: &crate::Race, tech: [u8; 6], steps: i32) {
-    for _ in 0..steps {
-        let band = crate::terraform::reachable_band(planet, race, tech);
-        // The factor furthest out of range that terraforming can still help.
-        let pick = (0..3)
-            .filter(|v| !race.is_immune(*v))
-            .filter(|&v| {
-                let ideal = race.env_center[v];
-                let (lo, hi) = band[v];
-                match planet.env[v].cmp(&ideal) {
-                    std::cmp::Ordering::Less => planet.env[v] < hi,
-                    std::cmp::Ordering::Greater => planet.env[v] > lo,
-                    std::cmp::Ordering::Equal => false,
-                }
-            })
-            .max_by_key(|&v| i16::from(planet.env[v] - race.env_center[v]).abs());
-        let Some(v) = pick else { return };
-        if planet.env[v] < race.env_center[v] {
-            planet.env[v] += 1;
-        } else {
-            planet.env[v] -= 1;
-        }
-    }
-}
-
 /// Add newly built ships to a fleet the owner already has in orbit.
 ///
 /// Ships appear in whichever of the owner's fleets is orbiting the planet that
@@ -355,6 +313,7 @@ fn run_queue(
     planet: &mut Planet,
     race: &crate::Race,
     designs: &[crate::design::ShipDesign],
+    tech: [u8; 6],
     available: &mut [i32; COST_PARTS],
     ships_built: &mut Vec<(u8, i32)>,
 ) -> Vec<(u16, i32)> {
@@ -408,8 +367,13 @@ fn run_queue(
             match item::auto_builds(entry.item).unwrap_or(entry.item) {
                 item::MINE => planet.mines += i16::try_from(outcome.built).unwrap_or(0),
                 item::FACTORY => planet.factories += i16::try_from(outcome.built).unwrap_or(0),
-                // Terraforming is deliberately not applied here — see
-                // `apply_terraforming`.
+                item::MIN_TERRAFORM | item::MAX_TERRAFORM => {
+                    for _ in 0..outcome.built {
+                        if !crate::terraform::terraform_one_step(planet, race, tech) {
+                            break;
+                        }
+                    }
+                }
                 _ => {}
             }
             completed.push((entry.item, outcome.built));

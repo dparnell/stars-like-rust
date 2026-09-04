@@ -77,15 +77,7 @@ fn generating_a_year_reproduces_much_of_the_next_file() {
             continue;
         };
 
-        // Terraforming happens before growth and this crate does not do it, so
-        // feed in the environment the engine recorded — the same allowance the
-        // population test makes, for the same reason.
         let actual: BTreeMap<i16, _> = after.planets.iter().map(|p| (p.id, p.clone())).collect();
-        for planet in &mut before.planets {
-            if let Some(next) = actual.get(&planet.id) {
-                planet.env = next.env;
-            }
-        }
 
         let mut rng = Rng::randomize(before.seed);
         generate_turn(&mut before, &mut rng);
