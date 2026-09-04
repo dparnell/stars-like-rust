@@ -295,12 +295,15 @@ Remaining in this step:
    across every sample and are exposed raw. It is **not** the cause of the 27%
    surface-mineral figure — every recorded planet transfer moves colonists, not
    minerals. That figure is now diagnosed (see below). Colonisation and remote
-   mining remain unprocessed, though **landing colonists is now recovered**:
+   mining are recovered but not wired into the turn, since the waypoint tasks
+   that trigger them read 0 in every fixture. **Landing colonists is recovered
+   in full**:
    `DropColonists` does both settling and invasion, and its weights (attackers
    110%, War Monger 165%, Alternate Reality 0%; defenders 100%, Inner Strength
    200%) and winner rule are implemented in `stars-core::ground`, along with the queue a new planet inherits from its
    owner's template and the wreckage salvage a captured planet grants. See
-   `docs/formulas/ground.md`.
+   `docs/formulas/ground.md`, and remote mining's fleet mine count
+   (`CMineFromLpfl`, capped at 4000) is in `docs/formulas/mining.md`.
 3. **RNG alignment through a turn** — investigated, and **blocked by the game's
    design rather than by effort**. There are two generators; the gameplay one
    (`lRandSeed1`/`lRandSeed2`, driven by `Random`) is never re-seeded when a

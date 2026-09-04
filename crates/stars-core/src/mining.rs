@@ -161,3 +161,108 @@ fn deplete(planet: &mut Planet, i: usize, decay_left: &mut i32) {
         planet.min_level[i] = 0;
     }
 }
+
+/// The most mines one fleet can bring to bear from orbit.
+///
+/// Source: `CMineFromLpfl` clamps its total once it passes 3999.
+pub const REMOTE_MINE_CAP: i32 = 4000;
+
+/// How many mines a fleet operates on a planet it is orbiting.
+///
+/// Source: `CMineFromLpfl` (`1080:2600`). Each design in the fleet contributes
+/// the sum of its mining slots — the number fitted in the slot times that
+/// part's rating — multiplied by how many ships of that design are present.
+/// The total is capped at [`REMOTE_MINE_CAP`].
+///
+/// A Robo-Midget Miner rates 5, so a ship with two of them mines as ten
+/// planetary mines would, and a stack of twenty such ships as two hundred.
+///
+/// What those mines then extract is [`minerals_mined`] with an explicit count:
+/// remote miners always work at efficiency 10 regardless of the race's mining
+/// skill, and they do not benefit from the homeworld concentration floor.
+#[must_use]
+pub fn remote_mines(
+    designs: &[crate::design::ShipDesign],
+    stacks: &[crate::fleet::ShipStack],
+) -> i32 {
+    use crate::components::{slot, MINING};
+
+    let mut total: i64 = 0;
+    for stack in stacks {
+        if stack.count <= 0 {
+            continue;
+        }
+        let Some(design) = designs.get(usize::from(stack.design)) else {
+            continue;
+        };
+        let per_ship: i64 = design
+            .slots
+            .iter()
+            .filter(|s| s.category == slot::MINING)
+            .map(|s| {
+                let rating = MINING
+                    .get(usize::from(s.item))
+                    .map_or(0, |p| i64::from(p.ability));
+                i64::from(s.count) * rating
+            })
+            .sum();
+        total += per_ship * i64::from(stack.count);
+    }
+    i32::try_from(total.min(i64::from(REMOTE_MINE_CAP))).unwrap_or(REMOTE_MINE_CAP)
+}
+
+#[cfg(test)]
+mod remote_tests {
+    use super::*;
+    use crate::components::slot;
+    use crate::design::{DesignSlot, ShipDesign};
+    use crate::fleet::ShipStack;
+
+    fn miner(count: u8) -> ShipDesign {
+        ShipDesign {
+            hull_id: 0,
+            slots: vec![DesignSlot {
+                category: slot::MINING,
+                item: 0, // Robo-Midget Miner, rated 5
+                count,
+            }],
+        }
+    }
+
+    fn stack(design: u8, count: i32) -> ShipStack {
+        ShipStack {
+            design,
+            count,
+            damaged_pct: 0,
+            damage_pct: 0,
+        }
+    }
+
+    #[test]
+    fn mines_scale_with_the_slot_and_the_stack() {
+        let designs = vec![miner(2)];
+        // Two miners rated 5 on each of twenty ships.
+        assert_eq!(remote_mines(&designs, &[stack(0, 20)]), 200);
+        assert_eq!(remote_mines(&designs, &[stack(0, 1)]), 10);
+        assert_eq!(remote_mines(&designs, &[stack(0, 0)]), 0);
+    }
+
+    #[test]
+    fn a_fleet_with_no_miners_operates_none() {
+        let plain = ShipDesign {
+            hull_id: 0,
+            slots: vec![DesignSlot {
+                category: slot::ENGINE,
+                item: 1,
+                count: 1,
+            }],
+        };
+        assert_eq!(remote_mines(&[plain], &[stack(0, 50)]), 0);
+    }
+
+    #[test]
+    fn the_total_is_capped() {
+        let designs = vec![miner(4)];
+        assert_eq!(remote_mines(&designs, &[stack(0, 10_000)]), REMOTE_MINE_CAP);
+    }
+}

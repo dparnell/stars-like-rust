@@ -139,3 +139,38 @@ Captured at: `../vectors/planetary-economy.json` (`mining`).
 
 - The remote-mining path is specified here but not yet exercised: it needs
   fleets with robot mining modules (Step 4).
+
+
+## Remote mining
+
+A fleet orbiting a planet with the Remote Mining waypoint task (task 3) mines
+it from orbit. Two pieces:
+
+**How many mines the fleet is worth** — `CMineFromLpfl` (`1080:2600`),
+implemented as `remote_mines`. Each design contributes the sum of its mining
+slots, the number fitted times that part's rating, multiplied by the ships of
+that design present. A Robo-Midget Miner rates 5, so a ship carrying two mines
+as ten planetary mines would. **The total is capped at 4000** once it passes
+3999.
+
+**What those mines extract** — [`minerals_mined`] with an explicit count, which
+this crate already had. Remote miners always work at efficiency 10 whatever the
+race's mining skill, and they do not get the homeworld concentration floor,
+both of which fall out of the `fRemote` flag through `EstMineralsMined`.
+
+### Alternate Reality mines its own planets this way
+
+`EstMineralsMined` has a second path, taken only when the planet's owner is an
+Alternate Reality race and the call is not already a remote one. It walks the
+fleet list for that player's fleets orbiting the planet with a mining order and
+adds each one's `CMineFromLpfl` contribution. An AR race has no planetary mines
+at all — `CMaxOperableMines` returns 0 for it — so this is how it mines
+anything.
+
+### Not verified
+
+The waypoint task that triggers it reads 0 on all 50,173 waypoints in the
+fixtures, because a task is consumed when it executes (see
+`../formats/cargo.md` for the same effect on transport orders). Nothing in the
+corpus records a fleet with a live mining order, so the mine count is
+transcribed and unit-tested but not scored against a recording.
