@@ -304,7 +304,8 @@ Remaining in this step:
    order files. Ids and quantities decode; the two mode bytes are constant
    across every sample and are exposed raw. It is **not** the cause of the 27%
    surface-mineral figure — every recorded planet transfer moves colonists, not
-   minerals. That figure is now diagnosed (see below). **Colonisation and remote mining are now wired in.** Colonisation follows the
+   minerals. That figure is now diagnosed (see below).
+   **Colonisation and remote mining are now wired in.** Colonisation follows the
    cargo transfers: an unload of colonists from a fleet onto a planet its owner
    does not hold accumulates a `COLDROP`, and `DropColonists` settles every
    landing on a planet together, so rival claims are weighed against each other.
