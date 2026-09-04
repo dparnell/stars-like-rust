@@ -15,10 +15,30 @@
 //! 2. The reach for each variable is the **best single module** that applies to
 //!    it: the widest Total Terraform the player can build, or the widest
 //!    variable-specific one, whichever goes further.
+//!
+//! "Can build" is not a pure tech test. `FLookupPart`'s `hstTerra` arm gates
+//! the eight Total Terraform modules behind the **Total Terraforming** lesser
+//! racial trait:
+//!
+//! ```text
+//! else if (HVar1 == hstTerra) {
+//!   if (0x13 < iItem) return 0;
+//!   ppart->pcom = (COMPART *)(iItem * 0x36 + 0x19e2);
+//!   if (idPlayer != -1 && iItem < 8 &&
+//!       GetRaceGrbit(rgplr + idPlayer, ibitRaceTT) == 0)
+//!     return -1;
+//! }
+//! ```
+//!
+//! This matters because Total Terraform 3 costs no research at all. Without the
+//! gate every race would start the game able to move all three variables three
+//! clicks, when in fact a race without the trait can do nothing until it has
+//! researched a variable-specific module (the cheapest, Gravity Terraform 3,
+//! needs Propulsion 1 and Biotechnology 1).
 
 use crate::components::TERRAFORMING;
 use crate::planet::Planet;
-use crate::race::Race;
+use crate::race::{lrt, Race};
 
 /// The three environment variables, in their stored order.
 pub const VARIABLES: usize = 3;
@@ -52,15 +72,21 @@ pub fn terraform_reach(race: &Race, tech: [u8; 6]) -> [i8; VARIABLES] {
             .all(|(need, have)| i32::from(*need) <= i32::from(*have))
     };
 
-    // The widest Total Terraform module reaches every variable.
-    let total = TERRAFORMING
-        .iter()
-        .skip(TOTAL_FIRST)
-        .take(TOTAL_COUNT)
-        .filter(|p| buildable(p))
-        .map(|p| p.ability)
-        .max()
-        .unwrap_or(0);
+    // The widest Total Terraform module reaches every variable — but only a
+    // race with the Total Terraforming trait may build one at all
+    // (`FLookupPart`, `hstTerra` arm).
+    let total = if race.has_lrt(lrt::TT) {
+        TERRAFORMING
+            .iter()
+            .skip(TOTAL_FIRST)
+            .take(TOTAL_COUNT)
+            .filter(|p| buildable(p))
+            .map(|p| p.ability)
+            .max()
+            .unwrap_or(0)
+    } else {
+        0
+    };
 
     let mut reach = [0i8; VARIABLES];
     for (v, slot) in reach.iter_mut().enumerate() {
@@ -163,12 +189,14 @@ pub fn optimal_env(planet: &Planet, race: &Race, tech: [u8; 6]) -> [i8; VARIABLE
 /// worse than clicks (66%). The most likely remaining explanation is that
 /// [`terraform_reach`] is too generous for some players, since several of the
 /// residual cases would land exactly right with a reach two smaller — but that
-/// does not fit all of them, and tuning the reach to make it fit is precisely
-/// what this project does not do.
+/// does not fit all of them, tuning the reach to make it fit is precisely what
+/// this project does not do, and the reach has since been measured at 99.9% on
+/// the axes it governs, so the error is far more likely in the step count.
 ///
-/// [`terraform_reach`] itself is in good shape: across 10,165 planet-turns that
-/// record an original environment, 96% have moved no further than the reach
-/// computed here allows.
+/// [`terraform_reach`] itself is in good shape, and is not the cause: across
+/// both AI games it is right for **37,712 of 37,743 axis-readings (99.9%)** on
+/// the axes it actually governs. See `docs/formulas/terraforming.md` for why
+/// that must be measured per axis and with immune axes excluded.
 #[must_use]
 pub fn terraform_steps(planet: &Planet, race: &Race, tech: [u8; 6]) -> i32 {
     let target = optimal_env(planet, race, tech);
@@ -250,17 +278,30 @@ pub fn terraform_one_step(planet: &mut Planet, race: &Race, tech: [u8; 6]) -> bo
 mod tests {
     use super::*;
 
+    /// A Humanoid that has the Total Terraforming trait, and so can build the
+    /// free Total Terraform 3 module the other tests assume.
+    fn tt_race() -> Race {
+        let mut race = Race::humanoid();
+        race.lrt_bits |= 1 << lrt::TT;
+        race
+    }
+
     fn planet_at(env: [i8; 3]) -> Planet {
         let mut p = Planet::unowned(0);
         p.env = env;
         p
     }
 
-    /// With no technology at all a player still has Total Terraform 3, which
-    /// costs nothing to research.
+    /// Total Terraform 3 costs nothing to research, so a race with the Total
+    /// Terraforming trait can move all three variables from turn one — and a
+    /// race without it can do nothing at all until it researches a
+    /// variable-specific module.
     #[test]
-    fn the_free_module_reaches_three() {
-        let race = Race::humanoid();
+    fn the_free_module_needs_the_total_terraforming_trait() {
+        let mut race = Race::humanoid();
+        assert_eq!(terraform_reach(&race, [0; 6]), [0, 0, 0]);
+
+        race.lrt_bits |= 1 << lrt::TT;
         assert_eq!(terraform_reach(&race, [0; 6]), [3, 3, 3]);
     }
 
@@ -268,7 +309,8 @@ mod tests {
     /// module can beat it.
     #[test]
     fn better_technology_reaches_further() {
-        let race = Race::humanoid();
+        let mut race = Race::humanoid();
+        race.lrt_bits |= 1 << lrt::TT;
         let mut tech = [0u8; 6];
         tech[5] = 3; // Total Terraform 5
         assert_eq!(terraform_reach(&race, tech), [5, 5, 5]);
@@ -282,7 +324,7 @@ mod tests {
     /// terraforming does not compound.
     #[test]
     fn the_band_is_measured_from_the_original_environment() {
-        let race = Race::humanoid();
+        let race = tt_race();
         let mut planet = planet_at([53, 50, 50]);
         planet.env_orig = Some([50, 50, 50]);
 
@@ -295,7 +337,7 @@ mod tests {
     /// which is the manual's worked example.
     #[test]
     fn steps_sum_the_improvement_available() {
-        let race = Race::humanoid(); // ideal 50/50/50
+        let race = tt_race(); // ideal 50/50/50
         let planet = planet_at([47, 45, 50]);
         // Total Terraform 3 reaches 3 on each: gravity 47->50 is 3, temperature
         // 45->48 is 3 (capped by reach, not by the ideal), radiation is done.
@@ -314,7 +356,7 @@ mod tests {
     /// Terraforming never overshoots the ideal.
     #[test]
     fn terraforming_stops_at_the_ideal() {
-        let race = Race::humanoid();
+        let race = tt_race();
         let planet = planet_at([49, 51, 50]);
         assert_eq!(optimal_env(&planet, &race, [0; 6]), [50, 50, 50]);
         assert_eq!(terraform_steps(&planet, &race, [0; 6]), 2);

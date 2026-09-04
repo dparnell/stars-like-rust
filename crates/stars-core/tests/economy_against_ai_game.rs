@@ -206,10 +206,9 @@ fn modelled_resources_cover_the_research_that_came_from_them() {
 /// environment.
 ///
 /// A planet's environment can never have been moved further from its original
-/// values than the owner's technology reaches. A handful legitimately exceed
-/// it — Claim Adjusters terraform from orbit, and a planet that changed hands
-/// carries work done by an owner with different technology — so this allows a
-/// small margin rather than demanding none.
+/// values than the owner's technology reaches — provided the owner is the one
+/// who moved it. See the body for the two mechanisms that break that proviso
+/// and how they are separated out.
 #[test]
 fn terraforming_never_exceeds_the_reach_we_compute() {
     use stars_core::terraform::terraform_reach;
@@ -219,7 +218,29 @@ fn terraforming_never_exceeds_the_reach_we_compute() {
         eprintln!("skipping: all-computer-players fixture absent");
         return;
     }
-    let (mut scored, mut within) = (0usize, 0usize);
+    // Scored per axis, not per planet, and only on axes the planet's *current*
+    // owner can actually terraform.
+    //
+    // `env - env_orig` is a historical record of what any actor ever did to a
+    // planet, not a record of what its present owner did. Two mechanisms write
+    // to it that no reach can account for:
+    //
+    // * **A previous owner.** Planet 260 of `all-computer-players` is the clean
+    //   example. Player 7 (an all-immune HE race) holds it untouched from 2407;
+    //   loses it in 2428; player 14, centred on 50/50/50, terraforms it from
+    //   [47, 33, 49] to [50, 44, 50] between 2429 and 2441; player 7 retakes it
+    //   in 2454 and keeps the offset forever.
+    // * **Hostile action.** Planet 25 loses two clicks of temperature between
+    //   2447 and 2448 and one of radiation between 2457 and 2458, each in the
+    //   same year its population drops sharply, while an owner immune to all
+    //   three axes holds it throughout.
+    //
+    // Both land overwhelmingly on axes their owner is immune to, because an
+    // immune race never terraforms and so never overwrites the marks. Scoring
+    // those axes measures the history of the galaxy rather than the formula, so
+    // they are counted separately and reported.
+    let (mut axes, mut within) = (0usize, 0usize);
+    let (mut immune_axes, mut immune_within) = (0usize, 0usize);
     for year in &years {
         let Some(state) = load(&year.join("Game.hst")) else {
             continue;
@@ -233,19 +254,29 @@ fn terraforming_never_exceeds_the_reach_we_compute() {
                 continue;
             };
             let reach = terraform_reach(&player.race, player.research.levels);
-            scored += 1;
-            if (0..3).all(|v| i32::from(planet.env[v] - orig[v]).abs() <= i32::from(reach[v])) {
-                within += 1;
+            for v in 0..3 {
+                let ok = i32::from(planet.env[v] - orig[v]).abs() <= i32::from(reach[v]);
+                if player.race.is_immune(v) {
+                    immune_axes += 1;
+                    immune_within += usize::from(ok);
+                } else {
+                    axes += 1;
+                    within += usize::from(ok);
+                }
             }
         }
     }
-    assert!(scored > 5000, "expected a large sample, got {scored}");
-    let pct = within * 100 / scored;
-    // 96% on all-computer-players alone; 90% once no-random-events is added,
-    // whose races terraform past the reach computed for them far more often.
-    // Unexplained — see docs/formulas/terraforming.md.
+    assert!(axes > 20_000, "expected a large sample, got {axes}");
+    // 37712 of 37743 across both games: 99.9%. The 31 stragglers overshoot by
+    // one to three clicks and are the same two mechanisms leaking onto an axis
+    // the current owner happens not to be immune to.
+    let per_mille = within * 1000 / axes;
     assert!(
-        pct >= 88,
-        "terraform reach agreement fell to {pct}% of {scored} planet-turns (was 90%)"
+        per_mille >= 995,
+        "terraform reach agreement fell to {per_mille} per mille of {axes} axis-readings"
+    );
+    eprintln!(
+        "terraform reach: {within}/{axes} terraformable axes within reach; \
+         immune axes, for reference, {immune_within}/{immune_axes}"
     );
 }

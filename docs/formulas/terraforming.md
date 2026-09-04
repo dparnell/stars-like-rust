@@ -1,8 +1,8 @@
 # Subsystem: Terraforming
 
-- **Status:** reach verified (96%); step count transcribed but over-counts
+- **Status:** reach verified (99.9%); step count transcribed but over-counts
 - **Ghidra routine(s):** `FCanTerraformLppl` (read via `PctPlanetOptValue`
-  `1048:6b88`), the `hstTerra` part table
+  `1048:6b88`), `FLookupPart` (the `hstTerra` arm), the `hstTerra` part table
 - **Manual reference:** `MANUAL.PDF` pp. 6-14..6-15
 - **Uses RNG:** no
 - **Implemented in:** `crates/stars-core/src/terraform.rs`
@@ -27,8 +27,30 @@ widest Total Terraform the player can build, or the widest variable-specific
 module, whichever goes further. A race immune to a variable never terraforms
 it.
 
+"Can build" is not a pure technology test. `FLookupPart` (`hstTerra` arm) gates
+the eight Total Terraform modules behind the **Total Terraforming** lesser
+racial trait:
+
+```c
+else if (HVar1 == hstTerra) {
+  if (0x13 < iItem) return 0;
+  ppart->pcom = (COMPART *)(iItem * 0x36 + 0x19e2);
+  if (idPlayer != -1 && iItem < 8 &&
+      GetRaceGrbit(rgplr + idPlayer, ibitRaceTT) == 0)
+    return -1;
+}
 ```
-reach[v] = max(widest buildable Total Terraform,
+
+This is load-bearing because Total Terraform 3 costs no research at all: without
+the gate every race would begin the game able to move all three variables three
+clicks. A race without the trait can do nothing until it researches a
+variable-specific module, the cheapest of which (Gravity Terraform 3) needs
+Propulsion 1 and Biotechnology 1. Note also that `FCanTerraformLppl` searches
+each group **downward** (`for (i = 7; i >= 0; i--)`), taking the first module
+that passes, so a group contributes nothing at all when none is buildable.
+
+```
+reach[v] = max(widest buildable Total Terraform,       # requires the TT trait
                widest buildable module for v)          # 0 if immune to v
 band[v]  = clamp(envOrig[v] - reach[v], 1, 99) .. clamp(envOrig[v] + reach[v], 1, 99)
 optimal[v] = env[v] moved toward the race ideal, stopping at the ideal
@@ -48,32 +70,60 @@ the three variables, of the improvement still available.
 
 ## Measured
 
-Against `fixtures/games/all-computer-players`:
+Across both sixteen-player AI games, `all-computer-players` and
+`no-random-events`:
 
 | check | result |
 |-------|--------|
-| environment moved no further than `reach` allows | 96% of 10,165 planet-turns in `all-computer-players`; **90% of 14,227** once `no-random-events` is added |
-| AI auto-terraform order equals `min(steps, 4)`, fresh orders | 131 of 187 (70%) |
+| environment moved no further than `reach` allows | **37,712 of 37,743 axis-readings (99.9%)** |
+| AI auto-terraform order equals `min(steps, 4)`, fresh orders | 133 of 187 (71%) |
 
-The reach model holds well on the first corpus and materially worse on the
-second, and **why is unresolved**. Three explanations were tested and all three
-fail:
+The 31 stragglers overshoot by one to three clicks.
 
-- **Claim Adjuster orbital terraforming.** `AutoTerraform` gives a CA race the
-  whole reachable band for free every turn, which would read as overshoot. But
-  `no-random-events` contains **no Claim Adjuster at all** — its sixteen players
-  are 5 Hyper Expansion, 5 Inner Strength, 5 Packet Physics and 1 Alternate
-  Reality — and it is the corpus with the worse agreement.
-- **Planets changing hands**, carrying work done by an owner with different
-  technology. The second game is more warlike, but only by 81 conquests against
-  56, which cannot account for a difference of roughly a thousand planet-turns.
-- **The Total Terraforming trait** being missing from `terraform_reach`. The two
-  games carry it in similar numbers, 6 players against 7, so it does not
-  separate them.
+### Why this is scored per axis, and why immune axes are excluded
 
-What does separate them is the race mix, so the cause is likely a per-race term
-the reach is missing. `terraform_reach` currently reads only the parts table
-and the immunity flag.
+An earlier revision of this document scored the reach **per planet-turn over
+every axis**, reported 96% on the first corpus and 90% once the second was
+added, and recorded the gap as unexplained — guessing at "a per-race term the
+reach is missing". The reach was not missing a term worth six points. The
+**observable was wrong**.
+
+`env - env_orig` is not a record of what a planet's current owner did. It is a
+record of what *any* actor ever did to that planet, and two mechanisms write to
+it that no reach can account for:
+
+- **A previous owner.** Planet 260 of `all-computer-players` is the clean case.
+  Player 7, a Hyper Expansion race immune to all three variables, holds it
+  untouched from 2407 and loses it in 2428. Player 14, centred on 50/50/50,
+  terraforms it from `[47, 33, 49]` to `[50, 44, 50]` between 2429 and 2441.
+  Player 7 retakes it in 2454 and carries that offset for the rest of the game.
+- **Hostile action.** Planet 25 loses two clicks of temperature between 2447 and
+  2448, and one of radiation between 2457 and 2458 — each in the same year its
+  population drops sharply, while an owner immune to all three holds it
+  throughout.
+
+Both land overwhelmingly on axes their owner is **immune** to, and the reason is
+mechanical: an immune race never terraforms, so it never overwrites the marks a
+previous owner or an attacker left. Every violation in both corpora belonged to
+a race immune on the violating axis, and the count of violations exceeded the
+count of planet-turns held — nearly every axis of nearly every planet those
+races held was "violating".
+
+That also explains the corpus split that prompted the investigation:
+`no-random-events` has **four** all-immune Hyper Expansion races to
+`all-computer-players`' two, so the same inherited marks are spread over a much
+smaller pool of owned planets.
+
+Scored where the formula actually governs — an axis the current owner can
+terraform — the model is right 99.9% of the time. Three earlier hypotheses were
+tested against the old framing and correctly rejected: Claim Adjuster orbital
+terraforming (`no-random-events` contains no Claim Adjuster at all), planets
+changing hands as an event count (81 conquests against 56 — but the right unit
+is planet-*turns*, since a conquered planet keeps the offset for every remaining
+year), and the Total Terraforming trait (both games carry it in similar numbers,
+6 players against 7). The trait gate was genuinely missing and has been added;
+on these fixtures it moves the score by a fraction of a point, because every
+race that terraforms at all also has adequate variable-specific modules.
 
 ## The count: what the discrepancy turned out to be
 
@@ -111,9 +161,10 @@ tested and rejected:
   slightly worse than clicks, and introduces under-predictions the click model
   does not have.
 
-The most likely remaining explanation is that `terraform_reach` is too generous
-for some players: several residual cases land exactly right with a reach two
-smaller. It does not fit all of them, and narrowing the reach to make it fit
+The most likely remaining explanation was once that `terraform_reach` is too
+generous for some players: several residual cases land exactly right with a
+reach two smaller. It does not fit all of them, and narrowing the reach to make
+it fit
 would be tuning to the data rather than reading the binary, so it is left open.
 
 ## Which factor a step moves
@@ -161,7 +212,9 @@ honest measure of what remains.
 
 ## Open questions
 
-- The residual 30% above, most likely in `terraform_reach`.
+- The residual 30% above. It is **not** in `terraform_reach`, which is now
+  measured at 99.9% on the axes it governs; the over-prediction is in the step
+  count or in what caps the order.
 - The direction-selection arm of `FCanTerraformLppl`, which picks which way to
   terraform for the UI's environment graph. It is not needed for the value or
   the step count, and the decompilation of that branch is not yet trustworthy.

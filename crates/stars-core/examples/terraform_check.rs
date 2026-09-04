@@ -5,6 +5,15 @@
 //! [`terraform_reach`] directly. And the AI's recorded auto-terraform order is
 //! `min(steps available, 4)`, which tests [`terraform_steps`], the quantity
 //! that until now had to be stubbed at zero.
+//!
+//! The first check is scored **per axis, and only on axes the current owner can
+//! terraform at all**. `env - env_orig` records what any actor ever did to a
+//! planet, not what its present owner did: a previous owner's work survives a
+//! change of hands, and hostile action moves the environment too. Both land
+//! almost entirely on axes whose owner is immune — an immune race never
+//! terraforms, so it never overwrites the marks — so those axes are counted
+//! and reported separately rather than folded into the score. See
+//! `docs/formulas/terraforming.md`.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -28,6 +37,8 @@ fn main() {
     let mut with_orig = 0usize;
     let mut within_reach = 0usize;
     let mut overshoot: BTreeMap<i32, usize> = BTreeMap::new();
+    let mut immune_axes = 0usize;
+    let mut immune_within = 0usize;
 
     let mut queued = 0usize;
     let mut queue_exact = 0usize;
@@ -60,14 +71,22 @@ fn main() {
             let reach = terraform_reach(&player.race, tech);
 
             if let Some(orig) = planet.env_orig {
-                with_orig += 1;
                 let worst = (0..3)
+                    .filter(|v| !player.race.is_immune(*v))
                     .map(|v| i32::from(planet.env[v] - orig[v]).abs() - i32::from(reach[v]))
                     .max()
                     .unwrap_or(0);
-                if worst <= 0 {
-                    within_reach += 1;
-                } else {
+                for v in 0..3 {
+                    let ok = i32::from(planet.env[v] - orig[v]).abs() <= i32::from(reach[v]);
+                    if player.race.is_immune(v) {
+                        immune_axes += 1;
+                        immune_within += usize::from(ok);
+                    } else {
+                        with_orig += 1;
+                        within_reach += usize::from(ok);
+                    }
+                }
+                if worst > 0 {
                     *overshoot.entry(worst.min(9)).or_default() += 1;
                     if verbose && shown < 10 {
                         shown += 1;
@@ -158,10 +177,17 @@ fn main() {
         }
     }
 
-    println!("{with_orig} planet-turns record an original environment");
+    println!(
+        "{with_orig} terraformable axis-readings on planets that record an original environment"
+    );
     println!(
         "  movement within the reach we compute: {within_reach} ({}%)",
         pct(within_reach, with_orig)
+    );
+    println!(
+        "  axes the owner is immune to, for reference: {immune_within}/{immune_axes} ({}%) \
+         — previous owners and hostile action, which no reach explains",
+        pct(immune_within, immune_axes)
     );
     if !overshoot.is_empty() {
         println!("  overshoot by (clicks): {overshoot:?}");
