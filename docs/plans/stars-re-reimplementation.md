@@ -255,10 +255,10 @@ Measured against real save files:
 | research | 11 accumulation years and 5 priced breakthroughs, all exact |
 | ship design mass | 73 of 85 battle tokens exact, rest explained by cargo |
 | ship design armour | 493 designs, zero disagreements |
-| battle replay, beam-only | 8 of 11 battles reproduce recorded casualties |
+| battle replay, beam-only | 11 of 13 battles reproduce recorded casualties |
 | battle movement, beeline | 83 of 83 close on their target |
 | battle movement, phase order | 209 of 209 rounds, 746 moves, 0 over allowance |
-| battle movement, scored | 450 of 478 among our best-rated (chance 72%) |
+| battle movement, scored | 455 of 478 among our best-rated (chance 72%) |
 | terraform reach | 37,712 of 37,743 axis-readings (99.9%) |
 | AI terraform order, fresh | 196 of 196 (100%) |
 | AI mine/factory decision, isolated | 6,826 of 7,997 (85%; chance 28%, floor 49%) |

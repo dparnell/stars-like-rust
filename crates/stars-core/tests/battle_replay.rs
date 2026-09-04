@@ -544,7 +544,17 @@ fn beam_only_battles_replay_to_the_recorded_casualties() {
                     usable = false;
                     break;
                 };
-                let weapons = design.weapons();
+                // Only the file owner's designs are in the file, so a token
+                // belonging to anyone else is matched against the wrong design
+                // number. The recording carries the one thing that settles
+                // whether it can shoot at all: `initMin` is 0xFF exactly when
+                // the token has no weapons, and the firing loop gates on
+                // `initMin <= init <= initMac`.
+                let weapons = if t.initiative_min == 0xFF {
+                    Vec::new()
+                } else {
+                    design.weapons()
+                };
                 if weapons.iter().any(|w| w.torpedo) {
                     usable = false;
                     break;
@@ -565,7 +575,11 @@ fn beam_only_battles_replay_to_the_recorded_casualties() {
                     is_starbase: t.is_starbase(),
                     pct_jam: i32::from(t.pct_jam),
                     pct_computer: i32::from(t.pct_computer),
-                    weapon_reach: design.weapons().iter().map(|w| w.range).max().unwrap_or(0),
+                    weapon_reach: if t.initiative_min == 0xFF {
+                        0
+                    } else {
+                        design.weapons().iter().map(|w| w.range).max().unwrap_or(0)
+                    },
                     player: t.player,
                     active: true,
                     square: CoreSquare::new(t.square.x, t.square.y),
@@ -614,9 +628,22 @@ fn beam_only_battles_replay_to_the_recorded_casualties() {
                     }
                     round = action.round;
                 }
-                if let Some(dest) = action.destination {
-                    if let Some(t) = tokens.get_mut(usize::from(action.token)) {
-                        t.square = CoreSquare::new(dest.x, dest.y);
+                match action.destination {
+                    Some(dest) => {
+                        if let Some(t) = tokens.get_mut(usize::from(action.token)) {
+                            t.square = CoreSquare::new(dest.x, dest.y);
+                        }
+                    }
+                    // `brcDest` of 0xFF is not a square: it is the record of a
+                    // token leaving the battle. A Disengage token counts down
+                    // `dzDis` as it moves and, when that reaches zero, the
+                    // movement loop sets `fActive = 0` and writes the sentinel.
+                    // Ignoring it leaves fleeing ships on the board to be shot
+                    // at for the remaining rounds.
+                    None => {
+                        if let Some(t) = tokens.get_mut(usize::from(action.token)) {
+                            t.active = false;
+                        }
                     }
                 }
             }
@@ -784,14 +811,28 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
                     is_starbase: t.is_starbase(),
                     pct_jam: i32::from(t.pct_jam),
                     pct_computer: i32::from(t.pct_computer),
-                    weapon_reach: design.weapons().iter().map(|w| w.range).max().unwrap_or(0),
+                    weapon_reach: if t.initiative_min == 0xFF {
+                        0
+                    } else {
+                        design.weapons().iter().map(|w| w.range).max().unwrap_or(0)
+                    },
                     player: t.player,
                     active: true,
                     square: CoreSquare::new(t.square.x, t.square.y),
                     initiative_base: i32::from(t.initiative_base),
                     capacitor_pct: i32::from(t.pct_capacitor),
                     beam_deflection_pct: i32::from(t.pct_beam_defence),
-                    weapons: design.weapons(),
+                    // Only the file owner's designs are in the file, so a
+                    // token belonging to anyone else is matched against the
+                    // wrong design number. The recording carries the one thing
+                    // that settles whether it can shoot at all: `initMin` is
+                    // 0xFF exactly when the token has no weapons, and the
+                    // firing loop gates on `initMin <= init <= initMac`.
+                    weapons: if t.initiative_min == 0xFF {
+                        Vec::new()
+                    } else {
+                        design.weapons()
+                    },
                     value: design.cost().map_or(0, |c| c.resources + c.minerals[1]),
                     mass: design.mass().unwrap_or(0) * i32::from(t.ships),
                     state: TokenState {

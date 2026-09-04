@@ -422,7 +422,7 @@ examples.
 - **22 of 31 first beam hits reproduce the recorded damage exactly** — both the
   shield points stripped and the ships destroyed — computed from the attacker's
   design, the recorded range and the target's state.
-- **8 of 11 beam-only battles replay to the recorded casualties exactly.** This
+- **11 of 13 beam-only battles replay to the recorded casualties exactly.** This
   is the strongest check available: the movement is taken from the recording,
   but every shot, target choice and casualty is computed, and each token's
   state is carried forward through the whole battle rather than assumed.
@@ -437,10 +437,10 @@ accuracy, the starting-square table and Chebyshev distance against
   share of that: `DxyMoveTokTo` breaks ties by reservoir sampling.
 - Even complete, movement cannot be reproduced exactly without the RNG, because
   every tie-break draws from it.
-- Three of the eleven replayable battles still come out inverted. All three are
-  symmetric duels where both ships can destroy the other in one volley, so the
-  result turns on exactly when in the round each closed to range; firing once
-  at the end of the round is an approximation there.
+- Two of the thirteen replayable battles over-kill: one armed ship against
+  several unarmed ones, where the game records a single casualty and the replay
+  computes four or seven. The cause is the limitation described under "Whose
+  design is it?" — an opponent's armour is not in the file.
 - **The torpedo accuracy formula is unverified.** The firing loop is now
   implemented and the recording marks hits apart from misses, but only 8 of 100
   recorded volleys yield a clean count — 24 shots, which decides nothing. A
@@ -460,6 +460,54 @@ accuracy, the starting-square table and Chebyshev distance against
 - Bombing (`DoBombing`) and ground combat are separate from ship battles and
   are not covered.
 
+
+## Whose design is it?
+
+A player's `.mN` file carries **only that player's own ship designs**. The
+battle recording names each token's design by *slot number*, and slot 3 of one
+player is not slot 3 of another, so every token in a battle that does not belong
+to the file's owner is matched against the wrong design.
+
+The recording covers part of the gap. `BattleToken` carries the token's
+initiative range, and `initMin == 0xFF` means **the token has no weapons at
+all** — the firing loop gates on `initMin <= init <= initMac`, so such a token
+never fires. That is enough to tell an armed ship from an unarmed one without
+knowing its design.
+
+### What that fixed
+
+An earlier revision recorded three of eleven battles as coming out inverted, and
+explained them as "symmetric duels where both ships can destroy the other in one
+volley, so the result turns on exactly when in the round each closed to range".
+They were not symmetric and the explanation was wrong. All three have the same
+shape:
+
+| | tactic | class | targets | initiative |
+|-|--------|-------|---------|-----------|
+| token 0 | Maximise net damage | Armed ships | Armed ships / Any | 10..10 |
+| token 1 | **Disengage** | **Unarmed ships** | None / Any | **255..255** |
+
+Token 1 is an unarmed ship running away. The replay armed it from the owner's
+design table, so it shot first and won — inverting a battle the engine never
+treated as a contest. Honouring `initMin == 0xFF` took the replay from **8 of
+11 to 11 of 13**: the three inverted battles resolve, and two more become
+replayable, having previously been rejected for carrying torpedoes they did not
+have. It also moved movement scoring from 94% to 95%, since an unarmed token's
+weapon reach is zero.
+
+The disengage sentinel is honoured too: `brcDest = 0xFF` is not a square but the
+record of a token leaving the battle, which the replay now applies rather than
+leaving a fleeing ship on the board to be shot at.
+
+### What it does not fix
+
+Two battles remain, both one armed ship against several unarmed ones, where the
+engine records a single casualty and the replay computes four or seven. The
+recording gives a token's ships and shields but **not its armour**, and armour
+is what decides whether a 26-point beam kills a ship or scratches it. Taken from
+the owner's design table it is simply wrong for an opponent, and no fixture here
+can supply the right value. Reproducing those two needs the opposing player's
+own file for the same turn.
 
 ## The movement round
 
@@ -596,7 +644,7 @@ at anything. That the recordings are full of tokens which plainly did fire is
 direct evidence for the two-pass structure rather than a union.
 
 What the corpus does **not** show is the preference changing an outcome: every
-replay figure is identical with the filter in place — 8 of 11 beam battles, 22
+replay figure is identical with the filter in place — 11 of 13 beam battles, 22
 of 31 first hits, 94% of scored moves. In these particular battles the
 highest-value target in range was already of the primary class whenever one was
 there. So the filter is transcribed and unit-tested, and confirming that the
