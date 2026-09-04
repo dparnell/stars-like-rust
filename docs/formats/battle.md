@@ -136,3 +136,38 @@ but not yet exercised by a fixture.
   size but a different field split, converted on load by `UpdateBattleRecords`
   when the file's minor version is below 80. Our fixtures are 2.81, so only the
   modern layout is exercised.
+
+
+## Where the recordings live
+
+A battle recording (type 31) is written to the **player** files of the
+participants, not to the host file. The sixteen-AI game's `Game.hst` files carry
+no battle blocks at all across 101 turns, while its `Game.mN` files hold 90
+records — 45 distinct battles, each appearing in both participants' files.
+Almost all are two-token skirmishes; two have four tokens.
+
+That doubles the fixture corpus from Exodus's 47 records. `battle_replay.rs`
+now draws its battles from both games, de-duplicating by battle id and
+position.
+
+## An open problem with the sixteen-AI recordings
+
+Adding those records broke two invariants that hold across all 47 Exodus
+battles, and the assertions were left in place rather than loosened:
+
+- **Movement.** `2448 battle 0x0f05` has token 0, speed 1, moving five squares
+  in round 0 against an allowance of one.
+- **Firing range.** `2499 battle 0x0225` records a shot at range 5, beyond what
+  the firing token's weapon reaches.
+
+Neither is plausible game behaviour, so the likeliest explanation is that our
+decode of these particular records is wrong — the player-file variant may
+differ from the `.m6` records the format was recovered against, or the action
+stream may be framed differently when more than two tokens are present.
+
+The two tests that check these invariants therefore stay on the Exodus corpus,
+with a comment saying why. The three that do not depend on them —
+starting squares, the two-player layout, and the replays — use the full corpus.
+
+Resolving this is worth doing: it would roughly double the evidence behind the
+combat model, and the failure is specific enough to chase directly.

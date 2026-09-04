@@ -21,6 +21,44 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
+/// Every battle the fixtures record, from both games.
+///
+/// The sixteen-AI game keeps its recordings in the **player** files: a host
+/// file carries no battle blocks at all, but each participant's `.mN` does, so
+/// a two-sided battle appears twice. Duplicates are dropped by battle id and
+/// position.
+fn all_battles() -> Vec<(i32, BattleRecord)> {
+    let mut out = exodus_battles();
+    let mut seen: std::collections::HashSet<(u16, (i16, i16), i32)> =
+        out.iter().map(|(y, b)| (b.id, b.position, *y)).collect();
+
+    let ai_game = workspace_root().join("fixtures/games/all-computer-players");
+    if ai_game.is_dir() {
+        let mut years: Vec<i32> = std::fs::read_dir(&ai_game)
+            .expect("readable fixture dir")
+            .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
+            .collect();
+        years.sort_unstable();
+        for year in years {
+            for n in 1..=16 {
+                let path = ai_game.join(year.to_string()).join(format!("Game.m{n}"));
+                let Ok(bytes) = std::fs::read(&path) else {
+                    continue;
+                };
+                let Ok(file) = StarsFile::decode(&bytes) else {
+                    continue;
+                };
+                for record in battle_records_in(file.segment_blocks(file.latest_segment())) {
+                    if seen.insert((record.id, record.position, year)) {
+                        out.push((year, record));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 fn exodus_battles() -> Vec<(i32, BattleRecord)> {
     let games = workspace_root().join("fixtures/games/exodus");
     if !games.is_dir() {
@@ -50,7 +88,7 @@ fn exodus_battles() -> Vec<(i32, BattleRecord)> {
 
 #[test]
 fn tokens_start_on_the_squares_the_table_says() {
-    let battles = exodus_battles();
+    let battles = all_battles();
     if battles.is_empty() {
         eprintln!("skipping: no Exodus fixtures");
         return;
@@ -111,7 +149,7 @@ fn tokens_start_on_the_squares_the_table_says() {
 
 #[test]
 fn two_sided_battles_use_the_two_player_layout() {
-    let battles = exodus_battles();
+    let battles = all_battles();
     if battles.is_empty() {
         eprintln!("skipping: no Exodus fixtures");
         return;
@@ -148,6 +186,8 @@ fn two_sided_battles_use_the_two_player_layout() {
 
 #[test]
 fn recorded_moves_never_exceed_the_movement_allowance() {
+    // Exodus only. The sixteen-AI game's recordings, which live in its player
+    // files, break this invariant — see docs/formats/battle.md.
     let battles = exodus_battles();
     if battles.is_empty() {
         eprintln!("skipping: no Exodus fixtures");
@@ -226,6 +266,8 @@ fn recorded_moves_never_exceed_the_movement_allowance() {
 
 #[test]
 fn firing_happens_within_the_recorded_range() {
+    // Exodus only. The sixteen-AI game's recordings, which live in its player
+    // files, break this invariant — see docs/formats/battle.md.
     let battles = exodus_battles();
     if battles.is_empty() {
         eprintln!("skipping: no Exodus fixtures");
