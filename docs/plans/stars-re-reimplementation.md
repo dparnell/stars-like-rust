@@ -302,10 +302,13 @@ Remaining in this step:
    turn is generated, so its state depends on everything the host process did
    since it started and is written to no save file. A recorded turn therefore
    cannot be replayed draw-for-draw from these fixtures, however complete the
-   formulas are. The exception is a game with bit 11 of the game flags set,
-   which restarts the generator from `0x499602d2` every turn — none of the
-   fixtures sets it. Acquiring such a game is the single highest-value fixture
-   the project could add. See `docs/rng/prng.md`.
+   formulas are. The exception is **tutorial mode**: bit 11 of the runtime mode word at
+   `DS:0x7ca`, set by `StartTutor`, restarts the generator from `0x499602d2`
+   every turn. `fixtures/games/tutorial` was made in that mode but holds a
+   single turn state with no consecutive pair. **Consecutive turns played
+   through the tutorial** are therefore the highest-value fixture the project
+   could add, and anyone with the original executable can produce them. See
+   `docs/rng/prng.md`.
 
    What this blocks:
    Torpedo combat resolution needs the RNG in the right state, and so does the

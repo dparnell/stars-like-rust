@@ -140,62 +140,81 @@ cannot be replayed draw-for-draw from the fixtures, however completely the
 formulas are recovered. This is a property of the game, not a gap in the
 reverse engineering.
 
-### The exception: bit 11 of the game flags
+### The exception: tutorial mode
 
-A game with bit 11 set restarts the generator from the fixed constant
-`0x499602d2` at the head of every turn, which makes turns fully reproducible.
-`stars-core` exposes this as `Rng::for_deterministic_turn`.
-
-The same flag turns up in three other places already recovered, which is a
-useful cross-check on what it means: `InitRandomPlanetList` skips the AI's
-planet shuffle when it is set, `FFillProdMinesAndFactories` charges factories
-all three minerals rather than germanium alone, and `QueueAiStarbases` changes
-its guard. It reads as a "reproducible / test game" mode.
-
-### What sets it
-
-Exactly one instruction in the binary writes bit 11 into the game flags word at
-`DS:0x588`, in `ExecuteButton` (`1068:14ea`):
+`FGenerateTurn` re-seeds when bit 11 of the word at `DS:0x7ca` is set
+(`10b0:0036`):
 
 ```asm
-SHL  AX, CL                      ; AX = 1 << (checkbox index)
-XOR  word ptr [0x51aa], AX       ; toggle that checkbox
-MOV  AX, [0x588]
-AND  AX, 0x800
-JNZ  done                        ; already set: nothing to do
-MOV  AX, 1 ; SHL AX, CL
-AND  AX, word ptr [0x51aa]
-JZ   done                        ; the checkbox went *off*: nothing to do
-OR   word ptr [0x588], 0x800     ; set it
-CALLF 14f8:0274                  ; and tell the user
+MOV  CX, 0xb
+MOV  AX, [0x7ca]
+SHR  AX, CL
+AND  AX, 0x1
+JZ   skip
+MOV  AX, 0x2d2 ; MOV DX, 0x4996     ; 0x499602d2
+CALLF 1040:15ea                     ; Randomize
 ```
 
-So it is a **checkbox in a dialog**. Ticking it sets the flag and pops a
-message; the flag is **never cleared anywhere in the binary**, so the choice is
-one-way once made. Which checkbox it is has not been identified — the handler
-works from a bit index in a local, so the label is not reachable from this code
-alone.
+**That bit is tutorial mode.** `StartTutor` (`10f8:0748`) sets it, and nothing
+else does:
 
-`StartTutor` (`10f8:074e`) also ORs `0x800`, but into `[0x7ca]`, a different
-word — the settings/INI flags, not the game flags. The tutorial is therefore
-*not* this flag, and `fixtures/games/tutorial` does not supply what is needed.
+```asm
+MOV AX, [0x7ca] ; AND AX, 0xf7ff ; OR AX, 0x800 ; MOV [0x7ca], AX
+```
 
-### What that means for the fixtures
+`[0x7ca]` is a **runtime mode word**, not a saved game setting. Its 265
+references are `StartTutor` and `EndTutor`, `DestroyCurGame`, `FLoadGame`,
+`BattleVCR` and `VCRDlg`, `InitProduction` and `FinishProduction`,
+`NewGameWizard`, `BringUpHostDlg` and the dialogs — the things a session is
+currently doing. `ReadIniSettings` and `WriteIniSettings` persist a *different*
+word at `DS:0x588`, which holds the toolbar and scanner display options.
 
-None of the fixture games sets it, and the `.xy` game-info block does not
-obviously carry it either: the 64-byte block differs in shape between the
-tutorial and the played games, and no word in it has bit 11 set in any fixture.
+`stars-core` exposes the constant as `Rng::for_deterministic_turn`.
 
-A game created with the checkbox ticked would be the single most valuable
-fixture this project could acquire. It would make the whole-turn replay exact
-rather than statistical, and it is the prerequisite for torpedo combat
-resolution, which needs the RNG in the right state to score at all.
+### Why this makes sense
 
-### A caution on naming it
+Tutorial mode explains all four behaviours the bit controls, which no
+game-option reading did:
 
-An earlier note here called this a "reproducible / test game" mode. That reads
-well against three of its four known effects — fixed RNG seed per turn, no AI
-planet shuffle, an altered `QueueAiStarbases` guard — but the fourth, charging
-factories all three minerals rather than germanium alone
-(`FFillProdMinesAndFactories`), has nothing to do with determinism. The flag is
-better described by what it does than by a guessed name.
+| routine | effect when set |
+|---------|-----------------|
+| `FGenerateTurn` | re-seed the RNG from a constant every turn |
+| `InitRandomPlanetList` | do not shuffle the AI's planet list |
+| `FFillProdMinesAndFactories` | charge factories all three minerals |
+| `QueueAiStarbases` | a different guard on whether to build |
+
+A tutorial has to play out the same way every time it is run, which is exactly
+what a fixed seed and an unshuffled planet list buy. The two production changes
+are tutorial simplifications.
+
+### What this means for fixtures
+
+`fixtures/games/tutorial` was produced in tutorial mode, so **its turns were
+generated with the RNG seeded from `0x499602d2`** — they are reproducible. It
+holds only a single turn state, though, with no consecutive pair to replay
+across, so it cannot be used as it stands.
+
+The fixture worth acquiring is therefore narrower and more obtainable than
+previously recorded: **consecutive turns played through the tutorial**. Anyone
+with the original executable can produce them by starting the tutorial and
+generating turns. That would make the whole-turn replay exact rather than
+statistical, and it is the prerequisite for torpedo combat resolution.
+
+### Two corrections
+
+Earlier revisions of this document got this wrong twice, and the mistakes are
+worth recording because both were the same kind.
+
+First it described the bit as living in the *game flags* and being set by a
+checkbox in `ExecuteButton` (`1068:14ea`). That instruction does set bit 11 —
+but of `[0x588]`, the INI/UI settings word, which has nothing to do with turn
+generation. The two were conflated because Ghidra names the tested global `gd`
+and the assumption was never checked against the disassembly.
+
+Second it concluded that `StartTutor` wrote "a different word" and that the
+tutorial therefore was not this flag. That had the two addresses the wrong way
+round.
+
+Both were fixed by reading the actual operands rather than trusting a symbol
+name, and by listing every reference to each address to see what kind of state
+it holds.
