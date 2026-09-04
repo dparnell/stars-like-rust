@@ -166,37 +166,37 @@ pub fn optimal_env(planet: &Planet, race: &Race, tech: [u8; 6]) -> [i8; VARIABLE
 /// moved toward the race's ideal. This is the count the AI's terraform decision
 /// caps at four — see [`crate::ai::production::queue_ai_terraforming`].
 ///
+/// # Where the count is used
+///
+/// `InitProduction` (`10d0:015e`) puts this figure in the production
+/// catalogue's terraform entry, and `FQueueAiTerraforming` (`1090:8d28`) queues
+/// `min(count, 4)` of it. The binary computes it in `IpctCanTerraformLppl`
+/// (`1048:7f56`), which sums, over the three variables, `env - low` and
+/// `high - env` for whichever bounds `FCanTerraformLppl` left usable. Called
+/// with its fifth argument set — `PUSH 0x1` at `1048:7f5f`, which the
+/// decompiler loses — that routine keeps only the direction moving toward the
+/// race's ideal and clamps it there, so the sum is the improvement still
+/// available. That is this function.
+///
 /// # How well this matches
 ///
-/// Scored against the AI's recorded auto-terraform orders in
-/// `fixtures/games/all-computer-players`, `min(terraform_steps, 4)` matches
-/// **131 of 187** fresh orders (70%).
+/// Scored against the AI's recorded auto-terraform orders across both AI games,
+/// `min(terraform_steps, 4)` matches **196 of 196 fresh orders (100%)**.
 ///
-/// "Fresh" is doing the work there. A terraform entry stays in the queue and
-/// counts *down* as production builds it, so scoring every planet-turn that
-/// carries one compares a decision against the remains of an older decision
-/// and scores 23%. Only a planet that had no terraform order the turn before
-/// is a decision being made. This is the same trap the mine and factory
-/// decision fell into, and it is worth remembering as a general rule about
-/// this game's queues: **a queue entry is a running balance, not a record of
-/// what was chosen**.
+/// Recovering the decision from the file takes two corrections, both instances
+/// of the same rule: **a queue entry is a running balance, not a record of what
+/// was chosen.**
 ///
-/// The residual 30% are all over-predictions where this saturates at the cap
-/// of four while the game queued one to three. Two explanations were tested
-/// and rejected: limiting the count by what the planet can pay for that year
-/// swings it hard the other way (7% exact, mostly under-predicting), and
-/// counting the gain in habitability *value* rather than clicks does slightly
-/// worse than clicks (66%). The most likely remaining explanation is that
-/// [`terraform_reach`] is too generous for some players, since several of the
-/// residual cases would land exactly right with a reach two smaller — but that
-/// does not fit all of them, tuning the reach to make it fit is precisely what
-/// this project does not do, and the reach has since been measured at 99.9% on
-/// the axes it governs, so the error is far more likely in the step count.
+/// 1. An entry counts down over following turns as production builds it, so
+///    only a planet that had no terraform order the turn before is a decision
+///    being made. Scoring every planet-turn instead gives 24%.
+/// 2. `Produce` runs later in the *same* turn the AI queues the item, so even a
+///    fresh order is already short by what the planet built that year. Those
+///    clicks are visible as environment movement, so the decision is
+///    `recorded + |env(Y) - env(Y-1)|` summed over the three variables.
+///    Omitting this second correction gives 70%, with a residual that looks
+///    like over-prediction and is not.
 ///
-/// [`terraform_reach`] itself is in good shape, and is not the cause: across
-/// both AI games it is right for **37,712 of 37,743 axis-readings (99.9%)** on
-/// the axes it actually governs. See `docs/formulas/terraforming.md` for why
-/// that must be measured per axis and with immune axes excluded.
 #[must_use]
 pub fn terraform_steps(planet: &Planet, race: &Race, tech: [u8; 6]) -> i32 {
     let target = optimal_env(planet, race, tech);

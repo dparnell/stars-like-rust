@@ -6,6 +6,12 @@
 //! `min(steps available, 4)`, which tests [`terraform_steps`], the quantity
 //! that until now had to be stubbed at zero.
 //!
+//! The order has to be reconstructed rather than read. A queue entry is a
+//! running balance: it counts down as production builds it, and production runs
+//! later in the *same* turn the AI queued it, so the saved file already shows
+//! the order short by whatever was built. Adding back the clicks the
+//! environment moved that year recovers the decision.
+//!
 //! The first check is scored **per axis, and only on axes the current owner can
 //! terraform at all**. `env - env_orig` records what any actor ever did to a
 //! planet, not what its present owner did: a previous owner's work survives a
@@ -47,8 +53,17 @@ fn main() {
     let mut shown2 = 0usize;
     let mut shown3 = 0usize;
     // A terraform entry persists and counts down as production builds it, so
-    // only an order that was not there last turn is a fresh decision.
-    let mut had_terraform: HashMap<i16, bool> = HashMap::new();
+    // only an order that was not there last turn is a fresh decision — and even
+    // a fresh one has already been drawn down by the production that ran later
+    // in the same turn. Both need last year's state: what the AI decided from,
+    // and the environment the clicks built this turn are measured against.
+    struct Prev {
+        env: [i8; 3],
+        had_terraform: bool,
+        predicted: i32,
+    }
+    let mut prev: HashMap<i16, Prev> = HashMap::new();
+    let mut next: HashMap<i16, Prev> = HashMap::new();
     let mut fresh = 0usize;
     let mut fresh_exact = 0usize;
     let mut fresh_diff: BTreeMap<i32, usize> = BTreeMap::new();
@@ -124,27 +139,37 @@ fn main() {
             }
             queued += 1;
             let predicted = terraform_steps(planet, &player.race, tech).min(4);
-            if !had_terraform.get(&planet.id).copied().unwrap_or(false) {
-                fresh += 1;
-                if predicted == recorded {
-                    fresh_exact += 1;
-                }
-                *fresh_diff
-                    .entry((predicted - recorded).clamp(-4, 4))
-                    .or_default() += 1;
-                if verbose && predicted != recorded && shown3 < 14 {
-                    shown3 += 1;
-                    let band = stars_core::terraform::reachable_band(planet, &player.race, tech);
-                    let opt = stars_core::terraform::optimal_env(planet, &player.race, tech);
-                    println!(
-                        "  F {} p{:>3}: pred {predicted} rec {recorded} env {:?} orig {:?} \
-                         ideal {:?} reach {reach:?} band {band:?} opt {opt:?}",
-                        state.year(),
-                        planet.id,
-                        planet.env,
-                        planet.env_orig,
-                        player.race.env_center
-                    );
+            if let Some(before) = prev.get(&planet.id) {
+                if !before.had_terraform {
+                    // What the AI actually decided, recovered from the file: the
+                    // count still queued plus the clicks production spent during
+                    // the same turn, which show up as environment movement.
+                    let built: i32 = (0..3)
+                        .map(|v| i32::from(planet.env[v] - before.env[v]).abs())
+                        .sum();
+                    fresh += 1;
+                    if before.predicted == recorded + built {
+                        fresh_exact += 1;
+                    }
+                    *fresh_diff
+                        .entry((before.predicted - (recorded + built)).clamp(-4, 4))
+                        .or_default() += 1;
+                    if verbose && before.predicted != recorded + built && shown3 < 14 {
+                        shown3 += 1;
+                        let band =
+                            stars_core::terraform::reachable_band(planet, &player.race, tech);
+                        println!(
+                            "  F {} p{:>3}: pred {} rec {recorded} built {built} env {:?} \
+                             was {:?} orig {:?} ideal {:?} reach {reach:?} band {band:?}",
+                            state.year(),
+                            planet.id,
+                            before.predicted,
+                            planet.env,
+                            before.env,
+                            planet.env_orig,
+                            player.race.env_center
+                        );
+                    }
                 }
             }
             if predicted == recorded {
@@ -166,15 +191,28 @@ fn main() {
                 );
             }
         }
-        // Remember which planets carried a terraform order this turn.
-        had_terraform.clear();
+        // Carry this year's state forward as next year's "before".
+        next.clear();
         for planet in &state.planets {
-            let has = planet
-                .queue
-                .iter()
-                .any(|e| !e.ship && e.item == 12 && e.count > 0);
-            had_terraform.insert(planet.id, has);
+            let predicted = planet
+                .owner
+                .and_then(|o| state.players.get(o as usize))
+                .map_or(0, |pl| {
+                    terraform_steps(planet, &pl.race, pl.research.levels).min(4)
+                });
+            next.insert(
+                planet.id,
+                Prev {
+                    env: planet.env,
+                    had_terraform: planet
+                        .queue
+                        .iter()
+                        .any(|e| !e.ship && e.item == 12 && e.count > 0),
+                    predicted,
+                },
+            );
         }
+        std::mem::swap(&mut prev, &mut next);
     }
 
     println!(
@@ -201,10 +239,10 @@ fn main() {
     println!("  predicted - recorded: {queue_diff:?}");
     println!("\n{fresh} of those are fresh orders (none queued the turn before):");
     println!(
-        "  count matches min(steps, 4): {fresh_exact} ({}%)",
+        "  min(steps, 4) == recorded + built that turn: {fresh_exact} ({}%)",
         pct(fresh_exact, fresh)
     );
-    println!("  predicted - recorded: {fresh_diff:?}");
+    println!("  predicted - (recorded + built): {fresh_diff:?}");
 }
 
 fn pct(n: usize, total: usize) -> usize {

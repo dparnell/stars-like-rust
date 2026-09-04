@@ -1,7 +1,7 @@
 # The computer players
 
-Status: **identification and the planet list verified; terraform decision
-verified; mine/factory decision reproduces the choice but not the amounts.**
+Status: **identification, the planet list and the terraform decision verified;
+mine/factory decision reproduces the choice but not the amounts.**
 
 Stars! ships seven computer opponents. This document records which player a
 save file hands to which opponent, maps the roughly 95 functions that make up
@@ -186,9 +186,14 @@ Three of those read straight off the corpus:
   `FFillProdMinesAndFactories` that only Macinti takes.
 
 Implemented as `ai::production::queue_ai_terraforming` and asserted in
-`crates/stars-core/tests/ai_production.rs`. The one part still stubbed is how
-many terraform *steps* a planet has available, which needs the terraforming
-model this project does not have yet; the caller supplies it.
+`crates/stars-core/tests/ai_production.rs`. The count of steps available is
+supplied by the caller and comes from `terraform::terraform_steps`, which is
+`IpctCanTerraformLppl` (`1048:7f56`) by way of the production catalogue — see
+`terraforming.md`. Scored against the corpus, `min(steps, 4)` matches **196 of
+196 fresh orders (100%)**, once the order is reconstructed as
+`recorded count + clicks built that turn`: production runs later in the same
+turn the AI queues the item, so the saved file always shows the order already
+drawn down.
 
 Robotoid and Rototill queue no terraforming at all despite calling
 `HandleBasicAiTasks`. That is unexplained and worth chasing.

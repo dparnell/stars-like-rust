@@ -1,8 +1,10 @@
 # Subsystem: Terraforming
 
-- **Status:** reach verified (99.9%); step count transcribed but over-counts
-- **Ghidra routine(s):** `FCanTerraformLppl` (read via `PctPlanetOptValue`
-  `1048:6b88`), `FLookupPart` (the `hstTerra` arm), the `hstTerra` part table
+- **Status:** verified — reach 99.9%, step count 100%
+- **Ghidra routine(s):** `FCanTerraformLppl` (`1048:8022`, read via
+  `PctPlanetOptValue` `1048:6b88`), `IpctCanTerraformLppl` (`1048:7f56`),
+  `InitProduction` (`10d0:015e`), `FQueueAiTerraforming` (`1090:8d28`),
+  `FLookupPart` (the `hstTerra` arm), the `hstTerra` part table
 - **Manual reference:** `MANUAL.PDF` pp. 6-14..6-15
 - **Uses RNG:** no
 - **Implemented in:** `crates/stars-core/src/terraform.rs`
@@ -76,9 +78,10 @@ Across both sixteen-player AI games, `all-computer-players` and
 | check | result |
 |-------|--------|
 | environment moved no further than `reach` allows | **37,712 of 37,743 axis-readings (99.9%)** |
-| AI auto-terraform order equals `min(steps, 4)`, fresh orders | 133 of 187 (71%) |
+| AI auto-terraform order equals `min(steps, 4)`, fresh orders | **196 of 196 (100%)** |
 
-The 31 stragglers overshoot by one to three clicks.
+The 31 reach stragglers overshoot by one to three clicks. The order count has no
+residual — see below for what the earlier 70% figure was measuring.
 
 ### Why this is scored per axis, and why immune axes are excluded
 
@@ -125,47 +128,81 @@ year), and the Total Terraforming trait (both games carry it in similar numbers,
 on these fixtures it moves the score by a fraction of a point, because every
 race that terraforms at all also has adequate variable-specific modules.
 
-## The count: what the discrepancy turned out to be
+## The count: where it comes from, and the two-stage running balance
 
-An earlier revision of this document reported the step count matching only 23%
-and described it as a one-click error in the band. That diagnosis was wrong.
+The AI's terraform order is not computed by the AI. `FQueueAiTerraforming`
+(`1090:8d28`) reads the count straight out of the production catalogue and
+clamps it:
 
-A terraform entry **stays in the queue and counts down** as production builds
-it. Scoring every planet-turn that carries one therefore compares a fresh
-decision against the remains of an older one. Restricting to planets that had
-no terraform order the turn before — the only planet-turns where a decision is
-actually being made — moves the match from 23% to **70%**.
+```c
+if (((uint)(pProdGlob + i)->cItem & 0x3ff) < 5) uVar4 = cItem & 0x3ff;
+else                                            uVar4 = 4;
+AddItemToQueue(item, uVar4, grobjPlanet, mdAddItem);
+```
 
-This is exactly the trap the mine and factory decision fell into, and the
-general rule is worth stating plainly: **in this game a queue entry is a
-running balance, not a record of what was chosen.** Any decision scored against
-a queue has to be scored against a *fresh* entry.
+and `InitProduction` (`10d0:015e`) fills that catalogue entry — item
+`0x3000 >> 10 = 0xc` — from `IpctCanTerraformLppl` (`1048:7f56`):
 
-The apparent "one click" was an artifact of the same thing. Following planet 86
-across turns, the recorded count fell by one each time radiation rose by one —
-not because the band was one narrower, but because production was spending the
-order down.
+```c
+count = 0;
+if (FCanTerraformLppl(lppl, low, high, items, 1)) {
+  for (v = 0; v < 3; v++) {
+    if (low[v]  != -1) count += lppl->rgEnvVar[v] - low[v];
+    if (high[v] != -1) count += high[v] - lppl->rgEnvVar[v];
+  }
+}
+```
 
-### The residual 30%
+The fifth argument matters and the decompiler loses it — it merges the fourth
+parameter (an output array of part ids) with the flag. The disassembly at
+`1048:7f5f` is unambiguous:
 
-The 56 fresh orders still wrong are all over-predictions, where this saturates
-at the cap of four while the game queued one to three. Two explanations were
-tested and rejected:
+```asm
+MOV AX,0x1
+PUSH AX                  ; arg5 = 1
+LEA AX,[BP + -0x16]      ; arg4 = part-id array
+...
+CALLF 0x1048:8022        ; FCanTerraformLppl
+```
 
-- **A resource limit.** Capping the count by what the planet can pay for that
-  year swings it hard the other way — 7% exact, mostly under-predicting. The AI
-  queues terraforming it cannot yet afford, which makes sense for an auto-build
-  item that is paid off over several turns.
-- **Habitability gain rather than clicks.** Counting the improvement in the
-  planet's *value* instead of the number of one-percent steps scores 66%,
-  slightly worse than clicks, and introduces under-predictions the click model
-  does not have.
+With that flag set, `FCanTerraformLppl` keeps only the direction that moves
+toward the race's ideal and clamps that bound at the ideal, so only one of the
+two terms above is ever non-`-1` per variable. The count is therefore the sum
+over the three variables of the improvement still available — exactly the rule
+`MANUAL.PDF` p. 6-14 states, and exactly what `terraform_steps` computes.
 
-The most likely remaining explanation was once that `terraform_reach` is too
-generous for some players: several residual cases land exactly right with a
-reach two smaller. It does not fit all of them, and narrowing the reach to make
-it fit
-would be tuning to the data rather than reading the binary, so it is left open.
+### The observable, twice over
+
+Two earlier revisions of this document reported this count as wrong — first at
+23%, then, after restricting to fresh orders, as a 70% match with an unexplained
+30% of over-predictions. Both figures were artifacts of the same thing, applied
+at two different time scales.
+
+**A queue entry is a running balance, not a record of what was chosen.** It
+counts down as production builds it. That is why scoring every planet-turn that
+carries an order compares a fresh decision against the remains of an older one,
+and why restricting to planets with no order the turn before is necessary.
+
+It is not sufficient. `Produce` runs **later in the same turn** the AI queued the
+item, so even a fresh order has already been drawn down by whatever the planet
+built that year before the file was written. The clicks spent are visible as
+environment movement, so the decision can be reconstructed:
+
+```
+decision = recorded count + |env(Y) - env(Y-1)| summed over the three variables
+```
+
+Scored that way, `min(terraform_steps, 4)` is right for **182 of 182** fresh
+orders in `all-computer-players` and **14 of 14** in `no-random-events` —
+100%, with no residual at all. The three inputs are independent: the prediction
+comes from the previous year's environment, reach and race ideal; the recorded
+count is read from the file; the clicks built are measured from the environment
+delta.
+
+The two explanations tested against the old 30% residual — capping the count by
+what the planet can afford that year (7% exact, badly under-predicting) and
+counting habitability gain rather than clicks (66%) — were both correctly
+rejected, and neither was needed.
 
 ## Which factor a step moves
 
@@ -212,9 +249,8 @@ honest measure of what remains.
 
 ## Open questions
 
-- The residual 30% above. It is **not** in `terraform_reach`, which is now
-  measured at 99.9% on the axes it governs; the over-prediction is in the step
-  count or in what caps the order.
+- (resolved) The step count's apparent 30% over-prediction: there was none. See
+  "The count" above.
 - The direction-selection arm of `FCanTerraformLppl`, which picks which way to
   terraform for the UI's environment graph. It is not needed for the value or
   the step count, and the decompilation of that branch is not yet trustworthy.

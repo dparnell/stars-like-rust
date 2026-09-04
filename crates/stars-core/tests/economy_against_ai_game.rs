@@ -280,3 +280,117 @@ fn terraforming_never_exceeds_the_reach_we_compute() {
          immune axes, for reference, {immune_within}/{immune_axes}"
     );
 }
+
+/// The AI's auto-terraform order, reconstructed from the file.
+///
+/// `FQueueAiTerraforming` queues `min(steps available, 4)`, where the count
+/// comes from the production catalogue that `InitProduction` fills with
+/// `IpctCanTerraformLppl`. Two things stand between that decision and what a
+/// saved game shows, and both are the same rule — **a queue entry is a running
+/// balance, not a record of what was chosen**:
+///
+/// * it counts down over following turns as production builds it, so only a
+///   planet that carried no terraform order the turn before is a fresh
+///   decision;
+/// * `Produce` runs later in the *same* turn, so even a fresh order is already
+///   short by what the planet built that year. Those clicks show up as
+///   environment movement.
+///
+/// So the decision is `recorded + |env(Y) - env(Y-1)|`, and it matches
+/// `min(terraform_steps, 4)` on every fresh order in both games.
+#[test]
+fn the_ai_queues_every_terraform_step_available_up_to_four() {
+    use stars_core::ai::{AiPersonality, Control};
+    use stars_core::terraform::terraform_steps;
+
+    let years = ai_game_years();
+    if years.is_empty() {
+        eprintln!("skipping: all-computer-players fixture absent");
+        return;
+    }
+
+    struct Before {
+        env: [i8; 3],
+        had_terraform: bool,
+        predicted: i32,
+    }
+
+    let mut prev: HashMap<i16, Before> = HashMap::new();
+    let (mut fresh, mut exact) = (0usize, 0usize);
+
+    for year in &years {
+        let Some(state) = load(&year.join("Game.hst")) else {
+            continue;
+        };
+        for planet in &state.planets {
+            let Some(owner) = planet.owner else { continue };
+            let Some(player) = state.players.get(owner as usize) else {
+                continue;
+            };
+            // Only the personalities FQueueAiTerraforming serves as their sole
+            // source; Macinti and Cyber queue terraforming from elsewhere too.
+            let Control::Computer { personality, .. } = player.control else {
+                continue;
+            };
+            if !matches!(
+                personality,
+                Some(AiPersonality::TurinDrone) | Some(AiPersonality::Automitron)
+            ) {
+                continue;
+            }
+            let recorded: i32 = planet
+                .queue
+                .iter()
+                .filter(|e| !e.ship && e.item == 12)
+                .map(|e| e.count)
+                .sum();
+            if recorded == 0 {
+                continue;
+            }
+            let Some(before) = prev.get(&planet.id) else {
+                continue;
+            };
+            if before.had_terraform {
+                continue;
+            }
+            let built: i32 = (0..3)
+                .map(|v| i32::from(planet.env[v] - before.env[v]).abs())
+                .sum();
+            fresh += 1;
+            if before.predicted == recorded + built {
+                exact += 1;
+            }
+        }
+
+        prev = state
+            .planets
+            .iter()
+            .map(|planet| {
+                let predicted = planet
+                    .owner
+                    .and_then(|o| state.players.get(o as usize))
+                    .map_or(0, |pl| {
+                        terraform_steps(planet, &pl.race, pl.research.levels).min(4)
+                    });
+                (
+                    planet.id,
+                    Before {
+                        env: planet.env,
+                        had_terraform: planet
+                            .queue
+                            .iter()
+                            .any(|e| !e.ship && e.item == 12 && e.count > 0),
+                        predicted,
+                    },
+                )
+            })
+            .collect();
+    }
+
+    assert!(fresh > 150, "expected a decent sample, got {fresh}");
+    assert_eq!(
+        exact, fresh,
+        "{exact} of {fresh} fresh auto-terraform orders match min(steps, 4); \
+         this was 100% when recovered"
+    );
+}

@@ -336,11 +336,13 @@ Remaining in this step:
    it is in `ScoreGuessBattleDamage` and the damage estimate beneath it, whose
    loose ends are the same ones torpedo resolution is blocked on. The two are
    likely one job (`docs/formulas/combat.md`).
-4. **Terraforming** — recovered and applied during the turn. The reach model
-   is verified (96% of 10,165 planet-turns) and unblocks `PctPlanetOptValue`
-   and the colonisation gate; the step count matches 70% of the AI's fresh
-   terraform orders; and the factor a step moves is `IBestTerraform`'s gain per
-   click, **not** the manual's "furthest out of range". Wiring it in let the
+4. **Terraforming** — recovered and applied during the turn, and now verified
+   end to end. The reach model is right for 37,712 of 37,743 axis-readings
+   (99.9%) and unblocks `PctPlanetOptValue` and the colonisation gate; the step
+   count is `IpctCanTerraformLppl` and matches **196 of 196** of the AI's fresh
+   terraform orders once those are reconstructed as `recorded + built that
+   turn`; and the factor a step moves is `IBestTerraform`'s gain per click,
+   **not** the manual's "furthest out of range". Wiring it in let the
    whole-turn replay stop feeding itself the recorded environment: population
    is now 85% standing on its own, against 82% without terraforming and an
    87% that was reading the answer. See `docs/formulas/terraforming.md`.
