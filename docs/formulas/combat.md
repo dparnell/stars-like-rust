@@ -448,8 +448,9 @@ accuracy, the starting-square table and Chebyshev distance against
 - Gattling weapons are implemented (see below) but **unverified**: the only
   battle recordings in this repository are Exodus's, and no Exodus design
   carries one.
-- `FIsTargetOfMdTarget` — the primary/secondary target-class filter — is not
-  implemented, so target selection currently considers every enemy in range.
+- Target selection now honours the primary and secondary classes (see below).
+  What is still unverified is whether the preference ever changes a *recorded*
+  outcome: on this corpus it does not.
 - `grfWeapon` is now mapped: `bitFBeamLow` 0x01, `bitFBeamHigh` 0x02,
   `bitFTorp` 0x04, `bitFMissile` 0x08, `bitFDeflected` 0x80, plus the unnamed
   `0xC0` `FDamageTok` adds to a torpedo record that stopped at the shields.
@@ -458,6 +459,83 @@ accuracy, the starting-square table and Chebyshev distance against
 - Bombing (`DoBombing`) and ground combat are separate from ship battles and
   are not covered.
 
+
+## Target classes
+
+A token carries three of them: what it **is** (`mdTarget0`), and the two it
+**looks for** (`mdTarget1`, `mdTarget2`). `FIsTargetOfMdTarget` answers whether
+a token belongs to a class, and it is not a plain equality — three classes are
+groupings:
+
+| looking for | matches |
+|-------------|---------|
+| `Any` | everything |
+| `Starbase` | `grobj == grobjPlanet` |
+| `ArmedShips`, `FuelTransports`, `Freighters` | its own class exactly |
+| `BombersFreighters` | `BombersFreighters` or `Freighters` |
+| `UnarmedShips` | `UnarmedShips`, `Freighters` or `FuelTransports` |
+| `None` | nothing |
+
+So a freighter answers to four different classes and a fuel transport to three.
+
+### The secondary class is a fallback, not an alternative
+
+`FAttack` runs its target loop **twice**:
+
+```c
+fPrimary = fTrue;
+while (fPrimary >= 0) {
+    scoreBest = 0; ptokTarget = NULL;
+    for each enemy in range:
+        if (!FIsTargetOfMdTarget(ptokE, fPrimary ? ptok->mdTarget1 : ptok->mdTarget2))
+            continue;
+        ... score it by value ...
+    if (ptokTarget) break;
+    fPrimary--;
+}
+```
+
+While anything of the primary class is in range, the secondary is never fired
+at — however much more valuable it would be on the value score alone. That is
+what makes "Armed Ships / Any" behave differently from "Any / Armed Ships".
+
+**The gattling arm is the exception.** It tests both classes at once and skips
+only a token in neither, because it fires at everything simultaneously rather
+than choosing:
+
+```c
+if (!FIsTargetOfMdTarget(ptokE, ptok->mdTarget1) && !FIsTargetOfMdTarget(ptokE, ptok->mdTarget2))
+    continue;
+```
+
+Implemented as `battle::select_target` for the beam and torpedo loops, and as a
+union filter in the gattling arm.
+
+### What the recordings say
+
+The 161 battle tokens in the Exodus recordings carry:
+
+| primary / secondary | tokens |
+|---------------------|-------:|
+| `ArmedShips` / `Any` | 83 |
+| `None` / `Any` | 72 |
+| `Any` / `Any` | 5 |
+| `None` / `None` | 1 |
+
+and their own classes are spread across all five ship kinds — 89 armed, 41
+freighters, 17 unarmed, 10 fuel transports, 4 bombers/freighters.
+
+The `None / Any` row is the useful one. Seventy-two tokens name **no** primary
+class, and without the fallback they would never fire at all; with it they shoot
+at anything. That the recordings are full of tokens which plainly did fire is
+direct evidence for the two-pass structure rather than a union.
+
+What the corpus does **not** show is the preference changing an outcome: every
+replay figure is identical with the filter in place — 8 of 11 beam battles, 22
+of 31 first hits, 94% of scored moves. In these particular battles the
+highest-value target in range was already of the primary class whenever one was
+there. So the filter is transcribed and unit-tested, and confirming that the
+*preference* bites needs a battle with mixed classes in reach at once.
 
 ## Gattlings
 

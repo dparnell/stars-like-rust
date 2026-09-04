@@ -918,6 +918,10 @@ fn fire_weapon(
                     && t.alive()
                     && t.player != player
                     && i32::from(distance(square, t.square)) <= weapon.range
+                    // The union, not the two-pass fallback: this arm tests both
+                    // classes at once and skips only a token in neither.
+                    && (is_target_of(t, tokens[attacker].primary_target)
+                        || is_target_of(t, tokens[attacker].secondary_target))
             })
             .map(|(i, _)| i)
             .collect();
@@ -949,21 +953,10 @@ fn fire_weapon(
             break;
         }
 
-        // Pick the best target in range.
-        let mut best: Option<(usize, i32)> = None;
-        for (i, t) in tokens.iter().enumerate() {
-            if i == attacker || !t.alive() || t.player == player {
-                continue;
-            }
-            if i32::from(distance(square, t.square)) > weapon.range {
-                continue;
-            }
-            let score = beam_target_score(t, sapper);
-            if score > 0 && best.is_none_or(|(_, b)| score > b) {
-                best = Some((i, score));
-            }
-        }
-        let Some((target, _)) = best else { break };
+        // Pick the best target in range, primary class first.
+        let Some(target) = select_target(tokens, attacker, weapon.range, sapper) else {
+            break;
+        };
 
         let range = distance(square, tokens[target].square);
         let deflection = tokens[target].beam_deflection_pct;
@@ -1036,10 +1029,7 @@ pub fn fire_torpedoes(
     rng: &mut Rng,
     events: &mut Vec<DamageEvent>,
 ) {
-    let (player, square, ships) = {
-        let t = &tokens[attacker];
-        (t.player, t.square, t.state.ships)
-    };
+    let ships = tokens[attacker].state.ships;
     let mut left = weapon.count * ships;
 
     for _ in 0..tokens.len() {
@@ -1047,20 +1037,9 @@ pub fn fire_torpedoes(
             break;
         }
         // Torpedoes use the same target preference as beams.
-        let mut best: Option<(usize, i32)> = None;
-        for (i, t) in tokens.iter().enumerate() {
-            if i == attacker || !t.alive() || t.player == player {
-                continue;
-            }
-            if i32::from(distance(square, t.square)) > weapon.range {
-                continue;
-            }
-            let score = beam_target_score(t, false);
-            if score > 0 && best.is_none_or(|(_, b)| score > b) {
-                best = Some((i, score));
-            }
-        }
-        let Some((target, _)) = best else { break };
+        let Some(target) = select_target(tokens, attacker, weapon.range, false) else {
+            break;
+        };
 
         let accuracy = torpedo_accuracy(
             weapon.accuracy,
@@ -1544,6 +1523,62 @@ pub fn is_target_of(token: &CombatToken, class: TargetClass) -> bool {
     }
 }
 
+/// Pick a token's target, honouring its primary and secondary target classes.
+///
+/// Source: the target loop in `FAttack`, which runs **twice**:
+///
+/// ```c
+/// fPrimary = fTrue;
+/// while (fPrimary >= 0) {
+///     scoreBest = 0; ptokTarget = NULL;
+///     for each enemy in range:
+///         if (!FIsTargetOfMdTarget(ptokE, fPrimary ? ptok->mdTarget1 : ptok->mdTarget2))
+///             continue;
+///         ... score it ...
+///     if (ptokTarget) break;
+///     fPrimary--;
+/// }
+/// ```
+///
+/// So the secondary class is a **fallback, not an alternative**: a token with a
+/// primary target in range never shoots at its secondary, however much more
+/// attractive that one would be on value alone. This is what makes "Armed
+/// Ships / Any" behave differently from "Any / Armed Ships".
+///
+/// The gattling arm is the exception and does not use this — it takes the
+/// *union* of the two classes, because it fires at everything at once.
+#[must_use]
+pub fn select_target(
+    tokens: &[CombatToken],
+    attacker: usize,
+    range: i32,
+    sapper: bool,
+) -> Option<usize> {
+    let us = &tokens[attacker];
+    for class in [us.primary_target, us.secondary_target] {
+        let mut best: Option<(usize, i32)> = None;
+        for (i, them) in tokens.iter().enumerate() {
+            if i == attacker || !them.alive() || them.player == us.player {
+                continue;
+            }
+            if i32::from(distance(us.square, them.square)) > range {
+                continue;
+            }
+            if !is_target_of(them, class) {
+                continue;
+            }
+            let score = beam_target_score(them, sapper);
+            if score > 0 && best.is_none_or(|(_, b)| score > b) {
+                best = Some((i, score));
+            }
+        }
+        if let Some((target, _)) = best {
+            return Some(target);
+        }
+    }
+    None
+}
+
 /// Whether any enemy of the token's primary target class is present.
 ///
 /// Source: `FDoesPrimaryTargetTypeExist`. Decided once per movement decision,
@@ -1699,9 +1734,9 @@ mod gattling_tests {
                 tactic: Tactic::MaximiseDamage,
                 speed_index: 0,
                 moves_left: 0,
-                class: TargetClass::from_raw(0),
-                primary_target: TargetClass::from_raw(0),
-                secondary_target: TargetClass::from_raw(0),
+                class: TargetClass::ArmedShips,
+                primary_target: TargetClass::Any,
+                secondary_target: TargetClass::Any,
                 is_starbase: false,
                 pct_jam: 0,
                 pct_computer: 0,
@@ -1732,6 +1767,111 @@ mod gattling_tests {
         assert_eq!(tokens[2].state.ships, 0, "enemy one square away");
         assert_eq!(tokens[3].state.ships, 1, "enemy out of range");
         assert_eq!(events.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod target_class_tests {
+    use super::*;
+
+    fn token(player: u8, x: u8, class: TargetClass) -> CombatToken {
+        CombatToken {
+            tactic: Tactic::MaximiseDamage,
+            speed_index: 0,
+            moves_left: 0,
+            class,
+            primary_target: TargetClass::Any,
+            secondary_target: TargetClass::Any,
+            is_starbase: false,
+            pct_jam: 0,
+            pct_computer: 0,
+            weapon_reach: 1,
+            player,
+            active: true,
+            square: Square::new(x, 0),
+            initiative_base: 0,
+            capacitor_pct: 0,
+            beam_deflection_pct: 100,
+            weapons: Vec::new(),
+            value: 100,
+            state: TokenState {
+                ships: 1,
+                shields: 0,
+                armor: 30,
+                damage: Damage::default(),
+            },
+        }
+    }
+
+    /// The predicate itself, against `FIsTargetOfMdTarget`'s three grouping
+    /// rules: freighters answer to three different classes, unarmed ships to
+    /// two, and everything answers to `Any`.
+    #[test]
+    fn the_classes_group_the_way_the_original_does() {
+        let freighter = token(1, 0, TargetClass::Freighters);
+        assert!(is_target_of(&freighter, TargetClass::Any));
+        assert!(is_target_of(&freighter, TargetClass::Freighters));
+        assert!(is_target_of(&freighter, TargetClass::BombersFreighters));
+        assert!(is_target_of(&freighter, TargetClass::UnarmedShips));
+        assert!(!is_target_of(&freighter, TargetClass::ArmedShips));
+
+        let fuel = token(1, 0, TargetClass::FuelTransports);
+        assert!(is_target_of(&fuel, TargetClass::UnarmedShips));
+        assert!(!is_target_of(&fuel, TargetClass::BombersFreighters));
+
+        let armed = token(1, 0, TargetClass::ArmedShips);
+        assert!(is_target_of(&armed, TargetClass::ArmedShips));
+        assert!(!is_target_of(&armed, TargetClass::UnarmedShips));
+
+        // Nothing is a target of None, and a starbase answers only to its own
+        // class and Any.
+        assert!(!is_target_of(&armed, TargetClass::None));
+        let mut base = token(1, 0, TargetClass::ArmedShips);
+        base.is_starbase = true;
+        assert!(is_target_of(&base, TargetClass::Starbase));
+        assert!(!is_target_of(&armed, TargetClass::Starbase));
+    }
+
+    /// The secondary class is a fallback, not an alternative: while anything of
+    /// the primary class is in range the secondary is never shot at, however
+    /// much more valuable it is.
+    #[test]
+    fn the_secondary_class_is_only_a_fallback() {
+        let mut tokens = vec![
+            token(0, 0, TargetClass::ArmedShips), // the attacker
+            token(1, 1, TargetClass::Freighters), // cheap, but primary class
+            token(1, 1, TargetClass::ArmedShips), // valuable, secondary class
+        ];
+        tokens[0].primary_target = TargetClass::Freighters;
+        tokens[0].secondary_target = TargetClass::ArmedShips;
+        tokens[2].value = 100_000; // far more attractive on value alone
+
+        assert_eq!(
+            select_target(&tokens, 0, 1, false),
+            Some(1),
+            "the primary class wins while it is in range"
+        );
+
+        // Once the freighter is gone the secondary class is taken up.
+        tokens[1].state.ships = 0;
+        assert_eq!(select_target(&tokens, 0, 1, false), Some(2));
+
+        // A token whose primary class is out of range falls back too.
+        tokens[1].state.ships = 1;
+        tokens[1].square = Square::new(9, 9);
+        assert_eq!(select_target(&tokens, 0, 1, false), Some(2));
+    }
+
+    /// Nothing is shot at when neither class matches anything present.
+    #[test]
+    fn no_target_when_neither_class_matches() {
+        let mut tokens = vec![
+            token(0, 0, TargetClass::ArmedShips),
+            token(1, 1, TargetClass::ArmedShips),
+        ];
+        tokens[0].primary_target = TargetClass::Freighters;
+        tokens[0].secondary_target = TargetClass::FuelTransports;
+        assert_eq!(select_target(&tokens, 0, 1, false), None);
     }
 }
 
