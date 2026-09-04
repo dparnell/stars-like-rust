@@ -97,3 +97,63 @@ file image).
   minerals, movement, combat, and events. When the call sites are mapped,
   `crates/stars-core`'s RNG should reuse/mirror `StarsRng` and a reference
   sequence vector goes under `../vectors/`.
+
+
+## Two generators, and why a turn cannot be replayed
+
+There are **two** independent generators running the same algorithm on
+different state.
+
+| generator | state | driven by | seeded by |
+|-----------|-------|-----------|-----------|
+| file cipher | `DAT_1118_237e` / `DAT_1118_2382` | `FUN_1038_8a58` | the file header, on every block stream |
+| gameplay | `lRandSeed1` / `lRandSeed2` | `Random` (`1040:16d2`) | `Randomize` |
+
+The cipher's seeding is fully recovered — it is why the fixtures decode at all.
+The gameplay generator is the one every simulation formula draws from, and its
+seeding is the problem.
+
+### `Randomize` is not called per turn
+
+`Randomize` has seven callers: `CommandHandler` (program start),
+`GenNewGameFromFile` and `CreateTutorWorld` (game creation),
+`FSerialAndEnvFromSz` and `FormatSerialAndEnv` (serial-number handling),
+`RandomSeedDlg`, and `FGenerateTurn`.
+
+`FGenerateTurn` (`10b0:0000`) calls it in one place only, at the very top:
+
+```c
+DestroyCurGame();
+if ((gd.flags >> 0xb & 1) != 0) {
+    Randomize(0x499602d2);
+}
+```
+
+So in an ordinary game **the gameplay generator is never re-seeded when a turn
+is generated**. Its state at the head of any turn is whatever the host process
+happened to leave it at, which depends on every draw taken since the program
+started — including draws made while the host was doing something else
+entirely.
+
+**That state is not written to any save file.** It follows that a recorded turn
+cannot be replayed draw-for-draw from the fixtures, however completely the
+formulas are recovered. This is a property of the game, not a gap in the
+reverse engineering.
+
+### The exception: bit 11 of the game flags
+
+A game with bit 11 set restarts the generator from the fixed constant
+`0x499602d2` at the head of every turn, which makes turns fully reproducible.
+`stars-core` exposes this as `Rng::for_deterministic_turn`.
+
+The same flag turns up in three other places already recovered, which is a
+useful cross-check on what it means: `InitRandomPlanetList` skips the AI's
+planet shuffle when it is set, `FFillProdMinesAndFactories` charges factories
+all three minerals rather than germanium alone, and `QueueAiStarbases` changes
+its guard. It reads as a "reproducible / test game" mode.
+
+None of the fixture games sets it — none of them even carries a type-7 `rtGame`
+block for the flags to live in. A game created with it set would be the single
+most valuable fixture this project could acquire: it would make the whole-turn
+replay exact rather than statistical, and it is the prerequisite for torpedo
+combat resolution, which needs the RNG in the right state to score at all.

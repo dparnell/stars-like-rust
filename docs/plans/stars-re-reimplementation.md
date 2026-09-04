@@ -296,7 +296,18 @@ Remaining in this step:
    surface-mineral figure — every recorded planet transfer moves colonists, not
    minerals. That figure is now diagnosed (see below). Colonisation and remote
    mining remain unprocessed.
-3. **RNG alignment through a turn**, which now blocks two things at once.
+3. **RNG alignment through a turn** — investigated, and **blocked by the game's
+   design rather than by effort**. There are two generators; the gameplay one
+   (`lRandSeed1`/`lRandSeed2`, driven by `Random`) is never re-seeded when a
+   turn is generated, so its state depends on everything the host process did
+   since it started and is written to no save file. A recorded turn therefore
+   cannot be replayed draw-for-draw from these fixtures, however complete the
+   formulas are. The exception is a game with bit 11 of the game flags set,
+   which restarts the generator from `0x499602d2` every turn — none of the
+   fixtures sets it. Acquiring such a game is the single highest-value fixture
+   the project could add. See `docs/rng/prng.md`.
+
+   What this blocks:
    Torpedo combat resolution needs the RNG in the right state, and so does the
    surface-mineral figure: that 27% is mostly the mining remainder roll, not
    missing consumption. Per reading the model is 61% exact and **83% within one

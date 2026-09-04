@@ -52,6 +52,26 @@ impl Rng {
     /// `dw` and the next six as indices into the primes table, nudging the
     /// second index when the two collide so the sub-generators never start
     /// from the same value.
+    /// The seed `FGenerateTurn` uses when a game is set to generate turns
+    /// reproducibly.
+    ///
+    /// `FGenerateTurn` (`10b0:0000`) opens with
+    ///
+    /// ```text
+    /// if ((gd.flags >> 0xb & 1) != 0) Randomize(0x499602d2);
+    /// ```
+    ///
+    /// so a game with bit 11 of the game flags set restarts the generator from
+    /// this constant at the head of **every** turn. That is the only way a turn
+    /// is reproducible; see [`Self::randomize`] for why.
+    pub const DETERMINISTIC_TURN_SEED: u32 = 0x4996_02d2;
+
+    /// The generator as a reproducible game starts each turn.
+    #[must_use]
+    pub fn for_deterministic_turn() -> Self {
+        Self::randomize(Self::DETERMINISTIC_TURN_SEED)
+    }
+
     #[must_use]
     pub fn randomize(dw: u32) -> Self {
         let a = (dw & 0x3f) as usize;
