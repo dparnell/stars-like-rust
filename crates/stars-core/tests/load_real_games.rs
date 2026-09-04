@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use stars_core::rng::Rng;
 use stars_core::{generate_turn, GameState};
-use stars_formats::StarsFile;
+use stars_formats::{StarsFile, Universe};
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -395,4 +395,84 @@ fn partial_planet_records_are_kept_separately() {
         .filter(|p| p.detail == stars_core::planet::Detail::Scanned)
         .count();
     assert!(scanned > 50, "expected scanned environments, got {scanned}");
+}
+
+/// Planet coordinates from the `.xy`, checked against the engine's own numbers.
+///
+/// A `.hst` carries no planet coordinates — they live only in the universe
+/// file, as a chain of 10-bit x deltas and absolute y values. Nothing inside the
+/// `.xy` says what that chain is measured from, and the round-trip tests cannot
+/// tell, because they re-emit the same packed deltas whatever base is assumed.
+///
+/// Fleets settle it. The engine writes a fleet's own coordinates, and a fleet it
+/// records as orbiting a planet must be standing exactly on that planet. Every
+/// such pair in both sixteen-player games agrees once the chain starts at
+/// [`stars_formats::xy::X_BASE`] — and before that fix, every pair was off by
+/// `(1000, 0)`, which is what identified the base in the first place.
+#[test]
+fn xy_planet_positions_match_the_fleets_recorded_in_orbit() {
+    let root = workspace_root();
+    let (mut checked, mut agree, mut placed) = (0usize, 0usize, 0usize);
+
+    for game in ["all-computer-players", "no-random-events"] {
+        let dir = root.join("fixtures/games").join(game);
+        if !dir.is_dir() {
+            continue;
+        }
+        let mut years: Vec<_> = std::fs::read_dir(&dir)
+            .expect("game directory")
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.is_dir())
+            .collect();
+        years.sort();
+        for year in &years {
+            let (Ok(host), Ok(xy)) = (
+                std::fs::read(year.join("Game.hst")),
+                std::fs::read(year.join("Game.xy")),
+            ) else {
+                continue;
+            };
+            let (Ok(file), Ok(universe)) = (StarsFile::decode(&host), Universe::decode(&xy)) else {
+                continue;
+            };
+            let (mut state, _) = GameState::from_file(&file);
+            placed += state.apply_universe(&universe);
+
+            for fleet in &state.fleets {
+                let Some(id) = fleet.orbiting else { continue };
+                let Some(planet) = state
+                    .planets
+                    .iter()
+                    .chain(state.known_planets.iter())
+                    .find(|p| p.id == i16::try_from(id).unwrap_or(-1))
+                else {
+                    continue;
+                };
+                let Some(position) = planet.position else {
+                    continue;
+                };
+                checked += 1;
+                if position == fleet.position {
+                    agree += 1;
+                }
+            }
+        }
+    }
+
+    if checked == 0 {
+        eprintln!("skipping: sixteen-player fixtures absent");
+        return;
+    }
+    assert!(
+        placed > 10_000,
+        "expected planets to be placed, got {placed}"
+    );
+    assert!(
+        checked > 40_000,
+        "expected a large sample of orbiting fleets, got {checked}"
+    );
+    assert_eq!(
+        agree, checked,
+        "every fleet in orbit must sit exactly on its planet"
+    );
 }

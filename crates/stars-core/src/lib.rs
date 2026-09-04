@@ -182,6 +182,36 @@ pub struct GameState {
 }
 
 impl GameState {
+    /// Fill in planet coordinates and names from the universe file.
+    ///
+    /// A game's planet positions live only in the `.xy`, so a `GameState` built
+    /// from a `.hst` or `.mN` alone has none. Call this with the matching
+    /// universe to complete it; without it, everything that needs a position
+    /// degrades rather than guessing — a newly built ship, for instance, is
+    /// reported but cannot be given a fleet.
+    ///
+    /// Planets are matched by id, which is the record's index in both files.
+    /// Returns how many planets were placed.
+    pub fn apply_universe(&mut self, universe: &stars_formats::Universe) -> usize {
+        let resolved = universe.planets_resolved();
+        let mut placed = 0;
+        for planet in self.planets.iter_mut().chain(self.known_planets.iter_mut()) {
+            let Ok(index) = usize::try_from(planet.id) else {
+                continue;
+            };
+            let Some(source) = resolved.get(index) else {
+                continue;
+            };
+            planet.position = Some(movement::Point::new(
+                i16::try_from(source.x).unwrap_or(i16::MAX),
+                i16::try_from(source.y).unwrap_or(i16::MAX),
+            ));
+            planet.name = source.name;
+            placed += 1;
+        }
+        placed
+    }
+
     /// An empty game at turn 0 (year 2400).
     #[must_use]
     pub fn new(seed: u32) -> Self {

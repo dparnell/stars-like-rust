@@ -112,6 +112,19 @@ pub struct Planet {
     pub name: Option<&'static str>,
 }
 
+/// The base every planet's x coordinate is measured from.
+///
+/// The `.xy` stores x as a chain of 10-bit deltas, and the chain starts at 1000
+/// rather than 0. Confirmed against the engine's own coordinates: a fleet the
+/// game records as orbiting a planet must sit exactly on it, and across
+/// **43,769 orbiting-fleet readings** in the two sixteen-player games the
+/// difference `fleet - planet` was `(1000, 0)` every single time — never any
+/// other value, and never any offset in y.
+///
+/// This could not be caught by the round-trip tests, which re-emit the same
+/// packed deltas whatever base they are read against.
+pub const X_BASE: u32 = 1000;
+
 /// A parsed `.xy` universe file.
 ///
 /// [`Universe::decode`] and [`Universe::encode`] are byte-exact inverses for
@@ -250,12 +263,13 @@ impl Universe {
 
     /// Resolve every planet to its **absolute** position and name.
     ///
-    /// Absolute x is the running sum of the per-record `x_offset`s; `y` and the
-    /// name index are taken verbatim, and the name is looked up in the master
-    /// planet-name table ([`crate::names::planet_name`]).
+    /// Absolute x is [`X_BASE`] plus the running sum of the per-record
+    /// `x_offset`s; `y` and the name index are taken verbatim, and the name is
+    /// looked up in the master planet-name table
+    /// ([`crate::names::planet_name`]).
     #[must_use]
     pub fn planets_resolved(&self) -> Vec<Planet> {
-        let mut x = 0u32;
+        let mut x = X_BASE;
         self.planets
             .iter()
             .enumerate()

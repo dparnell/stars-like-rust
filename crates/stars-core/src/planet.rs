@@ -96,6 +96,16 @@ pub struct Planet {
     pub queue: Vec<crate::production::QueueItem>,
     /// Whether this planet is exempt from the research skim (`fNoResearch`).
     pub no_research: bool,
+    /// Where the planet sits in the universe.
+    ///
+    /// Planet coordinates live in the `.xy` universe file, not in the per-player
+    /// `.mN` or the `.hst`, so this is `None` until
+    /// [`crate::GameState::apply_universe`] has been given one. Anything that
+    /// needs a position — placing a newly built fleet, measuring a distance —
+    /// must handle its absence rather than assume the origin.
+    pub position: Option<crate::movement::Point>,
+    /// The planet's name, from the `.xy` file's name table.
+    pub name: Option<&'static str>,
 }
 
 impl Planet {
@@ -121,6 +131,8 @@ impl Planet {
             artifact: false,
             queue: Vec::new(),
             no_research: false,
+            position: None,
+            name: None,
         }
     }
 

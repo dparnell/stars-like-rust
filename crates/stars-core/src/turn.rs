@@ -359,10 +359,12 @@ pub fn update_populations(planets: &mut [Planet], players: &[Player]) {
 /// Ships appear in whichever of the owner's fleets is orbiting the planet that
 /// built them, merging into an existing stack of the same design.
 ///
-/// When the owner has **no** fleet there, the ships are reported but not
-/// placed: a new fleet needs a position, and a planet's coordinates live in the
-/// `.xy` file rather than in `GameState`. The cost has still been spent, which
-/// is what the production side needs; only the fleet is missing.
+/// When the owner has **no** fleet there, a new one is created in orbit, taking
+/// the planet's coordinates and the next free fleet id for that owner. That
+/// needs [`GameState::apply_universe`] to have supplied the planet's position;
+/// without it the ships are still reported and their cost still spent, but no
+/// fleet can be made, because a fleet with no position would be worse than none
+/// at all.
 fn add_ships_to_orbiting_fleet(
     state: &mut GameState,
     owner: i16,
@@ -371,23 +373,75 @@ fn add_ships_to_orbiting_fleet(
     count: i32,
 ) {
     let orbiting = u16::try_from(planet).ok();
-    let Some(fleet) = state
+    let stack = crate::fleet::ShipStack {
+        design,
+        count,
+        damaged_pct: 0,
+        damage_pct: 0,
+    };
+
+    if let Some(fleet) = state
         .fleets
         .iter_mut()
         .find(|f| f.owner == owner && f.orbiting == orbiting)
+    {
+        if let Some(existing) = fleet.stacks.iter_mut().find(|s| s.design == design) {
+            existing.count += count;
+        } else {
+            fleet.stacks.push(stack);
+        }
+        return;
+    }
+
+    // No fleet in orbit: start one, if we know where the planet is.
+    let Some(position) = state
+        .planets
+        .iter()
+        .find(|p| p.id == planet)
+        .and_then(|p| p.position)
     else {
         return;
     };
-    if let Some(stack) = fleet.stacks.iter_mut().find(|s| s.design == design) {
-        stack.count += count;
-    } else {
-        fleet.stacks.push(crate::fleet::ShipStack {
-            design,
-            count,
-            damaged_pct: 0,
-            damage_pct: 0,
-        });
+    let id = next_fleet_id(state, owner);
+    state.fleets.push(crate::fleet::Fleet {
+        id,
+        owner,
+        position,
+        orbiting,
+        stacks: vec![stack],
+        cargo: crate::fleet::Cargo::default(),
+        battle_plan: 0,
+        warp: None,
+        waypoints: vec![crate::fleet::Waypoint {
+            position,
+            target: orbiting,
+            warp: 0,
+            task: 0,
+        }],
+    });
+}
+
+/// The lowest fleet id this player is not already using.
+///
+/// Fleet ids are per player, and the game hands out the first free slot rather
+/// than always counting up, so a disbanded fleet's number comes back.
+fn next_fleet_id(state: &GameState, owner: i16) -> u16 {
+    let mut used: Vec<u16> = state
+        .fleets
+        .iter()
+        .filter(|f| f.owner == owner)
+        .map(|f| f.id)
+        .collect();
+    used.sort_unstable();
+    let mut id = 1;
+    for taken in used {
+        if taken == id {
+            id += 1;
+        } else if taken > id {
+            break;
+        }
     }
+    id
 }
 
 /// Run a planet's production queue for one year.

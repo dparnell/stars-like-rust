@@ -117,6 +117,9 @@ pub fn planet_from_record(record: &PlanetRecord) -> Option<Planet> {
     });
 
     Some(Planet {
+        // Filled in by GameState::apply_universe; the .mN/.hst carry no coords.
+        position: None,
+        name: None,
         id: i16::try_from(record.id).ok()?,
         detail: crate::planet::Detail::Full,
         owner: Some(i16::from(owner)),

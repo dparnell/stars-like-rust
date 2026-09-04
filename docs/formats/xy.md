@@ -106,7 +106,8 @@ Each 4-byte record is a little-endian `u32`, matching the community
 | 10..21| `y`         | 12 bits; **absolute** y coordinate                    |
 | 22..31| `nameid`    | 10 bits; index into the master planet-name table      |
 
-**x is a running sum.** A planet's absolute x is the sum of all `xoffset`s up to
+**x is a running sum, starting at 1000.** A planet's absolute x is `1000` plus
+the sum of all `xoffset`s up to
 and including its record, so planets are stored in **non-decreasing x** order
 (the original tools require x to never decrease planet-to-planet). This is why
 `xoffset`s are small (deltas), and `Universe::planets_resolved` reconstructs the
@@ -120,6 +121,29 @@ spans scale with the universe size class (tiny tutorial ≈ 360, small `Game` �
 780, large `e8dda8f7`/`dancing` ≈ 1180). Any other record alignment breaks the
 name uniqueness or the position uniqueness. The whole `.xy` file then
 **re-encodes byte-for-byte** via `Universe::encode`.
+
+## The x base, confirmed against fleets
+
+The absolute-x origin was previously recorded here as an open question — taken
+as `0` before the first `xoffset`, with a note that an implicit base "is not
+confirmed". It is **1000**, and the round-trip tests could never have shown it,
+because they re-emit the same packed deltas whatever base is assumed.
+
+Fleets settle it from outside the file. The engine records a fleet's own
+coordinates in the `.hst`, and a fleet it also records as *orbiting* a planet
+must be standing exactly on that planet. Comparing the two across both
+sixteen-player games:
+
+| | readings | `fleet - planet` |
+|---|---:|---|
+| base 0 (as decoded before) | 43,769 | `(1000, 0)` on **every** one |
+| base 1000 | 43,769 | `(0, 0)` on every one |
+
+Never any other value, and never any offset in y — so the base applies to x
+alone. `Universe::planets_resolved` now starts the chain at
+`stars_formats::xy::X_BASE`, and
+`load_real_games::xy_planet_positions_match_the_fleets_recorded_in_orbit`
+asserts the agreement.
 
 ## Planet-name table
 
@@ -135,11 +159,8 @@ sample universes resolves to a **unique** entry, e.g. tutorial planet 0 →
 **Caveats (still open):**
 
 - The **axis assignment** (which coordinate is x vs y) follows the community
-  `struct position` convention and is not independently confirmed — it does not
-  affect byte-accuracy.
-- The absolute-x **origin** is taken as 0 before the first `xoffset`; whether
-  there is an implicit base offset (y minima sit near ~1000) is not confirmed,
-  but it does not affect round-tripping.
+  `struct position` convention and is now confirmed by the fleet check below:
+  had x and y been swapped, the offset would not have fallen on one axis alone.
 - The standalone trailer's constant `02 00` prefix is preserved verbatim; its
   meaning is not yet known.
 
