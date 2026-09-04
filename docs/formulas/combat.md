@@ -1,6 +1,6 @@
 # Subsystem: Combat
 
-- **Status:** in progress — board, movement (schedule, search, scoring), targeting, accuracy, damage and the beam firing loop implemented and verified; torpedo resolution is not
+- **Status:** in progress — board, movement (schedule, search, scoring), targeting, accuracy, the damage estimate and the beam firing loop implemented and verified; torpedoes are resolved everywhere except the replay's firing loop, which is blocked on the RNG
 - **Ghidra routine(s):** `battle.c` region — `DxyFromSpdRound`, `DzFromBrcBrc`, `CTorpHit`, `ScoreFromGiveAndTakeAndTactic`, `FAttack`, `FDamageTok`, `DxyMoveTokTo`, and the `rgbrcStart` table
 - **Manual reference:** `MANUAL.PDF` pp. 23-2..23-10
 - **Uses RNG:** **yes** — torpedo hits are rolled individually
@@ -344,10 +344,10 @@ faithfulness fix rather than an improvement.
 ### Where the gap is
 
 The residual is 6 beeline moves and 71 scored ones, and it is **not** in the
-mover. It is in what the mover is scoring: `ScoreGuessBattleDamage` and the
-damage estimate `DpFromPtokBrcToBrc` beneath it, whose loose ends — the sapper
-cap and the torpedo path — are the same ones the torpedo work is blocked on.
-Closing it and resolving torpedo combat are likely the same job.
+mover. Nor, as an earlier revision of this document supposed, is it in loose
+ends in the damage estimate: `DpFromPtokBrcToBrc` has since been read from the
+disassembly in full, and the sapper cap and the torpedo path it named are both
+implemented. What remains unexplained is unexplained.
 
 ## Armour and shields
 
@@ -416,3 +416,65 @@ accuracy, the starting-square table and Chebyshev distance against
   documented here from the manual but not yet implemented or checked.
 - Bombing (`DoBombing`) and ground combat are separate from ship battles and
   are not covered.
+
+
+## Torpedoes
+
+`DpFromPtokBrcToBrc` and `CTorpHit` have both been read from the disassembly in
+full, and everything they do is implemented.
+
+### Accuracy
+
+Jammers reduce accuracy; battle computers reduce *inaccuracy*. They cancel one
+for one first, and whichever survives is applied:
+
+```
+jam -= computer                                  # they cancel, one for one
+if computer is left over:  hit = 100 - (100 - base) * (100 - computer) / 100
+else:                      hit = base * (100 - jam) / 100
+hit = max(hit, 1)
+```
+
+### How many hit
+
+Each torpedo is rolled separately with `Random(100)` — but **only up to 200 of
+them**. Past that the routine takes the expectation, `count * hit / 100`, and
+does not roll at all.
+
+That threshold is load-bearing in an unobvious way. The damage *estimate*
+multiplies its torpedo count by 200 before calling `CTorpHit`, purely as fixed
+point so that fractional damage survives, and dividing by 200 afterwards. That
+scaling always pushes the count past the threshold, so **the estimate never
+rolls** — movement scoring is deterministic even though torpedo combat is not.
+
+### Damage
+
+A torpedo that hits damages shields and armour together. A torpedo that
+**misses still splashes the shields**, for an eighth of its damage, whenever
+the target has any. Both are implemented.
+
+Two more rules came out of the same read and are worth recording:
+
+- **A starbase gets +1 to every weapon's range**, from `grobj == grobjPlanet`.
+- **Beam damage falls off with range** by `dp * dz / (10 * nominal_range)`, so a
+  beam at its own maximum range does 10% less. Note the estimate applies this
+  *before* beam deflection where `FAttack` applies deflection first; each step
+  truncates, so the two orders are not interchangeable.
+
+### What is left, and why
+
+The battle replay's firing loop still handles beams only, so a battle where any
+token carries a torpedo is skipped: 8 of 11 beam-only battles replay exactly,
+and the torpedo ones are not attempted.
+
+This is **not** a transcription gap. Torpedo hits are rolled individually with
+`Random(100)`, and `docs/rng/prng.md` establishes that the gameplay generator's
+state cannot be recovered from these save files — it is never re-seeded during
+turn generation except in tutorial mode. A torpedo battle replayed with a fresh
+generator gets different rolls and therefore different casualties, however
+perfect the formulas.
+
+So torpedo resolution needs the same thing the surface-mineral figure needs:
+consecutive turns from a game played in tutorial mode. It is the one remaining
+item in this subsystem, and it is an acquisition problem rather than a
+reverse-engineering one.

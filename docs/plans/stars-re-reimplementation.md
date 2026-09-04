@@ -319,7 +319,9 @@ Remaining in this step:
    `docs/rng/prng.md`.
 
    What this blocks:
-   Torpedo combat resolution needs the RNG in the right state, and so does the
+   Torpedo combat resolution needs the RNG in the right state — its formulas are
+   all transcribed and implemented, and only the replay's firing loop is left,
+   which cannot be exact without the generator — and so does the
    surface-mineral figure: that 27% is mostly the mining remainder roll, not
    missing consumption. Per reading the model is 61% exact and **83% within one
    kilotonne**, and the error distribution is dominated by 0, -1 and +1 — the
