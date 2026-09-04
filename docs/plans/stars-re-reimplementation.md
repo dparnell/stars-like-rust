@@ -392,10 +392,11 @@ after terraforming, and both are implemented — `hab::pct_planet_desirability`
 and `colonise::pct_planet_opt_value`, with `terraform::reachable_band` for the
 environment graph's bars.
 
-**One UI-facing gap remains in terraforming.** `FCanTerraformLppl`'s
-direction-selection arm — which way the graph should show a variable moving —
-was not read confidently and is not implemented. It is needed for the
-environment graph and nothing else; see `docs/formulas/terraforming.md`.
+**`FCanTerraformLppl`'s direction-selection arm is now read and implemented.**
+It was the `fHelp == 0` branch, and it looked backwards because it is: that flag
+means *hostile*, and the arm keeps whichever bound is further from the owner's
+ideal. Its only caller is remote terraforming by an unfriendly fleet. Modelled
+as `terraform::Intent`; see `docs/formulas/terraforming.md`.
 
 **Save files are version-dependent.** Two format details already differ between
 2.6 and 2.8 — the battle action record and the three-player starting squares —

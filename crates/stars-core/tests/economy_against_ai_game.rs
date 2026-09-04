@@ -394,3 +394,96 @@ fn the_ai_queues_every_terraform_step_available_up_to_four() {
          this was 100% when recovered"
     );
 }
+
+/// The Orbital Adjuster, identified against real designs.
+///
+/// `PctTerraFromLpfl` finds the part by slot category `hstMining` (`0x80`) and
+/// item `7`, and `FLookupPart`'s `hstMining` arm gates that item on the Claim
+/// Adjuster trait. Both hold in the corpus: the only design in either game that
+/// matches belongs to a Claim Adjuster.
+///
+/// It also marks the limit of what these fixtures can show. That one design is a
+/// Claim Adjuster's **starting fleet, parked over its own homeworld**, which
+/// sits at exactly its race's ideal for all 101 years — so remote terraforming
+/// has nothing to do and never moves anything. The gate and the click count are
+/// exercised here; the effect is not, and no fixture in this repository
+/// exercises it.
+#[test]
+fn the_only_orbital_adjuster_in_the_corpus_belongs_to_a_claim_adjuster() {
+    use stars_core::race::Prt;
+    use stars_core::terraform::{orbital_adjusters, remote_intent, terraform_steps, Intent};
+
+    let years = ai_game_years();
+    if years.is_empty() {
+        eprintln!("skipping: all-computer-players fixture absent");
+        return;
+    }
+    let (mut fleet_years, mut idle_years) = (0usize, 0usize);
+    for year in &years {
+        let Some(state) = load(&year.join("Game.hst")) else {
+            continue;
+        };
+        for fleet in &state.fleets {
+            let Some(designs) = usize::try_from(fleet.owner)
+                .ok()
+                .and_then(|i| state.designs.get(i))
+            else {
+                continue;
+            };
+            let stacks: Vec<_> = fleet
+                .stacks
+                .iter()
+                .filter_map(|st| designs.get(usize::from(st.design)).map(|d| (d, st.count)))
+                .collect();
+            let clicks = orbital_adjusters(&stacks);
+            if clicks == 0 {
+                continue;
+            }
+            fleet_years += 1;
+
+            let owner = usize::try_from(fleet.owner)
+                .ok()
+                .and_then(|i| state.players.get(i))
+                .expect("the fleet has an owner");
+            assert_eq!(
+                owner.race.prt(),
+                Some(Prt::Ca),
+                "only a Claim Adjuster may build an Orbital Adjuster"
+            );
+            assert_eq!(clicks, 2, "the one design in the corpus carries two");
+
+            let Some(orbiting) = fleet.orbiting else {
+                continue;
+            };
+            let Some(planet) = state
+                .planets
+                .iter()
+                .find(|p| p.id == i16::try_from(orbiting).unwrap_or(-1))
+            else {
+                continue;
+            };
+            let Some(planet_owner) = planet.owner else {
+                continue;
+            };
+            let friendly = owner.regards_as_friend(planet_owner);
+            assert_eq!(
+                remote_intent(planet_owner == fleet.owner, friendly, planet.starbase),
+                Some(Intent::Help),
+                "the fleet orbits its owner's own planet"
+            );
+            // Nothing to do: AutoTerraform has already brought it to the optimum.
+            if terraform_steps(planet, &owner.race, owner.research.levels) == 0 {
+                idle_years += 1;
+            }
+        }
+    }
+    assert!(
+        fleet_years > 50,
+        "expected the Claim Adjuster's adjuster fleet in most years, saw {fleet_years}"
+    );
+    assert_eq!(
+        idle_years, fleet_years,
+        "every one of these fleet-years orbits a planet already at its optimum, \
+         so the corpus cannot exercise the effect of remote terraforming"
+    );
+}

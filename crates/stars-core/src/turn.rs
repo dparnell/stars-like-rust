@@ -50,10 +50,6 @@ pub enum SkippedStep {
     BuildQueue,
     /// Battle resolution.
     Combat,
-    /// Remote terraforming — the Orbital Adjuster acting on another player's
-    /// planet. The Claim Adjuster's own free terraforming (`AutoTerraform`) is
-    /// performed; see [`crate::terraform::auto_terraform`].
-    RemoteTerraforming,
     /// Random events (comet strikes and the like).
     RandomEvents,
     /// Score calculation.
@@ -82,6 +78,8 @@ pub struct TurnReport {
     pub breakthroughs: Vec<Vec<Breakthrough>>,
     /// Planets `AutoTerraform` moved this year — Claim Adjusters only.
     pub terraformed: Vec<i16>,
+    /// Planets remote terraforming moved, as `(planet id, clicks applied)`.
+    pub remote_terraformed: Vec<(i16, i32)>,
     /// Pipeline steps not performed, and therefore not reflected above.
     pub skipped: Vec<SkippedStep>,
 }
@@ -89,8 +87,8 @@ pub struct TurnReport {
 /// Advance the game by one year.
 ///
 /// The steps performed, in the original's order, are: mining, the per-planet
-/// resource and research split, population update, the research advance, and
-/// the Claim Adjuster's free terraforming.
+/// resource and research split, population update, the research advance, the
+/// Claim Adjuster's free terraforming, and remote terraforming from orbit.
 /// Everything else is reported in [`TurnReport::skipped`].
 ///
 /// `rng` supplies the mining rounding draws; pass a generator seeded from the
@@ -101,7 +99,6 @@ pub fn generate_turn(state: &mut GameState, rng: &mut Rng) -> TurnReport {
             SkippedStep::Orders,
             SkippedStep::Things,
             SkippedStep::Combat,
-            SkippedStep::RemoteTerraforming,
             SkippedStep::RandomEvents,
             SkippedStep::Scores,
         ],
@@ -256,6 +253,75 @@ pub fn generate_turn(state: &mut GameState, rng: &mut Rng) -> TurnReport {
         let (race, tech) = (player.race.clone(), player.research.levels);
         if crate::terraform::auto_terraform(&mut state.planets[index], &race, tech, rng) {
             report.terraformed.push(state.planets[index].id);
+        }
+    }
+
+    // --- RemoteTerraforming: Orbital Adjusters acting from orbit, step 17.
+    for index in 0..state.fleets.len() {
+        let fleet = &state.fleets[index];
+        let Some(orbiting) = fleet.orbiting else {
+            continue;
+        };
+        let owner = fleet.owner;
+        let Some(designs) = usize::try_from(owner)
+            .ok()
+            .and_then(|i| state.designs.get(i))
+        else {
+            continue;
+        };
+        let stacks: Vec<_> = fleet
+            .stacks
+            .iter()
+            .filter_map(|st| designs.get(usize::from(st.design)).map(|d| (d, st.count)))
+            .collect();
+        let clicks = crate::terraform::orbital_adjusters(&stacks);
+        if clicks <= 0 {
+            continue;
+        }
+        let Some(planet_index) = state
+            .planets
+            .iter()
+            .position(|p| p.id == i16::try_from(orbiting).unwrap_or(-1))
+        else {
+            continue;
+        };
+        let planet = &state.planets[planet_index];
+        let Some(planet_owner) = planet.owner else {
+            continue;
+        };
+        let has_starbase = planet.starbase;
+        let same_owner = planet_owner == owner;
+        let friendly = usize::try_from(owner)
+            .ok()
+            .and_then(|i| state.players.get(i))
+            .is_some_and(|p| p.regards_as_friend(planet_owner));
+        let Some(intent) = crate::terraform::remote_intent(same_owner, friendly, has_starbase)
+        else {
+            continue;
+        };
+        let (Some(fleet_player), Some(planet_player)) = (
+            usize::try_from(owner)
+                .ok()
+                .and_then(|i| state.players.get(i)),
+            usize::try_from(planet_owner)
+                .ok()
+                .and_then(|i| state.players.get(i)),
+        ) else {
+            continue;
+        };
+        let race = crate::terraform::remote_race(&fleet_player.race, &planet_player.race);
+        let tech = fleet_player.research.levels;
+        let done = crate::terraform::remote_terraform(
+            &mut state.planets[planet_index],
+            &race,
+            tech,
+            clicks,
+            intent,
+        );
+        if done > 0 {
+            report
+                .remote_terraformed
+                .push((state.planets[planet_index].id, done));
         }
     }
 

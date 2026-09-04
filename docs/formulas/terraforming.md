@@ -1,7 +1,10 @@
 # Subsystem: Terraforming
 
-- **Status:** verified — reach 99.9%, step count 100%
+- **Status:** verified — reach 99.9%, step count 100%; remote
+  terraforming transcribed but unverifiable on the current fixtures
 - **Ghidra routine(s):** `AutoTerraform` (`10b8:48f6`),
+  `RemoteTerraforming` (`10b8:4c56`), `IBestRemoteTerra` (`10b8:8b70`),
+  `PctTerraFromLpfl` (`1080:275c`), `IBestTerraform` (`1048:5dd2`),
   `FCanTerraformLppl` (`1048:8022`, read via
   `PctPlanetOptValue` `1048:6b88`), `IpctCanTerraformLppl` (`1048:7f56`),
   `InitProduction` (`10d0:015e`), `FQueueAiTerraforming` (`1090:8d28`),
@@ -265,6 +268,96 @@ the race's ideal — off the ideal, but already as far as the technology reaches
 
 The drift does **not** push a planet past its band: Claim Adjuster planets
 account for 0 reach violations in 2010 non-immune axis-readings.
+
+## Remote terraforming from orbit
+
+`RemoteTerraforming` (`10b8:4c56`) is step 17. It walks every fleet, and for one
+in orbit over an owned planet asks `PctTerraFromLpfl` (`1080:275c`) how many
+clicks it can apply:
+
+```text
+clicks = sum over the fleet's designs of (Orbital Adjusters per ship * ships)
+```
+
+The part is found by slot category `hstMining` (`0x80`) and item `7` — the
+Orbital Adjuster, which `FLookupPart`'s `hstMining` arm gates on
+`majorAdv == 3`. So this, like `AutoTerraform`, is Claim Adjuster equipment. The
+part's `ability` is `0`, so each one is worth exactly one click.
+
+### Help or harm
+
+```text
+fHelp  = (fleet.owner == planet.owner)
+      or relation[fleet.owner][planet.owner] == 1      # 1 is "friend"
+proceed if fHelp, or the planet has no starbase
+```
+
+The relations byte is `PLAYER + 0x70 + n` (`docs/formats/player.md`), and the
+starbase test is bit 9 of the planet's flags, which our own decoder already
+reads as `has_starbase`. So a starbase refuses a hostile adjuster but not a
+friendly one.
+
+`fHelp` is `FCanTerraformLppl`'s fifth parameter, and this is the only caller
+that ever passes `0`. **That resolves the direction-selection arm** which an
+earlier revision recorded as "not read confidently": with `fHelp == 0` the
+routine keeps whichever bound is *further* from the owner's ideal, and only when
+it is further than where the planet already sits —
+
+```text
+cur = |env - ideal|
+dlo = low  usable ? |low  - ideal| : 0
+dhi = high usable ? |high - ideal| : 0
+if cur < dlo or cur < dhi   keep whichever of low/high is further out
+else                        neither: the planet is already at its worst
+```
+
+— which is de-terraforming. It looks backwards until you know the flag is
+hostile, and the decompiler hides the flag: it merges the fifth parameter with
+the fourth, so every call site here was read from the disassembly instead. The
+one in `RemoteTerraforming` is `PUSH word ptr [BP + -0x4]` at `10b8:4df8`, four
+words pushed for `IBestRemoteTerra(lppl_far, fleet->iPlayer, fHelp)`.
+
+### Whose race decides
+
+`IBestRemoteTerra` (`10b8:8b70`) copies the **fleet owner's** whole `PLAYER`
+record over the planet owner's, restores just the planet owner's three
+habitability arrays (`+0x10`, `+0x13`, `+0x16`), calls the ordinary
+`IBestTerraform`, and puts the record back. So **the fleet owner's technology
+decides how far the planet can move, and the planet owner's race decides which
+way is better**. A friendly adjuster improves an ally's planet for that ally's
+biology using its own modules; a hostile one worsens it by the same measure.
+
+Modelled as `terraform::remote_race`, which is the same blend.
+
+### The scoring is intent-blind
+
+`IBestTerraform` (`1048:5dd2`) scores each variable by
+
+```text
+score[v] = |desirability(v at its target) - desirability(now)| * 100 / clicks + 1
+```
+
+and takes the **absolute** change, so a hostile adjuster picks the variable that
+does the most damage per click using the identical arithmetic. It returns a
+signed one-based index — `+(v + 1)` to move up, `-(v + 1)` to move down, `0` for
+nothing — and ties keep the lowest index.
+
+### Status of this section
+
+Implemented as `terraform::{orbital_adjusters, remote_race, remote_intent,
+remote_terraform}` and run by `generate_turn`.
+
+**It is transcribed and unit-tested, but not differentially verified, and no
+fixture in this repository can verify it.** The corpus contains exactly one
+design carrying an Orbital Adjuster, in all 101 years of
+`all-computer-players`. It is a Claim Adjuster's starting fleet of two adjusters
+parked over its own homeworld, which sits at exactly 50/50/50 — its race's ideal
+— so `AutoTerraform` leaves nothing for it to do and it never moves anything.
+What the corpus does confirm is the part identification (the only matching
+design belongs to a Claim Adjuster), the click count, and the friendly gate;
+see `the_only_orbital_adjuster_in_the_corpus_belongs_to_a_claim_adjuster`.
+Verifying the effect, and the hostile branch in particular, needs a game where
+someone points an adjuster at a planet that is not already optimal.
 
 ## Which factor a step moves
 

@@ -105,6 +105,13 @@ pub struct Player {
     pub research_last_year: i32,
     /// Whether the player has been eliminated.
     pub dead: bool,
+    /// How this player regards each other player, indexed by player number:
+    /// `0` neutral, `1` friend, `2` enemy (`PLAYER.rgmdRelation`, at offset
+    /// `0x70`). Empty when the file did not carry the table.
+    ///
+    /// Read by remote terraforming, which helps a friend's planet and harms
+    /// anyone else's — see [`terraform::remote_intent`].
+    pub relations: Vec<u8>,
     /// Whether a person or one of the built-in opponents plays this slot.
     ///
     /// Defaults to [`ai::Control::Human`], which is the safe reading for a
@@ -114,6 +121,18 @@ pub struct Player {
 }
 
 impl Player {
+    /// Whether this player considers `other` a friend (relations value `1`).
+    ///
+    /// A player with no relations table recorded regards nobody as a friend,
+    /// which is the neutral reading rather than a guess.
+    #[must_use]
+    pub fn regards_as_friend(&self, other: i16) -> bool {
+        usize::try_from(other)
+            .ok()
+            .and_then(|i| self.relations.get(i))
+            .is_some_and(|r| *r == 1)
+    }
+
     /// A player with the given race, at zero technology.
     #[must_use]
     pub fn new(race: Race) -> Self {
@@ -124,6 +143,7 @@ impl Player {
             research_pct: 15,
             research_last_year: 0,
             dead: false,
+            relations: Vec::new(),
             control: ai::Control::Human,
         }
     }

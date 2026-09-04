@@ -138,18 +138,11 @@ pub fn reachable_band(planet: &Planet, race: &Race, tech: [u8; 6]) -> [(i8, i8);
 /// [`crate::ai::colonise::pct_planet_opt_value`].
 #[must_use]
 pub fn optimal_env(planet: &Planet, race: &Race, tech: [u8; 6]) -> [i8; VARIABLES] {
-    let band = reachable_band(planet, race, tech);
+    let targets = terraform_targets(planet, race, tech, Intent::Help);
     let mut env = planet.env;
     for (v, slot) in env.iter_mut().enumerate() {
-        if race.is_immune(v) {
-            continue;
-        }
-        let ideal = race.env_center[v];
-        let (lo, hi) = band[v];
-        if *slot < ideal {
-            *slot = (*slot).max(ideal.min(hi));
-        } else if *slot > ideal {
-            *slot = (*slot).min(ideal.max(lo));
+        if let Some(target) = targets[v] {
+            *slot = target;
         }
     }
     env
@@ -208,6 +201,134 @@ pub fn terraform_steps(planet: &Planet, race: &Race, tech: [u8; 6]) -> i32 {
         .sum()
 }
 
+/// Whether a terraforming act is meant to help the planet's owner or harm them.
+///
+/// This is `FCanTerraformLppl`'s fifth parameter, `fHelp` in the NB09 symbols.
+/// The decompiler loses it — it merges the flag with the preceding output array
+/// — so every call site here is confirmed from the disassembly.
+///
+/// | caller | flag | site |
+/// |--------|------|------|
+/// | [`terraform_steps`] via `IpctCanTerraformLppl` | help | `PUSH 0x1` at `1048:7f5f` |
+/// | [`auto_terraform`] via `AutoTerraform` | help | `PUSH 0x1` at `10b8:4b5f` |
+/// | [`remote_terraform`] via `RemoteTerraforming` | either | `PUSH [BP-0x4]` at `10b8:4df8` |
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Intent {
+    /// Move the environment toward the owner's ideal, stopping at the ideal or
+    /// the edge of the reachable band.
+    Help,
+    /// Move it **away** from the owner's ideal, as far as the band allows.
+    /// Only remote terraforming by an unfriendly fleet does this.
+    Harm,
+}
+
+/// The value each variable would be driven to, or `None` where nothing moves.
+///
+/// This is the pair of bounds `FCanTerraformLppl` leaves usable, collapsed to
+/// the single surviving one. With [`Intent::Help`] it is [`optimal_env`]; with
+/// [`Intent::Harm`] it is the bound *furthest* from the ideal, and only when
+/// that is further than where the planet already sits:
+///
+/// ```text
+/// cur = |env - ideal|
+/// dlo = low  usable ? |low  - ideal| : 0
+/// dhi = high usable ? |high - ideal| : 0
+/// if cur < dlo or cur < dhi   keep whichever of low/high is further out
+/// else                        neither: the planet is already at its worst
+/// ```
+#[must_use]
+pub fn terraform_targets(
+    planet: &Planet,
+    race: &Race,
+    tech: [u8; 6],
+    intent: Intent,
+) -> [Option<i8>; VARIABLES] {
+    let band = reachable_band(planet, race, tech);
+    let reach = terraform_reach(race, tech);
+    let mut out = [None; VARIABLES];
+    for (v, slot) in out.iter_mut().enumerate() {
+        if reach[v] == 0 || race.is_immune(v) {
+            continue;
+        }
+        let env = planet.env[v];
+        let (lo, hi) = band[v];
+        // A bound is usable only if it lies strictly beyond the current value.
+        let low = (lo < env).then_some(lo);
+        let high = (env < hi).then_some(hi);
+        let ideal = race.env_center[v];
+        *slot = match intent {
+            Intent::Help => match ideal.cmp(&env) {
+                std::cmp::Ordering::Equal => None,
+                std::cmp::Ordering::Less => low.map(|l| l.max(ideal)),
+                std::cmp::Ordering::Greater => high.map(|h| h.min(ideal)),
+            },
+            Intent::Harm => {
+                let dist = |x: i8| i32::from((i16::from(x) - i16::from(ideal)).abs());
+                let cur = dist(env);
+                let dlo = low.map_or(0, dist);
+                let dhi = high.map_or(0, dist);
+                if cur < dlo || cur < dhi {
+                    // Keep the bound further from the ideal.
+                    if dlo < dhi {
+                        high
+                    } else {
+                        low
+                    }
+                } else {
+                    None
+                }
+            }
+        };
+    }
+    out
+}
+
+/// Which variable to move next, and which way — the game's `IBestTerraform`.
+///
+/// Source: `IBestTerraform` (`1048:5dd2`). It returns a signed one-based index,
+/// `+(v + 1)` when the move is upward and `-(v + 1)` when downward, or `0` when
+/// nothing should move. This returns the same decision as `(v, step)` with
+/// `step` of `+1` or `-1`.
+///
+/// The score is unchanged by the intent, because it takes the **absolute**
+/// change in habitability:
+///
+/// ```text
+/// score[v] = |desirability(v at its target) - desirability(now)| * 100 / clicks + 1
+/// ```
+///
+/// so a hostile adjuster picks the variable that does the most damage per click
+/// by the same arithmetic a friendly one uses to do the most good. Ties keep the
+/// lowest index (`if (score[best] < score[v]) best = v`).
+#[must_use]
+pub fn best_terraform_step(
+    planet: &Planet,
+    race: &Race,
+    tech: [u8; 6],
+    intent: Intent,
+) -> Option<(usize, i8)> {
+    let targets = terraform_targets(planet, race, tech, intent);
+    let base = i32::from(crate::hab::pct_planet_desirability(planet, race));
+
+    let mut best: Option<(i32, usize, i8)> = None;
+    for (v, target) in targets.iter().enumerate() {
+        let Some(target) = *target else { continue };
+        let clicks = i32::from((i16::from(target) - i16::from(planet.env[v])).abs());
+        if clicks == 0 {
+            continue;
+        }
+        let mut probe = planet.clone();
+        probe.env[v] = target;
+        let moved = i32::from(crate::hab::pct_planet_desirability(&probe, race));
+        let score = (moved - base).abs() * 100 / clicks + 1;
+        let step = if target > planet.env[v] { 1 } else { -1 };
+        if best.is_none_or(|(b, _, _)| score > b) {
+            best = Some((score, v, step));
+        }
+    }
+    best.map(|(_, v, step)| (v, step))
+}
+
 /// Which environment variable the next terraforming step should move.
 ///
 /// Source: `IBestTerraform` (`1048:5dd2`), called from `FBuildObject` when a
@@ -237,25 +358,7 @@ pub fn terraform_steps(planet: &Planet, race: &Race, tech: [u8; 6]) -> i32 {
 /// clicks from a small one.
 #[must_use]
 pub fn best_terraform_factor(planet: &Planet, race: &Race, tech: [u8; 6]) -> Option<usize> {
-    let target = optimal_env(planet, race, tech);
-    let base = i32::from(crate::hab::pct_planet_desirability(planet, race));
-
-    let mut best: Option<(i32, usize)> = None;
-    for (v, want) in target.iter().enumerate() {
-        let clicks = i32::from((i16::from(*want) - i16::from(planet.env[v])).abs());
-        if clicks == 0 {
-            continue; // scores zero: it cannot move
-        }
-        let mut probe = planet.clone();
-        probe.env[v] = *want;
-        let moved = i32::from(crate::hab::pct_planet_desirability(&probe, race));
-        let score = (moved - base).abs() * 100 / clicks + 1;
-        // Strictly greater, so a tie keeps the lower index.
-        if best.is_none_or(|(b, _)| score > b) {
-            best = Some((score, v));
-        }
-    }
-    best.map(|(_, v)| v)
+    best_terraform_step(planet, race, tech, Intent::Help).map(|(v, _)| v)
 }
 
 /// The primary racial trait `AutoTerraform` serves: Claim Adjuster.
@@ -352,6 +455,124 @@ pub fn auto_terraform(
         moved = true;
     }
     moved
+}
+
+/// Index of the Orbital Adjuster in [`crate::components::MINING`].
+///
+/// `PctTerraFromLpfl` (`1080:275c`) counts design slots whose category is
+/// `hstMining` (`0x80`) and whose item is `7`. `FLookupPart`'s `hstMining` arm
+/// gates that item on `GetRaceStat(plr, rsMajorAdv) != 3`, so like
+/// [`auto_terraform`] this is Claim Adjuster equipment.
+pub const ORBITAL_ADJUSTER: u8 = 7;
+
+/// How many clicks of remote terraforming a fleet can apply in one turn.
+///
+/// Source: `PctTerraFromLpfl` (`1080:275c`), which walks the fleet's sixteen
+/// design slots and, for each with ships aboard, sums the Orbital Adjusters
+/// fitted to that design and multiplies by the number of ships:
+///
+/// ```text
+/// total = sum over designs of (adjusters per ship * ships of that design)
+/// ```
+///
+/// The part carries no ability value — its entry in `MINING` has `ability: 0` —
+/// so each Orbital Adjuster is worth exactly one click.
+#[must_use]
+pub fn orbital_adjusters(stacks: &[(&crate::design::ShipDesign, i32)]) -> i32 {
+    stacks
+        .iter()
+        .map(|(design, count)| {
+            let per_ship: i32 = design
+                .slots
+                .iter()
+                .filter(|s| s.is(crate::components::slot::MINING) && s.item == ORBITAL_ADJUSTER)
+                .map(|s| i32::from(s.count))
+                .sum();
+            per_ship * count.max(&0)
+        })
+        .sum()
+}
+
+/// The race `IBestRemoteTerra` builds to decide a remote terraforming step.
+///
+/// Source: `IBestRemoteTerra` (`10b8:8b70`). It copies the **fleet owner's**
+/// whole `PLAYER` record over the planet owner's, then puts back just the
+/// planet owner's three habitability arrays (`+0x10` centre, `+0x13` and
+/// `+0x16`), calls the ordinary `IBestTerraform`, and restores the record
+/// afterwards.
+///
+/// The effect is worth stating plainly: **the fleet owner's technology decides
+/// how far the planet can be moved, and the planet owner's race decides which
+/// way is better.** A friendly adjuster therefore improves an ally's planet for
+/// *that ally's* biology using its own modules, and a hostile one makes the
+/// planet worse by the same measure.
+#[must_use]
+pub fn remote_race(fleet_owner: &Race, planet_owner: &Race) -> Race {
+    let mut race = fleet_owner.clone();
+    race.env_center = planet_owner.env_center;
+    race.env_min = planet_owner.env_min;
+    race.env_max = planet_owner.env_max;
+    race
+}
+
+/// Apply up to `clicks` steps of remote terraforming to a planet.
+///
+/// Source: the inner loop of `RemoteTerraforming` (`10b8:4c56`). Each click
+/// re-runs [`best_terraform_step`], moves that variable one, and clamps the
+/// result to `1..=99`; it stops early when nothing more should move.
+///
+/// `race` must be the blend [`remote_race`] produces, and `tech` the fleet
+/// owner's levels. Returns how many clicks were actually applied.
+///
+/// Note the environment moves but `env_orig` does not, so remote terraforming
+/// is bounded by the same band as any other terraforming — it cannot walk a
+/// planet away indefinitely.
+pub fn remote_terraform(
+    planet: &mut Planet,
+    race: &Race,
+    tech: [u8; 6],
+    clicks: i32,
+    intent: Intent,
+) -> i32 {
+    let mut done = 0;
+    for _ in 0..clicks {
+        let Some((v, step)) = best_terraform_step(planet, race, tech, intent) else {
+            break;
+        };
+        planet.env[v] = (planet.env[v] + step).clamp(ENV_MIN, ENV_MAX);
+        done += 1;
+    }
+    done
+}
+
+/// Whether a fleet may remote-terraform the planet it orbits, and how.
+///
+/// Source: `RemoteTerraforming` (`10b8:4c56`), gates at `10b8:4d35`-`4db5`.
+///
+/// `fHelp` is set when the fleet's owner owns the planet, or when the **fleet
+/// owner's** relations table marks the planet's owner a friend (value `1` — see
+/// `docs/formats/player.md`). Otherwise the act is hostile, and is refused
+/// outright if the planet has a starbase:
+///
+/// ```text
+/// fHelp = (fleet.owner == planet.owner) or relation[fleet.owner][planet.owner] == 1
+/// proceed if fHelp or not planet.starbase
+/// ```
+///
+/// Returns `None` when the fleet may not act at all.
+#[must_use]
+pub fn remote_intent(
+    same_owner: bool,
+    friendly: bool,
+    planet_has_starbase: bool,
+) -> Option<Intent> {
+    if same_owner || friendly {
+        Some(Intent::Help)
+    } else if planet_has_starbase {
+        None
+    } else {
+        Some(Intent::Harm)
+    }
 }
 
 /// Move a planet one click along the variable [`best_terraform_factor`] picks.
@@ -469,6 +690,70 @@ mod tests {
         assert!(!auto_terraform(&mut planet, &race, [0; 6], &mut rng));
         assert_eq!(planet.env, [40, 50, 50]);
         assert_eq!(rng, untouched, "a non-CA race must not consume a draw");
+    }
+
+    /// A hostile adjuster drives the environment away from the owner's ideal,
+    /// where a friendly one drives it toward.
+    #[test]
+    fn a_hostile_adjuster_terraforms_the_wrong_way() {
+        let race = tt_race(); // ideal 50/50/50
+        let mut planet = planet_at([50, 50, 50]);
+        planet.env_orig = Some([50, 50, 50]);
+
+        // Nothing to gain: helping a planet already at its ideal does nothing.
+        assert_eq!(
+            terraform_targets(&planet, &race, [0; 6], Intent::Help),
+            [None, None, None]
+        );
+        // Harming it can push every variable three clicks off, and the band is
+        // symmetric so the low bound wins the tie.
+        assert_eq!(
+            terraform_targets(&planet, &race, [0; 6], Intent::Harm),
+            [Some(47), Some(47), Some(47)]
+        );
+
+        let done = remote_terraform(&mut planet, &race, [0; 6], 10, Intent::Harm);
+        assert_eq!(done, 9, "three clicks on each of three variables");
+        assert_eq!(planet.env, [47, 47, 47]);
+        // And it cannot go further: the band is measured from env_orig.
+        assert_eq!(
+            remote_terraform(&mut planet, &race, [0; 6], 10, Intent::Harm),
+            0
+        );
+    }
+
+    /// The gate: a starbase refuses a hostile adjuster but not a friendly one.
+    #[test]
+    fn a_starbase_blocks_only_hostile_remote_terraforming() {
+        assert_eq!(remote_intent(true, false, true), Some(Intent::Help));
+        assert_eq!(remote_intent(false, true, true), Some(Intent::Help));
+        assert_eq!(remote_intent(false, false, false), Some(Intent::Harm));
+        assert_eq!(remote_intent(false, false, true), None);
+    }
+
+    /// The blend: the fleet owner's technology, the planet owner's biology.
+    #[test]
+    fn remote_terraforming_blends_the_two_races() {
+        let mut fleet_owner = Race::humanoid();
+        fleet_owner.lrt_bits |= 1 << lrt::TT;
+        let mut planet_owner = Race::humanoid();
+        planet_owner.env_center = [20, 20, 20];
+        planet_owner.env_min = [1, 1, 1];
+        planet_owner.env_max = [40, 40, 40];
+
+        let blend = remote_race(&fleet_owner, &planet_owner);
+        // The reach comes from the fleet owner, which has Total Terraforming.
+        assert_eq!(terraform_reach(&blend, [0; 6]), [3, 3, 3]);
+        // The ideal comes from the planet owner.
+        assert_eq!(blend.env_center, [20, 20, 20]);
+
+        // A planet at 30 is helped downward, toward 20, not toward 50.
+        let mut planet = planet_at([30, 30, 30]);
+        planet.env_orig = Some([30, 30, 30]);
+        assert_eq!(
+            terraform_targets(&planet, &blend, [0; 6], Intent::Help),
+            [Some(27), Some(27), Some(27)]
+        );
     }
 
     /// A planet already ideal has nothing to do.
