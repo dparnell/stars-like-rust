@@ -298,7 +298,7 @@ Measured against the recordings, splitting the two paths a move can take:
 | path | result |
 |------|--------|
 | beeline moves (nothing in reach) | **83 of 83 close on the target — 100%** |
-| scored moves | **450 of 478 among our best-rated — 94%**, against a 72% chance rate |
+| scored moves | **455 of 478 among our best-rated — 95%**, against a 72% chance rate |
 
 The chance rate is what makes the second number mean anything: a scorer that
 rated every square identically would hit 100% on the first figure and 100% on
@@ -312,7 +312,8 @@ For reference, as the pieces landed:
 | scoring transcribed, real tactics | 86% | 71% | 15 |
 | plus search radius and class filter | 92% | 81% | 11 |
 | `DpFromPtokBrcToBrc` re-read from the disassembly | 84% | 72% | 12 |
-| the replay kept the board current (see below) | **94%** | 72% | **22** |
+| the replay kept the board current (see below) | 94% | 72% | 22 |
+| unarmed tokens no longer armed from the wrong design | **95%** | 72% | **23** |
 
 That last row is the one to be careful about. Transcribing the damage estimate
 faithfully from the disassembly, rather than from the decompilation, **lowered**
