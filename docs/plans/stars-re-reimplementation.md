@@ -208,7 +208,7 @@ designs or the components table — the Alternate Reality population, mining and
 resource model, per-design scanner ranges, and engine fuel-use tables — plus
 mine-field traversal and stargates.
 
-### * Step 4: Implement turn generation, combat, research, and AI
+### ✓ Step 4: Implement turn generation, combat, research, and AI
 
 `stars-core` can advance a full game turn from player orders and play single-player against AI.
 
@@ -257,14 +257,18 @@ Measured against real save files:
 | ship design armour | 493 designs, zero disagreements |
 | battle replay, beam-only | 11 of 13 battles reproduce recorded casualties |
 | battle movement, beeline | 83 of 83 close on their target |
-| battle movement, phase order | 209 of 209 rounds, 746 moves, 0 over allowance |
 | battle movement, scored | 455 of 478 among our best-rated (chance 72%) |
+| battle movement, phase order | 209 of 209 rounds, 746 moves, 0 over allowance |
+| operating mine count, roll-free subset | 4,606 of 4,629 exact |
 | terraform reach | 37,712 of 37,743 axis-readings (99.9%) |
 | AI terraform order, fresh | 196 of 196 (100%) |
 | AI mine/factory decision, isolated | 6,826 of 7,997 (85%; chance 28%, floor 49%) |
 | `.xy` planet coordinates vs fleets in orbit | 43,769 of 43,769 exact |
 
-Remaining in this step:
+**What is left is bounded by the fixtures, not by effort.** Every subsystem in
+this step is now transcribed and implemented; what remains unverified is listed
+under "Carried into Step 5 unverified" and needs a corpus this repository does
+not have. The items below record where each stands.
 
 1. **The AI players** — identification and the terraform decision verified;
    the rest in progress. `fixtures/games/all-computer-players` (101 turns,
@@ -400,14 +404,29 @@ Remaining in this step:
 
 #### What Step 4 settled that changes this
 
-**"Playable" has a hard dependency that is not met.** The turn generator does
-not execute waypoint tasks at all — no transport, no colonise, no remote
-mining. That is not an oversight: a task is consumed when it executes, so all
-50,173 waypoints in the fixtures read task 0 and there was nothing to verify
-against. The *rules* are recovered (`ground.md` for landing colonists,
-`mining.md` for remote mining, `cargo.md` for transfers), but nothing calls
-them. **Executing orders is the prerequisite for a playable game**, and it
-belongs at the head of Step 5 rather than being assumed done.
+**Orders now execute, so there is a game to put a UI on.** An earlier revision
+of this section opened by saying the turn generator "does not execute waypoint
+tasks at all", and put that at the head of the step. It is done:
+`generate_turn_with_orders(state, orders, rng)` applies the recorded cargo
+transfers as `DoOrders(0)`, settles the colonist landings they cause through
+`DropColonists`, and runs remote mining from `SatisfyOrders(3)`. `generate_turn`
+keeps its old signature and delegates with no orders.
+
+That revision also justified the gap with a claim that is **wrong**: that "all
+50,173 waypoints in the fixtures read task 0". They do not. An order is the
+NB09 `ORDER` struct — an 8-byte header plus a 10-byte task union — and the file
+writes it as one of two block types. Type 20 is the header alone and is always
+taskless; **type 19 carries the union and always carries a real task**. Counted
+over both, the fixtures hold 4,331 Transport, 4,935 Colonize, 741 Remote
+Mining, 1,726 Lay Minefield and 40 Patrol tasks. Reading only type 20 finds
+task 0 everywhere by construction. See `docs/formats/waypoint.md`.
+
+**Planet coordinates and names are loaded.** They live only in the `.xy`, and
+`GameState::apply_universe` now fills `Planet::position` and `Planet::name`.
+The galaxy map has what it needs. Wiring that up also found a decoding bug: the
+`.xy` x chain starts at **1000**, not 0 — confirmed because a fleet the engine
+records as orbiting a planet must stand on it, and all 43,769 such readings
+were off by exactly `(1000, 0)` before the fix and exact after.
 
 **A `GameState` is one player's view, not the truth.** `planets` holds what can
 be simulated; `known_planets` holds what has only been scanned, and
@@ -415,14 +434,21 @@ be simulated; `known_planets` holds what has only been scanned, and
 that distinction *is* the fog of war, and it falls out of the loader rather than
 needing UI-side bookkeeping.
 
+**A player's file holds only that player's own ship designs**, and a battle
+recording names a token's design by *slot number* — slot 3 of one player is not
+slot 3 of another. Any screen that shows an enemy ship must not look its design
+up that way. What the recording does carry is the token's initiative range, and
+`initMin == 0xFF` means it has no weapons at all; that is enough to draw an
+armed ship apart from an unarmed one. Anything finer — an opponent's armour, its
+weapons — is simply not in the file.
+
 **The production dialog is race-dependent, and the rule is already written
 down.** An Alternate Reality race builds no planetary installation and a Claim
 Adjuster never terraforms; `ground::template_allows` encodes exactly the filter
 the game applies. The dialog should drive off it rather than reimplement it. The
 Claim Adjuster half of that is not just a template filter but a consequence:
 `AutoTerraform` leaves its planets at their optimum every turn, so
-`IpctCanTerraformLppl` is zero and the item is never offered — see
-`docs/formulas/terraforming.md`.
+`IpctCanTerraformLppl` is zero and the item is never offered.
 
 **A queue entry is a running balance, not an order.** Its fields are
 `count:10, item:7, class:3, completion:7` — remaining count and percent paid,
@@ -431,16 +457,21 @@ are their own ids (`mdIdleFactory` 7, `mdIdleMine` 8, `mdIdleDefense` 9,
 `mdIdleAlchemy` 11, `mdIdleTerraform` 12), not a flag; ship entries carry
 `class = grobjFleet` and a design slot, 0-15 for ships and 16-25 for starbases.
 
+This is worth stating as a general rule for the whole UI, because it caught out
+three separate subsystems during Step 4: **anything the game counts down is a
+balance, not a record of a decision.** A screen that shows "4 terraform queued"
+is showing what is left, not what was ordered.
+
 **The Selection Summary's habitability figure is two numbers**, current and
 after terraforming, and both are implemented — `hab::pct_planet_desirability`
 and `colonise::pct_planet_opt_value`, with `terraform::reachable_band` for the
-environment graph's bars.
+environment graph's bars. The graph's direction-selection arm is now read too:
+it was `FCanTerraformLppl`'s `fHelp == 0` branch, which looked backwards because
+that flag means *hostile*.
 
-**`FCanTerraformLppl`'s direction-selection arm is now read and implemented.**
-It was the `fHelp == 0` branch, and it looked backwards because it is: that flag
-means *hostile*, and the arm keeps whichever bound is further from the owner's
-ideal. Its only caller is remote terraforming by an unfriendly fleet. Modelled
-as `terraform::Intent`; see `docs/formulas/terraforming.md`.
+**Diplomacy has data behind it.** `Player::relations` is loaded — one byte per
+player, `0` neutral, `1` friend, `2` enemy. Combat and remote terraforming both
+read it, so a relations screen is wiring rather than reverse engineering.
 
 **Save files are version-dependent.** Two format details already differ between
 2.6 and 2.8 — the battle action record and the three-player starting squares —
@@ -448,23 +479,60 @@ and every format in `docs/formats` was recovered from one game or one binary.
 The loader must not assume a version; `ActionLayout::for_version` is the
 precedent for how to handle it.
 
+#### What the battle screen can and cannot show
+
+Combat came a long way in Step 4 and the VCR is the best-supported screen, but
+its limits are specific and worth knowing before it is drawn:
+
+| | state |
+|-|-------|
+| board, starting squares, movement schedule | verified |
+| the three-phase movement round | verified — 209 of 209 rounds, 746 moves |
+| movement scoring | 455 of 478 (95%) against a 72% chance rate |
+| beam firing, gattlings, target classes | implemented |
+| casualties reproduced from a recording | 11 of 13 battles |
+| torpedo firing loop | implemented; its **accuracy formula is unverified** |
+| exact replay of any battle | impossible — every tie-break and torpedo roll draws from an RNG whose state is not in the files |
+
+The VCR should therefore *play the recording*, not re-simulate it. The recording
+carries every move, every shot and every casualty; re-deriving them can only
+disagree.
+
 #### Suggested order
 
-1. **Execute waypoint tasks** in the turn generator, wiring the recovered rules
-   for colonising, cargo transfer and remote mining. Without this there is no
-   game to put a UI on.
-2. **The battle VCR** — the one screen that can be built entirely against
-   verified data. Recordings decode in both layouts, the board and movement are
-   modelled, and it needs no order execution. A good first screen and a
-   genuine test of `stars-ui`.
-3. **Scanner and planet/fleet detail panes**, reading `planets` and
-   `known_planets`.
+1. **The battle VCR.** The one screen that can be built entirely against
+   verified data, and it needs no order execution. Play the recording rather
+   than re-simulating.
+2. **Galaxy map and scanner**, now that planet positions and names load.
+   `planets` versus `known_planets` is the fog of war.
+3. **Planet and fleet detail panes**, including the two habitability figures and
+   the environment graph.
 4. **The production dialog**, driving off the queue model and the race filter.
-5. **The race wizard**, which needs `CAdvantagePoints` to price a race. It is
+5. **Order entry** — the other half of `TurnOrders`. The turn generator consumes
+   orders; nothing yet produces them from a UI.
+6. **The race wizard**, which needs `CAdvantagePoints` to price a race. It is
    located (`10e0:444c`, in `docs/ghidra/stars-signatures.csv`) but not
-   transcribed, and is the largest unknown in this step. `FGenerateTurn` calls
-   it to re-price every race each turn and to claw points back from a race that
-   prices above 500, which is a usable cross-check once it is written.
+   transcribed, and remains the largest unknown in this step. `FGenerateTurn`
+   calls it to re-price every race each turn and to claw points back from a race
+   that prices above 500, which is a usable cross-check once it is written.
+
+#### Carried into Step 5 unverified
+
+These are implemented and unit-tested but have no fixture that can confirm them.
+None blocks the UI; all are worth revisiting if a richer corpus appears.
+
+- **Torpedo accuracy.** Only 8 of 100 recorded volleys yield a clean hit count —
+  24 shots, which decides nothing. Any game with more torpedo fire would settle
+  it, RNG or not.
+- **Bombing.** The fixtures are full of bombs but a run leaves no record of its
+  own, and a population drop cannot be attributed to it.
+- **Gattlings.** No Exodus design carries one, and Exodus holds the only battle
+  recordings.
+- **Remote terraforming and remote mining.** The one Orbital Adjuster in the
+  corpus sits over its owner's already-optimal homeworld; no fleet anywhere
+  carries a mining robot.
+- **RNG alignment.** Searched and not found: the seeding reaches only 16,256
+  states, and every one was tried against every offset. See `docs/rng/prng.md`.
 
 ###   Step 6: Add hotseat and PBEM multiplayer
 Multiple humans can play via shared files and play-by-email turn exchange.

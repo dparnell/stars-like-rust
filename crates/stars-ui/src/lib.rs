@@ -18,9 +18,16 @@
 //! reimplemented: which planets a player merely knows about
 //! (`Planet::detail`), which production items a race may build
 //! (`ground::template_allows`), what a queue entry's fields actually mean, and
-//! the two habitability figures the Selection Summary shows. It also records
-//! the one hard dependency — the turn generator does not execute waypoint
-//! tasks yet, so there is no playable game to attach a UI to until it does.
+//! the two habitability figures the Selection Summary shows, and where planet
+//! coordinates and names come from (the `.xy`, via
+//! `GameState::apply_universe`).
+//!
+//! Two of those notes are worth repeating here because they shape every screen.
+//! **Anything the game counts down is a running balance, not a record of a
+//! decision** — a production queue entry shows what is left, not what was
+//! ordered. And **a player's file holds only that player's own ship designs**,
+//! so a screen showing an enemy ship cannot look its design up by slot number;
+//! the battle recording's initiative range is all there is.
 
 #![forbid(unsafe_code)]
 
