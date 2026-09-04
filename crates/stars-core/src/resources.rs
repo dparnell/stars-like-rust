@@ -46,6 +46,35 @@ pub fn max_operable_mines(planet: &Planet, race: &Race, next_year: bool) -> i16 
     count.max(1)
 }
 
+/// The most defences this planet could ever hold.
+///
+/// Source: `CMaxDefenses` (`1048:7...`): four times the planet's habitability,
+/// never fewer than 10 and never more than 100 — and none at all for an
+/// Alternate Reality race, which has no planetary installations.
+#[must_use]
+pub fn max_defenses(planet: &Planet, race: &Race) -> i16 {
+    if race.is_ar() {
+        return 0;
+    }
+    let hab = i32::from(crate::hab::pct_planet_desirability(planet, race));
+    i16::try_from((hab * 4).clamp(10, 100)).unwrap_or(10)
+}
+
+/// The most defences the planet's population can staff.
+///
+/// Source: `CMaxOperableDefenses` (`1048:77ae`): one per 25 colonists, rounded
+/// up, capped at 1000 and then by [`max_defenses`].
+#[must_use]
+pub fn max_operable_defenses(planet: &Planet, race: &Race) -> i16 {
+    if race.is_ar() {
+        return 0;
+    }
+    let by_pop = ((i64::from(planet.pop) + 24) / 25).min(1000);
+    i16::try_from(by_pop)
+        .unwrap_or(i16::MAX)
+        .min(max_defenses(planet, race))
+}
+
 /// The most factories this planet could ever operate. Never less than 10.
 #[must_use]
 pub fn max_factories(planet: &Planet, race: &Race) -> i16 {

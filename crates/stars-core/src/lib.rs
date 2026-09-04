@@ -47,6 +47,7 @@
 
 pub mod ai;
 pub mod battle;
+pub mod bombing;
 pub mod components;
 pub mod design;
 pub mod fleet;

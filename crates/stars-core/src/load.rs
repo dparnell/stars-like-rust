@@ -149,6 +149,7 @@ pub fn planet_from_record(record: &PlanetRecord) -> Option<Planet> {
         delta_pop: installations.delta_pop,
         mines: i16::try_from(installations.mines).ok()?,
         factories: i16::try_from(installations.factories).ok()?,
+        defenses: i16::try_from(installations.defenses).unwrap_or(0),
         homeworld: record.homeworld,
         starbase: record.has_starbase,
         artifact: record.artifact,

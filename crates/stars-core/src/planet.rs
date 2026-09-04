@@ -79,6 +79,9 @@ pub struct Planet {
     pub mines: i16,
     /// Factories built on the planet (`cFactories`).
     pub factories: i16,
+    /// Planetary defences built (`cDefenses`). These stop bombing — see
+    /// [`crate::bombing::pct_survive`].
+    pub defenses: i16,
     /// Whether this is a player's home world (`fHomeworld`).
     pub homeworld: bool,
     /// Whether the planet has a starbase (`fStarbase`).
@@ -125,6 +128,7 @@ impl Planet {
             delta_pop: 0,
             mines: 0,
             factories: 0,
+            defenses: 0,
             homeworld: false,
             starbase: false,
             starbase_design: None,

@@ -33,16 +33,16 @@ The PRNG that mining and the turn pipeline draw from is specified separately in
 | `production.md` | Resource/research split; the build queue | in progress |
 | `components.md` | The component data tables (engines, weapons, scanners, …) | verified |
 
-| `combat.md` | Board, movement, targeting, weapon accuracy | in progress |
+| `combat.md` | Board, movement, targeting, weapon accuracy, firing | in progress |
+| `bombing.md` | Bombing a planet from orbit | transcribed, unverified |
+| `ground.md` | Landing colonists: settling and invasion | in progress |
 | `design.md` | Hulls, slots, and the values derived from them | verified |
 | `fleet.md` | Ship stacks, cargo, and what derives from them | model and loading done |
 
 Still to come in Step 4:
 
-- combat **fire resolution**, which needs ship designs
-- `terraforming.md` — auto and remote terraforming
-- the production **build queue**, which needs the components table
-- the AI players
+- the torpedo **accuracy formula**, transcribed but unverified against real fire
+- **RNG alignment**, which needs consecutive tutorial-mode turns
 
 ## Verification
 

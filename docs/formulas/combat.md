@@ -458,8 +458,9 @@ accuracy, the starting-square table and Chebyshev distance against
 - The within-phase order is randomised and so unreproducible; the exact jitter
   expression could not be read confidently and is not implemented. See
   "The movement round".
-- Bombing (`DoBombing`) and ground combat are separate from ship battles and
-  are not covered.
+- Bombing is covered in `bombing.md`: transcribed and unit-tested, but
+  unverifiable here — a bombing run leaves no record of its own. Ground combat
+  is in `ground.md`.
 
 
 ## Whose design is it?
