@@ -160,14 +160,50 @@ battles, and the assertions were left in place rather than loosened:
 - **Firing range.** `2499 battle 0x0225` records a shot at range 5, beyond what
   the firing token's weapon reaches.
 
-Neither is plausible game behaviour, so the likeliest explanation is that our
-decode of these particular records is wrong — the player-file variant may
-differ from the `.m6` records the format was recovered against, or the action
-stream may be framed differently when more than two tokens are present.
+### What has been ruled out
 
-The two tests that check these invariants therefore stay on the Exodus corpus,
-with a comment saying why. The three that do not depend on them —
-starting squares, the two-player layout, and the replays — use the full corpus.
+Comparing `0x0f05` byte for byte against Exodus `0x0d01` (use the
+`battle_dump` example) rules out the obvious explanations:
 
-Resolving this is worth doing: it would roughly double the evidence behind the
-combat model, and the failure is specific enough to chase directly.
+- **The header is the same.** Both are id, players, token count, player mask,
+  declared length, planet, x, y in 14 bytes, and both declared lengths match
+  the block exactly.
+- **The token layout is the same**, 29 bytes each, and both records' tokens end
+  at offset `0x48`.
+- **The action framing is exact.** `0x0f05` leaves 40 bytes after its tokens,
+  and 4 actions of 6 bytes plus 2 kills of 8 consume 40 precisely. The stream
+  is not running off the end.
+
+So the divergence is in what the fields *mean*, not where they sit.
+
+### Where the values go wrong
+
+Exodus `0x0d01` action 1 packs as `0x0170`: low byte `0x70` gives round 0 and
+range 7, high byte `0x01` gives target 1. Sensible for a two-token battle.
+
+`0x0f05` action 0 packs as `0x8100`: round 0, range 0, and **target 129** in a
+battle with two tokens. Its first kill record decodes to 0 ships killed with
+20,481 shield damage and 22,273 damage — all three implausible.
+
+Masking the target to seven bits gives 1, which would be the other token, but
+that does not rescue the later actions and is a guess rather than a reading.
+
+### The leads worth following
+
+- `0x0f05` is fought at `planet = 0xffff` — **deep space**, where every Exodus
+  battle has a real planet id. A battle with no planet may record differently.
+- `0x0225` has **four tokens**, and its tokens carry `design = 23` with
+  `object_class = 1`, where every Exodus token has `object_class = 2` and a
+  design below 16. Design 23 is a *starbase* slot under the numbering recovered
+  in `ai.md`, and a starbase never moves — so the movement and range invariants
+  may simply not apply to it, and the object class may be what says so.
+
+Both leads point at the same thing: the recordings in this corpus cover cases
+Exodus never produced, and the format was recovered from Exodus alone.
+
+Until this is settled the two tests that check these invariants stay on the
+Exodus corpus, with a comment saying why. The three that do not depend on them
+— starting squares, the two-player layout, and the replays — use the full
+corpus. The replay figures are unchanged by the larger corpus, because those
+tests only accept battles where every token is a design the file holds in full
+and nothing carries a torpedo, and few of the new records qualify.
