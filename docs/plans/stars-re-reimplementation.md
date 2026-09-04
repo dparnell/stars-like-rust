@@ -288,10 +288,14 @@ Remaining in this step:
    coordinates and a planet's position lives in the `.xy` file rather than in
    `GameState`. This does not move the Exodus replay, which queues five ship
    entries in forty turns; the sixteen-AI corpus is where ships are built.
-   Cargo transfer, colonisation and remote mining remain, and cargo transfer
-   is the likeliest driver of the 27% surface-mineral figure — freighters
-   loading and unloading minerals at planets is the one large unmodelled
-   consumer left.
+   **Cargo transfer is decoded** (`docs/formats/cargo.md`): it is not the
+   waypoint's Transport task, which is consumed on execution and reads 0 on all
+   50,173 waypoints in the fixtures, but block types 1, 2, 23 and 25 in the `.x`
+   order files. Ids and quantities decode; the two mode bytes are constant
+   across every sample and are exposed raw. It is **not** the cause of the 27%
+   surface-mineral figure, as previously supposed — every recorded planet
+   transfer moves colonists, not minerals — so that gap needs a fresh
+   diagnosis. Colonisation and remote mining remain unprocessed.
 3. **Torpedo combat resolution**, which needs the RNG in the right state, and
    the residual movement-scoring gap (`docs/formulas/combat.md`).
 4. **Terraforming** — the reach model is recovered and verified (96% of 10,165
