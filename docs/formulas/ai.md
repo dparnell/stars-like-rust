@@ -274,8 +274,9 @@ planet-year pairs:
 | exact counts, where it built | 2699 of 7764 (34%) |
 | exact counts, nothing else queued | 2565 of 6458 (39%) |
 
-*When* the AI builds is reproduced almost exactly; *how much* is right about a
-third of the time.
+*When* the AI builds is reproduced almost exactly. *How much* reads as a third
+here, but that figure is contaminated — see below, where isolating the decision
+from production raises it to 72%.
 
 Two controls, because the headline number is misleading on its own. Overall
 agreement is 62%, and simply predicting "nothing is ever built" scores 63% —
@@ -283,14 +284,56 @@ most planet-years build nothing, so that comparison says nothing either way.
 Scoring each prediction against a different planet's outcome from the same year
 gives 33%. The split above is the measure that carries information.
 
-Part of the residual is structural rather than a transcription error: the queue
-is chosen from one year's resources but built from the next year's, after
-anything else queued takes its share. Restricting to planets with nothing else
-queued moves exact counts from 34% to only 39%, so most of the gap lies
-elsewhere. The likely candidates are the estimated mining in
-`GetResourcesAvailable` and the planet's resource output, both of which the
-whole-turn replay already shows are imperfect (67% on mines, 71% on factories)
-— which means this may improve for free as the economy does.
+### The 34% is mostly the observable, not the routine
+
+Part of the residual is structural rather than a transcription error, and a
+larger part than an earlier revision of this document allowed. That revision
+noted "the queue is chosen from one year's resources but built from the next
+year's, after anything else queued takes its share", tried the empty-queue
+control alone, saw it move exact counts only 34% → 39%, and concluded most of
+the gap lay in the economy. The empty-queue control on its own is not enough,
+because it does not remove the biggest competitor for a planet's resources:
+**ships**.
+
+`FFillProdMinesAndFactories(PLANET *lppl)` takes the planet and nothing else —
+no resource budget is threaded into it, unlike `FQueueAiTerraforming`, which
+receives `rgResAvail` and `rgResCost`. So the routine decides a count in
+ignorance of what else the planet is building, and `Produce` then works the
+queue in order. On a planet with a starbase, ships are queued ahead of the
+installations and take their share first, so the *change in building counts* —
+the observable — is production's output, not the AI's decision.
+
+Removing both competitors at once isolates the decision. On the 7,997
+planet-year pairs with **no starbase and an empty queue**, where the AI's
+decision and the year's building are the same quantity:
+
+| measure | result |
+|---------|--------|
+| both counts exact | 5,773 (**72%**) |
+| exact where it built | 2,369 of 4,015 (59%) |
+| factories exact | 6,397 (80%) |
+| mines exact | 5,961 (75%) |
+| *chance control* — same predictions, another clean planet's outcome | 2,168 (27%) |
+| *predict-nothing control* | 3,982 (49%) |
+
+72% against a 49% floor and a 27% chance rate is a materially different reading
+of the routine from "right about a third of the time". The headline 34% is a
+real number about *whole-turn outcomes* and is the right thing to quote when
+asking how well the pipeline reproduces a year; it is the wrong thing to quote
+when asking whether `FFillProdMinesAndFactories` is transcribed correctly.
+
+What is left is genuinely the model. On the clean subset the errors are
+
+```text
+factories (predicted - actual): {-1: 201, 0: 6397, 1: 113, ..., >=9: 330}
+mines     (predicted - actual): {-1:  18, 0: 5961, 1: 487, ..., >=9: 482}
+```
+
+Factory error is roughly symmetric; **mine error is not** — over-prediction
+dominates almost ten to one, and the single commonest wrong answer is one mine
+too many. That asymmetry is the next thing to chase, and it points at the mine
+count or its cost rather than at the shared resource estimate, which would move
+both alike.
 
 `cargo run --release -p stars-core --example ai_production --
 fixtures/games/all-computer-players` reproduces every figure here.

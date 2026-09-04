@@ -243,7 +243,7 @@ Measured against real save files:
 
 | check | result |
 |-------|--------|
-| whole-turn replay: planet population | 85% of 438 planet-years, self-contained |
+| whole-turn replay: planet population | 87% of 438 planet-years, self-contained |
 | whole-turn replay: mineral concentrations | 86% |
 | whole-turn replay: mines / factories | 67% / 71% |
 | whole-turn replay: surface minerals | 27% all three, 83% per mineral within 1 kT |
@@ -258,6 +258,10 @@ Measured against real save files:
 | battle replay, beam-only | 8 of 11 battles reproduce recorded casualties |
 | battle movement, beeline | 105 of 111 close on their target |
 | battle movement, scored | 379 of 450 among our best-rated (chance 72%) |
+| terraform reach | 37,712 of 37,743 axis-readings (99.9%) |
+| AI terraform order, fresh | 196 of 196 (100%) |
+| AI mine/factory decision, isolated | 5,773 of 7,997 (72%; chance 27%, floor 49%) |
+| `.xy` planet coordinates vs fleets in orbit | 43,769 of 43,769 exact |
 
 Remaining in this step:
 
@@ -288,6 +292,12 @@ Remaining in this step:
    coordinates and a planet's position lives in the `.xy` file rather than in
    `GameState`. This does not move the Exodus replay, which queues five ship
    entries in forty turns; the sixteen-AI corpus is where ships are built.
+   Planet **coordinates are now loaded** from the `.xy`
+   (`GameState::apply_universe`), so a planet with no fleet in orbit starts a
+   new one instead of dropping the ships. Wiring that up caught a decoding bug:
+   the `.xy` x chain starts at 1000, not 0 — confirmed because a fleet the
+   engine records as orbiting a planet must stand on it, and all 43,769 such
+   readings were off by exactly `(1000, 0)` before the fix and exact after.
    **Cargo transfer is decoded** (`docs/formats/cargo.md`): it is not the
    waypoint's Transport task, which is consumed on execution and reads 0 on all
    50,173 waypoints in the fixtures, but block types 1, 2, 23 and 25 in the `.x`

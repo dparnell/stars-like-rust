@@ -74,8 +74,16 @@ fn main() {
     let mut clear_exact = 0usize;
     let (mut nb_scored, mut nb_exact) = (0usize, 0usize);
     let (mut nb_built, mut nb_built_exact) = (0usize, 0usize);
+    // The clean subset: no starbase (so nothing else competes for resources)
+    // and an empty queue (so nothing was carried over). On these the AI's
+    // decision and the year's building are the same quantity.
+    let (mut clean_scored, mut clean_exact) = (0usize, 0usize);
+    let (mut clean_built, mut clean_built_exact) = (0usize, 0usize);
+    let (mut clean_nothing, mut clean_chance, mut clean_chance_total) = (0usize, 0usize, 0usize);
     let mut ferr: std::collections::BTreeMap<i32, usize> = std::collections::BTreeMap::new();
     let mut merr: std::collections::BTreeMap<i32, usize> = std::collections::BTreeMap::new();
+    let mut cferr: std::collections::BTreeMap<i32, usize> = std::collections::BTreeMap::new();
+    let mut cmerr: std::collections::BTreeMap<i32, usize> = std::collections::BTreeMap::new();
 
     for year in &years {
         let Ok(bytes) = std::fs::read(year.join("Game.hst")) else {
@@ -89,6 +97,8 @@ fn main() {
 
         // Score last year's predictions against this year's counts.
         let mut deltas: Vec<(i32, i32)> = Vec::new();
+        let mut clean_deltas: Vec<(i32, i32)> = Vec::new();
+        let mut clean_preds: Vec<(i32, i32)> = Vec::new();
         for planet in &state.planets {
             let Some(p) = pending.get(&planet.id) else {
                 continue;
@@ -132,6 +142,27 @@ fn main() {
                 .entry((p.factories - d_factories).clamp(-9, 9))
                 .or_default() += 1;
             *merr.entry((p.mines - d_mines).clamp(-9, 9)).or_default() += 1;
+            if !p.starbase && p.queue_was_clear {
+                clean_deltas.push((d_mines, d_factories));
+                clean_preds.push((p.mines, p.factories));
+                clean_scored += 1;
+                *cferr
+                    .entry((p.factories - d_factories).clamp(-9, 9))
+                    .or_default() += 1;
+                *cmerr.entry((p.mines - d_mines).clamp(-9, 9)).or_default() += 1;
+                if d_mines == 0 && d_factories == 0 {
+                    clean_nothing += 1;
+                }
+                if m && f {
+                    clean_exact += 1;
+                }
+                if d_mines != 0 || d_factories != 0 {
+                    clean_built += 1;
+                    if m && f {
+                        clean_built_exact += 1;
+                    }
+                }
+            }
             if !p.starbase {
                 nb_scored += 1;
                 if m && f {
@@ -182,6 +213,20 @@ fn main() {
             chance_total += 1;
             if p.mines == dm && p.factories == df {
                 chance_both += 1;
+            }
+        }
+
+        // The same control, drawn from and applied to the clean subset only, so
+        // the 72% below is compared against a like-for-like baseline.
+        for (mines, factories) in &clean_preds {
+            if clean_deltas.is_empty() {
+                break;
+            }
+            let i = (rng.next_raw().unsigned_abs() as usize) % clean_deltas.len();
+            let (dm, df) = clean_deltas[i];
+            clean_chance_total += 1;
+            if *mines == dm && *factories == df {
+                clean_chance += 1;
             }
         }
 
@@ -264,6 +309,29 @@ fn main() {
         "  exact, and nothing else was queued: {clear_exact} of {clear_built} ({}%)",
         pct(clear_exact, clear_built)
     );
+    println!(
+        "\non the {clean_scored} pairs with no starbase AND an empty queue — the only \
+         pairs where the AI's decision and the year's building are the same quantity:"
+    );
+    println!(
+        "  both exact:     {clean_exact} ({}%)",
+        pct(clean_exact, clean_scored)
+    );
+    println!(
+        "  exact where it built: {clean_built_exact} of {clean_built} ({}%)",
+        pct(clean_built_exact, clean_built)
+    );
+    println!(
+        "  chance control:  {clean_chance} of {clean_chance_total} ({}%) — same \
+         predictions, another clean planet's outcome",
+        pct(clean_chance, clean_chance_total)
+    );
+    println!(
+        "  predict-nothing: {clean_nothing} ({}%)",
+        pct(clean_nothing, clean_scored)
+    );
+    println!("  clean factory error: {cferr:?}");
+    println!("  clean mine error:    {cmerr:?}");
     println!(
         "\non the {nb_scored} pairs at planets with no starbase (no shipbuilding \
          competing for resources):"
