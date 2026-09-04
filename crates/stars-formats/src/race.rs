@@ -124,6 +124,24 @@ impl Prt {
         }
     }
 
+    /// The PRT id stored at offset 76.
+    #[must_use]
+    pub fn id(self) -> u8 {
+        match self {
+            Self::HE => 0,
+            Self::SS => 1,
+            Self::WM => 2,
+            Self::CA => 3,
+            Self::IS => 4,
+            Self::SD => 5,
+            Self::PP => 6,
+            Self::IT => 7,
+            Self::AR => 8,
+            Self::JOAT => 9,
+            Self::Unknown(other) => other,
+        }
+    }
+
     /// The two/four-letter abbreviation used in the game and manual.
     #[must_use]
     pub fn abbrev(self) -> &'static str {
@@ -428,6 +446,65 @@ impl RaceRecord {
     }
 }
 
+/// Write the modelled race fields back into a type-6 payload.
+///
+/// The caller owns the buffer, which must already be at least
+/// [`CHECKBOX_OFFSET`] + 1 bytes: this writes the fields it models over
+/// whatever is there and leaves everything else — the player header, the
+/// research state, the bytes nothing has identified — untouched. That is what
+/// makes [`crate::PlayerRecord::encode`] an exact inverse of its decoder:
+/// re-encoding a record nobody edited writes the same bytes back.
+///
+/// The names are **not** written here; they live after the player-relations
+/// table and are the caller's to place.
+pub fn write_race_fields(race: &RaceRecord, data: &mut [u8]) {
+    if data.len() <= CHECKBOX_OFFSET {
+        return;
+    }
+    data[PLAYER_ID_OFFSET] = race.player_id;
+
+    for (i, range) in [race.gravity, race.temperature, race.radiation]
+        .into_iter()
+        .enumerate()
+    {
+        data[HAB_CENTER_OFFSET + i] = range.center.unwrap_or(0xFF);
+        data[HAB_LOW_OFFSET + i] = range.low.unwrap_or(0xFF);
+        data[HAB_HIGH_OFFSET + i] = range.high.unwrap_or(0xFF);
+    }
+    data[GROWTH_RATE_OFFSET] = race.growth_rate;
+
+    if race.full_data {
+        data[FLAGS_OFFSET] |= FULL_DATA_FLAG;
+    } else {
+        data[FLAGS_OFFSET] &= !FULL_DATA_FLAG;
+    }
+    data[RESEARCH_PERCENTAGE_OFFSET] = race.research_percentage;
+
+    let e = race.economy;
+    data[ECONOMY_OFFSET] = e.resource_per_colonist;
+    data[ECONOMY_OFFSET + 1] = e.produce_per_factory;
+    data[ECONOMY_OFFSET + 2] = e.factory_build_cost;
+    data[ECONOMY_OFFSET + 3] = e.factories_operated;
+    data[ECONOMY_OFFSET + 4] = e.produce_per_mine;
+    data[ECONOMY_OFFSET + 5] = e.mine_build_cost;
+    data[ECONOMY_OFFSET + 6] = e.mines_operated;
+    data[SPEND_LEFTOVER_OFFSET] = race.spend_leftover_points;
+    data[RESEARCH_COST_OFFSET..RESEARCH_COST_OFFSET + 6].copy_from_slice(&race.research_cost);
+
+    data[PRT_OFFSET] = race.prt.id();
+    data[LRT_OFFSET..LRT_OFFSET + 2].copy_from_slice(&race.lrt_bits.to_le_bytes());
+
+    let mut checkbox = data[CHECKBOX_OFFSET]
+        & !(CHECKBOX_EXPENSIVE_TECH_AT_3 | CHECKBOX_FACTORIES_COST_1_LESS_GERM);
+    if race.expensive_tech_starts_at_level_3 {
+        checkbox |= CHECKBOX_EXPENSIVE_TECH_AT_3;
+    }
+    if race.factories_cost_one_less_germanium {
+        checkbox |= CHECKBOX_FACTORIES_COST_1_LESS_GERM;
+    }
+    data[CHECKBOX_OFFSET] = checkbox;
+}
+
 /// Locate and decode the singular/plural race names from a decrypted type-6
 /// record. Returns empty strings for any field whose framing runs past the end
 /// of the record (a truncated/unknown layout) rather than panicking.
@@ -462,8 +539,21 @@ fn decode_race_names(data: &[u8]) -> (String, String) {
         return (String::new(), String::new());
     }
     let singular = strings::decode_field(&data[index..=singular_end]);
-    // Plural field is the rest of the record, again [len][packed...].
-    let plural = strings::decode_field(&data[singular_end + 1..]);
+    // The plural field is framed the same way, and its own length byte says
+    // where it ends: a record can carry padding after it, and reading to the
+    // end of the block would decode that padding as part of the name.
+    let plural_at = singular_end + 1;
+    let plural = match data.get(plural_at) {
+        Some(&len) => {
+            let end = plural_at + len as usize;
+            if end < data.len() {
+                strings::decode_field(&data[plural_at..=end])
+            } else {
+                String::new()
+            }
+        }
+        None => String::new(),
+    };
     (singular, plural)
 }
 

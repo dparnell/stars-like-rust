@@ -33,8 +33,14 @@
 //! field lands at the *same absolute offset* as in a `.rN` file, so
 //! [`RaceRecord::from_payload`] decodes it directly.
 //!
-//! Like the other record decoders this is an *interpreted, read-only view*;
-//! byte-exact write-back still goes through the container in [`crate::file`].
+//! [`PlayerRecord::encode`] is an exact inverse of
+//! [`PlayerRecord::from_payload`]. The player block is the widest record in the
+//! format and a good deal of its fixed region is still unidentified — the
+//! home-planet id and the AI salt at offsets 8-15 are known, the thirty bytes
+//! from 82 to 111 are not — so the record keeps that region verbatim in
+//! [`PlayerRecord::fixed`] and re-encodes by writing the fields it *does* model
+//! back over it. Editing a decoded record therefore changes only what was
+//! edited, and a record built from scratch starts from zeros.
 
 use crate::file::StarsFile;
 use crate::race::RaceRecord;
@@ -107,7 +113,29 @@ pub struct PlayerRecord {
     /// Research state, present only when [`full_data`](Self::full_data) is set
     /// (it is all zero in a race-only `.rN` block).
     pub research: Option<ResearchState>,
+    /// The fixed region of the block exactly as read: the whole 112-byte
+    /// player/race struct for a full record, or the 8-byte header for a short
+    /// one.
+    ///
+    /// Kept because much of it is not modelled — the home-planet id at offset
+    /// 8, the AI salt at 12, and everything from 82 to 111 — and re-encoding
+    /// writes the modelled fields back over it rather than rebuilding it.
+    pub fixed: Vec<u8>,
+    /// Any bytes after the plural name, kept so the block re-encodes exactly.
+    pub trailing: Vec<u8>,
 }
+
+/// Offset of the length-prefixed player-relations table in a full record.
+pub const PLAYER_RELATIONS_OFFSET: usize = 0x70;
+
+/// Offset of the home-planet id (`PLAYER.idPlanetHome`), a 16-bit field.
+pub const HOME_PLANET_OFFSET: usize = 8;
+
+/// Offset of the per-player random salt (`PLAYER.lSalt`), a 32-bit field.
+///
+/// Zero for a human player; the computer players in the fixtures all carry
+/// `0x094DABEE`, the constant `GenerateWorld` writes.
+pub const SALT_OFFSET: usize = 12;
 
 impl PlayerRecord {
     /// Decode a **decrypted** type-6 player block payload.
@@ -123,6 +151,13 @@ impl PlayerRecord {
                 data.len()
             )));
         }
+
+        let fixed_len = if data[6] & 0x04 != 0 {
+            PLAYER_RELATIONS_OFFSET.min(data.len())
+        } else {
+            HEADER_LEN
+        };
+        let fixed = data[..fixed_len].to_vec();
 
         let player_number = data[0];
         let ship_design_count = data[1];
@@ -167,6 +202,17 @@ impl PlayerRecord {
             None => decode_short_names(data),
         };
 
+        // Where the names start, and so where anything after them begins.
+        let names_at = if full_data {
+            PLAYER_RELATIONS_OFFSET + player_relations.len() + 1
+        } else {
+            HEADER_LEN
+        };
+        let trailing = names_end(data, names_at)
+            .and_then(|end| data.get(end..))
+            .unwrap_or_default()
+            .to_vec();
+
         Ok(Self {
             player_number,
             ship_design_count,
@@ -181,8 +227,76 @@ impl PlayerRecord {
             singular_name,
             plural_name,
             research,
+            fixed,
+            trailing,
         })
     }
+
+    /// Re-encode this record as a type-6 block payload.
+    ///
+    /// Exact inverse of [`PlayerRecord::from_payload`] for every player block
+    /// in the fixtures — see `tests/round_trip.rs`.
+    ///
+    /// # Errors
+    /// [`FormatError::Malformed`] if a name does not fit its length byte.
+    pub fn encode(&self) -> Result<Vec<u8>> {
+        let fixed_len = if self.full_data {
+            PLAYER_RELATIONS_OFFSET
+        } else {
+            HEADER_LEN
+        };
+        let mut out = self.fixed.clone();
+        out.resize(fixed_len, 0);
+
+        out[0] = self.player_number;
+        out[1] = self.ship_design_count;
+        out[2] = (self.planets & 0xFF) as u8;
+        out[3] = (out[3] & !0x03) | ((self.planets >> 8) & 0x03) as u8;
+        out[4] = (self.fleets & 0xFF) as u8;
+        out[5] =
+            (out[5] & 0x0C) | ((self.fleets >> 8) & 0x03) as u8 | (self.starbase_design_count << 4);
+        out[6] = (self.logo << 3) | (u8::from(self.full_data) << 2) | (out[6] & 0x03);
+        out[7] = self.flags_byte;
+
+        if self.full_data {
+            if let Some(race) = &self.race {
+                crate::race::write_race_fields(race, &mut out);
+            }
+            if let Some(research) = &self.research {
+                write_research(research, &mut out);
+            }
+            out.push(u8::try_from(self.player_relations.len()).unwrap_or(u8::MAX));
+            out.extend_from_slice(&self.player_relations);
+        }
+
+        out.extend_from_slice(&crate::strings::encode_field(&self.singular_name)?);
+        out.extend_from_slice(&crate::strings::encode_field(&self.plural_name)?);
+        out.extend_from_slice(&self.trailing);
+        Ok(out)
+    }
+}
+
+/// Where the two packed name fields end, given where they start.
+fn names_end(data: &[u8], index: usize) -> Option<usize> {
+    let singular_len = usize::from(*data.get(index)?);
+    let plural_at = index + singular_len + 1;
+    let plural_len = usize::from(*data.get(plural_at)?);
+    Some(plural_at + plural_len + 1)
+}
+
+/// Write the research state back into a full-data payload.
+fn write_research(research: &ResearchState, data: &mut [u8]) {
+    if data.len() < 62 {
+        return;
+    }
+    data[26..32].copy_from_slice(&research.levels);
+    for (i, points) in research.points.iter().enumerate() {
+        let o = 32 + i * 4;
+        data[o..o + 4].copy_from_slice(&points.to_le_bytes());
+    }
+    data[56] = research.budget_pct;
+    data[57] = (research.current_field & 0x0F) | (research.next_field << 4);
+    data[58..62].copy_from_slice(&research.last_year_resources.to_le_bytes());
 }
 
 /// Decode the research fields of a full-data player block.
@@ -230,7 +344,19 @@ fn decode_short_names(data: &[u8]) -> (String, String) {
         return (String::new(), String::new());
     }
     let singular = strings::decode_field(&data[index..=singular_end]);
-    let plural = strings::decode_field(&data[singular_end + 1..]);
+    // The plural field's own length byte bounds it; see `race::decode_race_names`.
+    let plural_at = singular_end + 1;
+    let plural = match data.get(plural_at) {
+        Some(&len) => {
+            let end = plural_at + len as usize;
+            if end < data.len() {
+                strings::decode_field(&data[plural_at..=end])
+            } else {
+                String::new()
+            }
+        }
+        None => String::new(),
+    };
     (singular, plural)
 }
 

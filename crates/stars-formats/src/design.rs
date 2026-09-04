@@ -16,11 +16,12 @@
 //! Maria* colony ship (hull 15), *Stalwart Defender* (hull 6, 7 slots), and the
 //! shared *Starbase* (hull 34, 12 slots, armor 1000).
 //!
-//! This is an *interpreted, read-only view*; byte-exact write-back still goes
-//! through the container in [`crate::file`]. The design's *mass* and *fuel
-//! capacity* of a full design are **computed** by the game from a hull/component
-//! table that this formats crate does not carry, so they are intentionally not
-//! surfaced for full designs (only the directly-stored partial-design mass is).
+//! [`DesignRecord::encode`] is an exact inverse of
+//! [`DesignRecord::from_payload`], including the packed design name — see
+//! [`crate::strings`]. The design's *mass* and *fuel capacity* of a full design
+//! are **computed** by the game from a hull/component table that this formats
+//! crate does not carry, so they are intentionally not surfaced for full
+//! designs (only the directly-stored partial-design mass is).
 
 use crate::block::BlockType;
 use crate::file::StarsFile;
@@ -70,6 +71,13 @@ pub struct DesignRecord {
     pub slots: Vec<Slot>,
     /// Design name (e.g. `"Armed Probe"`, `"Starbase"`).
     pub name: String,
+    /// Byte 0 with the `fullData` bit cleared: flags this module does not
+    /// interpret.
+    pub flags0: u8,
+    /// Bits 0..=1 of byte 1, which this module does not interpret.
+    pub flags1: u8,
+    /// Any bytes after the name field, kept so the block re-encodes exactly.
+    pub trailing: Vec<u8>,
 }
 
 fn read16(d: &[u8], o: usize) -> Option<u16> {
@@ -176,6 +184,10 @@ impl DesignRecord {
             ));
         }
         let name = strings::decode_field(&data[index..=name_end.min(data.len() - 1)]);
+        let trailing = data
+            .get(index + name_len + 1..)
+            .unwrap_or_default()
+            .to_vec();
 
         Ok(Self {
             full_design,
@@ -191,7 +203,49 @@ impl DesignRecord {
             total_remaining,
             slots,
             name,
+            flags0: byte0 & !0x04,
+            flags1: byte1 & 0x03,
+            trailing,
         })
+    }
+
+    /// Re-encode this design as a type-26 block payload.
+    ///
+    /// Exact inverse of [`DesignRecord::from_payload`] for every design block
+    /// in the fixtures — see `tests/round_trip.rs`.
+    ///
+    /// # Errors
+    /// [`FormatError::Malformed`] if the name does not fit its length byte.
+    pub fn encode(&self) -> Result<Vec<u8>> {
+        let mut out = Vec::with_capacity(48);
+        out.push(self.flags0 | (u8::from(self.full_design) << 2));
+        out.push(
+            self.flags1
+                | ((self.design_number & 0x0F) << 2)
+                | (u8::from(self.starbase) << 6)
+                | (u8::from(self.transferred) << 7),
+        );
+        out.push(self.hull_id);
+        out.push(self.pic);
+
+        if self.full_design {
+            out.extend_from_slice(&self.armor.unwrap_or(0).to_le_bytes());
+            out.push(u8::try_from(self.slots.len()).unwrap_or(u8::MAX));
+            out.extend_from_slice(&self.turn_designed.unwrap_or(0).to_le_bytes());
+            out.extend_from_slice(&self.total_built.unwrap_or(0).to_le_bytes());
+            out.extend_from_slice(&self.total_remaining.unwrap_or(0).to_le_bytes());
+            for slot in &self.slots {
+                out.extend_from_slice(&slot.category.to_le_bytes());
+                out.push(slot.item_id);
+                out.push(slot.count);
+            }
+        } else {
+            out.extend_from_slice(&self.mass.unwrap_or(0).to_le_bytes());
+        }
+
+        out.extend_from_slice(&strings::encode_field(&self.name)?);
+        out.extend_from_slice(&self.trailing);
+        Ok(out)
     }
 }
 

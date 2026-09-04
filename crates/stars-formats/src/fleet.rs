@@ -13,9 +13,14 @@
 //! owner's homeworld (owner 0 → planet 69, owner 1 → 112, owner 2 → 32) and
 //! carry a single ship.
 //!
-//! Like [`crate::planet`], this is a read-only *interpreted view*, not used for
-//! re-encoding (write-back goes through the byte-exact container in
-//! [`crate::file`]).
+//! [`FleetRecord::encode`] is an exact inverse of [`FleetRecord::decode`]:
+//! every fleet block in the fixtures re-encodes byte for byte. Three details
+//! make that non-trivial. The **ship-count width** is a flag in the block
+//! (`fByteCsh`), not something to be inferred from the values, so it is kept.
+//! The **ship bitmask** can name a design slot whose count is zero, so the mask
+//! is kept rather than rebuilt from the stacks. And the **cargo hold** is
+//! length-prefixed the same way a planet's surface minerals are: the shortest
+//! width that holds each value.
 
 use crate::block::BlockType;
 use crate::file::StarsFile;
@@ -77,6 +82,10 @@ pub struct FleetRecord {
     pub repeat_orders: bool,
     /// `fDead` — the fleet was destroyed this turn.
     pub dead: bool,
+    /// `fByteCsh` — ship counts are one byte each rather than two.
+    pub byte_counts: bool,
+    /// Bits 4..=7 of the flags byte, which this module does not interpret.
+    pub flags_high: u8,
     /// Planet id this fleet is orbiting (0-based), or `None` if it is in deep
     /// space (stored id `65535`).
     pub orbiting: Option<u16>,
@@ -84,6 +93,11 @@ pub struct FleetRecord {
     pub x: u16,
     /// Galaxy y position.
     pub y: u16,
+    /// Which design slots the block stores a count for.
+    ///
+    /// Kept alongside [`Self::ships`] because a block may name a slot whose
+    /// count is zero, and [`Self::ships`] holds only the non-empty ones.
+    pub ship_slots: u16,
     /// Ship stacks present in the fleet (only non-empty design slots).
     pub ships: Vec<ShipStack>,
     /// Cargo hold, present at detail >= 4.
@@ -103,6 +117,13 @@ pub struct FleetRecord {
     pub warp: Option<u8>,
     /// Total mass estimate, in kilotons (partial fleets only).
     pub mass: Option<u32>,
+    /// Bits 4..=7 of the partial form's warp byte, uninterpreted.
+    pub warp_high: u8,
+    /// The byte after the warp byte in the partial form, uninterpreted.
+    pub partial_unused: u8,
+    /// Any bytes after the last field this module understands, kept so the
+    /// block re-encodes exactly.
+    pub trailing: Vec<u8>,
 }
 
 /// Orbit-planet field value that marks a fleet in deep space.
@@ -224,9 +245,12 @@ impl FleetRecord {
             include,
             repeat_orders,
             dead,
+            byte_counts: f_byte_csh == 1,
+            flags_high: byte5 >> 4,
             orbiting,
             x,
             y,
+            ship_slots: ship_bitmask,
             ships,
             cargo,
             battle_plan: None,
@@ -236,6 +260,9 @@ impl FleetRecord {
             delta_y: None,
             warp: None,
             mass: None,
+            warp_high: 0,
+            partial_unused: 0,
+            trailing: Vec::new(),
         };
 
         if detail == 7 {
@@ -256,25 +283,142 @@ impl FleetRecord {
             record.battle_plan = Some(*data.get(index)?);
             index += 1;
             record.waypoint_count = Some(*data.get(index)?);
-            // index += 1; // last field consumed
+            index += 1;
         } else if type_id != 16 {
             // Partial fleet (rtFleetB/C): direction + mass estimate.
             let dx = *data.get(index)? as i8;
             index += 1;
             let dy = *data.get(index)? as i8;
             index += 1;
-            let warp = *data.get(index)? & 0x0F;
+            let warp_byte = *data.get(index)?;
             index += 1; // warp/flags byte
+            record.partial_unused = *data.get(index)?;
             index += 1; // unused byte
             let mass = read32(data, index)?;
-            // index += 4; // last field consumed
+            index += 4;
             record.delta_x = Some(dx);
             record.delta_y = Some(dy);
-            record.warp = Some(warp);
+            record.warp = Some(warp_byte & 0x0F);
+            record.warp_high = warp_byte >> 4;
             record.mass = Some(mass);
         }
 
+        record.trailing = data.get(index..).unwrap_or_default().to_vec();
         Some(record)
+    }
+
+    /// Re-encode this record as a fleet block payload.
+    ///
+    /// Exact inverse of [`FleetRecord::decode`] for every fleet block in the
+    /// fixtures — see `tests/round_trip.rs`.
+    #[must_use]
+    pub fn encode(&self, type_id: u8) -> Vec<u8> {
+        let mut out = Vec::with_capacity(32);
+        let id_word = (self.id & 0x01FF) | ((u16::from(self.owner) & 0x0F) << 9);
+        out.extend_from_slice(&id_word.to_le_bytes());
+        // `FLEET.iPlayer`: the owner repeated. Bits 13..=15 of the id word are
+        // `junk` in the NB09 struct. Both are as written here in all 459,430
+        // fleet blocks in the fixtures.
+        out.extend_from_slice(&u16::from(self.owner).to_le_bytes());
+        out.push(self.detail);
+        out.push(
+            u8::from(self.include)
+                | (u8::from(self.repeat_orders) << 1)
+                | (u8::from(self.dead) << 2)
+                | (u8::from(self.byte_counts) << 3)
+                | (self.flags_high << 4),
+        );
+        out.extend_from_slice(&self.orbiting.unwrap_or(ORBIT_NONE).to_le_bytes());
+        out.extend_from_slice(&self.x.to_le_bytes());
+        out.extend_from_slice(&self.y.to_le_bytes());
+        out.extend_from_slice(&self.ship_slots.to_le_bytes());
+
+        for bit in 0..16u8 {
+            if self.ship_slots & (1 << bit) == 0 {
+                continue;
+            }
+            let count = self
+                .ships
+                .iter()
+                .find(|s| s.design_slot == bit)
+                .map_or(0, |s| s.count);
+            if self.byte_counts {
+                out.push((count & 0xFF) as u8);
+            } else {
+                out.extend_from_slice(&count.to_le_bytes());
+            }
+        }
+
+        if self.detail >= 4 {
+            let c = self.cargo.unwrap_or_default();
+            let values = [
+                c.ironium,
+                c.boranium,
+                c.germanium,
+                c.population / 100,
+                c.fuel,
+            ];
+            let mut lengths = 0u16;
+            for (i, value) in values.iter().enumerate() {
+                lengths |= u16::from(seg_code(*value)) << (2 * i);
+            }
+            out.extend_from_slice(&lengths.to_le_bytes());
+            for value in values {
+                let n = seg_len(u16::from(seg_code(value)));
+                for byte in 0..n {
+                    out.push(((value >> (8 * byte)) & 0xFF) as u8);
+                }
+            }
+        }
+
+        if self.detail == 7 {
+            let mut mask = 0u16;
+            for d in &self.damage {
+                mask |= 1 << d.design_slot;
+            }
+            out.extend_from_slice(&mask.to_le_bytes());
+            for bit in 0..16u8 {
+                if mask & (1 << bit) == 0 {
+                    continue;
+                }
+                let d = self
+                    .damage
+                    .iter()
+                    .find(|d| d.design_slot == bit)
+                    .copied()
+                    .unwrap_or(ShipDamage {
+                        design_slot: bit,
+                        ships_pct: 0,
+                        armor_pct: 0,
+                    });
+                let v = u16::from(d.ships_pct) & 0x7F | ((d.armor_pct & 0x01FF) << 7);
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+            out.push(self.battle_plan.unwrap_or(0));
+            out.push(self.waypoint_count.unwrap_or(0));
+        } else if type_id != 16 {
+            out.push(self.delta_x.unwrap_or(0) as u8);
+            out.push(self.delta_y.unwrap_or(0) as u8);
+            out.push((self.warp.unwrap_or(0) & 0x0F) | (self.warp_high << 4));
+            out.push(self.partial_unused);
+            out.extend_from_slice(&self.mass.unwrap_or(0).to_le_bytes());
+        }
+
+        out.extend_from_slice(&self.trailing);
+        out
+    }
+}
+
+/// The two-bit code for the shortest field that holds `value`.
+fn seg_code(value: u32) -> u8 {
+    if value == 0 {
+        0
+    } else if value <= 0xFF {
+        1
+    } else if value <= 0xFFFF {
+        2
+    } else {
+        3
     }
 }
 

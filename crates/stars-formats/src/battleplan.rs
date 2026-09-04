@@ -24,8 +24,8 @@
 //! | 4      | 1 byte      | name length                                    |
 //! | 5..    | var         | packed name (Stars! nibble encoding)           |
 //!
-//! Like the other record decoders this is an *interpreted, read-only view*;
-//! byte-exact write-back still goes through the container in [`crate::file`].
+//! [`BattlePlanRecord::encode`] is an exact inverse of
+//! [`BattlePlanRecord::from_payload`], packed name included.
 
 use crate::block::BlockType;
 use crate::file::StarsFile;
@@ -54,6 +54,8 @@ pub struct BattlePlanRecord {
     pub attack_who: u8,
     /// Plan name (e.g. `"Default"`, `"Kill Starbase"`).
     pub name: String,
+    /// Any bytes after the name field, kept so the block re-encodes exactly.
+    pub trailing: Vec<u8>,
 }
 
 impl BattlePlanRecord {
@@ -94,7 +96,26 @@ impl BattlePlanRecord {
             secondary_target,
             attack_who,
             name,
+            trailing: data
+                .get(HEADER_LEN + name_len + 1..)
+                .unwrap_or_default()
+                .to_vec(),
         })
+    }
+
+    /// Re-encode this battle plan as a type-30 block payload.
+    ///
+    /// # Errors
+    /// [`FormatError::Malformed`] if the name does not fit its length byte.
+    pub fn encode(&self) -> Result<Vec<u8>> {
+        let mut out = Vec::with_capacity(16);
+        out.push((self.race_id & 0x0F) | (self.plan_id << 4));
+        out.push(self.tactic);
+        out.push((self.primary_target & 0x0F) | (self.secondary_target << 4));
+        out.push(self.attack_who);
+        out.extend_from_slice(&strings::encode_field(&self.name)?);
+        out.extend_from_slice(&self.trailing);
+        Ok(out)
     }
 }
 

@@ -25,11 +25,13 @@
 //! (`" aehilnorst"`), the rest of the printable set into two nibbles, and fall
 //! back to a raw byte (`0xF` escape) for anything else.
 //!
-//! This decoder is **read-only**: like [`crate::race::RaceRecord`], it is a
-//! typed *view* over verified fields. Re-encoding a file still goes through the
-//! byte-exact cipher container in [`crate::file`], so a string encoder is not
-//! needed for round-tripping and is intentionally omitted (the original
-//! `charToNibble` in `StarsBlock.pm` is likewise marked untested).
+//! [`encode_field`] is the inverse. Each character has exactly one table
+//! entry — the five tables partition the printable set without overlap — so
+//! the only choice an encoder makes is what to do with a leftover nibble when
+//! the stream is an odd length. Padding with `0xF` is what the real files do:
+//! the escape reads its two following nibbles, finds the block has ended, and
+//! emits nothing, so a `0xF` tail is invisible to the decoder. Every packed
+//! string in the fixtures re-encodes byte for byte under that rule.
 
 /// Single-nibble table: nibble values `0x0..=0xA` map directly to one of these
 /// eleven characters (space plus the ten most common lowercase letters).
@@ -118,9 +120,106 @@ fn decode_nibbles(nibbles: &[u8]) -> String {
     out
 }
 
+/// The nibbles one character encodes to.
+///
+/// Returns the single-nibble form when the character is one of the eleven in
+/// [`ENCODES_ONE`], the two-nibble form when it is in one of the four
+/// secondary tables, and the three-nibble `0xF` escape otherwise.
+fn char_nibbles(c: char) -> [Option<u8>; 3] {
+    let byte = if (c as u32) < 256 {
+        c as u8
+    } else {
+        b'?' // Nothing outside Latin-1 can be stored; keep it printable.
+    };
+    if let Some(i) = ENCODES_ONE.iter().position(|t| *t == byte) {
+        return [Some(i as u8), None, None];
+    }
+    for (lead, table) in [
+        (0x0Bu8, ENCODES_B),
+        (0x0C, ENCODES_C),
+        (0x0D, ENCODES_D),
+        (0x0E, ENCODES_E),
+    ] {
+        if let Some(i) = table.iter().position(|t| *t == byte) {
+            return [Some(lead), Some(i as u8), None];
+        }
+    }
+    [Some(0x0F), Some(byte & 0x0F), Some(byte >> 4)]
+}
+
+/// Encode a string into packed data bytes (without the length prefix).
+///
+/// Exact inverse of [`decode_packed`] for every string the tables can express.
+#[must_use]
+pub fn encode_packed(text: &str) -> Vec<u8> {
+    let mut nibbles: Vec<u8> = Vec::with_capacity(text.len() * 2);
+    for c in text.chars() {
+        for nibble in char_nibbles(c).into_iter().flatten() {
+            nibbles.push(nibble);
+        }
+    }
+    // An odd stream is padded with the escape nibble, which the decoder drops
+    // because the two nibbles it would read are past the end.
+    if nibbles.len() % 2 == 1 {
+        nibbles.push(0x0F);
+    }
+    nibbles
+        .chunks(2)
+        .map(|pair| (pair[0] << 4) | pair[1])
+        .collect()
+}
+
+/// Encode a string as a packed string **field**: a length byte followed by the
+/// packed data.
+///
+/// # Errors
+/// [`crate::FormatError::Malformed`] if the packed form is longer than the
+/// 255 bytes a length byte can count.
+pub fn encode_field(text: &str) -> crate::Result<Vec<u8>> {
+    let packed = encode_packed(text);
+    let len = u8::try_from(packed.len()).map_err(|_| {
+        crate::FormatError::Malformed(format!(
+            "packed string is {} bytes, more than a length byte can count",
+            packed.len()
+        ))
+    })?;
+    let mut out = Vec::with_capacity(packed.len() + 1);
+    out.push(len);
+    out.extend_from_slice(&packed);
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strings_round_trip_through_the_tables() {
+        for text in [
+            "",
+            "a",
+            "Armed Probe",
+            "Santa Maria",
+            "Long Range Scout",
+            "M.T. Lifeboat",
+            "Smaugarian Peeping Tom",
+            "Humanoid",
+            "0123456789",
+            "punctuation +-,!.?:;'*%$",
+            "MiXeD CaSe 42",
+        ] {
+            let field = encode_field(text).expect("short enough");
+            assert_eq!(decode_field(&field), text, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn an_odd_nibble_count_pads_invisibly() {
+        // "a" is one nibble; the pad must not add a character.
+        let field = encode_field("a").expect("short enough");
+        assert_eq!(field.len(), 2, "one length byte plus one packed byte");
+        assert_eq!(decode_field(&field), "a");
+    }
 
     #[test]
     fn empty_and_length_only_fields_decode_to_empty() {

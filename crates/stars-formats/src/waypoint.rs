@@ -27,8 +27,10 @@
 //! | 7      | 1    | target object type                                |
 //! | 8..    | var  | task-specific extra bytes (present when `task > 0`)|
 //!
-//! Like the other record decoders this is an *interpreted, read-only view*;
-//! byte-exact write-back still goes through the container in [`crate::file`].
+//! [`WaypointRecord::encode`] is an exact inverse of
+//! [`WaypointRecord::decode`]: byte 7 is kept verbatim (the three fields
+//! derived from it are views on it) and the task payload is kept as a tail, so
+//! every waypoint block in the fixtures re-encodes byte for byte.
 
 use crate::block::BlockType;
 use crate::file::StarsFile;
@@ -154,6 +156,13 @@ const OBJECT_NONE: u16 = 0xFFFF;
 /// The fixed 8-byte waypoint header length.
 const HEADER_LEN: usize = 8;
 
+/// Block type of a taskless waypoint (`rtOrderB`): the eight-byte header alone.
+pub const WAYPOINT_BLOCK: u8 = 20;
+
+/// Block type of a waypoint carrying a task (`rtOrderA`): header plus the
+/// ten-byte `ORDER` task union.
+pub const WAYPOINT_TASK_BLOCK: u8 = 19;
+
 fn read16(d: &[u8], o: usize) -> Option<u16> {
     Some(u16::from_le_bytes([*d.get(o)?, *d.get(o + 1)?]))
 }
@@ -194,6 +203,37 @@ impl WaypointRecord {
             task,
             task_data,
         })
+    }
+
+    /// Re-encode this waypoint as a block payload.
+    ///
+    /// Exact inverse of [`WaypointRecord::decode`] for every waypoint block in
+    /// the fixtures. The block type follows from the payload length, which is
+    /// what [`Self::block_type`] reports.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(HEADER_LEN + self.task_data.len());
+        out.extend_from_slice(&self.x.to_le_bytes());
+        out.extend_from_slice(&self.y.to_le_bytes());
+        out.extend_from_slice(&self.object_id.unwrap_or(OBJECT_NONE).to_le_bytes());
+        out.push((self.task & 0x0F) | (self.warp << 4));
+        out.push(self.object_type);
+        out.extend_from_slice(&self.task_data);
+        out
+    }
+
+    /// Which block type this waypoint is written as.
+    ///
+    /// A waypoint with no task payload is a type-20 block (`rtOrderB`, the
+    /// eight-byte header alone); one with a payload is type 19 (`rtOrderA`,
+    /// the header plus the ten-byte task union).
+    #[must_use]
+    pub fn block_type(&self) -> u8 {
+        if self.task_data.is_empty() {
+            WAYPOINT_BLOCK
+        } else {
+            WAYPOINT_TASK_BLOCK
+        }
     }
 
     /// The Transport task's instructions, if this waypoint carries one.

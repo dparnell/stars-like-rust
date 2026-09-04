@@ -136,9 +136,10 @@ pub fn planet_from_record(record: &PlanetRecord) -> Option<Planet> {
             ]
         }),
         min_conc: [conc.ironium, conc.boranium, conc.germanium],
-        // The sub-concentration accumulator is not stored per planet in the
-        // formats decoded so far; it starts full.
-        min_level: [0, 0, 0],
+        // The sub-concentration decay accumulators, in 1/256ths. A planet
+        // block stores one byte per mineral whose accumulator is non-zero and
+        // omits the rest; `0` is what the mining formula reads as "full".
+        min_level: record.min_level,
         surface_min: [
             i32::try_from(surface.ironium).unwrap_or(0),
             i32::try_from(surface.boranium).unwrap_or(0),

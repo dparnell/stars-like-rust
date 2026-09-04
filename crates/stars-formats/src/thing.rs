@@ -17,8 +17,10 @@
 //! against the real sample games: every count record in the fixtures is
 //! followed by exactly `count` 18-byte thing records (see `docs/formats/thing.md`).
 //!
-//! Like the other record decoders this is a read-only *interpreted view*;
-//! byte-exact write-back still goes through the container in [`crate::file`].
+//! [`Thing::encode`] is an exact inverse of [`Thing::decode`]. The ten-byte
+//! subtype union is kept verbatim in [`Thing::union`] and re-emitted from
+//! there, so [`Thing::kind`] is a *view* on it: editing the typed variant does
+//! not change what is written.
 
 use crate::block::BlockType;
 use crate::file::StarsFile;
@@ -159,8 +161,12 @@ pub struct Thing {
     pub x: i16,
     /// Current y position (`pt.y`).
     pub y: i16,
-    /// The subtype-specific payload.
+    /// The subtype-specific payload, decoded. A **view** on [`Self::union`];
+    /// see the module docs.
     pub kind: ThingKind,
+    /// The ten-byte subtype union exactly as stored, which is what
+    /// [`Self::encode`] writes.
+    pub union: [u8; 10],
     /// Turn the object was last updated (`turn`).
     pub turn: u16,
 }
@@ -244,6 +250,8 @@ impl Thing {
                 ThingKind::Unknown(raw)
             }
         };
+        let mut union = [0u8; 10];
+        union.copy_from_slice(u);
         Some(Self {
             id,
             player,
@@ -252,8 +260,27 @@ impl Thing {
             x,
             y,
             kind,
+            union,
             turn: u16le(data, 16),
         })
+    }
+
+    /// Re-encode this object as an 18-byte `THING` payload.
+    ///
+    /// Exact inverse of [`Thing::decode`] for every thing record in the
+    /// fixtures.
+    #[must_use]
+    pub fn encode(&self) -> [u8; THING_SIZE] {
+        let mut out = [0u8; THING_SIZE];
+        let id_full = (self.id & 0x01FF)
+            | ((u16::from(self.player) & 0x0F) << 9)
+            | ((u16::from(self.ith) & 0x07) << 13);
+        out[0..2].copy_from_slice(&id_full.to_le_bytes());
+        out[2..4].copy_from_slice(&self.x.to_le_bytes());
+        out[4..6].copy_from_slice(&self.y.to_le_bytes());
+        out[6..16].copy_from_slice(&self.union);
+        out[16..18].copy_from_slice(&self.turn.to_le_bytes());
+        out
     }
 }
 

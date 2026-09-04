@@ -15,9 +15,19 @@
 //! and the Humanoid player's homeworld reads the perfectly-centred environment
 //! `50/50/50`.
 //!
-//! Like [`crate::race`], this is an *interpreted view* used for analysis and the
-//! simulation core, **not** for re-encoding — write-back still goes through the
-//! byte-exact container in [`crate::file`].
+//! [`PlanetRecord::encode`] is an exact inverse of [`PlanetRecord::decode`]:
+//! every planet block in the fixtures re-encodes byte for byte, which is what
+//! lets this crate write a `.hst` or `.mN` it did not read. Two sections make
+//! that non-trivial and are worth stating:
+//!
+//! * The **concentration-decay** section is a presence bitmask followed by one
+//!   byte per mineral whose accumulator is non-zero. Across all 266,403 planet
+//!   blocks in the fixtures each two-bit field of that mask reads only `0` or
+//!   `1`, and no stored byte is `0`, so "present exactly when non-zero" is a
+//!   faithful rule rather than a guess.
+//! * **Surface minerals and population** are length-prefixed: two bits each
+//!   select 0, 1, 2 or 4 bytes. Only 0, 1 and 2 occur, and the length chosen is
+//!   always the shortest that holds the value.
 
 use crate::block::BlockType;
 use crate::file::StarsFile;
@@ -74,6 +84,15 @@ pub struct Installations {
     pub artifact: bool,
     /// Whether the planet is flagged "don't contribute to research".
     pub no_research: bool,
+    /// The NB09 `unused5` bitfield (bits 17-21 of the second word).
+    ///
+    /// Named "unused" in the debug symbols and zero in every planet block in
+    /// the fixtures but one, which carries `22`. Kept so that block re-encodes.
+    pub unused5: u8,
+    /// The NB09 `unused2` bitfield (bits 24-31 of the second word). Zero
+    /// everywhere in the fixtures but the same single block, which carries
+    /// `11`.
+    pub unused2: u8,
 }
 
 /// A planet's starbase, when present and visible.
@@ -100,6 +119,10 @@ pub struct Starbase {
 /// installations and (if built) a starbase.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlanetRecord {
+    /// The block type this record came from, and re-encodes as: `13`
+    /// (`rtPlanetA`, a planet described in full), `14` (`rtPlanetB`, one seen
+    /// at a distance) or `15` (`rtPlanetC`, the header alone).
+    pub block_type: u8,
     /// Planet number (0-based), from the low 11 bits of the first word.
     pub id: u16,
     /// Owning player (0-based), or `None` if the planet is unowned (owner field
@@ -129,6 +152,13 @@ pub struct PlanetRecord {
     pub first_year: bool,
     /// Mineral concentrations of the crust (detail >= 3).
     pub concentration: Option<Concentration>,
+    /// Sub-concentration decay accumulators, in 1/256ths (`rgpctMinLevel`),
+    /// one per mineral.
+    ///
+    /// A mineral whose accumulator is `0` has no byte on disk at all — the
+    /// presence bitmask says so — and `0` is what the simulation reads as
+    /// "full", i.e. 256. See [`crate::planet`]'s module docs.
+    pub min_level: [u8; 3],
     /// Current environment (detail >= 3).
     pub environment: Option<Environment>,
     /// Original (pre-terraform) environment, when [`terraformed`](Self::terraformed).
@@ -153,6 +183,9 @@ pub struct PlanetRecord {
     pub starbase: Option<Starbase>,
     /// Fleet route destination planet id, when [`routing`](Self::routing) is set.
     pub route_dest: Option<u16>,
+    /// Any bytes after the last field this module understands, kept so the
+    /// block re-encodes exactly.
+    pub trailing: Vec<u8>,
 }
 
 /// Owner field value that marks an unowned planet.
@@ -210,6 +243,7 @@ impl PlanetRecord {
         let first_year = (flags >> 15) & 1 != 0;
 
         let mut record = Self {
+            block_type: type_id,
             id,
             owner,
             detail,
@@ -223,6 +257,7 @@ impl PlanetRecord {
             routing,
             first_year,
             concentration: None,
+            min_level: [0; 3],
             environment: None,
             original_environment: None,
             pop_guess: None,
@@ -232,6 +267,7 @@ impl PlanetRecord {
             installations: None,
             starbase: None,
             route_dest: None,
+            trailing: Vec::new(),
         };
 
         let mut index = 4usize;
@@ -244,14 +280,11 @@ impl PlanetRecord {
             // skip over those bytes; the concentration itself follows.
             let bitmask = *data.get(4)?;
             index = 5;
-            if bitmask & 0x03 == 1 {
-                index += 1;
-            }
-            if (bitmask >> 2) & 0x03 == 1 {
-                index += 1;
-            }
-            if (bitmask >> 4) & 0x03 == 1 {
-                index += 1;
+            for mineral in 0..3 {
+                if (bitmask >> (2 * mineral)) & 0x03 == 1 {
+                    record.min_level[mineral] = *data.get(index)?;
+                    index += 1;
+                }
             }
 
             record.concentration = Some(Concentration {
@@ -324,6 +357,8 @@ impl PlanetRecord {
                 scanner: ((high >> 12) & 0x1F) as u8,
                 artifact: (high >> 22) & 1 != 0,
                 no_research: (high >> 23) & 1 != 0,
+                unused5: ((high >> 17) & 0x1F) as u8,
+                unused2: ((high >> 24) & 0xFF) as u8,
             });
             index += 8;
         }
@@ -355,10 +390,174 @@ impl PlanetRecord {
         if owner.is_some() && routing {
             let route = read16(data, index)? & 0x03FF;
             record.route_dest = Some(route);
-            // index += 2; // last field consumed
+            index += 2;
         }
 
+        record.trailing = data.get(index..).unwrap_or_default().to_vec();
         Some(record)
+    }
+
+    /// Re-encode this record as a planet block payload.
+    ///
+    /// Exact inverse of [`PlanetRecord::decode`] for every planet block in the
+    /// fixtures — see `tests/round_trip.rs`.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(40);
+
+        let owner_raw = self.owner.map_or(OWNER_NONE, u16::from);
+        out.extend_from_slice(&((self.id & 0x07FF) | (owner_raw << 11)).to_le_bytes());
+
+        let flags = u16::from(self.detail) & 0x7F
+            | (u16::from(self.homeworld) << 7)
+            | (u16::from(self.include) << 8)
+            | (u16::from(self.has_starbase) << 9)
+            | (u16::from(self.terraformed) << 10)
+            | (u16::from(self.has_installations) << 11)
+            | (u16::from(self.artifact) << 12)
+            | (u16::from(self.has_surface_minerals) << 13)
+            | (u16::from(self.routing) << 14)
+            | (u16::from(self.first_year) << 15);
+        out.extend_from_slice(&flags.to_le_bytes());
+
+        if self.block_type != 15 && self.detail >= 3 {
+            let mut bitmask = 0u8;
+            for (mineral, level) in self.min_level.iter().enumerate() {
+                if *level != 0 {
+                    bitmask |= 1 << (2 * mineral);
+                }
+            }
+            out.push(bitmask);
+            for level in &self.min_level {
+                if *level != 0 {
+                    out.push(*level);
+                }
+            }
+
+            let c = self.concentration.unwrap_or(Concentration {
+                ironium: 0,
+                boranium: 0,
+                germanium: 0,
+            });
+            out.extend_from_slice(&[c.ironium, c.boranium, c.germanium]);
+
+            let e = self.environment.unwrap_or(Environment {
+                gravity: 0,
+                temperature: 0,
+                radiation: 0,
+            });
+            out.extend_from_slice(&[e.gravity, e.temperature, e.radiation]);
+
+            if self.terraformed {
+                let o = self.original_environment.unwrap_or(e);
+                out.extend_from_slice(&[o.gravity, o.temperature, o.radiation]);
+            }
+
+            if self.owner.is_some() {
+                let guess = ((self.pop_guess.unwrap_or(0) / 1000) as u16 & 0x0FFF)
+                    | (u16::from(self.defense_guess.unwrap_or(0)) << 12);
+                out.extend_from_slice(&guess.to_le_bytes());
+            }
+        }
+
+        if self.detail >= 4 && self.has_surface_minerals {
+            let m = self.surface_minerals.unwrap_or(Minerals {
+                ironium: 0,
+                boranium: 0,
+                germanium: 0,
+            });
+            let population = if self.detail == 7 {
+                self.population.unwrap_or(0) / 100
+            } else {
+                0
+            };
+            let values = [m.ironium, m.boranium, m.germanium, population];
+            let mut lengths = 0u8;
+            for (i, value) in values.iter().enumerate() {
+                lengths |= (width_code(*value)) << (2 * i);
+            }
+            out.push(lengths);
+            for value in values {
+                write_n(&mut out, value, width_of(width_code(value)));
+            }
+        }
+
+        if self.block_type == 13 && self.has_installations {
+            let i = self.installations.unwrap_or(Installations {
+                delta_pop: 0,
+                mines: 0,
+                factories: 0,
+                defenses: 0,
+                scanner: 0,
+                artifact: false,
+                no_research: false,
+                unused5: 0,
+                unused2: 0,
+            });
+            let low = u32::from(i.delta_pop)
+                | ((u32::from(i.mines) & 0xFFF) << 8)
+                | ((u32::from(i.factories) & 0xFFF) << 20);
+            let high = (u32::from(i.defenses) & 0xFFF)
+                | ((u32::from(i.scanner) & 0x1F) << 12)
+                | ((u32::from(i.unused5) & 0x1F) << 17)
+                | (u32::from(i.artifact) << 22)
+                | (u32::from(i.no_research) << 23)
+                | (u32::from(i.unused2) << 24);
+            out.extend_from_slice(&low.to_le_bytes());
+            out.extend_from_slice(&high.to_le_bytes());
+        }
+
+        if self.has_starbase && self.owner.is_some() {
+            let sb = self.starbase.unwrap_or(Starbase {
+                design: 0,
+                damage_pct: 0,
+                fling_dest: 0,
+                warp: 0,
+                no_heal: false,
+            });
+            if self.block_type == 14 {
+                out.push(sb.design & 0x0F);
+            } else {
+                let field = u32::from(sb.design & 0x0F)
+                    | ((u32::from(sb.damage_pct) & 0xFFF) << 4)
+                    | ((u32::from(sb.fling_dest) & 0x3FF) << 16)
+                    | ((u32::from(sb.warp) & 0x0F) << 26)
+                    | (u32::from(sb.no_heal) << 30);
+                out.extend_from_slice(&field.to_le_bytes());
+            }
+        }
+
+        if self.owner.is_some() && self.routing {
+            out.extend_from_slice(&(self.route_dest.unwrap_or(0) & 0x03FF).to_le_bytes());
+        }
+
+        out.extend_from_slice(&self.trailing);
+        out
+    }
+}
+
+/// The two-bit code for the shortest field that holds `value`.
+fn width_code(value: u32) -> u8 {
+    if value == 0 {
+        0
+    } else if value <= 0xFF {
+        1
+    } else if value <= 0xFFFF {
+        2
+    } else {
+        3
+    }
+}
+
+/// Bytes a two-bit width code selects.
+fn width_of(code: u8) -> usize {
+    [0usize, 1, 2, 4][usize::from(code & 3)]
+}
+
+/// Write `n` little-endian bytes of `value`.
+fn write_n(out: &mut Vec<u8>, value: u32, n: usize) {
+    for i in 0..n {
+        out.push(((value >> (8 * i)) & 0xFF) as u8);
     }
 }
 
