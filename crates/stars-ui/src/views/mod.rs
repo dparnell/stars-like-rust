@@ -8,16 +8,24 @@
 pub mod battles;
 pub mod fleets;
 pub mod galaxy;
+pub mod newgame;
 pub mod planets;
 pub mod players;
 
 use crate::{App, Screen};
 
 /// Draw whichever screen is selected.
-pub fn central(app: &mut App, ui: &mut egui::Ui) {
+///
+/// Returns what the New Game wizard asked for, when it is open and the player
+/// clicked something the shell has to act on (creating the game needs no
+/// shell, but opening a race file does).
+pub fn central(app: &mut App, ui: &mut egui::Ui) -> Option<newgame::Action> {
+    if app.setup.is_some() {
+        return newgame::view(app, ui);
+    }
     if app.game.is_none() {
-        empty(ui);
-        return;
+        empty(app, ui);
+        return None;
     }
     match app.screen {
         Screen::Galaxy => galaxy::view(app, ui),
@@ -26,10 +34,11 @@ pub fn central(app: &mut App, ui: &mut egui::Ui) {
         Screen::Battles => battles::view(app, ui),
         Screen::Players => players::view(app, ui),
     }
+    None
 }
 
 /// The title screen, shown before a game is opened.
-fn empty(ui: &mut egui::Ui) {
+fn empty(app: &mut App, ui: &mut egui::Ui) {
     ui.vertical_centered(|ui| {
         ui.add_space(80.0);
         ui.heading("Stars!");
@@ -43,6 +52,10 @@ fn empty(ui: &mut egui::Ui) {
             )
             .weak(),
         );
+        ui.add_space(16.0);
+        if ui.button("Start a new game…").clicked() {
+            app.setup = Some(stars_core::newgame::NewGame::default());
+        }
     });
 }
 

@@ -3,7 +3,9 @@
 - **Status:** header + game-info (type 7) **decoded & verified**; planet array
   **fully decoded** — absolute coordinates + planet **names** recovered, and the
   whole file **round-trips byte-for-byte** across six different universes
-  (24–540 planets) from two independent games
+  (24–540 planets) from two independent games. A `.xy` can also now be
+  **written from scratch** (`Universe::create`), which is what the new-game flow
+  does.
 - **Original files analysed:**
   - `fixtures/incoming/turn0/Game.xy` and `turn1/Game.xy` (598 bytes, 3-player,
     small universe "A Barefoot JayWalk") — an **in-game** `.xy`;
@@ -42,19 +44,28 @@ byte-for-byte.
 
 ## Game-info block (type 7) — decrypted payload
 
-Offsets are into the **decrypted** 64-byte payload (from `decryptGameInfo` in
-`StarsBlock.pm`, confirmed against `Game.xy`):
+The block is the engine's 64-byte `GAME` struct, whose field offsets the NB09
+static asserts confirm one by one. Offsets are into the **decrypted** payload;
+[`GameInfo`](../../crates/stars-formats/src/xy.rs) decodes it, and re-encodes it
+byte-for-byte on all 210 `.xy` fixtures.
 
 | Offset | Size | Field           | Notes                                        |
 |-------:|-----:|-----------------|----------------------------------------------|
+| 0      | 4    | `lid`           | per-game id; the same value as the file header's `game_id` |
 | 4      | 2    | `mdSize`        | universe size class (0=tiny … 4=huge); `1` here |
-| 6      | 2    | `mdDensity`     | planet density; `1` here                      |
-| 8      | 1    | players (low5)  | player count; `3` here (2 tutorial; 4/5/5/11 in the standalone files) |
-| 10     | 2    | **planet count**| number of planets in the region; **verified** `24/128/160/160/360/540` |
-| 12     | 2    | `mdStartDest`   | starting-distance / clumping param            |
+| 6      | 2    | `mdDensity`     | planet density (0=sparse … 3=packed); `1` here |
+| 8      | 2    | `cPlayer`       | player count; `3` here (2 tutorial; 4/5/5/11 in the standalone files). The low five bits are what the player number in a file header uses |
+| 10     | 2    | `cPlanMax`      | number of planets in the region; **verified** `24/128/160/160/360/540` |
+| 12     | 2    | `mdStartDist`   | distance between players' homeworlds (1=close … 3=distant) |
+| 14     | 2    | `fDirty`        | not modelled                                  |
 | 16     | 2    | `wCrap`         | bit-flags (see below)                         |
+| 18     | 2    | `turn`          | year = `2400 + turn`                          |
 | 20     | 12   | `rgvc[0..12]`   | victory conditions (per-condition byte)       |
-| 32     | 32   | game name       | NUL-padded ASCII; `"A Barefoot JayWalk"`      |
+| 32     | 32   | `szName`        | NUL-padded ASCII; `"A Barefoot JayWalk"`      |
+
+`mdSize` and `mdDensity` together give the planet count exactly — see
+`../formulas/new-game.md`, where the formula is checked against all nine
+distinct universes in the fixtures.
 
 `wCrap` bit-flags: `0 ExtraFuel`, `1 SlowTech`, `4 AIsBand`, `5 BBSPlay`,
 `6 VisibleScores`, `7 NoRandomEvents`, `8 Clumping` (bits 9..11 = generator seed
@@ -161,14 +172,32 @@ sample universes resolves to a **unique** entry, e.g. tutorial planet 0 →
 - The **axis assignment** (which coordinate is x vs y) follows the community
   `struct position` convention and is now confirmed by the fleet check below:
   had x and y been swapped, the offset would not have fallen on one axis alone.
-- The standalone trailer's constant `02 00` prefix is preserved verbatim; its
-  meaning is not yet known.
+- The standalone trailer is a **framed block**, not a constant. `GenerateWorld`
+  ends the file with `WriteRt(0, 2, &cPlayer)`, and a block header word is
+  `(type << 10) | size`, so type 0 with a 2-byte payload is exactly the
+  `02 00` seen at the head of it, followed by the player count as a little-endian
+  word. Like the planet region, it is written outside the stream cipher, which
+  is why the player count is legible in the raw bytes. An in-game `.xy` carries
+  a 2-byte `00 00` instead.
+
+## Writing a `.xy`
+
+`Universe::create` builds one from generated planet positions: the chain of
+10-bit x deltas from `X_BASE`, a `GameInfo`, a header from
+`FileHeader::new`/`FileHeader::to_payload`, and the 4-byte player-count trailer
+above. It is what the new-game flow writes; see `../formulas/new-game.md`.
+
+`FileHeader::to_payload` is asserted to be an exact inverse of `FileHeader::parse`
+on all **6,972** file headers in the fixtures. That test found one field the
+parser had been dropping: bits 13-15 of the `dts` word at offset 14, which are
+set on some `.x` order files (`EXODUS.X6` carries `0xC101`). They are preserved
+verbatim and their meaning is unknown.
 
 ### Next steps
 
 - Confirm the x/y axis order and any absolute-coordinate origin against an
   in-game screen or the `STARS!.EXE` layout in Ghidra.
-- Identify the standalone trailer's `02 00` prefix.
+- Identify the high `dts` bits on `.x` files.
 
 ## Derived test vectors
 

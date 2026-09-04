@@ -546,16 +546,48 @@ disagree.
    which is why every waypoint in a saved game that has already been reached
    reads zero. Decoding the Transport payload closed a documented open question
    in `docs/formats/waypoint.md`.
-8. **What is still missing to call it playable.** There is no new-game flow, so
-   a game must be opened from an existing save; no `.x` order file is written,
-   so orders reach the turn generator but not a host; and the tasks beyond
-   colonise, transport and remote mining (merge, scrap, lay minefield, patrol,
-   route, transfer) can be set but are not simulated.
-7. **The race wizard**, which needs `CAdvantagePoints` to price a race. It is
-   located (`10e0:444c`, in `docs/ghidra/stars-signatures.csv`) but not
-   transcribed, and remains the largest unknown in this step. `FGenerateTurn`
-   calls it to re-price every race each turn and to claw points back from a race
-   that prices above 500, which is a usable cross-check once it is written.
+8. ~~**The new game flow.**~~ **Done.** `stars_core::newgame::generate` is a
+   transcription of `GenerateWorld`: it scatters and thins the planets, names
+   them from the master table, rolls their environments and mineral
+   concentrations, places the homeworlds inside the distance band the
+   "distance between players" setting scales, sets each player's starting
+   technology from their primary trait, stocks their homeworld, spends the
+   leftover advantage points on it and hands out their first ships. The
+   universe it produces is written as a real `.xy`
+   (`Universe::create` and the new `FileHeader::to_payload`). The New Game
+   wizard is a `stars-ui` screen; `stars --new <name>` does the same from the
+   command line.
+
+   Nearly all of it is **verified against `fixtures/incoming/turn0/`**, a real
+   turn-0 three-player game: the planet-count formula on all nine distinct
+   universes, the environment and concentration distributions against 600 real
+   planets, the homeworlds' installations, environments and mineral stock, the
+   leftover-point spend, all six starting ship designs slot for slot, their
+   fuel loads, and the identity of the two computer players. See
+   `docs/formulas/new-game.md` and `docs/vectors/new-game.json`.
+
+   Two departures from the reconstructed `create.c` were forced by that fixture
+   and are documented there: the engine substitution list ends **Long Hump 6,
+   Fuel Mizer** rather than the other way round, and the mining list falls back
+   to the original part rather than downgrading it.
+
+9. ~~**The race wizard's pricing.**~~ **Done**, though not the wizard itself.
+   `CAdvantagePoints` (`10e0:444c`) and the habitability integral it rests on,
+   `LInnateRaceHabitability` (`10e0:4cb2`), are transcribed in
+   `stars_core::advantage`. The fixture prices its two races at 25 and 72, and
+   both are confirmed independently by the mineral stock their homeworlds were
+   given. What remains is the wizard's own screens: a race can be chosen from
+   the ten primary traits or loaded from a `.rN` file, but not designed.
+
+10. **What is still missing to call it playable.** A **generated game cannot be
+    saved**: this project has no writers for planet, player, fleet or design
+    blocks, so only its `.xy` can be written and the game itself lives in
+    memory until the process ends. Beyond that, no `.x` order file is written,
+    so orders reach the turn generator but not a host; the tasks beyond
+    colonise, transport and remote mining (merge, scrap, lay minefield, patrol,
+    route, transfer) can be set but are not simulated; and generation does not
+    place wormholes or the Mystery Trader, which live in the `THING` list
+    `GameState` does not model.
 
 #### Saving is not re-encoding
 

@@ -6,6 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
+use stars_core::newgame::{Created, NewGame};
 use stars_core::{GameState, Planet};
 use stars_formats::block::{Block, BlockType};
 use stars_formats::production::{ProductionQueueRecord, QueueClass, QueueItem};
@@ -68,6 +69,11 @@ pub struct Selection {
 pub struct App {
     /// The currently loaded game, or `None` on the title screen.
     pub game: Option<GameState>,
+    /// The universe the game is played in, when one is known: read from the
+    /// `.xy` beside a save, or generated with a new game.
+    pub universe: Option<Universe>,
+    /// The New Game wizard's settings while it is open.
+    pub setup: Option<NewGame>,
     /// Where it came from, for the title bar.
     pub path: Option<PathBuf>,
     /// The screen being shown.
@@ -151,6 +157,12 @@ impl App {
                     .as_ref()
                     .and_then(|p| p.file_name())
                     .map(|n| n.to_string_lossy().to_string())
+                    .or_else(|| {
+                        self.universe
+                            .as_ref()
+                            .and_then(|u| u.game().ok())
+                            .map(|g| g.name)
+                    })
                     .unwrap_or_default();
                 format!("Stars! — {name} — year {}", state.year())
             }
@@ -173,8 +185,9 @@ impl App {
             .map_err(|e| format!("cannot decode {}: {e}", path.display()))?;
 
         let (mut state, _) = GameState::from_file(&file);
-        if let Some(universe) = find_universe(path) {
-            state.apply_universe(&universe);
+        let universe = find_universe(path);
+        if let Some(universe) = &universe {
+            state.apply_universe(universe);
         }
 
         let header = &file.latest_segment().header;
@@ -188,6 +201,8 @@ impl App {
         self.vcr = None;
         self.playing = false;
         self.game = Some(state);
+        self.universe = universe;
+        self.setup = None;
         self.path = Some(path.to_path_buf());
         self.file = Some(file);
         self.dirty = false;
@@ -288,6 +303,77 @@ impl App {
         out.blocks = blocks;
         out.encode()
             .map_err(|e| format!("cannot write the file: {e}"))
+    }
+
+    /// Create a brand-new game and make it the loaded one.
+    ///
+    /// The universe, the homeworlds and the starting fleets all come from
+    /// [`stars_core::newgame`]; nothing is read from disk. The generator is
+    /// seeded from the game id, so the same settings and id give the same
+    /// universe from this engine — though not the one the original would have
+    /// produced, for the reason that module's docs give.
+    ///
+    /// The result has no file behind it, so [`App::save`] refuses until it is
+    /// given one; [`App::save_universe`] can write the `.xy`.
+    ///
+    /// # Errors
+    /// Returns a message suitable for showing to the player.
+    pub fn new_game(&mut self, config: &NewGame) -> Result<(), String> {
+        let mut rng = stars_core::rng::Rng::randomize(config.id);
+        let Created { state, universe } =
+            stars_core::newgame::generate(config, &mut rng).map_err(|e| e.to_string())?;
+
+        self.selection = Selection {
+            planet: state
+                .planets
+                .iter()
+                .find(|p| p.owner == Some(0))
+                .or_else(|| state.planets.first())
+                .map(|p| p.id),
+            fleet: (!state.fleets.is_empty()).then_some(0),
+        };
+        self.game = Some(state);
+        self.universe = Some(universe);
+        self.setup = None;
+        self.battles.clear();
+        self.vcr = None;
+        self.playing = false;
+        self.file = None;
+        self.path = None;
+        self.dirty = false;
+        self.edited.clear();
+        self.orders.clear();
+        self.error = None;
+        self.last_turn = None;
+        self.screen = Screen::Galaxy;
+        Ok(())
+    }
+
+    /// Whether the loaded game can be written back to a save file.
+    ///
+    /// A game opened from disk can: saving replaces the blocks the player
+    /// edited and leaves the rest of the file alone. A **generated** game
+    /// cannot, because there is no file to edit and this crate has no writers
+    /// for planet, player, fleet or design blocks yet — only the `.xy`, which
+    /// [`App::save_universe`] writes.
+    #[must_use]
+    pub fn can_save_game(&self) -> bool {
+        self.file.is_some()
+    }
+
+    /// Write the universe of the loaded game as a `.xy` file.
+    ///
+    /// # Errors
+    /// Returns a message suitable for showing to the player.
+    pub fn save_universe(&self, path: &Path) -> Result<(), String> {
+        let universe = self
+            .universe
+            .as_ref()
+            .ok_or("this game has no universe file")?;
+        let bytes = universe
+            .encode()
+            .map_err(|e| format!("cannot encode the universe: {e}"))?;
+        std::fs::write(path, bytes).map_err(|e| format!("cannot write {}: {e}", path.display()))
     }
 
     /// Write the game back to a file.

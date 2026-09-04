@@ -1,0 +1,249 @@
+//! The New Game wizard: universe settings, options, and who is playing.
+//!
+//! The original spreads this over four dialogs (`NewGameDlg`, `NewGameDlg2`,
+//! `NewGameDlg3` and `SimpleNewGameDlg`) plus the race wizard. This is one
+//! page, because there is no race wizard yet: a human player picks one of the
+//! ten primary racial traits and gets the stock Humanoid economy with it, or
+//! loads a race someone else designed from a `.rN` file.
+
+use stars_core::newgame::{stock_race, Density, NewPlayer, Size, StartDistance};
+use stars_core::opponents::{self, LEVEL_NAMES, PERSONALITY_NAMES};
+use stars_core::race::Prt;
+use stars_core::{ai::Control, Race};
+
+use crate::App;
+
+/// What the wizard is asking the shell to do, once the player has clicked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    /// Create the game as configured.
+    Create,
+    /// Abandon the wizard.
+    Cancel,
+    /// Open a race file for this player slot.
+    LoadRace(usize),
+}
+
+/// Draw the wizard, returning what the player asked for.
+///
+/// The shell owns the file dialog, so [`Action::LoadRace`] comes back rather
+/// than being handled here.
+#[must_use]
+pub fn view(app: &mut App, ui: &mut egui::Ui) -> Option<Action> {
+    let config = app.setup.as_mut()?;
+    let mut action = None;
+
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        ui.heading("New game");
+        ui.add_space(8.0);
+
+        egui::Grid::new("new_game_universe")
+            .num_columns(2)
+            .spacing([16.0, 6.0])
+            .show(ui, |ui| {
+                ui.label("Name");
+                ui.add(egui::TextEdit::singleline(&mut config.name).desired_width(220.0));
+                ui.end_row();
+
+                ui.label("Universe");
+                egui::ComboBox::from_id_source("size")
+                    .selected_text(config.size.name())
+                    .show_ui(ui, |ui| {
+                        for size in Size::ALL {
+                            ui.selectable_value(&mut config.size, size, size.name());
+                        }
+                    });
+                ui.end_row();
+
+                ui.label("Density");
+                egui::ComboBox::from_id_source("density")
+                    .selected_text(config.density.name())
+                    .show_ui(ui, |ui| {
+                        for density in Density::ALL {
+                            ui.selectable_value(&mut config.density, density, density.name());
+                        }
+                    });
+                ui.end_row();
+
+                ui.label("Players start");
+                egui::ComboBox::from_id_source("distance")
+                    .selected_text(config.start_distance.name())
+                    .show_ui(ui, |ui| {
+                        for distance in StartDistance::ALL {
+                            ui.selectable_value(
+                                &mut config.start_distance,
+                                distance,
+                                distance.name(),
+                            );
+                        }
+                    });
+                ui.end_row();
+
+                ui.label("Planets");
+                ui.label(
+                    stars_core::newgame::planet_count(config.size, config.density).to_string(),
+                );
+                ui.end_row();
+            });
+
+        ui.add_space(6.0);
+        ui.checkbox(&mut config.clumping, "Clump the planets into clusters");
+        ui.checkbox(
+            &mut config.random_events,
+            "Random events (wormholes, artifacts, the Mystery Trader)",
+        );
+        ui.checkbox(&mut config.slow_tech, "Slower tech advances");
+        ui.checkbox(
+            &mut config.unlimited_minerals,
+            "Maximum mineral concentration on every planet",
+        );
+        ui.checkbox(&mut config.public_scores, "Scores are public");
+
+        ui.add_space(10.0);
+        ui.separator();
+        ui.heading("Players");
+        ui.add_space(4.0);
+
+        let mut remove: Option<usize> = None;
+        for index in 0..config.players.len() {
+            ui.horizontal(|ui| {
+                ui.label(format!("{}.", index + 1));
+                let human = matches!(config.players[index].control, Control::Human);
+                if human {
+                    human_row(ui, index, &mut config.players[index], &mut action);
+                } else {
+                    computer_row(ui, index, &mut config.players[index]);
+                }
+                if config.players.len() > 1 && ui.button("remove").clicked() {
+                    remove = Some(index);
+                }
+            });
+        }
+        if let Some(index) = remove {
+            config.players.remove(index);
+        }
+
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            let full = config.players.len() >= stars_core::newgame::MAX_PLAYERS;
+            if ui
+                .add_enabled(!full, egui::Button::new("add a person"))
+                .clicked()
+            {
+                config.players.push(NewPlayer::human(stock_race(Prt::Joat)));
+            }
+            if ui
+                .add_enabled(!full, egui::Button::new("add a computer player"))
+                .clicked()
+            {
+                if let Some(opponent) = opponents::opponent(0, 1) {
+                    config.players.push(opponent.as_player());
+                }
+            }
+            if full {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} players is the most a game holds",
+                        stars_core::newgame::MAX_PLAYERS
+                    ))
+                    .weak(),
+                );
+            }
+        });
+
+        ui.add_space(12.0);
+        ui.separator();
+        ui.horizontal(|ui| {
+            if ui.button("Create game").clicked() {
+                action = Some(Action::Create);
+            }
+            if ui.button("Cancel").clicked() {
+                action = Some(Action::Cancel);
+            }
+        });
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new(
+                "A generated game plays and generates turns, but cannot yet be saved as a \
+                 .hst or .mN: this project has no writers for planet, player, fleet or design \
+                 blocks. Its universe can be written as a .xy.",
+            )
+            .weak(),
+        );
+    });
+
+    action
+}
+
+/// One human player's row: which primary racial trait, or a loaded race.
+fn human_row(ui: &mut egui::Ui, index: usize, player: &mut NewPlayer, action: &mut Option<Action>) {
+    ui.label("a person playing");
+    let current = player.race.prt();
+    let stock = current.is_some_and(|prt| player.race == stock_race(prt));
+    let label = match (stock, current) {
+        (true, Some(prt)) => prt.name().to_string(),
+        (false, Some(prt)) => format!("a custom {} race", prt.abbrev()),
+        _ => "an unrecognised race".to_string(),
+    };
+    egui::ComboBox::from_id_source(("prt", index))
+        .selected_text(label)
+        .width(180.0)
+        .show_ui(ui, |ui| {
+            for prt in Prt::ALL {
+                if ui
+                    .selectable_label(stock && current == Some(prt), prt.name())
+                    .clicked()
+                {
+                    player.race = stock_race(prt);
+                }
+            }
+        });
+    if ui.button("load a race…").clicked() {
+        *action = Some(Action::LoadRace(index));
+    }
+}
+
+/// One computer player's row: which of the twenty-four built-in opponents.
+fn computer_row(ui: &mut egui::Ui, index: usize, player: &mut NewPlayer) {
+    ui.label("the computer playing");
+    let current = opponents::ALL.iter().find(|o| o.race == player.race);
+    let label = current.map_or_else(|| "a custom race".to_string(), opponents::Opponent::name);
+    egui::ComboBox::from_id_source(("ai", index))
+        .selected_text(label)
+        .width(220.0)
+        .show_ui(ui, |ui| {
+            for personality in 0..PERSONALITY_NAMES.len() {
+                for level in 0..LEVEL_NAMES.len() {
+                    let Some(opponent) = opponents::opponent(personality, level) else {
+                        continue;
+                    };
+                    let selected = current.is_some_and(|c| std::ptr::eq(c, opponent));
+                    if ui.selectable_label(selected, opponent.name()).clicked() {
+                        *player = opponent.as_player();
+                    }
+                }
+            }
+        });
+}
+
+/// Read a race out of a `.rN` race file (or any file whose first player block
+/// carries a full race).
+///
+/// A race file's type-6 block is a bare race definition; a `.mN` or `.hst`
+/// puts a player header in front of the very same struct, and
+/// [`stars_formats::PlayerRecord`] decodes both.
+///
+/// # Errors
+/// Returns a message suitable for showing to the player.
+pub fn race_from_file(path: &std::path::Path) -> Result<Race, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let file = stars_formats::StarsFile::decode(&bytes)
+        .map_err(|e| format!("cannot decode {}: {e}", path.display()))?;
+    let records = stars_formats::player_records(&file)
+        .map_err(|e| format!("cannot read the players in {}: {e}", path.display()))?;
+    let record = records
+        .iter()
+        .find_map(|r| r.race.as_ref())
+        .ok_or_else(|| format!("{} holds no race definition", path.display()))?;
+    Ok(stars_core::race_from_record(record))
+}

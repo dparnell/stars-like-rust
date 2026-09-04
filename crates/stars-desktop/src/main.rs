@@ -11,7 +11,15 @@
 //! stars <file> --summary            print a summary instead
 //! stars <file> --turn               ... and generate one turn
 //! stars <file> --vcr [id]           play back a recorded battle as text
+//! stars --new <name> [options]      create a universe and write its .xy
 //! ```
+//!
+//! `--new` takes `--size tiny|small|medium|large|huge`,
+//! `--density sparse|normal|dense|packed`, `--distance close|moderate|distant`,
+//! `--players N` (the rest are Turindrones, Standard), `--clumping` and
+//! `--id 0x...`. It writes `<name>.xy` beside the working directory and prints
+//! the starting position, which is how the generator is exercised without a
+//! window.
 //!
 //! `--vcr` is the first screen of the frontend proper, rendered here as text
 //! while the egui shell is still to come. The view logic lives in
@@ -29,6 +37,10 @@ mod app;
 
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
+    let all: Vec<String> = std::env::args().skip(1).collect();
+    if all.first().is_some_and(|a| a == "--new") {
+        return create_game(&all[1..]);
+    }
     let Some(path) = args.next() else {
         // No arguments: the graphical shell, with nothing open.
         return match app::run(None) {
@@ -278,4 +290,142 @@ fn draw(vcr: &stars_ui::vcr::Vcr) {
             .collect();
         println!("    {}", cells.join(""));
     }
+}
+
+/// `stars --new <name> [options]`: generate a universe and write its `.xy`.
+fn create_game(args: &[String]) -> ExitCode {
+    use stars_core::newgame::{generate, Density, NewGame, NewPlayer, Size, StartDistance};
+    use stars_core::opponents;
+
+    let value = |name: &str| -> Option<&str> {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1))
+            .map(String::as_str)
+    };
+
+    let name = args
+        .first()
+        .filter(|a| !a.starts_with("--"))
+        .cloned()
+        .unwrap_or_else(|| "New Game".to_string());
+
+    let size = match value("--size").unwrap_or("small") {
+        "tiny" => Size::Tiny,
+        "small" => Size::Small,
+        "medium" => Size::Medium,
+        "large" => Size::Large,
+        "huge" => Size::Huge,
+        other => {
+            eprintln!("unknown universe size {other}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let density = match value("--density").unwrap_or("normal") {
+        "sparse" => Density::Sparse,
+        "normal" => Density::Normal,
+        "dense" => Density::Dense,
+        "packed" => Density::Packed,
+        other => {
+            eprintln!("unknown density {other}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let start_distance = match value("--distance").unwrap_or("moderate") {
+        "close" => StartDistance::Close,
+        "moderate" => StartDistance::Moderate,
+        "distant" => StartDistance::Distant,
+        other => {
+            eprintln!("unknown starting distance {other}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let players: usize = value("--players")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2)
+        .clamp(1, stars_core::newgame::MAX_PLAYERS);
+    let id = value("--id")
+        .and_then(|v| u32::from_str_radix(v.trim_start_matches("0x"), 16).ok())
+        .unwrap_or(0x2a03_1dd8);
+
+    let mut config = NewGame {
+        name: name.clone(),
+        id,
+        size,
+        density,
+        start_distance,
+        clumping: args.iter().any(|a| a == "--clumping"),
+        players: vec![NewPlayer::human(stars_core::Race::humanoid())],
+        ..NewGame::default()
+    };
+    while config.players.len() < players {
+        match opponents::opponent(config.players.len() % 6, 1) {
+            Some(opponent) => config.players.push(opponent.as_player()),
+            None => break,
+        }
+    }
+
+    let mut rng = Rng::randomize(config.id);
+    let made = match generate(&config, &mut rng) {
+        Ok(made) => made,
+        Err(e) => {
+            eprintln!("cannot create the game: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let file: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect();
+    let file = format!("{}.xy", file.trim_matches('-'));
+    let bytes = match made.universe.encode() {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            eprintln!("cannot encode the universe: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if let Err(e) = std::fs::write(&file, bytes) {
+        eprintln!("cannot write {file}: {e}");
+        return ExitCode::FAILURE;
+    }
+
+    println!("{name}");
+    println!(
+        "  {} universe, {} density, players {}, {} planets -> {file}",
+        size.name(),
+        density.name(),
+        config.players.len(),
+        made.state.planets.len()
+    );
+    for (i, player) in made.state.players.iter().enumerate() {
+        let home = made
+            .state
+            .planets
+            .iter()
+            .find(|p| p.homeworld && p.owner == i16::try_from(i).ok());
+        let ships = made
+            .state
+            .fleets
+            .iter()
+            .filter(|f| f.owner == i16::try_from(i).unwrap_or(-1))
+            .count();
+        match home {
+            Some(home) => println!(
+                "  player {i} ({:?}) on {} at {:?}: env {:?}, minerals {:?}, {ships} ships",
+                player.race.prt().map(|p| p.abbrev()),
+                home.name.unwrap_or("?"),
+                home.position.map(|p| (p.x, p.y)),
+                home.env,
+                home.surface_min
+            ),
+            None => println!("  player {i}: no homeworld"),
+        }
+    }
+    println!(
+        "  note: only the .xy is written. A generated game has no .hst yet — \
+         this project has no writers for planet, player, fleet or design blocks."
+    );
+    ExitCode::SUCCESS
 }

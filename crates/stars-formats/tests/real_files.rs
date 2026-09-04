@@ -513,3 +513,111 @@ fn tutorial_xy_universe_round_trips() {
     let reencoded = universe.encode().unwrap_or_else(|e| panic!("encode: {e}"));
     assert_eq!(reencoded, bytes, "tutorial.xy re-encode not byte-identical");
 }
+
+/// Every real file header re-encodes to the bytes it was read from.
+///
+/// `FileHeader::to_payload` is what lets this crate write a file it did not
+/// read, so it has to be an exact inverse of the parser — including the
+/// version, salt and flag packing, which no round-trip through
+/// `StarsFile::encode` would exercise (that one keeps the payload verbatim).
+#[test]
+fn every_header_re_encodes_exactly() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");
+    if !root.is_dir() {
+        eprintln!("skipping: no fixtures");
+        return;
+    }
+    let mut stack = vec![root];
+    let mut checked = 0;
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            // The header block is the first framed block of every file.
+            if bytes.len() < 18 {
+                continue;
+            }
+            let size = usize::from(u16::from_le_bytes([bytes[0], bytes[1]]) & 0x03FF);
+            if size < 16 || bytes.len() < 2 + size {
+                continue;
+            }
+            let payload = &bytes[2..2 + 16];
+            let Ok(header) = stars_formats::FileHeader::parse(payload) else {
+                continue;
+            };
+            assert_eq!(
+                header.to_payload(),
+                payload,
+                "{} header does not re-encode",
+                path.display()
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked > 0, "no fixture headers were checked");
+    eprintln!("{checked} headers re-encoded exactly");
+}
+
+/// Every `.xy` game-info block decodes into `GameInfo` and back unchanged.
+#[test]
+fn every_game_info_re_encodes_exactly() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");
+    if !root.is_dir() {
+        eprintln!("skipping: no fixtures");
+        return;
+    }
+    let mut stack = vec![root];
+    let mut checked = 0;
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().is_none_or(|e| e != "xy") {
+                continue;
+            }
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            let Ok(universe) = Universe::decode(&bytes) else {
+                continue;
+            };
+            let info = universe.game().expect("game info");
+            assert_eq!(
+                info.encode(),
+                universe.game_info,
+                "{} game info does not re-encode",
+                path.display()
+            );
+            assert_eq!(
+                info.players,
+                i16::from(universe.player_count()),
+                "{} player count disagrees with the block",
+                path.display()
+            );
+            assert_eq!(
+                info.planets as usize,
+                universe.planet_count(),
+                "{} planet count disagrees with the block",
+                path.display()
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked > 0, "no .xy fixtures were checked");
+    eprintln!("{checked} game-info blocks re-encoded exactly");
+}

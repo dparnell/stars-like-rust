@@ -1,0 +1,134 @@
+{
+  "$comment": [
+    "Golden vectors for new game creation (docs/formulas/new-game.md).",
+    "Every case is read out of fixtures/incoming/turn0/, a real three-player",
+    "game exactly as GenerateWorld left it, before anybody took a turn.",
+    "Consumed by crates/stars-core/tests/new_game.rs."
+  ],
+
+  "planet_count": {
+    "source": "GenerateWorld; cPlanMax = dGal*dGal/5000, +25% per density step, +25% again when packed",
+    "$comment": "Checked against GAME.cPlanMax in every .xy fixture; the file column names the one it came from.",
+    "cases": [
+      { "file": "games/tutorial/tutorial.xy", "size": 0, "density": 0, "expect": 24 },
+      { "file": "incoming/turn0/Game.xy", "size": 1, "density": 1, "expect": 128 },
+      { "file": "xy/across.xy", "size": 1, "density": 2, "expect": 160 },
+      { "file": "games/all-computer-players/2400/Game.xy", "size": 2, "density": 2, "expect": 360 },
+      { "file": "games/exodus/exodus.xy", "size": 2, "density": 3, "expect": 540 }
+    ]
+  },
+
+  "coordinate_band": {
+    "source": "GenerateWorld; x and y are each 1000 + 10 + Random(dGal - 19)",
+    "$comment": "low is always 1010; high is 1010 + dGal - 20.",
+    "cases": [
+      { "size": 0, "low": 1010, "high": 1390 },
+      { "size": 1, "low": 1010, "high": 1790 },
+      { "size": 2, "low": 1010, "high": 2190 },
+      { "size": 3, "low": 1010, "high": 2590 },
+      { "size": 4, "low": 1010, "high": 2990 }
+    ]
+  },
+
+  "planet_shape": {
+    "source": "GenerateWorld's per-planet environment and mineral loop",
+    "$comment": [
+      "Gravity and temperature are the sum of two draws and radiation is one,",
+      "so the first two reach their extremes about half as often. Measured over",
+      "the 600 unowned planets the fixtures describe, which carries about 2% of",
+      "sampling noise."
+    ],
+    "real": {
+      "planets": 600,
+      "pct_gravity_at_most_9": 4.8,
+      "pct_temperature_at_most_9": 3.8,
+      "pct_radiation_at_most_9": 9.2,
+      "pct_with_a_mineral_below_31": 66.8,
+      "mean_concentration": 57.4
+    },
+    "tolerance": { "pct_points": 3.0, "pct_points_impoverished": 5.0 }
+  },
+
+  "turn0_homeworlds": {
+    "source": "fixtures/incoming/turn0/Game.hst",
+    "$comment": [
+      "Planet 0 of this game reads concentrations 86/8/67 and every homeworld",
+      "86/30/67: the stock is copied from planet 0 with a floor of 30.",
+      "The environments are the exact midpoints of their owners' habitable bands."
+    ],
+    "planet_0_concentrations": [86, 8, 67],
+    "cases": [
+      { "planet": 69, "name": "County Seat", "player": 0, "race": "stock Humanoid (JoaT)",
+        "env": [50, 50, 50], "concentrations": [86, 30, 67], "surface": [399, 399, 432],
+        "pop": 250, "mines": 10, "factories": 10, "defenses": 10 },
+      { "planet": 112, "name": "Hurl", "player": 1, "race": "Turindrones, Standard",
+        "env": [62, 33, 61], "concentrations": [86, 30, 67], "surface": [462, 462, 556],
+        "pop": 250, "mines": 10, "factories": 10, "defenses": 10 },
+      { "planet": 32, "name": "Genoa", "player": 2, "race": "Turindrones, Standard",
+        "env": [62, 33, 61], "concentrations": [86, 30, 67], "surface": [462, 462, 556],
+        "pop": 250, "mines": 10, "factories": 10, "defenses": 10 }
+    ]
+  },
+
+  "advantage_points": {
+    "source": "CAdvantagePoints @ 10e0:444c",
+    "$comment": [
+      "Planet 0's surface stock is zeroed once generation finds the planet",
+      "unowned, so it is not in the file. It is determined by the homeworlds:",
+      "only [337, 337, 306] with 25 and 50 points produces both 399/399/432 and",
+      "462/462/556 under the quarter-shares rule. 50 is 72 capped."
+    ],
+    "planet_0_surface": [337, 337, 306],
+    "cases": [
+      { "race": "stock Humanoid (JoaT, growth 15, all stats baseline)",
+        "expect_points": 25, "expect_surface": [399, 399, 432] },
+      { "race": "Turindrones, Standard (vrgplrComp[1][1])",
+        "expect_points": 72, "capped_to": 50, "expect_surface": [462, 462, 556] }
+    ]
+  },
+
+  "starting_technology": {
+    "source": "GenerateWorld's per-player tech block",
+    "$comment": "Order is Energy, Weapons, Propulsion, Construction, Electronics, Biotechnology.",
+    "cases": [
+      { "race": "Jack of All Trades", "expect": [3, 3, 3, 3, 3, 3],
+        "why": "fixture player 0" },
+      { "race": "Super Stealth with Improved Fuel Efficiency", "expect": [0, 0, 1, 0, 5, 0],
+        "why": "fixture players 1 and 2" },
+      { "race": "War Monger", "expect": [1, 6, 1, 0, 0, 0] },
+      { "race": "Claim Adjuster", "expect": [1, 1, 1, 2, 0, 6] },
+      { "race": "Inner Tech", "expect": [0, 0, 5, 5, 0, 0] },
+      { "race": "Inner Strength", "expect": [0, 0, 0, 0, 0, 0] }
+    ]
+  },
+
+  "starting_designs": {
+    "source": "rgshdefT plus GenerateWorld's component upgrade pass",
+    "$comment": [
+      "Slots are (category bitmask, item index, count) in hull-slot order,",
+      "which is exactly how the design records in the fixture store them.",
+      "These six are all of player 0's and the computer players' designs."
+    ],
+    "cases": [
+      { "template": "Teamster", "tech": [3, 3, 3, 3, 3, 3], "hull": 1,
+        "slots": [[1, 3, 1], [2, 1, 1], [8, 1, 1]],
+        "why": "Long Hump 6, Rhino Scanner, Crobmnium at technology 3" },
+      { "template": "Stalwart Defender", "tech": [3, 3, 3, 3, 3, 3], "hull": 6,
+        "slots": [[1, 3, 1], [16, 1, 1], [32, 0, 1], [2, 1, 1], [8, 1, 2], [4096, 5, 1], [2048, 5, 1]],
+        "why": "the X-Ray Laser is in reach but the Beta Torpedo is not" },
+      { "template": "Cotton Picker", "tech": [3, 3, 3, 3, 3, 3], "hull": 21,
+        "slots": [[1, 3, 1], [2, 1, 1], [128, 1, 1], [128, 1, 1]],
+        "why": "the Robo Mini Miners stay: the Robo Miner needs more biotech" },
+      { "template": "Smaugarian Peeping Tom", "tech": [0, 0, 1, 0, 5, 0], "hull": 4,
+        "slots": [[1, 1, 1], [2, 4, 1], [4096, 5, 1]],
+        "why": "Electronics 5 reaches the Possum Scanner; Propulsion 1 reaches no engine" }
+    ]
+  },
+
+  "starting_fuel": {
+    "source": "CreateStartupShip; LGetFleetStat(grStatFuel) fills the tanks",
+    "$comment": "Fixture player 0's six fleets, in design order.",
+    "designs": ["Armed Probe", "Long Range Scout", "Santa Maria", "Teamster", "Stalwart Defender", "Cotton Picker"],
+    "expect_fuel_mg": [50, 300, 200, 450, 530, 210]
+  }
+}

@@ -67,6 +67,54 @@ pub enum Prt {
 }
 
 impl Prt {
+    /// Every primary racial trait, in the game's own order.
+    pub const ALL: [Prt; 10] = [
+        Prt::He,
+        Prt::Ss,
+        Prt::Wm,
+        Prt::Ca,
+        Prt::Is,
+        Prt::Sd,
+        Prt::Pp,
+        Prt::It,
+        Prt::Ar,
+        Prt::Joat,
+    ];
+
+    /// The name the game shows.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Prt::He => "Hyper Expansion",
+            Prt::Ss => "Super Stealth",
+            Prt::Wm => "War Monger",
+            Prt::Ca => "Claim Adjuster",
+            Prt::Is => "Inner Strength",
+            Prt::Sd => "Space Demolition",
+            Prt::Pp => "Packet Physics",
+            Prt::It => "Inner Tech",
+            Prt::Ar => "Alternate Reality",
+            Prt::Joat => "Jack of All Trades",
+        }
+    }
+
+    /// The two-letter abbreviation players use.
+    #[must_use]
+    pub fn abbrev(self) -> &'static str {
+        match self {
+            Prt::He => "HE",
+            Prt::Ss => "SS",
+            Prt::Wm => "WM",
+            Prt::Ca => "CA",
+            Prt::Is => "IS",
+            Prt::Sd => "SD",
+            Prt::Pp => "PP",
+            Prt::It => "IT",
+            Prt::Ar => "AR",
+            Prt::Joat => "JoaT",
+        }
+    }
+
     /// Convert the stored `rgAttr[rsMajorAdv]` byte.
     #[must_use]
     pub fn from_raw(v: i16) -> Option<Self> {
@@ -184,6 +232,11 @@ impl Race {
         attrs[RaceStat::MineProd as usize] = 10;
         attrs[RaceStat::MineBuild as usize] = 5;
         attrs[RaceStat::MineOperate as usize] = 10;
+        // `1` is the normal per-field research cost; `0` would mean "costs 75%
+        // extra" in all six fields, which is not what a baseline race is.
+        for field in 0..6 {
+            attrs[RaceStat::TechBonus1 as usize + field] = 1;
+        }
         attrs[RaceStat::MajorAdv as usize] = Prt::Joat as i16;
         Self {
             attrs,

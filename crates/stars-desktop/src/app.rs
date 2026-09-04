@@ -49,6 +49,72 @@ impl StarsApp {
         }
     }
 
+    /// Write the game's universe as a `.xy`.
+    fn save_universe(&mut self) {
+        let suggestion = self
+            .app
+            .universe
+            .as_ref()
+            .and_then(|u| u.game().ok())
+            .map(|g| format!("{}.xy", sanitise(&g.name)))
+            .unwrap_or_else(|| "game.xy".into());
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Write the universe file")
+            .set_file_name(suggestion)
+            .add_filter("Stars! universe", &["xy"])
+            .save_file()
+        else {
+            return;
+        };
+        match self.app.save_universe(&path) {
+            Ok(()) => self.app.error = None,
+            Err(e) => self.app.error = Some(e),
+        }
+    }
+
+    /// Act on what the New Game wizard asked for.
+    fn wizard(&mut self, action: stars_ui::views::newgame::Action) {
+        use stars_ui::views::newgame::Action;
+        match action {
+            Action::Cancel => self.app.setup = None,
+            Action::Create => {
+                let Some(config) = self.app.setup.clone() else {
+                    return;
+                };
+                match self.app.new_game(&config) {
+                    Ok(()) => self.app.error = None,
+                    Err(e) => self.app.error = Some(e),
+                }
+            }
+            Action::LoadRace(index) => {
+                let Some(path) = rfd::FileDialog::new()
+                    .set_title("Open a race file")
+                    .add_filter(
+                        "Stars! race",
+                        &["r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "hst", "m1"],
+                    )
+                    .pick_file()
+                else {
+                    return;
+                };
+                match stars_ui::views::newgame::race_from_file(&path) {
+                    Ok(race) => {
+                        if let Some(player) = self
+                            .app
+                            .setup
+                            .as_mut()
+                            .and_then(|c| c.players.get_mut(index))
+                        {
+                            player.race = race;
+                        }
+                        self.app.error = None;
+                    }
+                    Err(e) => self.app.error = Some(e),
+                }
+            }
+        }
+    }
+
     fn pick_file(&mut self) {
         let picked = rfd::FileDialog::new()
             .set_title("Open a Stars! save")
@@ -76,11 +142,15 @@ impl eframe::App for StarsApp {
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
+                    if ui.button("New game…").clicked() {
+                        ui.close_menu();
+                        self.app.setup = Some(stars_core::newgame::NewGame::default());
+                    }
                     if ui.button("Open…").clicked() {
                         ui.close_menu();
                         self.pick_file();
                     }
-                    let open = self.app.game.is_some();
+                    let open = self.app.game.is_some() && self.app.can_save_game();
                     if ui
                         .add_enabled(open, egui::Button::new("Save"))
                         .on_hover_text(
@@ -99,6 +169,25 @@ impl eframe::App for StarsApp {
                         ui.close_menu();
                         self.save(true);
                     }
+                    if !self.app.can_save_game() && self.app.game.is_some() {
+                        ui.label(
+                            egui::RichText::new(
+                                "A generated game has no save file yet — only its \
+                                 universe can be written.",
+                            )
+                            .weak(),
+                        );
+                    }
+                    if ui
+                        .add_enabled(
+                            self.app.universe.is_some(),
+                            egui::Button::new("Write universe (.xy)…"),
+                        )
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.save_universe();
+                    }
                     ui.separator();
                     if ui.button("Quit").clicked() {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -106,7 +195,10 @@ impl eframe::App for StarsApp {
                 });
                 ui.separator();
                 if ui
-                    .add_enabled(self.app.game.is_some(), egui::Button::new("Generate turn"))
+                    .add_enabled(
+                        self.app.game.is_some() && self.app.setup.is_none(),
+                        egui::Button::new("Generate turn"),
+                    )
                     .on_hover_text(
                         "Advance one year. The rolls will differ from the original \
                          engine's: its generator is seeded from the clock and its state \
@@ -118,7 +210,7 @@ impl eframe::App for StarsApp {
                 }
                 ui.separator();
                 for screen in Screen::ALL {
-                    let enabled = self.app.game.is_some();
+                    let enabled = self.app.game.is_some() && self.app.setup.is_none();
                     if ui
                         .add_enabled(
                             enabled,
@@ -176,9 +268,12 @@ impl eframe::App for StarsApp {
             });
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            stars_ui::views::central(&mut self.app, ui);
-        });
+        let action = egui::CentralPanel::default()
+            .show(ctx, |ui| stars_ui::views::central(&mut self.app, ui))
+            .inner;
+        if let Some(action) = action {
+            self.wizard(action);
+        }
     }
 }
 
@@ -202,4 +297,18 @@ pub fn run(open: Option<PathBuf>) -> eframe::Result<()> {
             Ok(Box::new(StarsApp::new(open)))
         }),
     )
+}
+
+/// Turn a game name into something safe to suggest as a file name.
+fn sanitise(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect();
+    let trimmed = cleaned.trim_matches('-').to_string();
+    if trimmed.is_empty() {
+        "game".to_string()
+    } else {
+        trimmed
+    }
 }

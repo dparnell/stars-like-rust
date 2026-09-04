@@ -134,3 +134,101 @@ fn the_galaxy_map_copes_with_no_universe() {
     assert!(app.extent().is_none(), "no positions, so no extent");
     draw(&mut app, Screen::Galaxy);
 }
+
+/// The New Game wizard lays out, and creating a game from it works.
+#[test]
+fn the_new_game_wizard_draws_and_creates_a_game() {
+    use stars_core::newgame::{NewGame, NewPlayer, Size};
+    use stars_core::opponents;
+
+    let mut app = App::new();
+    app.setup = Some(NewGame::default());
+    // The wizard replaces the whole central panel, so the screen does not
+    // matter; draw it under each anyway.
+    for screen in Screen::ALL {
+        draw(&mut app, screen);
+    }
+    assert!(app.setup.is_some(), "drawing must not close the wizard");
+
+    // Every player row has its own combo box, so a full game exercises every
+    // id the wizard allocates.
+    let mut config = NewGame {
+        name: "Rendered".into(),
+        size: Size::Small,
+        players: vec![NewPlayer::human(stars_core::Race::humanoid())],
+        ..NewGame::default()
+    };
+    for level in 0..4 {
+        for personality in 0..5 {
+            if let Some(opponent) = opponents::opponent(personality, level) {
+                config.players.push(opponent.as_player());
+            }
+        }
+    }
+    config.players.truncate(stars_core::newgame::MAX_PLAYERS);
+    app.setup = Some(config.clone());
+    draw(&mut app, Screen::Galaxy);
+
+    app.new_game(&config).expect("creates the game");
+    assert!(app.setup.is_none(), "creating closes the wizard");
+    assert!(app.game.is_some());
+    assert!(app.universe.is_some());
+    assert!(
+        !app.can_save_game(),
+        "a generated game has no file to write back to"
+    );
+
+    // And every screen draws for it, the same as for a loaded save.
+    for screen in Screen::ALL {
+        draw(&mut app, screen);
+    }
+
+    // Its universe is a real .xy.
+    let dir = std::env::temp_dir().join("stars-ui-new-game-test");
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let path = dir.join("rendered.xy");
+    app.save_universe(&path).expect("writes the universe");
+    let bytes = std::fs::read(&path).expect("reads back");
+    let universe = stars_formats::Universe::decode(&bytes).expect("decodes");
+    assert_eq!(universe.game().expect("game info").name, "Rendered");
+    assert_eq!(
+        universe.planet_count(),
+        app.game.as_ref().expect("game").planets.len()
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+/// A generated game takes orders and generates turns, like a loaded one.
+#[test]
+fn a_generated_game_takes_orders_and_turns() {
+    use stars_core::newgame::{NewGame, NewPlayer, Size};
+
+    let mut app = App::new();
+    let config = NewGame {
+        size: Size::Small,
+        players: vec![NewPlayer::human(stars_core::Race::humanoid())],
+        ..NewGame::default()
+    };
+    app.new_game(&config).expect("creates the game");
+
+    // Queue a factory on the homeworld and advance a year.
+    let home = app
+        .game
+        .as_ref()
+        .expect("game")
+        .planets
+        .iter()
+        .find(|p| p.homeworld)
+        .map(|p| p.id)
+        .expect("a homeworld");
+    app.selection.planet = Some(home);
+    let buildable = app.buildable_items();
+    assert!(!buildable.is_empty(), "a homeworld can build something");
+    app.queue_add(buildable[0].0, 5);
+    assert!(app.dirty);
+
+    app.generate_turn();
+    assert_eq!(app.game.as_ref().expect("game").year(), 2401);
+    assert!(app.last_turn.is_some());
+    draw(&mut app, Screen::Planets);
+}

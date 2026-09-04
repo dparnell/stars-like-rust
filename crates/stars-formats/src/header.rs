@@ -89,6 +89,13 @@ pub struct FileHeader {
     pub flag_game_over: bool,
     /// Produced by the shareware edition.
     pub flag_shareware: bool,
+    /// The raw `dts` word (offset 14) exactly as stored.
+    ///
+    /// The file type and the five flags above are the bits this crate
+    /// understands; bits 13 to 15 are not modelled and appear set on some real
+    /// `.x` order files (`EXODUS.X6` carries `0xC101`). They are kept here so
+    /// [`FileHeader::to_payload`] can put them back untouched.
+    pub dts: u16,
 }
 
 impl FileHeader {
@@ -149,7 +156,77 @@ impl FileHeader {
             flag_multi: (dts >> 10) & 1 == 1,
             flag_game_over: (dts >> 11) & 1 == 1,
             flag_shareware: (dts >> 12) & 1 == 1,
+            dts,
         })
+    }
+
+    /// Re-encode this header back into the 16-byte header-block payload.
+    ///
+    /// Exact inverse of [`FileHeader::parse`]: the bit packing of the version,
+    /// player/salt and `dts` words is the same in both directions, so
+    /// `parse(h.to_payload()) == h` for every real header.
+    #[must_use]
+    pub fn to_payload(&self) -> [u8; 16] {
+        let version = ((self.version_major & 0xF) << 12)
+            | ((self.version_minor & 0x7F) << 5)
+            | (self.version_increment & 0x1F);
+        let player_word = (u16::from(self.player) & 0x1F) | (self.salt << 5);
+        let tag = match self.file_type {
+            FileType::Universe => 0,
+            FileType::Orders => 1,
+            FileType::Host => 2,
+            FileType::Turn => 3,
+            FileType::History => 4,
+            FileType::Race => 5,
+            FileType::Unknown(other) => other,
+        };
+        // Bits 13-15 are not modelled, so they come back from the stored word.
+        let dts = (self.dts & 0xE000)
+            | u16::from(tag)
+            | (u16::from(self.flag_done) << 8)
+            | (u16::from(self.flag_in_use) << 9)
+            | (u16::from(self.flag_multi) << 10)
+            | (u16::from(self.flag_game_over) << 11)
+            | (u16::from(self.flag_shareware) << 12);
+
+        let mut out = [0u8; 16];
+        out[0..4].copy_from_slice(&self.magic);
+        out[4..8].copy_from_slice(&self.game_id.to_le_bytes());
+        out[8..10].copy_from_slice(&version.to_le_bytes());
+        out[10..12].copy_from_slice(&self.turn.to_le_bytes());
+        out[12..14].copy_from_slice(&player_word.to_le_bytes());
+        out[14..16].copy_from_slice(&dts.to_le_bytes());
+        out
+    }
+
+    /// A fresh header for a file this crate is creating from scratch.
+    ///
+    /// `player` is the owning player index, or `31` for a shared file such as
+    /// a `.xy`. The version word is `0x2A2B`, copied verbatim from the 2.7
+    /// fixtures (`fixtures/games/exodus/exodus.xy`) rather than composed from
+    /// a version number, because the meaning of the minor/increment split is
+    /// not settled — see the table in the module docs. The salt is
+    /// caller-supplied: it seeds the stream cipher, so it must stay stable for
+    /// a file that is written more than once.
+    #[must_use]
+    pub fn new(game_id: u32, file_type: FileType, player: u8, turn: u16, salt: u16) -> Self {
+        Self {
+            magic: Self::MAGIC,
+            version_major: 2,
+            version_minor: 81,
+            version_increment: 11,
+            game_id,
+            turn,
+            player,
+            salt: salt & 0x7FF,
+            file_type,
+            flag_done: false,
+            flag_in_use: false,
+            flag_multi: false,
+            flag_game_over: false,
+            flag_shareware: false,
+            dts: 0,
+        }
     }
 
     /// Construct the [`StarsRng`] that decrypts/encrypts this file's blocks.

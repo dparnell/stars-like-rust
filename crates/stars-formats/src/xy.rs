@@ -125,6 +125,119 @@ pub struct Planet {
 /// packed deltas whatever base they are read against.
 pub const X_BASE: u32 = 1000;
 
+/// The `.xy` game-info block (the engine's 64-byte `GAME` struct).
+///
+/// Field offsets are the NB09 `GAME` layout, confirmed by the static asserts
+/// the reconstructed sources carry: `lid` at 0, `mdSize` at 4, `mdDensity` at
+/// 6, `cPlayer` at 8, `cPlanMax` at 10, `mdStartDist` at 12, `fDirty` at 14,
+/// the flag word at 16, `turn` at 18, the twelve victory-condition bytes at
+/// 20 and a 32-byte name at 32.
+///
+/// Only the fields a reader needs are broken out; everything else is kept in
+/// [`GameInfo::raw`] so the block re-encodes byte-for-byte.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GameInfo {
+    /// Per-game id (`GAME.lid`).
+    pub id: u32,
+    /// Universe size class, 0 (tiny) to 4 (huge) — `GAME.mdSize`.
+    pub size: i16,
+    /// Planet density class — `GAME.mdDensity`.
+    pub density: i16,
+    /// How many players — `GAME.cPlayer`.
+    pub players: i16,
+    /// How many planets — `GAME.cPlanMax`.
+    pub planets: i16,
+    /// Starting-distance class — `GAME.mdStartDist`.
+    pub start_distance: i16,
+    /// The packed option flags at offset 16 (`fExtraFuel` … `fClumping`).
+    pub flags: u16,
+    /// Turn counter; the year is `2400 + turn`.
+    pub turn: u16,
+    /// The game's name, as stored (NUL-padded to 32 bytes).
+    pub name: String,
+    /// The whole 64-byte payload, kept so unmodelled fields survive a
+    /// round-trip.
+    pub raw: Vec<u8>,
+}
+
+/// Bit positions within [`GameInfo::flags`] (`GAME.wCrap`).
+pub mod game_flag {
+    /// Unlimited minerals ("extra fuel" in the original's field name).
+    pub const EXTRA_FUEL: u16 = 1 << 0;
+    /// Slower tech advances: research costs double.
+    pub const SLOW_TECH: u16 = 1 << 1;
+    /// Exactly one human player, so the game plays without a separate host.
+    pub const SINGLE_PLAYER: u16 = 1 << 2;
+    /// The tutorial universe.
+    pub const TUTORIAL: u16 = 1 << 3;
+    /// Computer players are handicapped into bands.
+    pub const AIS_BAND: u16 = 1 << 4;
+    /// Public-player (BBS) game.
+    pub const BBS_PLAY: u16 = 1 << 5;
+    /// Scores are visible to everyone.
+    pub const VIS_SCORES: u16 = 1 << 6;
+    /// No random events: no wormholes, no artifacts, no Mystery Trader.
+    pub const NO_RANDOM: u16 = 1 << 7;
+    /// Clump the planets rather than scattering them evenly.
+    pub const CLUMPING: u16 = 1 << 8;
+}
+
+impl GameInfo {
+    /// Size in bytes of the game-info payload.
+    pub const LEN: usize = 64;
+
+    /// Decode a 64-byte game-info payload.
+    ///
+    /// # Errors
+    ///
+    /// [`FormatError::Malformed`] if the payload is shorter than
+    /// [`GameInfo::LEN`].
+    pub fn decode(data: &[u8]) -> Result<Self> {
+        if data.len() < Self::LEN {
+            return Err(FormatError::Malformed(format!(
+                ".xy game-info block is {} bytes, need {}",
+                data.len(),
+                Self::LEN
+            )));
+        }
+        let w = |o: usize| i16::from_le_bytes([data[o], data[o + 1]]);
+        let name_end = data[32..64].iter().position(|b| *b == 0).unwrap_or(32) + 32;
+        Ok(Self {
+            id: u32::from_le_bytes([data[0], data[1], data[2], data[3]]),
+            size: w(4),
+            density: w(6),
+            players: w(8),
+            planets: w(10),
+            start_distance: w(12),
+            flags: u16::from_le_bytes([data[16], data[17]]),
+            turn: u16::from_le_bytes([data[18], data[19]]),
+            name: String::from_utf8_lossy(&data[32..name_end]).into_owned(),
+            raw: data[..Self::LEN].to_vec(),
+        })
+    }
+
+    /// Re-encode this game info, preserving every byte the struct does not
+    /// model.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = self.raw.clone();
+        out.resize(Self::LEN, 0);
+        out[0..4].copy_from_slice(&self.id.to_le_bytes());
+        out[4..6].copy_from_slice(&self.size.to_le_bytes());
+        out[6..8].copy_from_slice(&self.density.to_le_bytes());
+        out[8..10].copy_from_slice(&self.players.to_le_bytes());
+        out[10..12].copy_from_slice(&self.planets.to_le_bytes());
+        out[12..14].copy_from_slice(&self.start_distance.to_le_bytes());
+        out[16..18].copy_from_slice(&self.flags.to_le_bytes());
+        out[18..20].copy_from_slice(&self.turn.to_le_bytes());
+        let name = self.name.as_bytes();
+        let n = name.len().min(31);
+        out[32..64].fill(0);
+        out[32..32 + n].copy_from_slice(&name[..n]);
+        out
+    }
+}
+
 /// A parsed `.xy` universe file.
 ///
 /// [`Universe::decode`] and [`Universe::encode`] are byte-exact inverses for
@@ -240,6 +353,79 @@ impl Universe {
         }
         out.extend_from_slice(&self.trailer);
         Ok(out)
+    }
+
+    /// Build a brand-new universe file from generated planet positions.
+    ///
+    /// This is the writer side of `GenerateWorld` (`create.c`): the planet
+    /// records are the same chain of 10-bit x deltas the original emits,
+    /// starting from [`X_BASE`], and the file ends with the same 4-byte
+    /// player-count block (`WriteRt(0, 2, &cPlayer)`) that a standalone
+    /// universe-definition file carries.
+    ///
+    /// `positions` must be sorted by ascending x — the delta encoding cannot
+    /// represent a decrease — and must be the same length as `name_ids`.
+    ///
+    /// # Errors
+    ///
+    /// [`FormatError::Malformed`] if the two slices differ in length, if x
+    /// ever decreases, or if a delta or coordinate does not fit its field.
+    pub fn create(
+        header: FileHeader,
+        info: &GameInfo,
+        positions: &[(u16, u16)],
+        name_ids: &[u16],
+    ) -> Result<Self> {
+        if positions.len() != name_ids.len() {
+            return Err(FormatError::Malformed(format!(
+                ".xy needs one name per planet: {} positions, {} names",
+                positions.len(),
+                name_ids.len()
+            )));
+        }
+        let mut planets = Vec::with_capacity(positions.len());
+        let mut x_prev = X_BASE;
+        for (i, ((x, y), name)) in positions.iter().zip(name_ids).enumerate() {
+            let x = u32::from(*x);
+            if x < x_prev {
+                return Err(FormatError::Malformed(format!(
+                    ".xy planet {i} moves backwards in x ({x} after {x_prev})"
+                )));
+            }
+            let dx = x - x_prev;
+            if dx > 0x3FF || u32::from(*y) > 0x0FFF || u32::from(*name) > 0x3FF {
+                return Err(FormatError::Malformed(format!(
+                    ".xy planet {i} does not fit its record: dx={dx} y={y} name={name}"
+                )));
+            }
+            planets.push(PlanetPosition {
+                x_offset: dx as u16,
+                y: *y,
+                name_index: *name,
+            });
+            x_prev = x;
+        }
+
+        let players = u8::try_from(info.players.max(0)).unwrap_or(u8::MAX);
+        Ok(Self {
+            header_payload: header.to_payload().to_vec(),
+            header,
+            game_info: info.encode(),
+            planets,
+            // `WriteRt(0, 2, &cPlayer)`: a type-0 block holding the player
+            // count, written outside the cipher like the planet region.
+            trailer: vec![0x02, 0x00, players, 0x00],
+        })
+    }
+
+    /// Decode the game-info block into its fields.
+    ///
+    /// # Errors
+    ///
+    /// [`FormatError::Malformed`] if the block is shorter than
+    /// [`GameInfo::LEN`].
+    pub fn game(&self) -> Result<GameInfo> {
+        GameInfo::decode(&self.game_info)
     }
 
     /// The number of planets in the universe.

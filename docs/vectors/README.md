@@ -13,6 +13,7 @@ docs and the code cannot drift apart.
 | File | Covers | Provenance |
 |------|--------|------------|
 | `planetary-economy.json` | Maximum population, growth and death, resources, mining and concentration decay, scanner combination, warp travel | Every case is a rule stated in `documentation/MANUAL.PDF`; each section names the page and the Ghidra routine it exercises |
+| `new-game.json` | Universe generation: planet counts, coordinate bands, environment and mineral shape, homeworlds, advantage points, starting technology, designs and fuel | Read out of `fixtures/incoming/turn0/`, a real three-player game exactly as `GenerateWorld` left it |
 
 `planetary-economy.json` is deliberately sourced from the **manual** rather than
 from our own output, so a failure means the implementation has drifted from the

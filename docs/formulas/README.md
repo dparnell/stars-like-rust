@@ -44,6 +44,15 @@ Still to come in Step 4:
 - the torpedo **accuracy formula**, transcribed but unverified against real fire
 - **RNG alignment**, which needs consecutive tutorial-mode turns
 
+## Delivery Step 5 — the frontend
+
+| Spec | Subsystem | Status |
+|------|-----------|--------|
+| `new-game.md` | Universe generation, homeworlds, starting fleets, advantage points | verified |
+
+`new-game.md` is checked against `fixtures/incoming/turn0/`, a real turn-0 game
+as `GenerateWorld` left it, which pins down almost every stage of the algorithm.
+
 ## Verification
 
 Two layers, both in `crates/stars-core/tests/`:
@@ -55,3 +64,6 @@ Two layers, both in `crates/stars-core/tests/`:
 - `differential_growth.rs` replays real save files (the 40-turn Exodus game and
   the three-player sample game) and compares against what the original engine
   actually wrote a year later, down to the fractional-population accumulator.
+- `new_game.rs` checks generation against `../vectors/new-game.json` and against
+  the turn-0 fixture directly, including a distribution comparison between 600
+  real planets and 11,440 generated ones.

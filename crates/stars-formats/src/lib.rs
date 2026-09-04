@@ -114,7 +114,7 @@ pub use thing::{
     ThingSection, ThingType, Wormhole, THING_BLOCK, THING_SIZE,
 };
 pub use waypoint::{task, waypoint_records, ItemAction, TransportTask, WaypointRecord, XferAction};
-pub use xy::{Planet, PlanetPosition, Universe};
+pub use xy::{game_flag, GameInfo, Planet, PlanetPosition, Universe};
 
 use thiserror::Error;
 

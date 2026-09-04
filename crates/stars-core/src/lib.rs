@@ -38,6 +38,8 @@
 //! | Scanner ranges | [`scanning`] | ranges complete; per-design scanners need ship designs |
 //! | Fleet movement & fuel | [`movement`] | geometry and fuel complete; engine tables need parts data |
 //! | Production, research, combat, AI | — | delivery Step 4 |
+//! | New game creation | [`newgame`] | universe, homeworlds and starting fleets |
+//! | Race advantage points | [`advantage`] | complete |
 //!
 //! Alternate Reality races live on their starbases, so their population,
 //! mining and scanning all depend on ship designs; those paths return `None`
@@ -45,6 +47,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod advantage;
 pub mod ai;
 pub mod battle;
 pub mod bombing;
@@ -56,6 +59,8 @@ pub mod hab;
 pub mod load;
 pub mod mining;
 pub mod movement;
+pub mod newgame;
+pub mod opponents;
 pub mod orders;
 pub mod planet;
 pub mod population;
@@ -65,11 +70,13 @@ pub mod research;
 pub mod resources;
 pub mod rng;
 pub mod scanning;
+pub mod startup;
 pub mod terraform;
 pub mod turn;
 
 // `battle::distance` is board geometry and `movement::distance` is interstellar,
 // so neither is re-exported bare; use the module path.
+pub use advantage::{advantage_points, innate_race_habitability};
 pub use battle::{movement_this_round, start_square, target_score, torpedo_accuracy, Tactic};
 pub use design::{Cost, DesignSlot, ShipDesign};
 pub use fleet::{Cargo, Fleet, ShipStack};
@@ -77,6 +84,9 @@ pub use hab::{calc_planet_max_pop, max_pop_for_hab, pct_planet_desirability};
 pub use load::{design_from_record, planet_from_record, race_from_record, LoadReport};
 pub use mining::{mine_minerals, minerals_mined, mines_operating};
 pub use movement::{advance, distance, travel_per_year, travel_this_year, FuelStack, Point};
+pub use newgame::{
+    generate as new_game, Created, Density, NewGame, NewPlayer, Size, StartDistance,
+};
 pub use planet::Planet;
 pub use population::{chg_pop_from_planet, pct_true_max_growth, update_population, PopChange};
 pub use production::{
