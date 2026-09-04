@@ -1,7 +1,8 @@
 # Subsystem: Terraforming
 
 - **Status:** verified — reach 99.9%, step count 100%
-- **Ghidra routine(s):** `FCanTerraformLppl` (`1048:8022`, read via
+- **Ghidra routine(s):** `AutoTerraform` (`10b8:48f6`),
+  `FCanTerraformLppl` (`1048:8022`, read via
   `PctPlanetOptValue` `1048:6b88`), `IpctCanTerraformLppl` (`1048:7f56`),
   `InitProduction` (`10d0:015e`), `FQueueAiTerraforming` (`1090:8d28`),
   `FLookupPart` (the `hstTerra` arm), the `hstTerra` part table
@@ -203,6 +204,67 @@ The two explanations tested against the old 30% residual — capping the count b
 what the planet can afford that year (7% exact, badly under-predicting) and
 counting habitability gain rather than clicks (66%) — were both correctly
 rejected, and neither was needed.
+
+## The Claim Adjuster terraforms for free
+
+`AutoTerraform` (`10b8:48f6`) is step 16 of the turn pipeline. It scans every
+player for `GetRaceStat(plr, rsMajorAdv) == 3` and returns immediately if none
+matches, so it is a Claim Adjuster routine and nothing else. For each planet
+such a player owns it does two separate things.
+
+**A permanent drift of the planet's baseline.** One variable, chosen with
+`Random(3)`, is nudged a single click toward the race's ideal — applied to
+`rgEnvVarOrig`, not to the current environment:
+
+```text
+v = Random(3)
+skip if the race is immune to v, or orig[v] is already the ideal
+skip unless Random(10) == 0
+skip unless pop >= 1000, or Random(1000) < pop
+orig[v] += 1 toward the ideal
+```
+
+Moving the *original* is what makes this the Claim Adjuster's permanent
+improvement: it shifts the whole reachable band rather than being overwritten by
+the terraforming that follows two lines later. The corpus confirms the target.
+Over planet-turns under unbroken ownership, `env_orig` moves **36 times for
+Claim Adjusters and 36 times is also how often their `env` moves**, out of 962
+planet-turns — the two counts are identical because the drift moves the baseline
+and the jump below then re-seats the environment on it. For every other race
+`env_orig` moves 22 times in 20,497 planet-turns (0.1%), which is planets
+changing hands rather than drift.
+
+**Then the environment jumps to the reachable bound** — not one click, the whole
+way:
+
+```c
+if (FCanTerraformLppl(planet, low, high, items, 1)) {
+  for (v = 0; v < 3; v++)
+    if (low[v] == -1) { if (high[v] != -1) env[v] = high[v]; }
+    else                                   env[v] = low[v];
+}
+```
+
+The fifth argument is `PUSH 0x1` at `10b8:4b5f`, the same flag
+`IpctCanTerraformLppl` passes, so only the direction moving toward the ideal
+survives and each bound is clamped at the ideal. The result is exactly
+`optimal_env`.
+
+Implemented as `terraform::auto_terraform` and run by `generate_turn`; it is a
+no-op, consuming no RNG draw, for every non-Claim-Adjuster race.
+
+### Why this matters beyond the Claim Adjuster
+
+It is the reason **Rototill queues no terraforming**, which `ai.md` had recorded
+as unexplained. The AI's order count comes from the production catalogue, and
+`InitProduction` adds a terraform item only when `IpctCanTerraformLppl` exceeds
+zero. A Claim Adjuster's planets are already at their optimum every turn, so the
+count is zero and no item is offered. Measured: 0 available steps on all 718
+Rototill planet-turns past the population gate, despite 633 of them sitting off
+the race's ideal — off the ideal, but already as far as the technology reaches.
+
+The drift does **not** push a planet past its band: Claim Adjuster planets
+account for 0 reach violations in 2010 non-immune axis-readings.
 
 ## Which factor a step moves
 

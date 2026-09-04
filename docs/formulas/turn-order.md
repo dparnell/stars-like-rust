@@ -70,7 +70,8 @@ UpdatePopulations → UpdateResearchStatus → RandomEvents
 ## What `generate_turn` currently performs
 
 `crates/stars-core/src/turn.rs` runs mining, the per-planet resource split,
-**the production queue**, population growth and the research advance — the
+**the production queue**, population growth, the research advance and
+**`AutoTerraform`** (step 16, the Claim Adjuster's free terraforming) — the
 steps whose formulas are recovered. Every other step is returned in
 `TurnReport::skipped` rather than quietly omitted, so a partial turn cannot be
 mistaken for a complete one.

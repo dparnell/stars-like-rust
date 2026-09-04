@@ -195,8 +195,36 @@ supplied by the caller and comes from `terraform::terraform_steps`, which is
 turn the AI queues the item, so the saved file always shows the order already
 drawn down.
 
-Robotoid and Rototill queue no terraforming at all despite calling
-`HandleBasicAiTasks`. That is unexplained and worth chasing.
+**Robotoid and Rototill queue no terraforming at all** — and neither needs a
+special case, because both fail the same gate for different reasons. The order
+count comes from the production catalogue, and `InitProduction` only puts a
+terraform item in it when `IpctCanTerraformLppl` is above zero. Measured over
+the corpus, `terraform_steps` is **0 on every one of the 3809 Robotoid and 718
+Rototill planet-turns past the population gate**:
+
+- **Robotoid is the all-immune Hyper Expansion race.** In both games its
+  environment centres are all `0xFF`, so every axis is immune, nothing is ever
+  terraformable, and `off-ideal on a non-immune axis` is exactly 0 across 6336
+  and 5404 planet-turns. (This is the same race whose planets carry terraforming
+  done by *previous* owners — see `terraforming.md`.)
+- **Rototill is the Claim Adjuster**, and gets its terraforming free.
+  `AutoTerraform` (`10b8:48f6`) runs after `Produce` for every planet owned by a
+  PRT 3 player and sets the environment straight to the edge of its reachable
+  band. By the time the production catalogue is built there is nothing left to
+  queue. Rototill has 633 off-ideal planet-turns and 0 available steps, which is
+  exactly that signature: off the ideal, but already as close as its technology
+  can bring it.
+
+Personality to race, as the corpus binds them:
+
+| Personality | PRT | Immunity |
+|-------------|-----|----------|
+| Robotoid    | HE  | all three |
+| TurinDrone  | SS  | none |
+| Automitron  | IS  | temperature (in one of the two games) |
+| Rototill    | CA  | none |
+| Cyber       | PP  | none |
+| Macinti     | AR  | none |
 
 ### Which planets an AI considers — recovered
 

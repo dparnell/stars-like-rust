@@ -50,8 +50,10 @@ pub enum SkippedStep {
     BuildQueue,
     /// Battle resolution.
     Combat,
-    /// Auto and remote terraforming.
-    Terraforming,
+    /// Remote terraforming — the Orbital Adjuster acting on another player's
+    /// planet. The Claim Adjuster's own free terraforming (`AutoTerraform`) is
+    /// performed; see [`crate::terraform::auto_terraform`].
+    RemoteTerraforming,
     /// Random events (comet strikes and the like).
     RandomEvents,
     /// Score calculation.
@@ -78,6 +80,8 @@ pub struct TurnReport {
     pub research_spending: Vec<i32>,
     /// Technology levels gained, per player.
     pub breakthroughs: Vec<Vec<Breakthrough>>,
+    /// Planets `AutoTerraform` moved this year — Claim Adjusters only.
+    pub terraformed: Vec<i16>,
     /// Pipeline steps not performed, and therefore not reflected above.
     pub skipped: Vec<SkippedStep>,
 }
@@ -85,7 +89,8 @@ pub struct TurnReport {
 /// Advance the game by one year.
 ///
 /// The steps performed, in the original's order, are: mining, the per-planet
-/// resource and research split, population update, and the research advance.
+/// resource and research split, population update, the research advance, and
+/// the Claim Adjuster's free terraforming.
 /// Everything else is reported in [`TurnReport::skipped`].
 ///
 /// `rng` supplies the mining rounding draws; pass a generator seeded from the
@@ -96,7 +101,7 @@ pub fn generate_turn(state: &mut GameState, rng: &mut Rng) -> TurnReport {
             SkippedStep::Orders,
             SkippedStep::Things,
             SkippedStep::Combat,
-            SkippedStep::Terraforming,
+            SkippedStep::RemoteTerraforming,
             SkippedStep::RandomEvents,
             SkippedStep::Scores,
         ],
@@ -231,6 +236,27 @@ pub fn generate_turn(state: &mut GameState, rng: &mut Rng) -> TurnReport {
             state.slow_tech,
         );
         report.breakthroughs[index] = gained;
+    }
+
+    // --- AutoTerraform: the Claim Adjuster's free terraforming, which the
+    // pipeline runs after Produce. It is a no-op for every other race.
+    for index in 0..state.planets.len() {
+        if !state.planets[index].detail.is_full() {
+            continue;
+        }
+        let Some(owner) = state.planets[index].owner else {
+            continue;
+        };
+        let Some(player) = usize::try_from(owner)
+            .ok()
+            .and_then(|i| state.players.get(i))
+        else {
+            continue;
+        };
+        let (race, tech) = (player.race.clone(), player.research.levels);
+        if crate::terraform::auto_terraform(&mut state.planets[index], &race, tech, rng) {
+            report.terraformed.push(state.planets[index].id);
+        }
     }
 
     state.turn += 1;

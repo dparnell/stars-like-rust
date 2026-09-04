@@ -258,6 +258,102 @@ pub fn best_terraform_factor(planet: &Planet, race: &Race, tech: [u8; 6]) -> Opt
     best.map(|(_, v)| v)
 }
 
+/// The primary racial trait `AutoTerraform` serves: Claim Adjuster.
+///
+/// `AutoTerraform` (`10b8:48f6`) opens by scanning every player for
+/// `GetRaceStat(plr, rsMajorAdv) == 3` and does nothing at all if none matches.
+pub const AUTO_TERRAFORM_PRT: crate::race::Prt = crate::race::Prt::Ca;
+
+/// Population, in units of 100 colonists, at or above which the Claim Adjuster
+/// drift is certain rather than a roll (`10b8:4a99` compares against `0x3e8`).
+pub const DRIFT_CERTAIN_POP: i32 = 1000;
+
+/// One turn of free Claim Adjuster terraforming.
+///
+/// Source: `AutoTerraform` (`10b8:48f6`), step 16 of the turn pipeline. It runs
+/// only for players whose primary trait is [`AUTO_TERRAFORM_PRT`], and does two
+/// separate things to each planet such a player owns.
+///
+/// **The drift.** One environment variable, chosen with `Random(3)`, is nudged a
+/// single click toward the race's ideal — but the click is applied to
+/// `rgEnvVarOrig`, not to the current environment. That is the Claim Adjuster's
+/// permanent improvement: it moves the planet's *baseline*, and so shifts the
+/// whole reachable band, rather than being overwritten by the terraforming that
+/// follows. The gates, in the order the routine rolls them:
+///
+/// ```text
+/// v = Random(3)
+/// skip unless the race cares about v, and orig[v] is not already the ideal
+/// skip unless Random(10) == 0
+/// skip unless pop >= 1000, or Random(1000) < pop
+/// orig[v] += 1 toward the ideal
+/// ```
+///
+/// **The terraforming.** The planet's environment is then set straight to the
+/// edge of its reachable band — not one click, the whole way:
+///
+/// ```c
+/// if (FCanTerraformLppl(planet, low, high, items, 1)) {
+///   for (v = 0; v < 3; v++)
+///     if (low[v] == -1) { if (high[v] != -1) env[v] = high[v]; }
+///     else                                   env[v] = low[v];
+/// }
+/// ```
+///
+/// The fifth argument is `PUSH 0x1` at `10b8:4b5f` — the same flag
+/// `IpctCanTerraformLppl` passes — so only the direction moving toward the
+/// ideal survives and each bound is clamped at the ideal. That makes the result
+/// exactly [`optimal_env`].
+///
+/// This is why a Claim Adjuster never queues terraforming: its planets are
+/// already at their optimum every turn, so `IpctCanTerraformLppl` returns zero
+/// and `InitProduction` puts no terraform item in the production catalogue at
+/// all. See `docs/formulas/terraforming.md`.
+///
+/// Returns whether anything moved. The generator is stepped exactly as the
+/// original steps it, so a future RNG-exact replay lines up.
+pub fn auto_terraform(
+    planet: &mut Planet,
+    race: &Race,
+    tech: [u8; VARIABLES + 3],
+    rng: &mut crate::rng::Rng,
+) -> bool {
+    if race.prt() != Some(AUTO_TERRAFORM_PRT) {
+        return false;
+    }
+    let mut moved = false;
+
+    // The drift, on the original environment.
+    let v = usize::from(rng.random(3).unsigned_abs());
+    if let Some(orig) = planet.env_orig.as_mut() {
+        // An immune variable stores -1 as its ideal, which the routine skips.
+        // Written as one chain so the generator is stepped in the original's
+        // order: Random(10) is only rolled once the variable qualifies, and
+        // Random(1000) only when the population does not already settle it.
+        if v < VARIABLES
+            && !race.is_immune(v)
+            && orig[v] != race.env_center[v]
+            && rng.random(10) == 0
+            && (planet.pop >= DRIFT_CERTAIN_POP || i32::from(rng.random(1000)) < planet.pop)
+        {
+            if race.env_center[v] < orig[v] {
+                orig[v] -= 1;
+            } else {
+                orig[v] += 1;
+            }
+            moved = true;
+        }
+    }
+
+    // The terraforming, all the way to the reachable bound.
+    let target = optimal_env(planet, race, tech);
+    if target != planet.env {
+        planet.env = target;
+        moved = true;
+    }
+    moved
+}
+
 /// Move a planet one click along the variable [`best_terraform_factor`] picks.
 ///
 /// Returns whether anything moved.
@@ -342,6 +438,37 @@ mod tests {
         // Total Terraform 3 reaches 3 on each: gravity 47->50 is 3, temperature
         // 45->48 is 3 (capped by reach, not by the ideal), radiation is done.
         assert_eq!(terraform_steps(&planet, &race, [0; 6]), 6);
+    }
+
+    /// A Claim Adjuster's planets are terraformed to their optimum for free,
+    /// all the way to the band edge rather than one click.
+    #[test]
+    fn a_claim_adjuster_terraforms_to_the_band_edge_for_free() {
+        let mut race = tt_race();
+        race.attrs[crate::race::RaceStat::MajorAdv as usize] = AUTO_TERRAFORM_PRT as i16;
+
+        let mut planet = planet_at([40, 50, 50]);
+        planet.env_orig = Some([40, 50, 50]);
+        let mut rng = crate::rng::Rng::randomize(1);
+
+        assert!(auto_terraform(&mut planet, &race, [0; 6], &mut rng));
+        // Total Terraform 3 from an origin of 40 reaches 43, short of the
+        // ideal of 50, and the whole three clicks are applied at once.
+        assert_eq!(planet.env[0], 43);
+    }
+
+    /// Every other race gets nothing from it, and the generator is not stepped.
+    #[test]
+    fn auto_terraforming_is_claim_adjuster_only() {
+        let race = tt_race(); // JOAT
+        let mut planet = planet_at([40, 50, 50]);
+        planet.env_orig = Some([40, 50, 50]);
+        let mut rng = crate::rng::Rng::randomize(1);
+        let untouched = rng.clone();
+
+        assert!(!auto_terraform(&mut planet, &race, [0; 6], &mut rng));
+        assert_eq!(planet.env, [40, 50, 50]);
+        assert_eq!(rng, untouched, "a non-CA race must not consume a draw");
     }
 
     /// A planet already ideal has nothing to do.

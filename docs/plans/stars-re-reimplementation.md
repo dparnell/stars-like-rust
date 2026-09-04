@@ -374,7 +374,11 @@ needing UI-side bookkeeping.
 **The production dialog is race-dependent, and the rule is already written
 down.** An Alternate Reality race builds no planetary installation and a Claim
 Adjuster never terraforms; `ground::template_allows` encodes exactly the filter
-the game applies. The dialog should drive off it rather than reimplement it.
+the game applies. The dialog should drive off it rather than reimplement it. The
+Claim Adjuster half of that is not just a template filter but a consequence:
+`AutoTerraform` leaves its planets at their optimum every turn, so
+`IpctCanTerraformLppl` is zero and the item is never offered — see
+`docs/formulas/terraforming.md`.
 
 **A queue entry is a running balance, not an order.** Its fields are
 `count:10, item:7, class:3, completion:7` — remaining count and percent paid,
