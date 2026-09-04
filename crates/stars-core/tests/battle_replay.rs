@@ -11,7 +11,13 @@
 use std::path::{Path, PathBuf};
 
 use stars_core::battle::{distance, movement_this_round, start_square, Square};
-use stars_formats::{battle_records_in, BattleRecord, StarsFile};
+use stars_formats::{battle_records_in_with, ActionLayout, BattleRecord, StarsFile};
+
+/// The action layout a file's version calls for.
+fn layout_of(file: &StarsFile) -> ActionLayout {
+    let h = &file.latest_segment().header;
+    ActionLayout::for_version(h.version_major, h.version_minor)
+}
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -48,7 +54,10 @@ fn all_battles() -> Vec<(i32, BattleRecord)> {
                 let Ok(file) = StarsFile::decode(&bytes) else {
                     continue;
                 };
-                for record in battle_records_in(file.segment_blocks(file.latest_segment())) {
+                for record in battle_records_in_with(
+                    file.segment_blocks(file.latest_segment()),
+                    layout_of(&file),
+                ) {
                     if seen.insert((record.id, record.position, year)) {
                         out.push((year, record));
                     }
@@ -79,7 +88,9 @@ fn exodus_battles() -> Vec<(i32, BattleRecord)> {
         let Ok(file) = StarsFile::decode(&bytes) else {
             continue;
         };
-        for record in battle_records_in(file.segment_blocks(file.latest_segment())) {
+        for record in
+            battle_records_in_with(file.segment_blocks(file.latest_segment()), layout_of(&file))
+        {
             out.push((year, record));
         }
     }
@@ -88,7 +99,10 @@ fn exodus_battles() -> Vec<(i32, BattleRecord)> {
 
 #[test]
 fn tokens_start_on_the_squares_the_table_says() {
-    let battles = all_battles();
+    // Exodus only. A three-player battle in the 2.66 game (2429, 0x0c02) starts
+    // a token at (3,1) where this table says (4,1), so the starting-square table
+    // differs between versions — see docs/formats/battle.md.
+    let battles = exodus_battles();
     if battles.is_empty() {
         eprintln!("skipping: no Exodus fixtures");
         return;
@@ -186,9 +200,7 @@ fn two_sided_battles_use_the_two_player_layout() {
 
 #[test]
 fn recorded_moves_never_exceed_the_movement_allowance() {
-    // Exodus only. The sixteen-AI game's recordings, which live in its player
-    // files, break this invariant — see docs/formats/battle.md.
-    let battles = exodus_battles();
+    let battles = all_battles();
     if battles.is_empty() {
         eprintln!("skipping: no Exodus fixtures");
         return;
@@ -266,20 +278,21 @@ fn recorded_moves_never_exceed_the_movement_allowance() {
 
 #[test]
 fn firing_happens_within_the_recorded_range() {
-    // Exodus only. The sixteen-AI game's recordings, which live in its player
-    // files, break this invariant — see docs/formats/battle.md.
-    let battles = exodus_battles();
+    let battles = all_battles();
     if battles.is_empty() {
         eprintln!("skipping: no Exodus fixtures");
         return;
     }
-    // A firing record carries the range it fired at. Beam weapons reach at most
-    // three squares and torpedoes four, so nothing should fire beyond that.
+    // A firing record carries the range it fired at. The longest-reaching weapon
+    // in the component table is the Jihad Missile and its three larger cousins,
+    // at range 5; beams reach 3 and torpedoes 4. Exodus never fires beyond 4
+    // because it never researches missiles, which is why an earlier revision of
+    // this test asserted 4 and the sixteen-AI game broke it.
     let mut shots = 0;
     for (year, b) in &battles {
         for action in b.actions.iter().filter(|a| !a.kills.is_empty()) {
             assert!(
-                action.range <= 4,
+                action.range <= 5,
                 "{year} battle {:#06x}: fired at range {}",
                 b.id,
                 action.range
@@ -356,7 +369,7 @@ fn first_beam_hits_reproduce_the_recorded_damage() {
             .map(|r| (r.design_number, to_design(r)))
             .collect();
 
-        for battle in battle_records_in(blocks) {
+        for battle in battle_records_in_with(blocks, layout_of(&file)) {
             let mut already_hit: BTreeSet<u8> = BTreeSet::new();
 
             for action in &battle.actions {
@@ -515,7 +528,7 @@ fn beam_only_battles_replay_to_the_recorded_casualties() {
             .map(|r| (r.design_number, to_design(r)))
             .collect();
 
-        for battle in battle_records_in(blocks) {
+        for battle in battle_records_in_with(blocks, layout_of(&file)) {
             // Every token must be a ship design we hold in full, and nothing
             // may carry a torpedo.
             let mut tokens = Vec::new();
@@ -740,7 +753,7 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
             .map(|r| (r.design_number, to_design(r)))
             .collect();
 
-        for battle in battle_records_in(blocks) {
+        for battle in battle_records_in_with(blocks, layout_of(&file)) {
             let mut tokens = Vec::new();
             let mut usable = true;
             for t in &battle.tokens {

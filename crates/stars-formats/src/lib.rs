@@ -72,7 +72,8 @@ pub mod waypoint;
 pub mod xy;
 
 pub use battle::{
-    battle_records, battle_records_in, BattleAction, BattleRecord, BattleToken, Kill, Square,
+    battle_records, battle_records_in, battle_records_in_with, ActionLayout, BattleAction,
+    BattleRecord, BattleToken, Kill, Square,
 };
 pub use battleplan::{battle_plan_records, BattlePlanRecord};
 pub use block::{

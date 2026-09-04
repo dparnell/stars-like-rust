@@ -6,7 +6,7 @@
 //! ```text
 //! cargo run --release -p stars-core --example battle_dump -- <year dir> <hex id>
 //! ```
-use stars_formats::{battle_records_in, StarsFile};
+use stars_formats::{battle_records_in_with, ActionLayout, StarsFile};
 fn main() {
     let dir = std::env::args().nth(1).unwrap();
     let want = u16::from_str_radix(&std::env::args().nth(2).unwrap(), 16).unwrap();
@@ -47,7 +47,13 @@ fn main() {
                         .join(" ")
                 );
             }
-            for r in battle_records_in(std::slice::from_ref(blk)) {
+            let h = &f.latest_segment().header;
+            let layout = ActionLayout::for_version(h.version_major, h.version_minor);
+            println!(
+                "  version {}.{} -> {layout:?}",
+                h.version_major, h.version_minor
+            );
+            for r in battle_records_in_with(std::slice::from_ref(blk), layout) {
                 for (i, a) in r.actions.iter().enumerate() {
                     println!(
                         "  act {i:>2}: token {} dest {:?} round {} range {} target {} kills {}",

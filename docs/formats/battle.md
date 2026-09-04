@@ -150,60 +150,58 @@ That doubles the fixture corpus from Exodus's 47 records. `battle_replay.rs`
 now draws its battles from both games, de-duplicating by battle id and
 position.
 
-## An open problem with the sixteen-AI recordings
+## Two action layouts, chosen by file version
 
-Adding those records broke two invariants that hold across all 47 Exodus
-battles, and the assertions were left in place rather than loosened:
+The action record has **two layouts**, and the binary's own debug symbols name
+both. They occupy the same six bytes but divide the middle word differently:
 
-- **Movement.** `2448 battle 0x0f05` has token 0, speed 1, moving five squares
-  in round 0 against an allowance of one.
-- **Firing range.** `2499 battle 0x0225` records a shot at range 5, beyond what
-  the firing token's weapon reaches.
+| Offset | `BTLREC` (2.7 and later) | `BTLREC26` (2.6) |
+|--------|--------------------------|------------------|
+| 0      | `itok`                   | `itok`           |
+| 1      | `brcDest`                | `brcDest`        |
+| 2      | `ctok`, a 16-bit kill count | `itokAttack`, the token attacked |
+| 3      | *(part of `ctok`)*       | `ctok`, a **byte** kill count |
+| 4-5    | `iRound`, packed round / range / **target** | `iRound`, packed round / range |
 
-### What has been ruled out
+In the newer form the attacked token rides in the top half of the packed word;
+in the older one it has a byte of its own and the kill count shrinks to fill
+the gap.
 
-Comparing `0x0f05` byte for byte against Exodus `0x0d01` (use the
-`battle_dump` example) rules out the obvious explanations:
+Which applies is decided by the **file version header**, not by anything in the
+record. `ActionLayout::for_version` makes the choice, and `battle_records`
+reads the version itself; `battle_records_in_with` takes the layout explicitly.
 
-- **The header is the same.** Both are id, players, token count, player mask,
-  declared length, planet, x, y in 14 bytes, and both declared lengths match
-  the block exactly.
-- **The token layout is the same**, 29 bytes each, and both records' tokens end
-  at offset `0x48`.
-- **The action framing is exact.** `0x0f05` leaves 40 bytes after its tokens,
-  and 4 actions of 6 bytes plus 2 kills of 8 consume 40 precisely. The stream
-  is not running off the end.
+### How this was found
 
-So the divergence is in what the fields *mean*, not where they sit.
+Adding the sixteen-AI game's recordings broke two invariants that hold across
+all 47 Exodus battles: a speed-1 token appearing to move five squares in one
+round, and a shot at range 5.
 
-### Where the values go wrong
+Byte-for-byte comparison ruled out the obvious causes — the 14-byte header, the
+29-byte token records and the action framing are identical, and both records'
+declared lengths match their blocks exactly. The divergence was in what the
+fields *meant*: Exodus action 1 packs as `0x0170` (round 0, range 7, target 1)
+while the other game's action 0 packs as `0x8100`, giving target 129 in a
+two-token battle.
 
-Exodus `0x0d01` action 1 packs as `0x0170`: low byte `0x70` gives round 0 and
-range 7, high byte `0x01` gives target 1. Sensible for a two-token battle.
+The versions settle it. `fixtures/games/exodus` is **2.81**;
+`fixtures/games/all-computer-players` is **2.66** — and the older symbol is
+named `BTLREC26`. Read with the right layout, the record that appeared to have
+a token crossing five squares resolves to token 0 moving (1,4) to (2,4) to
+(3,4) and token 1 moving (8,5) to (7,5), over rounds 0, 0, 1, 1, with the final
+action carrying its two kills.
 
-`0x0f05` action 0 packs as `0x8100`: round 0, range 0, and **target 129** in a
-battle with two tokens. Its first kill record decodes to 0 ships killed with
-20,481 shield damage and 22,273 damage — all three implausible.
+### A second, unrelated correction
 
-Masking the target to seven bits gives 1, which would be the other token, but
-that does not rescue the later actions and is a guess rather than a reading.
+The firing-range test asserted `range <= 4`, on the reasoning that beams reach
+3 and torpedoes 4. That is wrong: the Jihad Missile and its three larger
+cousins have `range_max: 5` in the component table. Exodus never fires beyond 4
+only because it never researches missiles. The bound is now 5.
 
-### The leads worth following
+## Still open: the starting-square table in 2.66
 
-- `0x0f05` is fought at `planet = 0xffff` — **deep space**, where every Exodus
-  battle has a real planet id. A battle with no planet may record differently.
-- `0x0225` has **four tokens**, and its tokens carry `design = 23` with
-  `object_class = 1`, where every Exodus token has `object_class = 2` and a
-  design below 16. Design 23 is a *starbase* slot under the numbering recovered
-  in `ai.md`, and a starbase never moves — so the movement and range invariants
-  may simply not apply to it, and the object class may be what says so.
-
-Both leads point at the same thing: the recordings in this corpus cover cases
-Exodus never produced, and the format was recovered from Exodus alone.
-
-Until this is settled the two tests that check these invariants stay on the
-Exodus corpus, with a comment saying why. The three that do not depend on them
-— starting squares, the two-player layout, and the replays — use the full
-corpus. The replay figures are unchanged by the larger corpus, because those
-tests only accept battles where every token is a design the file holds in full
-and nothing carries a torpedo, and few of the new records qualify.
+One test remains on the Exodus corpus. In the 2.66 game, battle `0x0c02` of
+2429 — a **three-player** battle — starts a token at (3,1) where the table
+recovered from Exodus says (4,1). Two-player battles agree across both
+versions, so either the three-player starting squares changed between releases
+or the table was recovered from too few three-player samples. Exodus has few.

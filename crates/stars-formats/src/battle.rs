@@ -238,6 +238,44 @@ pub struct Kill {
 /// moving to a square.
 pub const BRC_DEPARTED: u8 = 0xff;
 
+/// Which layout an action record uses.
+///
+/// The game has two, and the binary's own debug symbols name both: `BTLREC`
+/// and `BTLREC26`. They are the same six bytes but divide the middle word
+/// differently, so a record read with the wrong one parses into nonsense —
+/// impossible target ids, shots at absurd ranges, tokens crossing the board in
+/// a single round.
+///
+/// Which applies is decided by the **file version**, not by anything in the
+/// record. `fixtures/games/exodus` is version 2.81 and uses [`Self::Modern`];
+/// `fixtures/games/all-computer-players` is 2.66 and uses [`Self::V26`], which
+/// is what the `26` in the symbol name refers to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActionLayout {
+    /// `BTLREC`: `itok`, `brcDest`, `ctok` as a 16-bit count, then the packed
+    /// round/range/target word.
+    Modern,
+    /// `BTLREC26`: `itok`, `brcDest`, `itokAttack`, `ctok` as a *byte*, then
+    /// the round word. The attacked token has its own byte here rather than
+    /// riding in the top half of the packed word.
+    V26,
+}
+
+impl ActionLayout {
+    /// The layout a file of this version uses.
+    ///
+    /// The boundary is not pinned to a specific release: 2.66 uses [`Self::V26`]
+    /// and 2.81 uses [`Self::Modern`], and no fixture sits between them.
+    #[must_use]
+    pub fn for_version(major: u16, minor: u16) -> Self {
+        if (major, minor) < (2, 70) {
+            Self::V26
+        } else {
+            Self::Modern
+        }
+    }
+}
+
 /// One action in a battle: a move, a shot, or both.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BattleAction {
@@ -324,6 +362,15 @@ impl BattleRecord {
     /// for instance if an action record's kill count would run past the end.
     #[must_use]
     pub fn decode(data: &[u8]) -> Option<Self> {
+        Self::decode_with(data, ActionLayout::Modern)
+    }
+
+    /// Decode a battle block using a named action layout.
+    ///
+    /// Prefer [`battle_records`], which picks the layout from the file's own
+    /// version header.
+    #[must_use]
+    pub fn decode_with(data: &[u8], layout: ActionLayout) -> Option<Self> {
         if data.len() < HEADER_LEN {
             return None;
         }
@@ -349,7 +396,10 @@ impl BattleRecord {
         let mut actions = Vec::new();
         let mut at = tokens_end;
         while at + ACTION_LEN <= end {
-            let kill_count = usize::from(u16_at(data, at + 2)?);
+            let (kill_count, packed_target) = match layout {
+                ActionLayout::Modern => (usize::from(u16_at(data, at + 2)?), None),
+                ActionLayout::V26 => (usize::from(*data.get(at + 3)?), Some(*data.get(at + 2)?)),
+            };
             let record_len = ACTION_LEN.checked_add(kill_count.checked_mul(KILL_LEN)?)?;
             if at.checked_add(record_len)? > end {
                 return None;
@@ -374,7 +424,7 @@ impl BattleRecord {
                 destination: (brc_dest != BRC_DEPARTED).then(|| Square::from_brc(brc_dest)),
                 round: (packed & 0x0f) as u8,
                 range: ((packed >> 4) & 0x0f) as u8,
-                target: (packed >> 8) as u8,
+                target: packed_target.unwrap_or((packed >> 8) as u8),
                 kills,
             });
             at += record_len;
@@ -433,6 +483,12 @@ impl BattleRecord {
 /// record is complete.
 #[must_use]
 pub fn battle_records_in(blocks: &[Block]) -> Vec<BattleRecord> {
+    battle_records_in_with(blocks, ActionLayout::Modern)
+}
+
+/// As [`battle_records_in`], but with the action layout named explicitly.
+#[must_use]
+pub fn battle_records_in_with(blocks: &[Block], layout: ActionLayout) -> Vec<BattleRecord> {
     let mut out = Vec::new();
     let mut pending: Option<Vec<u8>> = None;
 
@@ -440,7 +496,7 @@ pub fn battle_records_in(blocks: &[Block]) -> Vec<BattleRecord> {
         match block.type_id {
             BATTLE_BLOCK => {
                 if let Some(bytes) = pending.take() {
-                    if let Some(record) = BattleRecord::decode(&bytes) {
+                    if let Some(record) = BattleRecord::decode_with(&bytes, layout) {
                         out.push(record);
                     }
                 }
@@ -455,7 +511,7 @@ pub fn battle_records_in(blocks: &[Block]) -> Vec<BattleRecord> {
         }
     }
     if let Some(bytes) = pending {
-        if let Some(record) = BattleRecord::decode(&bytes) {
+        if let Some(record) = BattleRecord::decode_with(&bytes, layout) {
             out.push(record);
         }
     }
@@ -468,5 +524,7 @@ pub fn battle_records_in(blocks: &[Block]) -> Vec<BattleRecord> {
 /// [`battle_records_in`] with [`StarsFile::segment_blocks`] for one turn.
 #[must_use]
 pub fn battle_records(file: &StarsFile) -> Vec<BattleRecord> {
-    battle_records_in(&file.blocks)
+    let header = &file.latest_segment().header;
+    let layout = ActionLayout::for_version(header.version_major, header.version_minor);
+    battle_records_in_with(&file.blocks, layout)
 }
