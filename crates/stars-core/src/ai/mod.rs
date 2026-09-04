@@ -12,6 +12,7 @@
 //! `docs/formulas/ai.md` but not yet written.
 
 pub mod colonise;
+pub mod dispatch;
 pub mod production;
 pub mod ships;
 

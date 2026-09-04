@@ -436,6 +436,64 @@ loader currently counts those and discards them, so the known-planet set cannot
 be reconstructed. Loading partial planets is the prerequisite, and is the next
 step for this decision.
 
+### War and fleet dispatch
+
+Both are transcribed; neither is verified, and the corpus is the reason.
+
+#### Recognising a warship
+
+Two predicates decide whether a fleet is an attack fleet, and both work purely
+from the **hull** of the designs aboard — not from weapons, not from strength.
+
+`FIsTurinDroneAiAttack` (`1090:4b9a`) is the simple one: any design present
+whose hull index is 4 to 10. `FIsAiAttack` (`1090:4a72`), used by the other
+personalities, is stricter: hulls 6 to 10 count outright, hull 5 counts only if
+the design is actually armed, and hulls 29 and 31 count only when armed *and*
+`WtMaxShdefStat` is under 500. Implemented as `ai::dispatch`.
+
+#### How fast a fleet is sent
+
+`IFindIdealWarp` walks down from warp 10 to the first speed the engine sustains
+— fuel use below 121 — then applies two adjustments:
+
+- **Fuel economy.** If the fleet still burns fuel there, and it is not a
+  ramscoop (engines 14 and 15), it steps down by up to three to reach a speed
+  the engine runs free at.
+- **The warp 10 rule.** Only engines 7, 8, 9, 14 and 15 are sent at warp 10;
+  everything else is held to 9.
+
+A design with no engine is a starbase and gives warp 0.
+
+The third step-down test reads, in the decompilation, off the end of the ore
+cost array and into the fuel table that follows it. With the two tests above it
+stepping down one and two to reach a free speed, three is the only reading that
+fits, and that is what is implemented.
+
+#### Why neither is scored
+
+**War outcomes are barely present.** The host files carry no battle records —
+across the corpus the block types are 0, 6, 8, 13, 16, 19, 20, 26, 28, 30 and
+43, with nothing from the battle format — and only **56** planets change hands
+between owners in 101 turns. There is no way to ask whether the AI attacked
+when it should have.
+
+**Dispatch is barely present either.** A fleet recorded in a host file has
+already arrived: its warp is clear and its orders are spent. Across 101 turns
+only **36** AI waypoint legs still carry a warp. On those, `ideal_warp` matches
+3 with the fuel back-off applied and 19 with it skipped, and every disagreement
+in the first case is an under-prediction of one or two — precisely what an
+unwanted back-off looks like.
+
+That points at `fIgnoreScoops` being set at the call sites. `FColonizeAiFleet`
+passes a second argument the decompiler renders as a planet id, so what reaches
+the flag is unresolved. 36 samples cannot settle it, and choosing the mode that
+scores better would be fitting a reading to 19 data points, so both modes are
+exposed and neither is asserted.
+
+Scoring either properly needs the `.x` order files, which record what a player
+*submitted* rather than what survived the turn. The corpus has none — it has
+`.hst`, `.mN` and `.xy` only.
+
 ### Other queue sources
 
 Eighteen functions call `AddItemToQueue`. Besides the two above, the AI-side

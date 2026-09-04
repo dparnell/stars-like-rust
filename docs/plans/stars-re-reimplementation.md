@@ -275,8 +275,12 @@ Remaining in this step:
    2440 planet-turns and their arithmetic on 516 Macinti replacements;
    the colonisation target rule is transcribed but its "nearest planet" test
    is unscored until the loader keeps partial planet records, which are how an
-   AI's own view of the galaxy is stored; war and fleet dispatch are mapped but
-   unwritten. See `docs/formulas/ai.md`.
+   AI's own view of the galaxy is stored. War and fleet dispatch are now
+   transcribed too, and both are unverifiable against this corpus: host files
+   carry no battle records and only 56 conquests, and a recorded fleet has
+   already arrived, leaving 36 waypoint legs with a warp. Scoring either needs
+   `.x` order files, which the fixtures do not include. See
+   `docs/formulas/ai.md`.
 2. **Orders beyond movement** — cargo transfer, colonisation and remote mining
    are decoded by the format layer but not processed, and ship building cannot
    turn a finished design into a fleet. This is now the largest single gap in
