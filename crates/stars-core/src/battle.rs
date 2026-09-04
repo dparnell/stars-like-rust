@@ -803,6 +803,9 @@ pub struct CombatToken {
     pub pct_jam: i32,
     /// Battle-computer accuracy bonus, as a percentage.
     pub pct_computer: i32,
+    /// The stack's mass, which sets its place in the movement order —
+    /// heaviest moves first. See [`move_round`].
+    pub mass: i32,
 }
 
 impl CombatToken {
@@ -1122,6 +1125,72 @@ pub fn fire_round(tokens: &mut [CombatToken]) -> Vec<DamageEvent> {
     }
 
     events
+}
+
+/// How many movement phases a round has.
+///
+/// The battle loop runs `for (j = 3; j > 0; j--)` inside each round, and a
+/// token moves in phase `j` only when `j <= dMovesLeft`. A token with one move
+/// therefore moves in the **last** phase and one with three moves in every
+/// phase, which is what staggers slow ships behind fast ones.
+pub const MOVEMENT_PHASES: u8 = 3;
+
+/// Run one round's movement: set each token's allowance, then the three phases.
+///
+/// Source: the round loop in `battle.c`.
+///
+/// ```c
+/// for each active token:
+///     ptok->dMovesLeft = (grobj == grobjPlanet) ? 0 : DxyFromSpdRound(spd, iRound);
+/// for (j = 3; j > 0; j--)
+///     for tokens in descending order of wtT:
+///         if (j <= ptok->dMovesLeft) DxyMoveTokTo(ptok, j, ...);
+/// ```
+///
+/// A **starbase never moves**: its allowance is zeroed outright rather than
+/// computed.
+///
+/// # The order within a phase is randomised
+///
+/// The sweep is by descending `wtT = wt + wt * ((1 << (dwt - 7)) * 2) / 100`,
+/// where `wt` is the token's mass — so heavier first, as `MANUAL.PDF` says —
+/// but `dwt` is **`Random(15)`, re-rolled for every active token after each
+/// round's movement**. The order is therefore jittered by design and cannot be
+/// reproduced without the generator.
+///
+/// The exact jitter is *not* implemented, and deliberately: the shift is on
+/// `dwt - 7`, which is negative for nine of the fifteen values, and what the
+/// original does there could not be read confidently from the decompilation.
+/// Since the ordering is unreproducible either way, this sorts by mass alone
+/// and draws one `Random(15)` per active token so the generator advances as the
+/// original advances it. Ties keep the lower index.
+pub fn move_round(tokens: &mut [CombatToken], round: u8, rng: &mut Rng) {
+    for token in tokens.iter_mut() {
+        token.moves_left = if token.is_starbase {
+            0
+        } else {
+            movement_this_round(token.speed_index, round)
+        };
+    }
+
+    // Heaviest first. The original jitters this with a random draw per token;
+    // the draw is taken so the stream matches, but the jitter is not applied.
+    let mut order: Vec<usize> = (0..tokens.len()).filter(|i| tokens[*i].alive()).collect();
+    for _ in &order {
+        let _ = rng.random(15);
+    }
+    order.sort_by_key(|i| (std::cmp::Reverse(tokens[*i].mass), *i));
+
+    for phase in (1..=MOVEMENT_PHASES).rev() {
+        for &mover in &order {
+            if !tokens[mover].alive() || phase > tokens[mover].moves_left {
+                continue;
+            }
+            let search = move_search(tokens, mover, true);
+            let square = choose_move(tokens, mover, search.radius.max(1), rng);
+            tokens[mover].square = square;
+        }
+    }
 }
 
 /// Where a token would like to be, and how it gets there.
@@ -1740,6 +1809,7 @@ mod gattling_tests {
                 is_starbase: false,
                 pct_jam: 0,
                 pct_computer: 0,
+                mass: 0,
                 weapon_reach: 1,
                 player,
                 active: true,
@@ -1771,6 +1841,83 @@ mod gattling_tests {
 }
 
 #[cfg(test)]
+mod movement_phase_tests {
+    use super::*;
+
+    fn mover(speed: u8, mass: i32, starbase: bool) -> CombatToken {
+        CombatToken {
+            tactic: Tactic::MaximiseDamage,
+            speed_index: speed,
+            moves_left: 0,
+            class: TargetClass::ArmedShips,
+            primary_target: TargetClass::Any,
+            secondary_target: TargetClass::Any,
+            is_starbase: starbase,
+            pct_jam: 0,
+            pct_computer: 0,
+            weapon_reach: 1,
+            mass,
+            player: 0,
+            active: true,
+            square: Square::new(0, 0),
+            initiative_base: 0,
+            capacitor_pct: 0,
+            beam_deflection_pct: 100,
+            weapons: Vec::new(),
+            value: 0,
+            state: TokenState {
+                ships: 1,
+                shields: 0,
+                armor: 30,
+                damage: Damage::default(),
+            },
+        }
+    }
+
+    /// A round hands each token its allowance, and a starbase gets none however
+    /// its speed reads.
+    #[test]
+    fn the_round_sets_each_allowance_and_pins_starbases() {
+        let mut tokens = vec![mover(12, 100, false), mover(12, 50, true)];
+        let mut rng = Rng::randomize(1);
+        move_round(&mut tokens, 0, &mut rng);
+        assert_eq!(tokens[0].moves_left, movement_this_round(12, 0));
+        assert_eq!(tokens[1].moves_left, 0, "a starbase never moves");
+    }
+
+    /// Speed 4 alternates two moves and one by round parity, which is what
+    /// staggers it against a faster ship.
+    #[test]
+    fn the_allowance_follows_the_round() {
+        let mut tokens = vec![mover(4, 100, false)];
+        let mut rng = Rng::randomize(1);
+        for round in 0..4u8 {
+            move_round(&mut tokens, round, &mut rng);
+            let want = if round % 2 == 0 { 2 } else { 1 };
+            assert_eq!(tokens[0].moves_left, want, "round {round} allowance");
+        }
+    }
+
+    /// Heavier tokens are taken first within a phase.
+    #[test]
+    fn the_sweep_is_heaviest_first() {
+        let mut tokens = vec![
+            mover(12, 10, false),
+            mover(12, 900, false),
+            mover(12, 90, false),
+        ];
+        // No enemies, so nothing actually moves; the point is the order the
+        // sweep would take, which is what `move_round` sorts by.
+        let mut order: Vec<usize> = (0..tokens.len()).collect();
+        order.sort_by_key(|i| (std::cmp::Reverse(tokens[*i].mass), *i));
+        assert_eq!(order, vec![1, 2, 0]);
+
+        let mut rng = Rng::randomize(1);
+        move_round(&mut tokens, 0, &mut rng);
+    }
+}
+
+#[cfg(test)]
 mod target_class_tests {
     use super::*;
 
@@ -1785,6 +1932,7 @@ mod target_class_tests {
             is_starbase: false,
             pct_jam: 0,
             pct_computer: 0,
+            mass: 0,
             weapon_reach: 1,
             player,
             active: true,

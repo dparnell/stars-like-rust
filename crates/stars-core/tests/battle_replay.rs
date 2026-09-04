@@ -574,6 +574,7 @@ fn beam_only_battles_replay_to_the_recorded_casualties() {
                     beam_deflection_pct: i32::from(t.pct_beam_defence),
                     weapons,
                     value: design.cost().map_or(0, |c| c.resources + c.minerals[1]),
+                    mass: design.mass().unwrap_or(0) * i32::from(t.ships),
                     state: TokenState {
                         ships: i32::from(t.ships),
                         shields: i32::from(t.shields),
@@ -792,6 +793,7 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
                     beam_deflection_pct: i32::from(t.pct_beam_defence),
                     weapons: design.weapons(),
                     value: design.cost().map_or(0, |c| c.resources + c.minerals[1]),
+                    mass: design.mass().unwrap_or(0) * i32::from(t.ships),
                     state: TokenState {
                         ships: i32::from(t.ships),
                         shields: i32::from(t.shields),
@@ -957,5 +959,122 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
     assert!(
         pct >= chance + 18,
         "the scorer ({pct}%) is no longer meaningfully better than chance ({chance}%)"
+    );
+}
+
+/// The three-phase movement order, checked against every recorded round.
+///
+/// Each round sets `dMovesLeft = DxyFromSpdRound(spd, iRound)` and then runs
+/// `for (j = 3; j > 0; j--)`, moving a token only when `j <= dMovesLeft`. Two
+/// consequences are testable without the RNG:
+///
+/// * a token never moves more times in a round than that allowance;
+/// * the round's moves must fit into three descending phases, each token taking
+///   at most one move per phase.
+///
+/// The second has to be tested as **feasibility**, not by assuming a token's
+/// m-th recorded move is its m-th phase. A token that chooses to stay put has
+/// its record removed (`lpbBattleCur -= 6`), so a move that looks like its first
+/// may belong to a later phase. Assuming otherwise reports five false failures.
+#[test]
+fn recorded_moves_fit_the_three_movement_phases() {
+    use std::collections::BTreeMap;
+
+    let root = workspace_root();
+    let games = root.join("fixtures/games/exodus");
+    if !games.is_dir() {
+        eprintln!("skipping: no Exodus fixtures");
+        return;
+    }
+    let mut years: Vec<i32> = std::fs::read_dir(&games)
+        .expect("readable fixture dir")
+        .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
+        .collect();
+    years.sort_unstable();
+
+    let (mut rounds, mut feasible_rounds, mut moves, mut over) = (0usize, 0usize, 0usize, 0usize);
+
+    for year in years {
+        let path = games.join(year.to_string()).join("exodus.m6");
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        let Ok(file) = StarsFile::decode(&bytes) else {
+            continue;
+        };
+        for battle in
+            battle_records_in_with(file.segment_blocks(file.latest_segment()), layout_of(&file))
+        {
+            // Group real moves by round, keeping the recorded order. A firing
+            // record repeats the token's current square, so track positions.
+            let mut here: Vec<(u8, u8)> = battle
+                .tokens
+                .iter()
+                .map(|t| (t.square.x, t.square.y))
+                .collect();
+            let mut by_round: BTreeMap<u8, Vec<u8>> = BTreeMap::new();
+            for action in &battle.actions {
+                let Some(dest) = action.destination else {
+                    continue;
+                };
+                let Some(current) = here.get_mut(usize::from(action.token)) else {
+                    continue;
+                };
+                if (dest.x, dest.y) == *current {
+                    continue;
+                }
+                *current = (dest.x, dest.y);
+                by_round.entry(action.round).or_default().push(action.token);
+            }
+
+            for (round, actions) in by_round {
+                rounds += 1;
+                let mut phase = i32::from(stars_core::battle::MOVEMENT_PHASES);
+                let mut last: BTreeMap<u8, i32> = BTreeMap::new();
+                let mut count: BTreeMap<u8, i32> = BTreeMap::new();
+                let mut feasible = true;
+                for token in &actions {
+                    let Some(t) = battle.tokens.get(usize::from(*token)) else {
+                        continue;
+                    };
+                    let allowance = i32::from(movement_this_round(t.speed(), round));
+                    moves += 1;
+                    let n = count.entry(*token).or_insert(0);
+                    *n += 1;
+                    if *n > allowance {
+                        over += 1;
+                    }
+                    // Greedily take the highest phase still open to this token.
+                    phase = phase.min(allowance);
+                    if last.get(token) == Some(&phase) {
+                        phase -= 1;
+                    }
+                    if phase < 1 {
+                        feasible = false;
+                        break;
+                    }
+                    last.insert(*token, phase);
+                }
+                if feasible {
+                    feasible_rounds += 1;
+                }
+            }
+        }
+    }
+
+    assert!(
+        moves > 500,
+        "expected a decent sample of moves, got {moves}"
+    );
+    eprintln!("movement phases: {feasible_rounds} of {rounds} rounds fit, over {moves} moves");
+    assert_eq!(
+        over, 0,
+        "{over} moves exceeded the round's movement allowance"
+    );
+    assert_eq!(
+        feasible_rounds,
+        rounds,
+        "{} rounds could not be fitted into three descending phases",
+        rounds - feasible_rounds
     );
 }

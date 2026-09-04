@@ -454,11 +454,76 @@ accuracy, the starting-square table and Chebyshev distance against
 - `grfWeapon` is now mapped: `bitFBeamLow` 0x01, `bitFBeamHigh` 0x02,
   `bitFTorp` 0x04, `bitFMissile` 0x08, `bitFDeflected` 0x80, plus the unnamed
   `0xC0` `FDamageTok` adds to a torpedo record that stopped at the shields.
-- The three-phase movement order and the heaviest-first rule within a phase are
-  documented here from the manual but not yet implemented or checked.
+- The within-phase order is randomised and so unreproducible; the exact jitter
+  expression could not be read confidently and is not implemented. See
+  "The movement round".
 - Bombing (`DoBombing`) and ground combat are separate from ship battles and
   are not covered.
 
+
+## The movement round
+
+A battle runs sixteen rounds. Each opens by regenerating shields for
+Regenerating Shields races (from round 1 on), stops if only one player is left,
+sets every token's allowance, and then runs **three movement phases**:
+
+```c
+for each active token:
+    ptok->dMovesLeft = (grobj == grobjPlanet) ? 0 : DxyFromSpdRound(spd, iRound);
+
+for (j = 3; j > 0; j--)
+    for tokens in descending order of wtT:
+        if (j <= ptok->dMovesLeft)
+            DxyMoveTokTo(ptok, j, rggrfAttack[ptok->iplr]);
+```
+
+The gate `j <= dMovesLeft` is what staggers the fleet: a token with one move
+moves only in the **last** phase, one with three moves in every phase. So a fast
+ship takes its first step before a slow one has moved at all, and everyone's
+final step happens together. `dMovesLeft` is a two-bit field, which is why the
+allowance never exceeds three. **A starbase's allowance is zeroed outright**
+rather than computed from its speed.
+
+Implemented as `battle::move_round`.
+
+### Heaviest first — but jittered every round
+
+The sweep within a phase is by descending
+
+```
+wtT = wt + wt * ((1 << (dwt - 7)) * 2) / 100
+```
+
+where `wt` is the token's mass. That is the manual's "heaviest first", but
+`dwt` is **`Random(15)`** — drawn when the token is built and **re-rolled for
+every active token after each round's movement**. The order is therefore
+deliberately perturbed and cannot be reproduced without the generator.
+
+The jitter itself is **not implemented, deliberately**. The shift is on
+`dwt - 7`, negative for nine of the fifteen values, and what the original does
+there could not be read confidently from the decompilation. Since the resulting
+order is unreproducible either way, `move_round` sorts by mass alone and draws
+one `Random(15)` per active token so the generator advances as the original
+advances it.
+
+### Checked against every recorded round
+
+Two consequences are testable without the RNG, and both hold on the whole
+corpus — 209 rounds carrying 746 moves:
+
+| check | result |
+|-------|--------|
+| no token moves more often in a round than `DxyFromSpdRound` allows | **0 violations** |
+| the round's moves fit three descending phases, one per token per phase | **209 of 209** |
+
+The second has to be posed as *feasibility*. Assuming a token's m-th recorded
+move is its m-th phase reports five failures, all speed-4 tokens — and they are
+artifacts of the test, not the model: a token that chooses to stay put has its
+record removed (`lpbBattleCur -= 6`), so a move that looks like its first may
+belong to a later phase. Asking instead whether *any* legal phase assignment
+fits the recorded order gives 209 of 209.
+
+Asserted by `battle_replay::recorded_moves_fit_the_three_movement_phases`.
 
 ## Target classes
 

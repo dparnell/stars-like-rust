@@ -323,6 +323,7 @@ fn movement_scoring_prefers_squares_it_can_shoot_from() {
         weapon_reach: 1,
         pct_jam: 0,
         pct_computer: 0,
+        mass: 0,
         state: TokenState {
             ships: 1,
             shields: 0,
@@ -390,6 +391,7 @@ fn target_classes_match_the_filter() {
         weapon_reach: 0,
         pct_jam: 0,
         pct_computer: 0,
+        mass: 0,
         state: TokenState {
             ships: 1,
             shields: 0,
