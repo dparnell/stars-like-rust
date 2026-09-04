@@ -199,11 +199,50 @@ this corpus cannot separate them:
 - the offset is larger than the spans searched, though the steps between seeding
   and mining — the player shuffle, thing movement, fleet movement, decay — should
   draw only tens of times;
-- the draw sequence differs from the model, most likely in `CMinesOperating`,
-  where being one mine out changes a remainder and so the constraint;
+- the draw sequence differs from the model. `CMinesOperating` was the obvious
+  suspect and has since been **checked and cleared** — see below;
 - too many of the 242 observed outcomes are wrong. Only 44% of the draws could
   be constrained at all, and a planet that also spent minerals can still land
   one kilotonne from the mined figure by coincidence.
+
+### `CMinesOperating` checked and cleared
+
+The mine count was the natural suspect, because being one mine out changes a
+mineral's remainder and so the constraint derived from it. It is not the
+problem.
+
+`CMinesOperating` calls `CMaxOperableMines(lppl, iplr, fNextYear)` with a
+literal zero — `MOV AX,0x0; PUSH AX` at `1048:7485`, immediately before the
+call at `1048:7496` — so it sizes against the population the planet has now, not
+after growth. The implementation already passes `false`.
+
+Measuring it needs care, because the existing mining test allows a kilotonne
+either way, which is almost exactly the width an off-by-one mine count moves the
+answer. Two sharper measurements, neither involving the RNG:
+
+- **Where every mineral's remainder is zero the roll never happens**, so a quiet
+  planet's surface change is fully determined. Our count is exact on **4,606 of
+  4,629** such planet-years (99.5%); the stragglers are surfaces something else
+  moved by a few kilotonnes.
+- **Inverting the observation** — asking which mine counts could have produced a
+  quiet planet's three gains at once — puts ours among them on 98% of
+  planet-years, and on 99% of the 1,020 where the gains pin down a single count
+  (`examples/mines_check`).
+
+### Why tolerating wrong constraints could not have rescued the search
+
+Clearing the mine count also explains why the tolerant pass was the wrong
+instrument. The tolerance absorbs a *wrong outcome at a correct position*. A
+wrong mine count does something worse: it changes whether a mineral's remainder
+is zero, and so whether a draw happens **at all**. Insert or delete one draw and
+every constraint after it is read against the wrong element of the stream, which
+no tolerance recovers from — the usable sequence ends at the first such planet.
+
+That is the sharpest remaining concern, and this corpus cannot settle it. The
+draw sequence depends on **every** owned, populated planet — about 250 a turn —
+but a mine count can only be checked on the ~18% that are quiet enough for the
+surface change to mean anything. A single unverifiable planet with a wrong count
+truncates the alignment.
 
 **The conclusion stands, but for a sharper reason than "the state is not
 stored":** it is not stored, the space it lives in is small enough to enumerate,

@@ -6,6 +6,31 @@
 - **Uses RNG:** **yes** — the fractional kiloton is resolved by `Random(100)` (see `../rng/prng.md`)
 - **Implemented in:** `crates/stars-core/src/mining.rs`
 
+## The operating mine count, verified without the RNG
+
+`CMinesOperating` is `min(planet.cMines, CMaxOperableMines(planet, iplr, 0))`,
+or `sqrt(population)` for an Alternate Reality race. The third argument is a
+literal zero (`MOV AX,0x0; PUSH AX` at `1048:7485`, before the call at
+`1048:7496`), so the cap is measured against the population the planet has
+**now**, not after this year's growth — unlike the AI's own use of
+`CMaxOperableMines`, which shares that flag but is a different call site.
+
+Verifying the count is harder than it looks, because the headline mining figure
+allows a kilotonne either way and that is almost exactly the width an off-by-one
+mine count moves the result. Two measurements avoid the roll entirely:
+
+| check | result |
+|-------|--------|
+| exact where every remainder is zero, so no roll happens | **4,606 of 4,629 (99.5%)** |
+| our count among those consistent with a quiet planet's three gains | 98% |
+| ...where the gains pin down a single count | 99% of 1,020 |
+
+The first is asserted by
+`economy_against_ai_game::the_operating_mine_count_is_exact_where_no_roll_is_involved`;
+the others come from `examples/mines_check`, which inverts the observation and
+asks which mine counts could have produced the gains.
+
+
 ## Measured accuracy
 
 Scored in isolation against `fixtures/games/all-computer-players` — 101 turns,

@@ -487,3 +487,114 @@ fn the_only_orbital_adjuster_in_the_corpus_belongs_to_a_claim_adjuster() {
          so the corpus cannot exercise the effect of remote terraforming"
     );
 }
+
+/// The number of mines a planet operates, tested without the RNG.
+///
+/// `mining_matches_on_planets_that_built_nothing` scores the *amount* mined and
+/// allows a kilotonne either way, because the mining remainder is resolved by a
+/// roll this replay cannot align. That tolerance is almost exactly the width an
+/// off-by-one mine count moves the answer, so that test cannot see such an
+/// error at all.
+///
+/// This one can. Where every mineral's hundredths remainder is zero the roll
+/// never happens (`if (lQuanRem != 0 && gd.fGeneratingTurn)`), so a quiet
+/// planet's surface change is fully determined and must match exactly. Any
+/// error in `CMinesOperating` — the population cap, the `fNextYear` flag, the
+/// homeworld concentration floor — shows up here as an exact-match failure.
+#[test]
+fn the_operating_mine_count_is_exact_where_no_roll_is_involved() {
+    use stars_core::mining::mines_operating;
+    use stars_core::race::RaceStat;
+
+    let years = ai_game_years();
+    if years.is_empty() {
+        eprintln!("skipping: all-computer-players fixture absent");
+        return;
+    }
+
+    let mut previous: Option<GameState> = None;
+    let (mut scored, mut exact) = (0usize, 0usize);
+
+    for year in &years {
+        let Some(state) = load(&year.join("Game.hst")) else {
+            continue;
+        };
+        if let Some(before) = &previous {
+            for planet in &before.planets {
+                let Some(owner) = planet.owner else { continue };
+                if planet.pop == 0 || !planet.queue.is_empty() {
+                    continue;
+                }
+                let Some(player) = before.players.get(owner.max(0) as usize) else {
+                    continue;
+                };
+                if player.race.is_ar() {
+                    continue; // mines from orbit, a different rule
+                }
+                let Some(next) = state.planets.iter().find(|p| p.id == planet.id) else {
+                    continue;
+                };
+                if next.owner != planet.owner
+                    || next.mines != planet.mines
+                    || next.factories != planet.factories
+                {
+                    continue;
+                }
+                let efficiency = i32::from(player.race.stat(RaceStat::MineProd));
+                let count = i32::from(mines_operating(planet, &player.race));
+
+                let mut quantities = [0i32; 3];
+                let mut any_roll = false;
+                for (i, quantity) in quantities.iter_mut().enumerate() {
+                    let mut conc = i32::from(planet.min_conc[i]);
+                    if conc < 30 && planet.homeworld {
+                        conc = 30;
+                    }
+                    let scaled = count * conc * efficiency / 10;
+                    if scaled % 100 != 0 {
+                        any_roll = true;
+                    }
+                    *quantity = scaled / 100;
+                }
+                if any_roll {
+                    continue; // a roll decides it; not this test's business
+                }
+                let gains: Vec<i32> = (0..3)
+                    .map(|i| next.surface_min[i] - planet.surface_min[i])
+                    .collect();
+                if gains.iter().any(|g| *g < 0) {
+                    continue; // the surface fell: something else moved it
+                }
+                // Cargo, a mineral packet or alchemy can move the surface too,
+                // and this test cannot see them. The same convention as
+                // `mining_matches_on_planets_that_built_nothing`: a reading
+                // more than 4 kT from the mined figure is one of those, not a
+                // mine-count error.
+                if (0..3).any(|i| (gains[i] - quantities[i]).abs() > 4) {
+                    continue;
+                }
+                scored += 1;
+                if gains == quantities {
+                    exact += 1;
+                }
+            }
+        }
+        previous = Some(state);
+    }
+
+    assert!(scored > 2000, "expected a large sample, got {scored}");
+    let per_mille = exact * 1000 / scored;
+    eprintln!("operating mine count: {exact} of {scored} roll-free planet-years exact");
+    // The stragglers are planets where something else moved the surface by a
+    // few kilotonnes, close enough to pass the filter above.
+    //
+    // Inverting the observation agrees: asked which mine counts could have
+    // produced a quiet planet's three gains, ours is among them on 98% of
+    // planet-years, and on 99% of the 1020 where the gains pin down a single
+    // count. See `examples/mines_check`.
+    assert!(
+        per_mille >= 995,
+        "the operating mine count is exact on only {per_mille} per mille of {scored} \
+         roll-free planet-years"
+    );
+}
