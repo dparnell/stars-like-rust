@@ -1,6 +1,6 @@
 # Subsystem: Combat
 
-- **Status:** in progress — board, movement (schedule, search, scoring, 94% against a 72% chance rate), targeting, the damage estimate and **both** firing loops implemented; the torpedo accuracy formula is transcribed but unverified, and replaying a recorded torpedo battle needs the RNG
+- **Status:** in progress — board, movement (schedule, phases, search, scoring, 95% against a 72% chance rate), targeting, the damage estimate and **both** firing loops implemented; the torpedo accuracy formula is transcribed but unverified, and replaying a recorded torpedo battle needs the RNG
 - **Ghidra routine(s):** `battle.c` region — `DxyFromSpdRound`, `DzFromBrcBrc`, `CTorpHit`, `ScoreFromGiveAndTakeAndTactic`, `FAttack`, `FDamageTok`, `DxyMoveTokTo`, and the `rgbrcStart` table
 - **Manual reference:** `MANUAL.PDF` pp. 23-2..23-10
 - **Uses RNG:** **yes** — torpedo hits are rolled individually
