@@ -538,11 +538,19 @@ disagree.
    **Saving writes back only what was changed**: 2,063 fixture files save
    byte-for-byte identical when untouched, and an edited queue survives a save
    and reload. See "Saving is not re-encoding" below.
-7. **What is still missing to call it playable.** Waypoint *tasks* (colonise,
-   transport, remote mining) cannot be set from the UI even though the turn
-   generator executes them; there is no new-game flow, so a game must be opened
-   from an existing save; and no `.x` order file is written, so the orders a
-   player makes reach the turn generator but not a host.
+7. ~~**Waypoint tasks.**~~ **Done for the two that matter.** The turn generator
+   now runs arrival tasks after movement: **Colonize** puts a fleet's colonists
+   on the unowned planet it orbits and settles it through the ordinary landing
+   path, and **Transport** performs its per-cargo instructions. Both are
+   settable from the fleet screen, and a task is **consumed when it runs** —
+   which is why every waypoint in a saved game that has already been reached
+   reads zero. Decoding the Transport payload closed a documented open question
+   in `docs/formats/waypoint.md`.
+8. **What is still missing to call it playable.** There is no new-game flow, so
+   a game must be opened from an existing save; no `.x` order file is written,
+   so orders reach the turn generator but not a host; and the tasks beyond
+   colonise, transport and remote mining (merge, scrap, lay minefield, patrol,
+   route, transfer) can be set but are not simulated.
 7. **The race wizard**, which needs `CAdvantagePoints` to price a race. It is
    located (`10e0:444c`, in `docs/ghidra/stars-signatures.csv`) but not
    transcribed, and remains the largest unknown in this step. `FGenerateTurn`

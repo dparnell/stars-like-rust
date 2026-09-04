@@ -424,6 +424,60 @@ impl App {
         }
     }
 
+    /// Set what a fleet does when it arrives.
+    ///
+    /// The task goes on the waypoint the fleet is heading to, which is where
+    /// the game keeps it — it is performed on arrival and consumed then, which
+    /// is why a reached waypoint always reads `none`.
+    pub fn set_task(&mut self, fleet: usize, task: u8) {
+        let Some(fleet) = self.game.as_mut().and_then(|g| g.fleets.get_mut(fleet)) else {
+            return;
+        };
+        // The destination if it has one, otherwise where it stands.
+        let at = if fleet.waypoints.len() > 1 {
+            fleet.waypoints.len() - 1
+        } else {
+            0
+        };
+        if let Some(waypoint) = fleet.waypoints.get_mut(at) {
+            waypoint.task = task;
+            if task != stars_formats::task::TRANSPORT {
+                waypoint.transport = None;
+            }
+        }
+        self.dirty = true;
+    }
+
+    /// Set one cargo kind's instruction on a fleet's Transport task.
+    pub fn set_transport(&mut self, fleet: usize, kind: usize, action: stars_formats::XferAction) {
+        use stars_formats::{ItemAction, TransportTask};
+
+        let Some(fleet) = self.game.as_mut().and_then(|g| g.fleets.get_mut(fleet)) else {
+            return;
+        };
+        let at = if fleet.waypoints.len() > 1 {
+            fleet.waypoints.len() - 1
+        } else {
+            0
+        };
+        let Some(waypoint) = fleet.waypoints.get_mut(at) else {
+            return;
+        };
+        if kind >= 5 {
+            return;
+        }
+        waypoint.task = stars_formats::task::TRANSPORT;
+        let mut orders = waypoint.transport.unwrap_or(TransportTask {
+            items: [ItemAction {
+                quantity: 0,
+                action: stars_formats::XferAction::None,
+            }; 5],
+        });
+        orders.items[kind].action = action;
+        waypoint.transport = Some(orders);
+        self.dirty = true;
+    }
+
     /// Send a fleet to a planet, at a given warp.
     ///
     /// This replaces whatever the fleet was doing: its waypoint list becomes
@@ -451,12 +505,14 @@ impl App {
                 target: None,
                 warp: 0,
                 task: 0,
+                transport: None,
             },
             stars_core::fleet::Waypoint {
                 position: target,
                 target: u16::try_from(planet).ok(),
                 warp,
                 task: 0,
+                transport: None,
             },
         ];
         fleet.warp = Some(warp);

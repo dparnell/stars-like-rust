@@ -420,6 +420,7 @@ impl GameState {
                             target: w.object_id,
                             warp: w.warp,
                             task: w.task,
+                            transport: w.transport(),
                         });
                     }
                 }

@@ -52,8 +52,15 @@ pub struct Waypoint {
     pub target: Option<u16>,
     /// Warp factor for the leg **into** this waypoint.
     pub warp: u8,
-    /// The task to perform on arrival, as stored.
+    /// The task to perform on arrival, as stored. See
+    /// [`stars_formats::task`] for the ids.
+    ///
+    /// A task is **consumed when it executes**, which is why every waypoint in
+    /// a saved game that has already been reached reads `0`.
     pub task: u8,
+    /// A Transport task's per-cargo instructions, when the waypoint carries
+    /// one.
+    pub transport: Option<stars_formats::TransportTask>,
 }
 
 /// A fleet.

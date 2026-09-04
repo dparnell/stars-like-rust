@@ -84,6 +84,8 @@ pub struct TurnReport {
     pub transfers: usize,
     /// Planets a colonist landing settled, invaded or defended.
     pub colonised: Vec<i16>,
+    /// Waypoint tasks executed on arrival, as `(fleet id, task)`.
+    pub tasks_done: Vec<(u16, u8)>,
     /// Planets mined from orbit, as `(planet id, minerals added)`.
     pub remote_mined: Vec<(i16, [i32; 3])>,
     /// Pipeline steps not performed, and therefore not reflected above.
@@ -273,6 +275,16 @@ pub fn generate_turn_with_orders(
             state.slow_tech,
         );
         report.breakthroughs[index] = gained;
+    }
+
+    // --- SatisfyOrders after movement: the tasks a fleet performs on arrival.
+    // A task is consumed when it executes, which is why every waypoint in a
+    // saved game that has already been reached reads 0.
+    {
+        let (done, drops) = crate::orders::execute_arrival_tasks(state);
+        report.tasks_done = done;
+        let settled = crate::orders::resolve_colonist_drops(state, &drops);
+        report.colonised.extend(settled);
     }
 
     // --- SatisfyOrders(3): remote mining. A fleet that stayed put all turn
@@ -467,6 +479,7 @@ fn add_ships_to_orbiting_fleet(
             target: orbiting,
             warp: 0,
             task: 0,
+            transport: None,
         }],
     });
 }

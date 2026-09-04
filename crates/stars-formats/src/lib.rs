@@ -113,7 +113,7 @@ pub use thing::{
     thing_records, thing_section, Minefield, MineralPacket, MysteryTrader, Thing, ThingKind,
     ThingSection, ThingType, Wormhole, THING_BLOCK, THING_SIZE,
 };
-pub use waypoint::{waypoint_records, WaypointRecord};
+pub use waypoint::{task, waypoint_records, ItemAction, TransportTask, WaypointRecord, XferAction};
 pub use xy::{Planet, PlanetPosition, Universe};
 
 use thiserror::Error;

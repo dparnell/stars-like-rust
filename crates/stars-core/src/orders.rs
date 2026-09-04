@@ -336,6 +336,183 @@ pub fn resolve_colonist_drops(state: &mut GameState, drops: &[ColonistDrop]) -> 
     changed
 }
 
+/// Run the waypoint tasks of every fleet that has arrived somewhere.
+///
+/// Source: `SatisfyOrders` (`turn3.c`), which the turn pipeline runs after
+/// movement. Two tasks are performed here; the rest are recognised, reported
+/// and left alone.
+///
+/// **Colonize.** The fleet puts its whole colonist load on the planet it
+/// orbits. The original's own arm does nothing but validate and cancel,
+/// because the *client* had already performed the transfer and logged it — but
+/// this crate is both client and host, so the transfer is made here. It goes
+/// through the ordinary cargo path so the landing is settled by
+/// [`resolve_colonist_drops`] exactly as a hand-made transfer would be.
+///
+/// **Transport.** Each of the five cargo kinds carries its own instruction
+/// (`ITEMACTION`: `cQuan:12, iAction:4`). `LoadAll`, `UnloadAll`, `LoadExact`,
+/// `UnloadExact` and `FillPercent` are performed. `LoadDunnage`, `WaitPercent`,
+/// `SetAmount` and `SetWaypoint` are **not**: their behaviour depends on parts
+/// of the routine that could not be read confidently, and none of them appears
+/// in this repository's fixtures.
+///
+/// A task is **consumed** once it runs, which is why every waypoint in a saved
+/// game that has already been reached reads `0`.
+///
+/// Returns the tasks performed and the colonist landings they caused.
+pub fn execute_arrival_tasks(state: &mut GameState) -> (Vec<(u16, u8)>, Vec<ColonistDrop>) {
+    use stars_formats::{task, XferAction};
+
+    let mut done = Vec::new();
+    let mut drops: Vec<ColonistDrop> = Vec::new();
+
+    for index in 0..state.fleets.len() {
+        let fleet = &state.fleets[index];
+        let Some(waypoint) = fleet.waypoints.first() else {
+            continue;
+        };
+        let job = waypoint.task;
+        if job == task::NONE {
+            continue;
+        }
+        let Some(orbiting) = fleet.orbiting else {
+            // A task needs somewhere to perform it; in deep space the original
+            // reports the mistake and cancels the order.
+            state.fleets[index].waypoints[0].task = task::NONE;
+            continue;
+        };
+        let Ok(planet_id) = i16::try_from(orbiting) else {
+            continue;
+        };
+        let owner = fleet.owner;
+        let transport = waypoint.transport;
+
+        match job {
+            task::COLONIZE => {
+                let carried = state.fleets[index].cargo.colonists;
+                let unowned = state
+                    .planets
+                    .iter()
+                    .chain(state.known_planets.iter())
+                    .find(|p| p.id == planet_id)
+                    .is_some_and(|p| p.owner.is_none());
+                if carried > 0 && unowned {
+                    if let Some(drop) = unload_colonists(state, index, planet_id, owner, carried) {
+                        drops.push(drop);
+                    }
+                    done.push((state.fleets[index].id, job));
+                }
+            }
+            task::TRANSPORT => {
+                if let Some(orders) = transport {
+                    let mut moved = false;
+                    for (kind, item) in orders.items.iter().enumerate() {
+                        let amount = match item.action {
+                            XferAction::LoadAll => i32::MAX,
+                            XferAction::LoadExact => i32::from(item.quantity),
+                            XferAction::UnloadAll => -held(state, index, kind),
+                            XferAction::UnloadExact => -i32::from(item.quantity),
+                            XferAction::FillPercent => {
+                                fill_to(state, index, kind, i32::from(item.quantity))
+                            }
+                            // Not performed: see the note above.
+                            _ => 0,
+                        };
+                        if amount != 0
+                            && move_cargo(state, index, planet_id, owner, kind, amount) != 0
+                        {
+                            moved = true;
+                        }
+                    }
+                    if moved {
+                        done.push((state.fleets[index].id, job));
+                    }
+                }
+            }
+            // Recognised but not performed here: remote mining runs in its own
+            // pass, and the rest are not modelled.
+            _ => continue,
+        }
+        state.fleets[index].waypoints[0].task = task::NONE;
+    }
+
+    (done, drops)
+}
+
+/// What a fleet holds of one cargo kind.
+fn held(state: &GameState, fleet: usize, kind: usize) -> i32 {
+    let cargo = &state.fleets[fleet].cargo;
+    match kind {
+        FUEL => cargo.fuel,
+        COLONISTS => cargo.colonists,
+        k if k < MINERALS => cargo.minerals[k],
+        _ => 0,
+    }
+}
+
+/// How much to load to bring a hold to a given percentage of capacity.
+fn fill_to(state: &GameState, fleet: usize, kind: usize, percent: i32) -> i32 {
+    let Some(designs) = usize::try_from(state.fleets[fleet].owner)
+        .ok()
+        .and_then(|i| state.designs.get(i))
+    else {
+        return 0;
+    };
+    let capacity = if kind == FUEL {
+        state.fleets[fleet].fuel_capacity(designs)
+    } else {
+        state.fleets[fleet].cargo_capacity(designs)
+    };
+    let want = capacity * percent.clamp(0, 100) / 100;
+    (want - held(state, fleet, kind)).max(0)
+}
+
+/// Move cargo between a fleet and a planet, recording nothing.
+///
+/// `amount` is what the fleet gains, matching the order log's convention.
+fn move_cargo(
+    state: &mut GameState,
+    fleet: usize,
+    planet: i16,
+    owner: i16,
+    kind: usize,
+    amount: i32,
+) -> i32 {
+    use stars_formats::{CargoTransferRecord, GrobjClass};
+
+    let owner_bits = u16::try_from(owner.max(0)).unwrap_or(0);
+    let source = (owner_bits << 9) | (state.fleets[fleet].id & 0x1ff);
+    let mut quantities = [0i32; CARGO_KINDS];
+    quantities[kind] = amount;
+    let record = CargoTransferRecord {
+        source,
+        destination: u16::try_from(planet).unwrap_or(0),
+        source_class: Some(GrobjClass::Fleet),
+        destination_class: Some(GrobjClass::Planet),
+        mode: 0x12,
+        selector: 1 << kind,
+        quantities,
+    };
+    apply_cargo_transfer(state, &record)[kind]
+}
+
+/// Put a fleet's colonists on a planet, and record the landing.
+fn unload_colonists(
+    state: &mut GameState,
+    fleet: usize,
+    planet: i16,
+    owner: i16,
+    carried: i32,
+) -> Option<ColonistDrop> {
+    let moved = move_cargo(state, fleet, planet, owner, COLONISTS, -carried);
+    let landed = -moved;
+    (landed > 0).then_some(ColonistDrop {
+        planet,
+        player: owner,
+        colonists: landed,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -373,6 +550,7 @@ mod tests {
                 target: Some(1),
                 warp: 0,
                 task: 0,
+                transport: None,
             }],
         }
     }
@@ -449,6 +627,135 @@ mod tests {
         assert!(drops.is_empty(), "own planet: {drops:?}");
         // The colonists still arrive; they are simply added to the population.
         assert_eq!(state.planets[0].pop, 125);
+    }
+
+    /// A Colonize task settles the planet the fleet is orbiting.
+    #[test]
+    fn a_colonise_task_settles_the_planet() {
+        use stars_formats::task;
+
+        let mut state = game();
+        let mut planet = Planet::unowned(1);
+        planet.pop = 0;
+        state.planets = vec![planet];
+        let mut fleet = fleet(
+            0,
+            3,
+            Cargo {
+                minerals: [0; 3],
+                colonists: 40,
+                fuel: 0,
+            },
+        );
+        fleet.waypoints[0].task = task::COLONIZE;
+        state.fleets = vec![fleet];
+
+        let (done, drops) = execute_arrival_tasks(&mut state);
+        assert_eq!(done, vec![(3, task::COLONIZE)]);
+        assert_eq!(drops.len(), 1);
+        // The task is consumed, which is why a saved game's reached waypoints
+        // all read zero.
+        assert_eq!(state.fleets[0].waypoints[0].task, task::NONE);
+        assert_eq!(state.fleets[0].cargo.colonists, 0);
+
+        resolve_colonist_drops(&mut state, &drops);
+        assert_eq!(state.planets[0].owner, Some(0));
+        assert_eq!(state.planets[0].pop, 40);
+    }
+
+    /// Colonising is refused where it would make no sense, and the order is
+    /// still consumed.
+    #[test]
+    fn a_colonise_task_is_refused_on_an_owned_planet() {
+        use stars_formats::task;
+
+        let mut state = game();
+        let mut planet = Planet::unowned(1);
+        planet.owner = Some(1);
+        planet.pop = 500;
+        state.planets = vec![planet];
+        let mut fleet = fleet(
+            0,
+            3,
+            Cargo {
+                minerals: [0; 3],
+                colonists: 40,
+                fuel: 0,
+            },
+        );
+        fleet.waypoints[0].task = task::COLONIZE;
+        state.fleets = vec![fleet];
+
+        let (done, drops) = execute_arrival_tasks(&mut state);
+        assert!(done.is_empty(), "someone else's planet is not colonised");
+        assert!(drops.is_empty());
+        assert_eq!(
+            state.fleets[0].cargo.colonists, 40,
+            "the colonists stay put"
+        );
+        assert_eq!(state.fleets[0].waypoints[0].task, task::NONE, "order spent");
+    }
+
+    /// A Transport task unloads what it is told to.
+    #[test]
+    fn a_transport_task_unloads() {
+        use stars_formats::{task, ItemAction, TransportTask, XferAction};
+
+        let mut state = game();
+        let mut planet = Planet::unowned(1);
+        planet.owner = Some(0);
+        planet.surface_min = [0, 0, 0];
+        state.planets = vec![planet];
+        let mut fleet = fleet(
+            0,
+            3,
+            Cargo {
+                minerals: [50, 0, 0],
+                colonists: 0,
+                fuel: 0,
+            },
+        );
+        fleet.waypoints[0].task = task::TRANSPORT;
+        let mut items = [ItemAction {
+            quantity: 0,
+            action: XferAction::None,
+        }; 5];
+        items[0] = ItemAction {
+            quantity: 0,
+            action: XferAction::UnloadAll,
+        };
+        fleet.waypoints[0].transport = Some(TransportTask { items });
+        state.fleets = vec![fleet];
+
+        let (done, _) = execute_arrival_tasks(&mut state);
+        assert_eq!(done, vec![(3, task::TRANSPORT)]);
+        assert_eq!(state.fleets[0].cargo.minerals[0], 0);
+        assert_eq!(state.planets[0].surface_min[0], 50);
+    }
+
+    /// A task in deep space is cancelled rather than performed.
+    #[test]
+    fn a_task_with_nowhere_to_do_it_is_cancelled() {
+        use stars_formats::task;
+
+        let mut state = game();
+        let mut fleet = fleet(
+            0,
+            3,
+            Cargo {
+                minerals: [0; 3],
+                colonists: 40,
+                fuel: 0,
+            },
+        );
+        fleet.orbiting = None;
+        fleet.waypoints[0].task = task::COLONIZE;
+        state.fleets = vec![fleet];
+
+        let (done, drops) = execute_arrival_tasks(&mut state);
+        assert!(done.is_empty());
+        assert!(drops.is_empty());
+        assert_eq!(state.fleets[0].waypoints[0].task, task::NONE);
     }
 
     /// A planet can never give more than it holds — and an impossible load

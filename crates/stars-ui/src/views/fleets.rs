@@ -19,6 +19,8 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     // whole of each closure.
     let mut transfer: Option<(usize, usize, i32)> = None;
     let mut destination: Option<(usize, i16)> = None;
+    let mut task: Option<(usize, u8)> = None;
+    let mut transport: Option<(usize, usize, stars_formats::XferAction)> = None;
     let mut warp = app.warp;
 
     egui::SidePanel::left("fleet_list")
@@ -181,6 +183,66 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         }
 
         ui.add_space(6.0);
+        // What to do on arrival. A task rides the waypoint the fleet is
+        // heading to and is consumed when it runs.
+        let current = fleet
+            .waypoints
+            .last()
+            .map_or(stars_formats::task::NONE, |w| w.task);
+        ui.horizontal(|ui| {
+            ui.label("on arrival:");
+            for id in [
+                stars_formats::task::NONE,
+                stars_formats::task::COLONIZE,
+                stars_formats::task::TRANSPORT,
+                stars_formats::task::REMOTE_MINING,
+            ] {
+                if ui
+                    .selectable_label(current == id, stars_formats::task::name(id))
+                    .clicked()
+                {
+                    task = Some((index, id));
+                }
+            }
+        });
+        if current == stars_formats::task::TRANSPORT {
+            let orders = fleet.waypoints.last().and_then(|w| w.transport);
+            for (kind, name) in [
+                (0usize, "ironium"),
+                (1, "boranium"),
+                (2, "germanium"),
+                (3, "colonists"),
+            ] {
+                let now = orders.map_or(stars_formats::XferAction::None, |o| o.items[kind].action);
+                ui.horizontal(|ui| {
+                    ui.label(format!("  {name}:"));
+                    for action in [
+                        stars_formats::XferAction::None,
+                        stars_formats::XferAction::LoadAll,
+                        stars_formats::XferAction::UnloadAll,
+                    ] {
+                        let label = match action {
+                            stars_formats::XferAction::LoadAll => "load all",
+                            stars_formats::XferAction::UnloadAll => "unload all",
+                            _ => "nothing",
+                        };
+                        if ui.selectable_label(now == action, label).clicked() {
+                            transport = Some((index, kind, action));
+                        }
+                    }
+                });
+            }
+        }
+        ui.label(
+            egui::RichText::new(
+                "The engine performs colonise and transport on arrival, and remote \
+                 mining in its own pass. Other tasks can be set but are not simulated.",
+            )
+            .weak()
+            .small(),
+        );
+
+        ui.add_space(6.0);
         ui.horizontal(|ui| {
             ui.label("send to:");
             egui::ComboBox::from_id_source("destination")
@@ -202,6 +264,12 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     }
     if let Some((fleet, planet)) = destination {
         app.set_destination(fleet, planet, warp);
+    }
+    if let Some((fleet, id)) = task {
+        app.set_task(fleet, id);
+    }
+    if let Some((fleet, kind, action)) = transport {
+        app.set_transport(fleet, kind, action);
     }
     app.warp = warp;
 }

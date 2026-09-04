@@ -64,8 +64,88 @@ pub struct WaypointRecord {
     /// 9 = Transfer). Exposed raw.
     pub task: u8,
     /// Task-specific extra bytes that follow the fixed header (empty when
-    /// `task == 0`).
+    /// `task == 0`). Interpreted by [`Self::transport`] for a Transport task;
+    /// the other tasks' payloads are kept verbatim.
     pub task_data: Vec<u8>,
+}
+
+/// What a Transport task does with one kind of cargo.
+///
+/// Source: the `XferActionType` enum and the `iAction` nibble of `ITEMACTION`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum XferAction {
+    /// Leave this cargo alone.
+    None,
+    /// Load everything the other side has.
+    LoadAll,
+    /// Unload everything the fleet carries.
+    UnloadAll,
+    /// Load exactly the stated quantity.
+    LoadExact,
+    /// Unload exactly the stated quantity.
+    UnloadExact,
+    /// Fill the hold to the stated percentage.
+    FillPercent,
+    /// Wait until the hold is the stated percentage full.
+    WaitPercent,
+    /// Load whatever is left over after the other kinds have loaded.
+    LoadDunnage,
+    /// Set the amount held to the stated quantity.
+    SetAmount,
+    /// Set the waypoint's amount to the stated quantity.
+    SetWaypoint,
+    /// A code this decoder does not know; kept so nothing is silently lost.
+    Other(u8),
+}
+
+impl XferAction {
+    /// Decode the 4-bit action code.
+    #[must_use]
+    pub fn from_raw(code: u8) -> Self {
+        match code {
+            0 => Self::None,
+            1 => Self::LoadAll,
+            2 => Self::UnloadAll,
+            3 => Self::LoadExact,
+            4 => Self::UnloadExact,
+            5 => Self::FillPercent,
+            6 => Self::WaitPercent,
+            7 => Self::LoadDunnage,
+            8 => Self::SetAmount,
+            9 => Self::SetWaypoint,
+            other => Self::Other(other),
+        }
+    }
+
+    /// Whether this action moves cargo **into** the fleet.
+    #[must_use]
+    pub fn loads(self) -> bool {
+        matches!(
+            self,
+            Self::LoadAll | Self::LoadExact | Self::LoadDunnage | Self::FillPercent
+        )
+    }
+}
+
+/// One cargo kind's instruction within a Transport task (`ITEMACTION`).
+///
+/// Packed into one 16-bit word as `cQuan:12, iAction:4`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ItemAction {
+    /// The quantity the action refers to, where it takes one.
+    pub quantity: u16,
+    /// What to do.
+    pub action: XferAction,
+}
+
+/// A Transport task's instructions, one per cargo kind (`TASKXPORT`).
+///
+/// The five kinds are the same as everywhere else in the game: ironium,
+/// boranium, germanium, colonists, fuel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TransportTask {
+    /// What to do with each cargo kind, in order.
+    pub items: [ItemAction; 5],
 }
 
 /// Object-id value that marks a bare-coordinate waypoint (no target object).
@@ -115,7 +195,80 @@ impl WaypointRecord {
             task_data,
         })
     }
+
+    /// The Transport task's instructions, if this waypoint carries one.
+    ///
+    /// Source: the `ORDER` union's `TASKXPORT txp` arm — `ITEMACTION rgia[5]`,
+    /// ten bytes immediately after the eight-byte header, each entry packed
+    /// `cQuan:12, iAction:4`. An earlier revision of `docs/formats/waypoint.md`
+    /// recorded this payload as an open question and kept it verbatim; the NB09
+    /// structures name it exactly.
+    ///
+    /// Returns `None` when the waypoint is not a Transport task or the payload
+    /// is short.
+    #[must_use]
+    pub fn transport(&self) -> Option<TransportTask> {
+        if self.task != TASK_TRANSPORT || self.task_data.len() < 10 {
+            return None;
+        }
+        let mut items = [ItemAction {
+            quantity: 0,
+            action: XferAction::None,
+        }; 5];
+        for (i, slot) in items.iter_mut().enumerate() {
+            let word = u16::from_le_bytes([self.task_data[i * 2], self.task_data[i * 2 + 1]]);
+            *slot = ItemAction {
+                quantity: word & 0x0FFF,
+                action: XferAction::from_raw((word >> 12) as u8),
+            };
+        }
+        Some(TransportTask { items })
+    }
 }
+
+/// Waypoint task ids (`grTask`).
+pub mod task {
+    /// No task.
+    pub const NONE: u8 = 0;
+    /// Transport: load and unload cargo.
+    pub const TRANSPORT: u8 = 1;
+    /// Colonize the planet.
+    pub const COLONIZE: u8 = 2;
+    /// Mine the planet from orbit.
+    pub const REMOTE_MINING: u8 = 3;
+    /// Merge into another fleet.
+    pub const MERGE: u8 = 4;
+    /// Scrap the fleet.
+    pub const SCRAP: u8 = 5;
+    /// Lay a minefield.
+    pub const LAY_MINES: u8 = 6;
+    /// Patrol.
+    pub const PATROL: u8 = 7;
+    /// Follow the planet's route.
+    pub const ROUTE: u8 = 8;
+    /// Give the fleet away.
+    pub const TRANSFER: u8 = 9;
+
+    /// The name the game shows for a task id.
+    #[must_use]
+    pub fn name(task: u8) -> &'static str {
+        match task {
+            NONE => "none",
+            TRANSPORT => "transport",
+            COLONIZE => "colonize",
+            REMOTE_MINING => "remote mining",
+            MERGE => "merge",
+            SCRAP => "scrap",
+            LAY_MINES => "lay minefield",
+            PATROL => "patrol",
+            ROUTE => "route",
+            TRANSFER => "transfer fleet",
+            _ => "unknown",
+        }
+    }
+}
+
+use task::TRANSPORT as TASK_TRANSPORT;
 
 /// Decode every waypoint block (type 20) in a decoded [`StarsFile`], in file
 /// order.

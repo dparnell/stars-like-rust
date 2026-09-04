@@ -86,5 +86,52 @@ matching the three homeworlds.
 ## Open questions
 
 - The full `object type` enumeration (17 confirmed = planet).
-- The internal layout of task-specific extra bytes (transport load/unload
-  orders, minefield parameters, etc.) — preserved verbatim for now.
+- The Transport task's payload is now decoded (see below); the other tasks'
+  payloads (`TASKLAYMINES`, `TASKPATROL`, `TASKSELL`) are named by the NB09
+  structures but not yet decoded, and are preserved verbatim.
+
+## The Transport task's payload
+
+The ten bytes after a Transport waypoint's header are the `ORDER` union's
+`TASKXPORT` arm: `ITEMACTION rgia[5]`, one entry per cargo kind in the usual
+order — ironium, boranium, germanium, colonists, fuel. Each entry is a single
+16-bit word:
+
+| Bits | Width | Field |
+|------|-------|-------|
+| 0-11 | 12 | `cQuan`, the quantity the action refers to |
+| 12-15 | 4 | `iAction`, an `XferActionType` |
+
+and the actions are
+
+| code | action |
+|-----:|--------|
+| 0 | none |
+| 1 | load all available |
+| 2 | unload all |
+| 3 | load exactly `cQuan` |
+| 4 | unload exactly `cQuan` |
+| 5 | fill up to `cQuan` percent |
+| 6 | wait for `cQuan` percent |
+| 7 | load dunnage |
+| 8 | set amount to `cQuan` |
+| 9 | set waypoint to `cQuan` |
+
+### Checked against the fixtures
+
+All **15,526** Transport waypoints in this repository decode, and the result
+corroborates the split three ways rather than merely not crashing:
+
+- every action code is a **valid** one — `LoadAll` 10,218, `UnloadAll` 25,339,
+  `FillPercent` 2,622, and no unknown code anywhere in the four-bit space, which
+  a wrong offset or bit boundary would certainly produce;
+- `LoadAll` and `UnloadAll` carry a quantity of **0** in every case, which is
+  right for actions that take none;
+- `FillPercent` carries only **33 and 66** — percentages, exactly as the action
+  name implies.
+
+`stars-core` performs `LoadAll`, `UnloadAll`, `LoadExact`, `UnloadExact` and
+`FillPercent` on arrival. `LoadDunnage`, `WaitPercent`, `SetAmount` and
+`SetWaypoint` are decoded but **not performed**: their behaviour depends on
+parts of `SatisfyOrders` that could not be read confidently, and none of them
+occurs in these fixtures.
