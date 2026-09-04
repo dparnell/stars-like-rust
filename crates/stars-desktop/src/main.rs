@@ -8,7 +8,12 @@
 //! ```text
 //! stars <file.mN|file.hst>          summarise a saved game
 //! stars <file> --turn               ... and generate one turn
+//! stars <file> --vcr [id]           play back a recorded battle
 //! ```
+//!
+//! `--vcr` is the first screen of the frontend proper, rendered here as text
+//! while the egui shell is still to come. The view logic lives in
+//! `stars_ui::vcr` and is frontend-agnostic; this only draws it.
 
 #![forbid(unsafe_code)]
 
@@ -25,7 +30,12 @@ fn main() -> ExitCode {
         eprintln!("       a Stars! player file (.m1 …) or host file (.hst)");
         return ExitCode::from(2);
     };
-    let advance = args.any(|a| a == "--turn");
+    let rest: Vec<String> = args.collect();
+    let advance = rest.iter().any(|a| a == "--turn");
+    let vcr = rest.iter().position(|a| a == "--vcr").map(|i| {
+        rest.get(i + 1)
+            .and_then(|s| u16::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+    });
 
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,
@@ -41,6 +51,10 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+
+    if let Some(wanted) = vcr {
+        return play_battles(&file, wanted);
+    }
 
     let (mut state, report) = GameState::from_file(&file);
     summarise(&path, &file, &state, &report);
@@ -134,5 +148,111 @@ fn describe_turn(turn: &stars_core::TurnReport) {
 
     if !turn.skipped.is_empty() {
         println!("  not simulated: {:?}", turn.skipped);
+    }
+}
+
+/// Play the battle recordings a file carries, as text.
+///
+/// The VCR plays the recording rather than re-simulating it — see
+/// `stars_ui::vcr` for why that distinction matters.
+fn play_battles(file: &StarsFile, wanted: Option<u16>) -> ExitCode {
+    use stars_formats::{battle_records_in_with, ActionLayout};
+    use stars_ui::vcr::{Event, Vcr};
+
+    let header = &file.latest_segment().header;
+    let layout = ActionLayout::for_version(header.version_major, header.version_minor);
+    let battles = battle_records_in_with(file.segment_blocks(file.latest_segment()), layout);
+
+    if battles.is_empty() {
+        eprintln!("no battle recordings in this file");
+        return ExitCode::FAILURE;
+    }
+    let chosen: Vec<_> = match wanted {
+        Some(id) => battles.iter().filter(|b| b.id == id).collect(),
+        None => battles.iter().collect(),
+    };
+    if chosen.is_empty() {
+        eprintln!("no battle with that id; this file has:");
+        for b in &battles {
+            eprintln!("  {:#06x}", b.id);
+        }
+        return ExitCode::FAILURE;
+    }
+
+    for battle in chosen {
+        let mut vcr = Vcr::new(battle);
+        println!(
+            "battle {:#06x} at planet {}, players {:?}, {} tokens, {} frames",
+            vcr.id,
+            vcr.planet
+                .map_or_else(|| "deep space".into(), |p| p.to_string()),
+            vcr.players,
+            vcr.tokens().len(),
+            vcr.len()
+        );
+        for (i, token) in vcr.tokens().iter().enumerate() {
+            println!(
+                "  token {i}: player {} — {} ships, {} shields, {}",
+                token.player,
+                token.ships,
+                token.shields,
+                if token.armed { "armed" } else { "unarmed" }
+            );
+        }
+
+        let mut round = u8::MAX;
+        while vcr.step() {
+            let Some(frame) = vcr.frame() else { break };
+            if frame.round != round {
+                round = frame.round;
+                println!("\n-- round {round}");
+                draw(&vcr);
+            }
+            match &frame.event {
+                Event::Move { token, from, to } => {
+                    println!(
+                        "  token {token} moves ({},{}) -> ({},{})",
+                        from.0, from.1, to.0, to.1
+                    );
+                }
+                Event::Fire {
+                    attacker,
+                    target,
+                    range,
+                    ships_killed,
+                } => {
+                    print!("  token {attacker} fires on {target} at range {range}");
+                    if *ships_killed > 0 {
+                        print!(" — {ships_killed} ships destroyed");
+                    }
+                    println!();
+                }
+                Event::Disengage { token } => println!("  token {token} leaves the battle"),
+            }
+        }
+
+        println!("\n-- end");
+        draw(&vcr);
+        for (player, lost) in vcr.losses() {
+            println!("  player {player} lost {lost} ships");
+        }
+        println!();
+    }
+    ExitCode::SUCCESS
+}
+
+/// Draw the board: each square shows the tokens standing on it.
+fn draw(vcr: &stars_ui::vcr::Vcr) {
+    let grid = vcr.board();
+    for row in &grid {
+        let cells: Vec<String> = row
+            .iter()
+            .map(|tokens| match tokens.len() {
+                0 => " . ".to_string(),
+                1 => format!(" {} ", tokens[0]),
+                n => format!("*{n} "),
+            })
+            .collect();
+        println!("    {}", cells.join(""));
     }
 }

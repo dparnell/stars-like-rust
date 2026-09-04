@@ -403,6 +403,28 @@ tokens in the same square, limited by the number of ships firing — which is wh
 stacking ships in one token is defensively better than spreading them across
 several.
 
+## Playing a recording back
+
+`stars_ui::vcr` prepares a recording for playback: one frame per action, each
+carrying the board as it stood immediately after it, steppable forwards and
+back. `stars <file> --vcr [id]` renders it as text.
+
+It **plays the recording** rather than re-deriving it, and that is a
+correctness decision rather than a convenience. Every movement tie-break and
+every torpedo draws from a generator whose state is not in the save files, so a
+re-simulation cannot help disagreeing with the battle it is meant to be showing.
+The recording already carries every move, shot and casualty.
+
+Reading one takes the three details this document establishes elsewhere, and
+all three bite: a firing record repeats the token's **current** square, so
+telling a shot from a move needs positions carried forward; `brcDest` of `0xFF`
+is a token leaving the battle rather than a square; and `initMin == 0xFF` is the
+only thing the file says about whether an opponent's ship is armed.
+
+Played to the end, all **47** Exodus recordings reproduce the casualty totals
+the recording states independently of its action list — over 746 moves, 164
+shots and 31 disengages, the same figures this document reports above.
+
 ## Verification
 
 `crates/stars-core/tests/combat_vectors.rs` checks the movement table, torpedo

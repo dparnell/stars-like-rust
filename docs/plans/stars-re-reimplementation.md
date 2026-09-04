@@ -500,17 +500,28 @@ disagree.
 
 #### Suggested order
 
-1. **The battle VCR.** The one screen that can be built entirely against
-   verified data, and it needs no order execution. Play the recording rather
-   than re-simulating.
-2. **Galaxy map and scanner**, now that planet positions and names load.
+1. ~~**The battle VCR.**~~ **Done.** `stars_ui::vcr` prepares a recording for
+   playback — one frame per action, each carrying the board as it stood after
+   it — and steps forward and back over it. It plays the recording rather than
+   re-simulating, and the test of that is not agreement with our combat model
+   but with the engine: played to the end, all **47** recordings reproduce the
+   casualty totals the recording states independently of its action list, over
+   746 moves, 164 shots and 31 disengages. Rendered as text by
+   `stars <file> --vcr [id]`; the egui version is a drawing layer over the same
+   view-model.
+2. **The egui shell.** `eframe`/`winit` are not yet workspace dependencies, and
+   adding them is a deliberate decision rather than a detail: CI builds the
+   whole workspace on Linux, macOS and Windows with `-D warnings`, and the
+   native windowing stack brings system requirements with it. The VCR is
+   written so that shell is a renderer over `stars_ui::vcr` and nothing more.
+3. **Galaxy map and scanner**, now that planet positions and names load.
    `planets` versus `known_planets` is the fog of war.
-3. **Planet and fleet detail panes**, including the two habitability figures and
+4. **Planet and fleet detail panes**, including the two habitability figures and
    the environment graph.
-4. **The production dialog**, driving off the queue model and the race filter.
-5. **Order entry** — the other half of `TurnOrders`. The turn generator consumes
+5. **The production dialog**, driving off the queue model and the race filter.
+6. **Order entry** — the other half of `TurnOrders`. The turn generator consumes
    orders; nothing yet produces them from a UI.
-6. **The race wizard**, which needs `CAdvantagePoints` to price a race. It is
+7. **The race wizard**, which needs `CAdvantagePoints` to price a race. It is
    located (`10e0:444c`, in `docs/ghidra/stars-signatures.csv`) but not
    transcribed, and remains the largest unknown in this step. `FGenerateTurn`
    calls it to re-price every race each turn and to claw points back from a race

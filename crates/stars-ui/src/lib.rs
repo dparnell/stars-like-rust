@@ -31,6 +31,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod vcr;
+
 use stars_core::GameState;
 
 /// Frontend-agnostic application state shared by all Stars! frontends.
