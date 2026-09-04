@@ -328,8 +328,12 @@ Remaining in this step:
    original's. Aligning the stream would take per-mineral agreement to about
    83% and the all-three figure to roughly 57%. The genuinely unmodelled
    residual is the 8% of readings off by six or more — a far smaller target
-   than 73%. Also the residual movement-scoring gap
-   (`docs/formulas/combat.md`).
+   than 73%. Also the residual movement-scoring
+   gap, which has now been narrowed: `DxyMoveTokTo` has been checked against
+   the implementation line by line and the mover is not where the loss is —
+   it is in `ScoreGuessBattleDamage` and the damage estimate beneath it, whose
+   loose ends are the same ones torpedo resolution is blocked on. The two are
+   likely one job (`docs/formulas/combat.md`).
 4. **Terraforming** — recovered and applied during the turn. The reach model
    is verified (96% of 10,165 planet-turns) and unblocks `PctPlanetOptValue`
    and the colonisation gate; the step count matches 70% of the AI's fresh

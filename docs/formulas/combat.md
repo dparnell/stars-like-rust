@@ -298,7 +298,7 @@ Measured against the recordings, splitting the two paths a move can take:
 | path | result |
 |------|--------|
 | beeline moves (nothing in reach) | **105 of 111 close on the target — 94%** |
-| scored moves | **414 of 450 among our best-rated — 92%**, against an 81% chance rate |
+| scored moves | **379 of 450 among our best-rated — 84%**, against a 72% chance rate |
 
 The chance rate is what makes the second number mean anything: a scorer that
 rated every square identically would hit 100% on the first figure and 100% on
@@ -311,13 +311,45 @@ For reference, as the pieces landed:
 | shape only, default tactics | 86% | 78% | 8 |
 | scoring transcribed, real tactics | 86% | 71% | 15 |
 | plus search radius and class filter | 92% | 81% | 11 |
+| `DpFromPtokBrcToBrc` re-read from the disassembly | 84% | 72% | 12 |
 
-The residual — 6 beeline moves and 36 scored ones — is not yet explained. The
-likeliest candidate is the damage estimate `DpFromPtokBrcToBrc` itself, which
-is transcribed from a decompilation rather than the disassembly and still has
-loose ends (the sapper cap and the torpedo path in particular).
+That last row is the one to be careful about. Transcribing the damage estimate
+faithfully from the disassembly, rather than from the decompilation, **lowered**
+the hit rate from 92% to 84% — and lowered the chance rate with it, so the gap
+barely moved. An earlier revision of this document reported the 92% row as the
+current state; it is not, and the faithful version was kept deliberately
+because a number that improves while the transcription gets less faithful is
+measuring the wrong thing.
 
-## Armour and shields## Armour and shields## Armour and shields
+### What has been checked
+
+`DxyMoveTokTo` (`10f0:5f2c`) has been read against the implementation line by
+line, and the structure matches in every respect that could be compared:
+
+- the score is a 32-bit quantity where **lower wins**, seeded at 30,000,000;
+- the search box is the token's reachable range, clamped to the board;
+- squares within one step have their scores cached in a 3×3 grid;
+- when the best square is more than one step away the token does **not** jump
+  to it — it takes a single step, choosing among the neighbours by their cached
+  scores, with the axis-aligned and diagonal cases handled separately;
+- ties are broken by reservoir sampling against `Random`;
+- a Disengage token adds 2 to a square for each of its own tokens already
+  there, and subtracts 1 for staying put.
+
+One difference was found and fixed: the original's crowd count does not check
+whether a token still has ships, and this crate was filtering the dead out. It
+makes no difference to the measured rate on this corpus, so it is a
+faithfulness fix rather than an improvement.
+
+### Where the gap is
+
+The residual is 6 beeline moves and 71 scored ones, and it is **not** in the
+mover. It is in what the mover is scoring: `ScoreGuessBattleDamage` and the
+damage estimate `DpFromPtokBrcToBrc` beneath it, whose loose ends — the sapper
+cap and the torpedo path — are the same ones the torpedo work is blocked on.
+Closing it and resolving torpedo combat are likely the same job.
+
+## Armour and shields
 
 Shields **overlap across a whole token**: twenty scouts with 20 shield points
 each present one 400-point pool that must be stripped before any armour is

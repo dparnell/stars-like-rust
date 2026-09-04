@@ -891,9 +891,11 @@ pub fn choose_move(tokens: &[CombatToken], mover: usize, radius: i32, rng: &mut 
 
             // Disengaging tokens avoid piling onto friends and prefer to move.
             if token.tactic == Tactic::Disengage {
+                // The original counts every token of ours on the square,
+                // whether or not it still has ships.
                 let crowd = tokens
                     .iter()
-                    .filter(|t| t.alive() && t.player == token.player && t.square == square)
+                    .filter(|t| t.player == token.player && t.square == square)
                     .count();
                 score += 2 * i32::try_from(crowd).unwrap_or(0);
                 if square == here {
