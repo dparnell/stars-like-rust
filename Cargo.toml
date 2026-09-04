@@ -25,6 +25,11 @@ stars-core = { path = "crates/stars-core" }
 stars-ui = { path = "crates/stars-ui" }
 thiserror = "1"
 serde_json = "1"
+# egui is pure Rust and safe for every target; eframe brings the native
+# windowing stack and is used only by the desktop shell.
+egui = "0.28"
+eframe = { version = "0.28", default-features = false, features = ["default_fonts", "glow"] }
+rfd = "0.14"
 
 [profile.release]
 opt-level = 3

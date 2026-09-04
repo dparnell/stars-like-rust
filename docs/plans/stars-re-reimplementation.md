@@ -509,18 +509,27 @@ disagree.
    746 moves, 164 shots and 31 disengages. Rendered as text by
    `stars <file> --vcr [id]`; the egui version is a drawing layer over the same
    view-model.
-2. **The egui shell.** `eframe`/`winit` are not yet workspace dependencies, and
-   adding them is a deliberate decision rather than a detail: CI builds the
-   whole workspace on Linux, macOS and Windows with `-D warnings`, and the
-   native windowing stack brings system requirements with it. The VCR is
-   written so that shell is a renderer over `stars_ui::vcr` and nothing more.
-3. **Galaxy map and scanner**, now that planet positions and names load.
+2. ~~**The egui shell.**~~ **Done.** `stars` with no arguments, or with a save
+   file, opens a window; `--summary`, `--turn` and `--vcr` keep the text tools.
+   The split that matters is that **`stars-ui` depends on `egui` alone** — pure
+   Rust, builds anywhere — while the native windowing stack (`eframe`, `winit`,
+   `rfd`) lives only in `stars-desktop`. CI grew one step installing the Linux
+   system libraries that stack needs.
+3. ~~**Galaxy map and scanner.**~~ **Done.** The map fits the universe to the
+   panel, draws owned planets solid and merely-scanned ones hollow — the fog of
+   war falling out of `planets` versus `known_planets` — and says plainly when
+   no `.xy` was found rather than piling every planet on the origin.
    `planets` versus `known_planets` is the fog of war.
-4. **Planet and fleet detail panes**, including the two habitability figures and
-   the environment graph.
-5. **The production dialog**, driving off the queue model and the race filter.
+4. ~~**Planet and fleet detail panes.**~~ **Done** as read-only views,
+   including the two habitability figures, the terraforming band, and a
+   production queue presented as the running balance it is. The environment
+   *graph* is still a table of numbers rather than a drawing.
+5. **The production dialog** — the *editable* one. What exists today shows a
+   planet's queue; adding, removing and reordering items, driven off the race
+   filter in `ground::template_allows`, is the next real piece of work.
 6. **Order entry** — the other half of `TurnOrders`. The turn generator consumes
-   orders; nothing yet produces them from a UI.
+   orders; nothing yet produces them from a UI. This is what stands between the
+   current read-only shell and a playable game.
 7. **The race wizard**, which needs `CAdvantagePoints` to price a race. It is
    located (`10e0:444c`, in `docs/ghidra/stars-signatures.csv`) but not
    transcribed, and remains the largest unknown in this step. `FGenerateTurn`

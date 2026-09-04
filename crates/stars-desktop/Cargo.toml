@@ -16,4 +16,6 @@ path = "src/main.rs"
 stars-ui.workspace = true
 stars-core.workspace = true
 stars-formats.workspace = true
-# eframe/winit are added in Step 5 when the native shell is built.
+eframe.workspace = true
+egui.workspace = true
+rfd.workspace = true

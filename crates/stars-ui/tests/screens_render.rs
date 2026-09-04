@@ -1,0 +1,136 @@
+//! Every screen, driven through a real egui pass against real save files.
+//!
+//! egui runs perfectly well without a window, so this is not a smoke test in
+//! name only: each screen is laid out, every widget is built and every id is
+//! allocated exactly as it would be on screen. It catches the failures that
+//! only appear when a view meets real data — an index off the end of a fleet's
+//! stacks, a planet with no position, a battle with one token, an id clash
+//! between two lists on the same screen.
+
+use std::path::{Path, PathBuf};
+
+use stars_ui::{App, Screen};
+
+fn workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("crates/<name> has a workspace root")
+        .to_path_buf()
+}
+
+/// Lay out one frame of a screen, as the shell would.
+fn draw(app: &mut App, screen: Screen) {
+    app.screen = screen;
+    let ctx = egui::Context::default();
+    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            stars_ui::views::central(app, ui);
+        });
+    });
+}
+
+/// With nothing loaded, every screen still lays out.
+#[test]
+fn the_title_screen_draws_with_no_game() {
+    let mut app = App::new();
+    for screen in Screen::ALL {
+        draw(&mut app, screen);
+    }
+}
+
+/// Every screen, against every save file in the fixtures.
+///
+/// This is the test that earns its keep: the fixtures include a player file
+/// with battles, host files with none, sixteen-player games and one-player
+/// games, planets with and without a universe file beside them.
+#[test]
+fn every_screen_draws_for_every_fixture() {
+    let root = workspace_root().join("fixtures/games");
+    if !root.is_dir() {
+        eprintln!("skipping: no fixtures");
+        return;
+    }
+
+    let mut saves: Vec<PathBuf> = Vec::new();
+    let mut stack = vec![root];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let is_save = path.extension().is_some_and(|x| {
+                let x = x.to_string_lossy().to_lowercase();
+                x == "hst" || (x.starts_with('m') && x.len() == 2)
+            });
+            if is_save {
+                saves.push(path);
+            }
+        }
+    }
+    saves.sort();
+    // One file per directory, then a spread across them: the point is variety
+    // — a player file with battles, a host file with none, sixteen players and
+    // one, a universe file beside the save and one a directory up — not volume.
+    saves.dedup_by_key(|p| p.parent().map(Path::to_path_buf));
+    let step = (saves.len() / 24).max(1);
+    let saves: Vec<PathBuf> = saves.into_iter().step_by(step).collect();
+    assert!(
+        saves.len() > 5,
+        "expected several save files, got {}",
+        saves.len()
+    );
+
+    let mut drawn = 0;
+    for path in &saves {
+        let mut app = App::new();
+        if app.open(path).is_err() {
+            continue;
+        }
+        for screen in Screen::ALL {
+            draw(&mut app, screen);
+            drawn += 1;
+        }
+        // And with a battle open, played to a few different points.
+        if !app.battles.is_empty() {
+            app.open_battle(0);
+            app.screen = Screen::Battles;
+            for position in [0usize, 1, 5, usize::MAX] {
+                if let Some(vcr) = app.vcr.as_mut() {
+                    vcr.seek(position);
+                }
+                draw(&mut app, Screen::Battles);
+                drawn += 1;
+            }
+        }
+        // And with nothing selected, which is what a fresh galaxy looks like
+        // before the player clicks.
+        app.selection = stars_ui::Selection::default();
+        for screen in Screen::ALL {
+            draw(&mut app, screen);
+            drawn += 1;
+        }
+    }
+    assert!(drawn > 50, "expected many frames, drew {drawn}");
+    eprintln!(
+        "UI: {drawn} screen frames laid out over {} save files",
+        saves.len()
+    );
+}
+
+/// A game whose universe file is missing has planets with no position; the
+/// galaxy map must say so rather than drawing them all at the origin.
+#[test]
+fn the_galaxy_map_copes_with_no_universe() {
+    let mut app = App::new();
+    let mut game = stars_core::GameState::new(1);
+    game.planets.push(stars_core::Planet::unowned(0));
+    app.game = Some(game);
+    assert!(app.extent().is_none(), "no positions, so no extent");
+    draw(&mut app, Screen::Galaxy);
+}

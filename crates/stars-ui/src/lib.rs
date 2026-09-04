@@ -31,45 +31,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod app;
 pub mod vcr;
+pub mod views;
 
-use stars_core::GameState;
-
-/// Frontend-agnostic application state shared by all Stars! frontends.
-///
-/// This owns the loaded [`GameState`] (if any) plus, eventually, the
-/// view-model state for the open screens. Keeping it here (rather than in a
-/// specific frontend) is what lets desktop and web share the same UI logic.
-#[derive(Debug, Default)]
-pub struct App {
-    /// The currently loaded game, or `None` on the title screen.
-    pub game: Option<GameState>,
-}
-
-impl App {
-    /// Create an empty application (no game loaded).
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Human-readable one-line status used by the frontends' title bars.
-    pub fn status_line(&self) -> String {
-        match &self.game {
-            Some(state) => format!("Stars! — turn {}", state.turn),
-            None => "Stars! — no game loaded".to_string(),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn status_line_reflects_loaded_state() {
-        let mut app = App::new();
-        assert!(app.status_line().contains("no game"));
-        app.game = Some(GameState::new(1));
-        assert!(app.status_line().contains("turn 0"));
-    }
-}
+pub use app::{App, Screen, Selection};

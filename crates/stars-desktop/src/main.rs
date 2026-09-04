@@ -6,9 +6,11 @@
 //! simulation makes of it, and can generate a turn.
 //!
 //! ```text
-//! stars <file.mN|file.hst>          summarise a saved game
+//! stars                             open the graphical shell
+//! stars <file>                      ... with a game already loaded
+//! stars <file> --summary            print a summary instead
 //! stars <file> --turn               ... and generate one turn
-//! stars <file> --vcr [id]           play back a recorded battle
+//! stars <file> --vcr [id]           play back a recorded battle as text
 //! ```
 //!
 //! `--vcr` is the first screen of the frontend proper, rendered here as text
@@ -23,15 +25,25 @@ use stars_core::rng::Rng;
 use stars_core::{generate_turn, GameState};
 use stars_formats::StarsFile;
 
+mod app;
+
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
     let Some(path) = args.next() else {
-        eprintln!("usage: stars <game file> [--turn]");
-        eprintln!("       a Stars! player file (.m1 …) or host file (.hst)");
-        return ExitCode::from(2);
+        // No arguments: the graphical shell, with nothing open.
+        return match app::run(None) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("cannot start the window: {e}");
+                eprintln!("run `stars <file> --summary` for the text tools instead");
+                ExitCode::FAILURE
+            }
+        };
     };
     let rest: Vec<String> = args.collect();
     let advance = rest.iter().any(|a| a == "--turn");
+    let text_only =
+        advance || rest.iter().any(|a| a == "--summary") || rest.iter().any(|a| a == "--vcr");
     let vcr = rest.iter().position(|a| a == "--vcr").map(|i| {
         rest.get(i + 1)
             .and_then(|s| u16::from_str_radix(s.trim_start_matches("0x"), 16).ok())
@@ -54,6 +66,17 @@ fn main() -> ExitCode {
 
     if let Some(wanted) = vcr {
         return play_battles(&file, wanted);
+    }
+
+    if !text_only {
+        // A file and no other request: open it in the window.
+        return match app::run(Some(std::path::PathBuf::from(&path))) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("cannot start the window: {e}");
+                ExitCode::FAILURE
+            }
+        };
     }
 
     let (mut state, report) = GameState::from_file(&file);

@@ -11,5 +11,7 @@ authors.workspace = true
 [dependencies]
 stars-core.workspace = true
 stars-formats.workspace = true
-# egui/eframe are introduced in Step 5 when the real views are built. Kept out
-# for now so early scaffolding builds fast and without native UI system deps.
+# `egui` only — the immediate-mode widget library is pure Rust and builds
+# anywhere. The native windowing stack (`eframe`) belongs to the shell crates,
+# so this one stays cheap to build and test.
+egui.workspace = true
