@@ -70,10 +70,12 @@ UpdatePopulations → UpdateResearchStatus → RandomEvents
 ## What `generate_turn` currently performs
 
 `crates/stars-core/src/turn.rs` runs the recorded **cargo transfers**
-(`DoOrders(0)`), mining, the per-planet resource split,
+(`DoOrders(0)`) and the colonist landings they cause (`DropColonists`), mining,
+the per-planet resource split,
 **the production queue**, population growth, the research advance and
 **`AutoTerraform`** (step 16, the Claim Adjuster's free terraforming) and
-**`RemoteTerraforming`** (step 17, Orbital Adjusters acting from orbit) — the
+**`RemoteTerraforming`** (step 17, Orbital Adjusters acting from orbit), plus
+**remote mining** from `SatisfyOrders(3)` — the
 steps whose formulas are recovered. Every other step is returned in
 `TurnReport::skipped` rather than quietly omitted, so a partial turn cannot be
 mistaken for a complete one.

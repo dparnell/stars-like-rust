@@ -82,6 +82,10 @@ pub struct TurnReport {
     pub remote_terraformed: Vec<(i16, i32)>,
     /// Recorded cargo transfers that moved something in this state.
     pub transfers: usize,
+    /// Planets a colonist landing settled, invaded or defended.
+    pub colonised: Vec<i16>,
+    /// Planets mined from orbit, as `(planet id, minerals added)`.
+    pub remote_mined: Vec<(i16, [i32; 3])>,
     /// Pipeline steps not performed, and therefore not reflected above.
     pub skipped: Vec<SkippedStep>,
 }
@@ -136,7 +140,11 @@ pub fn generate_turn_with_orders(
     // produces. A transfer applied here feeds this year's growth.
     if !orders.cargo.is_empty() {
         report.skipped.retain(|s| *s != SkippedStep::Orders);
-        report.transfers = crate::orders::apply_cargo_transfers(state, &orders.cargo);
+        let (applied, drops) = crate::orders::apply_cargo_transfers(state, &orders.cargo);
+        report.transfers = applied;
+        // DropColonists: settle every landing together, so rival claims on one
+        // planet are weighed against each other rather than one at a time.
+        report.colonised = crate::orders::resolve_colonist_drops(state, &drops);
     }
 
     // --- MoveFleets, which happens before Produce.
@@ -265,6 +273,16 @@ pub fn generate_turn_with_orders(
             state.slow_tech,
         );
         report.breakthroughs[index] = gained;
+    }
+
+    // --- SatisfyOrders(3): remote mining. A fleet that stayed put all turn
+    // over an unowned planet, carrying mining robots and ordered to mine, digs
+    // as `CMineFromLpfl` mines would and leaves the minerals on the surface.
+    for index in 0..state.fleets.len() {
+        let Some(mined) = remote_mine_for_fleet(state, index, rng) else {
+            continue;
+        };
+        report.remote_mined.push(mined);
     }
 
     // --- AutoTerraform: the Claim Adjuster's free terraforming, which the
@@ -451,6 +469,62 @@ fn add_ships_to_orbiting_fleet(
             task: 0,
         }],
     });
+}
+
+/// The waypoint task ordering a fleet to mine from orbit (`grTaskMine`).
+const TASK_REMOTE_MINE: u8 = 3;
+
+/// Run one fleet's remote mining order, if it has one it can act on.
+///
+/// Source: the `grTaskMine` arm of `SatisfyOrders` (`turn3.c` in the
+/// reconstructed sources), which runs at `iPass == 3` — the first pass after
+/// movement:
+///
+/// ```c
+/// if (ord.grTask == grTaskMine && iPass == 3 && lpfl->fHereAllTurn) {
+///     cMine = CMineFromLpfl(lpfl);
+///     if (cMine != 0) {
+///         if (lppl->iPlayer == -1) EstMineralsMined(lppl, &l, cMine, 1);
+///         else if (majorAdv != raMacintosh) { message; cancel the order; }
+///     }
+/// }
+/// ```
+///
+/// Three gates, all of which matter: the fleet must have **stayed put the whole
+/// turn**, it must be over a planet rather than deep space, and that planet must
+/// be **unowned**. Mining someone's planet is refused outright and the order
+/// cancelled, unless the miner is an Alternate Reality race, which is the one
+/// case the routine lets pass.
+///
+/// The minerals land on the planet's surface, not in the fleet — collecting
+/// them is a separate cargo transfer.
+fn remote_mine_for_fleet(
+    state: &mut GameState,
+    index: usize,
+    rng: &mut Rng,
+) -> Option<(i16, [i32; 3])> {
+    let fleet = &state.fleets[index];
+    // `fHereAllTurn`: a fleet that moved this turn has not been in place long
+    // enough to mine.
+    if fleet.waypoints.first().map(|w| w.task) != Some(TASK_REMOTE_MINE) || fleet.warp.is_some() {
+        return None;
+    }
+    let planet_id = i16::try_from(fleet.orbiting?).ok()?;
+    let owner = usize::try_from(fleet.owner).ok()?;
+    let designs = state.designs.get(owner)?.clone();
+    let mines = crate::mining::remote_mines(&designs, &state.fleets[index].stacks);
+    if mines == 0 {
+        return None;
+    }
+    let planet_index = state.planets.iter().position(|p| p.id == planet_id)?;
+    // An owned planet is refused; only the unowned ones may be mined.
+    if state.planets[planet_index].owner.is_some() {
+        return None;
+    }
+    let race = state.players.get(owner)?.race.clone();
+    let mined =
+        crate::mining::mine_minerals(&mut state.planets[planet_index], &race, Some(mines), rng);
+    Some((planet_id, mined))
 }
 
 /// The lowest fleet id this player is not already using.

@@ -304,9 +304,24 @@ Remaining in this step:
    order files. Ids and quantities decode; the two mode bytes are constant
    across every sample and are exposed raw. It is **not** the cause of the 27%
    surface-mineral figure — every recorded planet transfer moves colonists, not
-   minerals. That figure is now diagnosed (see below). Colonisation and remote
-   mining are recovered but not wired into the turn, since the waypoint tasks
-   that trigger them read 0 in every fixture. **Landing colonists is recovered
+   minerals. That figure is now diagnosed (see below). **Colonisation and remote mining are now wired in.** Colonisation follows the
+   cargo transfers: an unload of colonists from a fleet onto a planet its owner
+   does not hold accumulates a `COLDROP`, and `DropColonists` settles every
+   landing on a planet together, so rival claims are weighed against each other.
+   Remote mining runs from `SatisfyOrders(3)`, gated on the fleet having stayed
+   put all turn, being over a planet rather than deep space, and that planet
+   being unowned. Neither is verifiable here, and the reason is not the one
+   previously recorded: the claim that the triggering waypoint tasks "read 0 in
+   every fixture" was measured over type-20 order blocks, which are the 8-byte
+   *taskless* form. Type 19 is the full 18-byte `ORDER` with its task union, and
+   the fixtures hold 4,331 Transport, 4,935 Colonize, 741 Remote Mining, 1,726
+   Lay Minefield and 40 Patrol tasks, all with `fValidTask` set. They still
+   cannot verify execution: the tasks ride waypoints the fleet has not reached,
+   are consumed on arrival, and a fleet is typically several years en route — of
+   2,359 Colonize targets on unowned planets only 14 are taken the following
+   year. And no fleet in the corpus carries mining robots: the one player who
+   designed them built none, so the remote-mining path never fires.
+   **Landing colonists is recovered
    in full**:
    `DropColonists` does both settling and invasion, and its weights (attackers
    110%, War Monger 165%, Alternate Reality 0%; defenders 100%, Inner Strength

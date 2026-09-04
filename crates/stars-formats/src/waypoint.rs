@@ -11,7 +11,8 @@
 //! (`Structures/Structure20.xml`) and the `starsapi` `WaypointBlock.java`, and
 //! verified against `fixtures/incoming/turn0/Game.hst`, where every starting
 //! fleet has a single waypoint sitting on its homeworld
-//! (`object_type = 17`, `object_id` = the orbited planet, `warp = 0`,
+//! (`object_type = 17` — a planet target with `fValidTask` set — `object_id` =
+//! the orbited planet, `warp = 0`,
 //! `task = 0`).
 //!
 //! ## Layout (8 bytes + optional task data)
@@ -21,7 +22,8 @@
 //! | 0–1    | 2    | x position                                         |
 //! | 2–3    | 2    | y position                                         |
 //! | 4–5    | 2    | target object id (`0xFFFF` = none / bare coords)  |
-//! | 6      | 1    | low nibble = task, high nibble = warp speed        |
+//! | 6      | 1    | low nibble = `grTask`, high nibble = `iWarp`       |
+//! | 7      | 1    | low nibble = `grobj`; bit 4 `fValidTask`; bit 5 `fNoAutoTrack` |
 //! | 7      | 1    | target object type                                |
 //! | 8..    | var  | task-specific extra bytes (present when `task > 0`)|
 //!
@@ -41,9 +43,20 @@ pub struct WaypointRecord {
     /// Id of the target object (planet/fleet/etc.), or `None` when the
     /// waypoint is a bare coordinate (stored id `0xFFFF`).
     pub object_id: Option<u16>,
-    /// Target object type (e.g. `17` = orbiting a planet). Exposed raw as the
-    /// full enumeration is not yet pinned down.
+    /// Byte 7 verbatim. It packs three fields — see [`Self::object_class`],
+    /// [`Self::valid_task`] and [`Self::no_auto_track`]. The familiar value
+    /// `17` is `0x11`: a planet target with the task-valid bit set.
     pub object_type: u8,
+    /// What kind of object the waypoint targets (`grobj`, bits 8-11 of the
+    /// word at offset 6): 1 planet, 2 fleet, 4 none, 8 thing.
+    pub object_class: u8,
+    /// `fValidTask` (bit 12). **A task only counts when this is set.** The
+    /// task nibble keeps whatever was last chosen even after the task has been
+    /// carried out or cancelled, so reading it alone overstates how many fleets
+    /// have live orders.
+    pub valid_task: bool,
+    /// `fNoAutoTrack` (bit 13).
+    pub no_auto_track: bool,
     /// Warp speed set for the leg reaching this waypoint (0..=15).
     pub warp: u8,
     /// Waypoint task id (0 = none, 1 = Transport, 2 = Colonize, 3 = Remote
@@ -85,12 +98,18 @@ impl WaypointRecord {
         let task = data[6] & 0x0F;
         let warp = data[6] >> 4;
         let object_type = data[7];
+        let object_class = data[7] & 0x0F;
+        let valid_task = data[7] & 0x10 != 0;
+        let no_auto_track = data[7] & 0x20 != 0;
         let task_data = data[HEADER_LEN..].to_vec();
         Some(Self {
             x,
             y,
             object_id,
             object_type,
+            object_class,
+            valid_task,
+            no_auto_track,
             warp,
             task,
             task_data,

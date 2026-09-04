@@ -6,10 +6,21 @@ Status: **fully decoded** — implemented in `stars-formats::cargo`, applied by
 ## Not the waypoint task
 
 The waypoint's Transport task (task id 1, see `waypoint.md`) is not where a
-transfer is recorded. **Every waypoint in both fixture games carries task 0** —
-2884 in Exodus and 47,289 in the sixteen-AI game, without exception. A task is
-consumed when it executes, exactly as production queue entries and fleet orders
-are, so the surviving record of what moved is elsewhere.
+*completed* transfer is recorded. A task is consumed when it executes, exactly
+as production queue entries and fleet orders are, so the surviving record of
+what moved is elsewhere.
+
+An earlier revision of this document justified that with a stronger claim than
+the data supports: "every waypoint in both fixture games carries task 0 —
+without exception". **That is wrong**, and it was measured over the wrong block
+type. Orders are written as *two* block types, and only one of them is
+taskless — see `waypoint.md`. Counted over both, the fixtures hold 4,331
+Transport, 4,935 Colonize, 741 Remote Mining, 1,726 Lay Minefield and 40 Patrol
+tasks, every one with `fValidTask` set.
+
+Those are **pending** orders riding a waypoint the fleet has not reached yet.
+They do not contradict the point above: the transfer that already happened is
+logged here, and the task that will cause the next one lives on the waypoint.
 
 It is in the `.x` order file, as one block per transfer. The block *type*
 chooses the quantity width:

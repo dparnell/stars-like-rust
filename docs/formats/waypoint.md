@@ -1,12 +1,57 @@
-# Waypoint block (type 20)
+# Waypoint blocks (types 19 and 20)
 
 Status: **decoded & verified** — implemented in `stars-formats::waypoint`.
 
-A fleet's ordered waypoint list is stored as a run of type-20 blocks placed
+A fleet's ordered waypoint list is stored as a run of type-19 and type-20
+blocks placed
 immediately after the fleet block. The owning fleet's `waypoint_count`
 (full-fleet field, see `fleet.md`) says how many type-20 blocks belong to it.
 The first waypoint of a fleet is a "waypoint zero" holding the fleet's current
 position.
+
+## Two block types, and why it matters
+
+An order is the NB09 `ORDER` struct, `sizeof(ORDER) == 18`: an 8-byte header
+and a 10-byte union of task-specific data (`TASKXPORT`, `TASKLAYMINES`,
+`TASKPATROL`, `TASKSELL`). The file writes it as one of two block types:
+
+| Type | Name | Size | Contents |
+|------|------|------|----------|
+| 20 | `rtOrderB` | 8 | the header alone — **always task 0** |
+| 19 | `rtOrderA` | 18 | header *and* the task union — **always a real task** |
+
+A waypoint with no task is written short. Reading only type 20 therefore finds
+task 0 everywhere and suggests, wrongly, that the fixtures contain no orders at
+all — which is exactly the conclusion an earlier revision of `cargo.md` drew.
+Counted over both types across `all-computer-players` and Exodus:
+
+| block type | count | tasks |
+|---|---:|---|
+| 20 | 48,368 | task 0 only |
+| 19 | 11,773 | Transport 4,331 · Colonize 4,935 · Remote Mining 741 · Lay Minefield 1,726 · Patrol 40 |
+
+Every type-19 task has `fValidTask` set.
+
+## Byte 7 is three fields, not one
+
+The NB09 `ORDER` bitfield settles a value this document previously carried as
+an opaque "object type":
+
+```c
+uint16_t grTask : 4;      /* +0x0006 bits 0-3  */
+uint16_t iWarp : 4;       /*         bits 4-7  */
+uint16_t grobj : 4;       /*         bits 8-11 */
+uint16_t fValidTask : 1;  /*         bit 12    */
+uint16_t fNoAutoTrack : 1;/*         bit 13    */
+```
+
+So the familiar `object_type = 17` is `0x11`: `grobj = 1` (a planet target)
+with the task-valid bit set. `WaypointRecord` now exposes `object_class`,
+`valid_task` and `no_auto_track` alongside the raw byte.
+
+**`fValidTask` is the gate.** The task nibble keeps whatever was last chosen
+even after the task has been carried out or cancelled, so a reader that ignores
+this bit overstates how many fleets have live orders.
 
 ## Layout (8-byte header + optional task data)
 
@@ -15,7 +60,8 @@ position.
 | 0–1    | 2    | x               | galaxy x position                            |
 | 2–3    | 2    | y               | galaxy y position                            |
 | 4–5    | 2    | object id       | target object; `0xFFFF` = bare coordinate    |
-| 6      | 1    | task / warp     | low nibble = task, high nibble = warp speed  |
+| 6      | 1    | `grTask`/`iWarp`| low nibble = task, high nibble = warp speed  |
+| 7      | 1    | `grobj`/flags   | low nibble = target class; bit 4 `fValidTask`; bit 5 `fNoAutoTrack` |
 | 7      | 1    | object type     | e.g. 17 = orbiting a planet                  |
 | 8..    | var  | task data       | present when task > 0 (usually ~10 bytes)     |
 
