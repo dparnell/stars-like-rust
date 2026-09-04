@@ -52,13 +52,28 @@ Against `fixtures/games/all-computer-players`:
 
 | check | result |
 |-------|--------|
-| environment moved no further than `reach` allows | 9760 of 10,165 planet-turns (96%) |
+| environment moved no further than `reach` allows | 96% of 10,165 planet-turns in `all-computer-players`; **90% of 14,227** once `no-random-events` is added |
 | AI auto-terraform order equals `min(steps, 4)`, fresh orders | 131 of 187 (70%) |
 
-The reach model holds. The 405 planet-turns that exceed it are worth chasing:
-Claim Adjuster races terraform from orbit, and a planet that changed hands
-carries terraforming done by a previous owner with different technology, so
-both would show as overshoot against the *current* owner's reach.
+The reach model holds well on the first corpus and materially worse on the
+second, and **why is unresolved**. Three explanations were tested and all three
+fail:
+
+- **Claim Adjuster orbital terraforming.** `AutoTerraform` gives a CA race the
+  whole reachable band for free every turn, which would read as overshoot. But
+  `no-random-events` contains **no Claim Adjuster at all** — its sixteen players
+  are 5 Hyper Expansion, 5 Inner Strength, 5 Packet Physics and 1 Alternate
+  Reality — and it is the corpus with the worse agreement.
+- **Planets changing hands**, carrying work done by an owner with different
+  technology. The second game is more warlike, but only by 81 conquests against
+  56, which cannot account for a difference of roughly a thousand planet-turns.
+- **The Total Terraforming trait** being missing from `terraform_reach`. The two
+  games carry it in similar numbers, 6 players against 7, so it does not
+  separate them.
+
+What does separate them is the race mix, so the cause is likely a per-race term
+the reach is missing. `terraform_reach` currently reads only the parts table
+and the immunity flag.
 
 ## The count: what the discrepancy turned out to be
 

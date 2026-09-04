@@ -8,9 +8,16 @@ save file hands to which opponent, maps the roughly 95 functions that make up
 their decision-making, and records how far each recovered piece has been
 checked against a real game.
 
-The corpus is `fixtures/games/all-computer-players`: 101 turns (2400-2500) of a
-game with sixteen computer players covering six of the seven personalities and
-all four difficulty settings.
+The corpus is two games, each 101 turns (2400-2500) with sixteen computer
+players: `fixtures/games/all-computer-players`, covering six of the seven
+personalities and all four difficulty settings, and
+`fixtures/games/no-random-events`, created with random events off. The second
+contains **no Mystery Traders at all** — 85 appear in the first, none in the
+second — which is what that option removes, and which also means
+`ITechLearnATech`'s Mystery Trader half never fires there.
+
+Figures below quoting a single corpus were measured before the second was
+added; those quoting both say so.
 
 ## Identifying a computer player
 
