@@ -445,8 +445,9 @@ accuracy, the starting-square table and Chebyshev distance against
   implemented and the recording marks hits apart from misses, but only 8 of 100
   recorded volleys yield a clean count — 24 shots, which decides nothing. A
   corpus with more torpedo fire would settle it without needing the RNG.
-- Gattling weapons, which hit every target in range rather than one, are
-  described in `FAttack` but not implemented.
+- Gattling weapons are implemented (see below) but **unverified**: the only
+  battle recordings in this repository are Exodus's, and no Exodus design
+  carries one.
 - `FIsTargetOfMdTarget` — the primary/secondary target-class filter — is not
   implemented, so target selection currently considers every enemy in range.
 - `grfWeapon` is now mapped: `bitFBeamLow` 0x01, `bitFBeamHigh` 0x02,
@@ -457,6 +458,40 @@ accuracy, the starting-square table and Chebyshev distance against
 - Bombing (`DoBombing`) and ground combat are separate from ship battles and
   are not covered.
 
+
+## Gattlings
+
+Four beams carry `grfAbilities & 2` — the Mini Gun, Gatling Gun, Gatling
+Neutrino Cannon and Big Mutha Cannon — and `FAttack` takes a separate arm for
+them, before the ordinary beam path:
+
+```c
+dp = part.pbeam->dp * cItem * ptok->csh;
+if (ptok->pctCap) dp = dp * ptok->pctCap / 100;
+dpT = dp;                                   /* the full volley, remembered */
+for each enemy active, hostile, in range and of a targeted class:
+    if (ptokE->pctBeamDef < 100) dp = dp * ptokE->pctBeamDef / 100;
+    FDamageTok(ptokE, itok, &dp, 0, grfWeapon, sapper, NULL);
+    dp = dpT;                               /* reset for the next target */
+```
+
+Two things separate it from an ordinary beam, and both are easy to miss:
+
+- **No range falloff.** The ordinary path scales damage by
+  `(100 - 10 * range / nominal_range) / 100`; this arm does not, so a gattling
+  does the same damage at the edge of its reach as at point blank. Only the
+  capacitor and the target's beam deflection apply.
+- **Every target takes the whole volley.** `dp` is restored from `dpT` after
+  each one, so the damage is not shared out between them, and nothing spills
+  over the way ordinary beam overkill does.
+
+Implemented as `battle::gattling_damage` and the gattling arm of `fire_weapon`.
+
+**Not verified against a recording.** Battle recordings exist only in the Exodus
+fixtures, and no Exodus design carries a gattling — the 149 gattling slots in
+this repository are all in the sixteen-player AI games, whose host files hold no
+battle records at all. The behaviour is transcribed and unit-tested; confirming
+it needs a recorded battle in which one is fired.
 
 ## Torpedoes
 

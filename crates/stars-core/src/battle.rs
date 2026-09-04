@@ -504,6 +504,50 @@ impl Weapon {
     pub fn is_sapper(self) -> bool {
         !self.torpedo && self.abilities & 1 != 0
     }
+
+    /// Whether this is a **gattling**, which fires at every enemy in range at
+    /// once rather than choosing one (`grfAbilities & 2`).
+    ///
+    /// Four beams carry it: the Mini Gun, the Gatling Gun, the Gatling Neutrino
+    /// Cannon and the Big Mutha Cannon.
+    #[must_use]
+    pub fn is_gattling(self) -> bool {
+        !self.torpedo && self.abilities & 2 != 0
+    }
+}
+
+/// Damage a **gattling** does to one of its targets, before shields.
+///
+/// Source: the `grfAbilities & 2` branch of `FAttack`, which is a separate arm
+/// taken before the ordinary beam path:
+///
+/// ```c
+/// dp = part.pbeam->dp * cItem * ptok->csh;
+/// if (ptok->pctCap) dp = dp * ptok->pctCap / 100;
+/// dpT = dp;                                   /* the full volley, remembered */
+/// for each enemy in range and of a targeted class:
+///     if (ptokE->pctBeamDef < 100) dp = dp * ptokE->pctBeamDef / 100;
+///     FDamageTok(ptokE, itok, &dp, 0, grfWeapon, sapper, NULL);
+///     dp = dpT;                               /* reset for the next target */
+/// ```
+///
+/// Two differences from an ordinary beam matter. There is **no range falloff**
+/// — a gattling does the same damage at the edge of its reach as at point
+/// blank — and `dp` is restored to the full volley for each target, so every
+/// enemy in range takes the whole thing rather than sharing it out.
+#[must_use]
+pub fn gattling_damage(weapon: Weapon, ships: i32, capacitor_pct: i32, deflection_pct: i32) -> i32 {
+    if weapon.torpedo {
+        return 0;
+    }
+    let mut dp = weapon.dp * weapon.count * ships;
+    if capacitor_pct != 0 {
+        dp = dp * capacitor_pct / 100;
+    }
+    if deflection_pct < 100 {
+        dp = dp * deflection_pct / 100;
+    }
+    dp
 }
 
 /// Beam damage a stack does to a target, before shields.
@@ -861,6 +905,41 @@ fn fire_weapon(
         let t = &tokens[attacker];
         (t.player, t.square, t.capacitor_pct, t.state.ships)
     };
+
+    if weapon.is_gattling() {
+        // A gattling does not choose a target: every enemy in range takes the
+        // whole volley, with no falloff and no spilling between them.
+        let sapper = weapon.is_sapper();
+        let in_range: Vec<usize> = tokens
+            .iter()
+            .enumerate()
+            .filter(|(i, t)| {
+                *i != attacker
+                    && t.alive()
+                    && t.player != player
+                    && i32::from(distance(square, t.square)) <= weapon.range
+            })
+            .map(|(i, _)| i)
+            .collect();
+        for target in in_range {
+            let dp = gattling_damage(weapon, ships, capacitor, tokens[target].beam_deflection_pct);
+            if dp <= 0 {
+                continue;
+            }
+            let result = apply_damage(tokens[target].state, dp, sapper);
+            tokens[target].state = result.after;
+            if result.after.ships <= 0 {
+                tokens[target].active = false;
+            }
+            events.push(DamageEvent {
+                attacker,
+                target,
+                shield_damage: result.shield_damage,
+                ships_killed: result.ships_killed,
+            });
+        }
+        return;
+    }
     let sapper = weapon.is_sapper();
     let mut remaining = weapon.dp * weapon.count * ships;
 
@@ -1546,6 +1625,113 @@ pub fn move_search(tokens: &[CombatToken], mover: usize, primary: bool) -> MoveS
     MoveSearch {
         radius: 1,
         beeline: nearest.map(|(_, square)| square),
+    }
+}
+
+#[cfg(test)]
+mod gattling_tests {
+    use super::*;
+
+    fn beam(dp: i32, count: i32, abilities: i32, range: i32) -> Weapon {
+        Weapon {
+            torpedo: false,
+            dp,
+            count,
+            range,
+            nominal_range: range,
+            initiative: 0,
+            accuracy: 100,
+            abilities,
+            missile: false,
+        }
+    }
+
+    /// Only four beams are gattlings, and a sapper is not one of them.
+    #[test]
+    fn the_ability_bit_picks_out_the_gattlings() {
+        use crate::components::BEAMS;
+        let names: Vec<&str> = BEAMS
+            .iter()
+            .filter(|b| b.abilities & 2 != 0)
+            .map(|b| b.name)
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "Mini Gun",
+                "Gatling Gun",
+                "Gatling Neutrino Cannon",
+                "Big Mutha Cannon"
+            ]
+        );
+        assert!(beam(10, 1, 2, 2).is_gattling());
+        assert!(
+            !beam(10, 1, 1, 2).is_gattling(),
+            "a sapper is not a gattling"
+        );
+        assert!(!beam(10, 1, 0, 2).is_gattling());
+    }
+
+    /// A gattling does not lose damage with range, where an ordinary beam of
+    /// the same reach does.
+    #[test]
+    fn a_gattling_does_not_fall_off_with_range() {
+        let w = beam(20, 2, 2, 3);
+        let point_blank = gattling_damage(w, 5, 0, 100);
+        assert_eq!(point_blank, 20 * 2 * 5);
+        // At the edge of its reach it does exactly the same.
+        assert_eq!(gattling_damage(w, 5, 0, 100), point_blank);
+        // The ordinary beam path does lose damage out there.
+        assert!(beam_damage(w, 5, 3, 0, 100) < point_blank);
+        // Capacitor scales up, deflection scales down.
+        assert_eq!(gattling_damage(w, 5, 120, 100), 200 * 120 / 100);
+        assert_eq!(gattling_damage(w, 5, 0, 90), 200 * 90 / 100);
+    }
+
+    /// Every enemy in range takes the whole volley, and one out of range takes
+    /// nothing.
+    #[test]
+    fn a_gattling_hits_everything_in_range_at_full_strength() {
+        let w = beam(50, 1, 2, 1);
+        let mut tokens = Vec::new();
+        for (i, (player, x)) in [(0u8, 0u8), (1, 0), (1, 1), (1, 5)].into_iter().enumerate() {
+            tokens.push(CombatToken {
+                tactic: Tactic::MaximiseDamage,
+                speed_index: 0,
+                moves_left: 0,
+                class: TargetClass::from_raw(0),
+                primary_target: TargetClass::from_raw(0),
+                secondary_target: TargetClass::from_raw(0),
+                is_starbase: false,
+                pct_jam: 0,
+                pct_computer: 0,
+                weapon_reach: 1,
+                player,
+                active: true,
+                square: Square::new(x, 0),
+                initiative_base: 0,
+                capacitor_pct: 0,
+                beam_deflection_pct: 100,
+                weapons: if i == 0 { vec![w] } else { Vec::new() },
+                value: 0,
+                state: TokenState {
+                    ships: 1,
+                    shields: 0,
+                    armor: 30,
+                    damage: Damage::default(),
+                },
+            });
+            let _ = i;
+        }
+        let mut events = Vec::new();
+        fire_weapon(&mut tokens, 0, w, &mut events);
+
+        // Both enemies within one square die; the one five squares away is
+        // untouched.
+        assert_eq!(tokens[1].state.ships, 0, "adjacent enemy");
+        assert_eq!(tokens[2].state.ships, 0, "enemy one square away");
+        assert_eq!(tokens[3].state.ships, 1, "enemy out of range");
+        assert_eq!(events.len(), 2);
     }
 }
 
