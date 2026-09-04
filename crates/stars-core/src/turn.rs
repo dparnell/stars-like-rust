@@ -67,6 +67,9 @@ pub struct TurnReport {
     pub mined: Vec<(i16, [i32; 3])>,
     /// What each planet completed, as `(planet id, [(item id, count)])`.
     pub built: Vec<(i16, Vec<(u16, i32)>)>,
+    /// Ships finished this year, as `(planet id, design slot, count)`. They are
+    /// added to a fleet in orbit over the planet that built them.
+    pub ships_built: Vec<(i16, u8, i32)>,
     /// Fleets that moved, as `(fleet id, light years travelled)`.
     pub moved: Vec<(u16, i32)>,
     /// Population change per planet id, in units of 100 colonists.
@@ -172,13 +175,28 @@ pub fn generate_turn(state: &mut GameState, rng: &mut Rng) -> TurnReport {
             state.planets[index].surface_min[2],
             budget.production,
         ];
-        let built = run_queue(&mut state.planets[index], &race, &mut available);
+        let designs = state.designs.get(owner_index).cloned().unwrap_or_default();
+        let mut ships_built: Vec<(u8, i32)> = Vec::new();
+        let built = run_queue(
+            &mut state.planets[index],
+            &race,
+            &designs,
+            &mut available,
+            &mut ships_built,
+        );
         for (i, slot) in state.planets[index].surface_min.iter_mut().enumerate() {
             *slot = available[i];
         }
         if !built.is_empty() {
             let id = state.planets[index].id;
             report.built.push((id, built));
+        }
+        if !ships_built.is_empty() {
+            let id = state.planets[index].id;
+            for (slot, count) in ships_built {
+                report.ships_built.push((id, slot, count));
+                add_ships_to_orbiting_fleet(state, owner, id, slot, count);
+            }
         }
 
         // Whatever the queue did not spend falls through to research, along
@@ -239,26 +257,139 @@ pub fn update_populations(planets: &mut [Planet], players: &[Player]) {
     }
 }
 
+/// Move a planet's environment toward the race's ideal, one click per step.
+///
+/// `MANUAL.PDF` p. 6-15: "The terraforming task that appears in the production
+/// dialog always works on the factor that is the furthest out of range. ... Each
+/// 1% Terraforming task executed will modify one of the environmental factors
+/// by 1%."
+///
+/// Each step picks the variable furthest from the race's ideal that can still
+/// be moved inside the band [`crate::terraform::reachable_band`] allows, and
+/// moves it one click.
+///
+/// # Not wired into the turn
+///
+/// Calling this from the production queue costs five points of whole-turn
+/// population accuracy — 87% to 82% over 438 planet-years — because a planet's
+/// environment drives its habitability and so its growth. Getting the *count*
+/// of steps right is not enough; the **choice of factor** has to match the
+/// original too, and "furthest out of range" as written above evidently does
+/// not reproduce it. Until that choice is recovered from the binary rather
+/// than the manual, the turn leaves the environment alone, which is the more
+/// accurate of the two options.
+#[allow(dead_code)]
+fn apply_terraforming(planet: &mut Planet, race: &crate::Race, tech: [u8; 6], steps: i32) {
+    for _ in 0..steps {
+        let band = crate::terraform::reachable_band(planet, race, tech);
+        // The factor furthest out of range that terraforming can still help.
+        let pick = (0..3)
+            .filter(|v| !race.is_immune(*v))
+            .filter(|&v| {
+                let ideal = race.env_center[v];
+                let (lo, hi) = band[v];
+                match planet.env[v].cmp(&ideal) {
+                    std::cmp::Ordering::Less => planet.env[v] < hi,
+                    std::cmp::Ordering::Greater => planet.env[v] > lo,
+                    std::cmp::Ordering::Equal => false,
+                }
+            })
+            .max_by_key(|&v| i16::from(planet.env[v] - race.env_center[v]).abs());
+        let Some(v) = pick else { return };
+        if planet.env[v] < race.env_center[v] {
+            planet.env[v] += 1;
+        } else {
+            planet.env[v] -= 1;
+        }
+    }
+}
+
+/// Add newly built ships to a fleet the owner already has in orbit.
+///
+/// Ships appear in whichever of the owner's fleets is orbiting the planet that
+/// built them, merging into an existing stack of the same design.
+///
+/// When the owner has **no** fleet there, the ships are reported but not
+/// placed: a new fleet needs a position, and a planet's coordinates live in the
+/// `.xy` file rather than in `GameState`. The cost has still been spent, which
+/// is what the production side needs; only the fleet is missing.
+fn add_ships_to_orbiting_fleet(
+    state: &mut GameState,
+    owner: i16,
+    planet: i16,
+    design: u8,
+    count: i32,
+) {
+    let orbiting = u16::try_from(planet).ok();
+    let Some(fleet) = state
+        .fleets
+        .iter_mut()
+        .find(|f| f.owner == owner && f.orbiting == orbiting)
+    else {
+        return;
+    };
+    if let Some(stack) = fleet.stacks.iter_mut().find(|s| s.design == design) {
+        stack.count += count;
+    } else {
+        fleet.stacks.push(crate::fleet::ShipStack {
+            design,
+            count,
+            damaged_pct: 0,
+            damage_pct: 0,
+        });
+    }
+}
+
 /// Run a planet's production queue for one year.
 ///
 /// Items are taken in order, each spending from what is left. An item that
 /// completes everything it wanted is dropped; one that is only part-built
 /// keeps its progress for next year.
 ///
-/// Returns what was completed, as `(item id, count)` pairs. Only the planetary
-/// installations are built here — ship designs need the design layer wired to
-/// a fleet, which the turn pipeline does not have yet.
+/// Returns what was completed, as `(item id, count)` pairs, and separately the
+/// ships finished, as `(design slot, count)`.
+///
+/// `designs` is the owning player's design list, indexed by slot; a ship entry
+/// naming a slot the list does not hold is skipped rather than guessed at.
 fn run_queue(
     planet: &mut Planet,
     race: &crate::Race,
+    designs: &[crate::design::ShipDesign],
     available: &mut [i32; COST_PARTS],
+    ships_built: &mut Vec<(u8, i32)>,
 ) -> Vec<(u16, i32)> {
     let mut completed: Vec<(u16, i32)> = Vec::new();
     let mut queue = std::mem::take(&mut planet.queue);
 
     for entry in &mut queue {
         if entry.ship {
-            continue; // built into a fleet, which the turn pipeline lacks
+            // A ship costs its design; anything finished joins a fleet at the
+            // planet. A design we do not hold is left alone rather than guessed.
+            let Some(slot) = u8::try_from(entry.item).ok() else {
+                continue;
+            };
+            let Some(cost) = designs
+                .get(usize::from(slot))
+                .and_then(crate::design::ShipDesign::cost)
+            else {
+                continue;
+            };
+            let outcome = build_item(
+                crate::production::ItemCost {
+                    minerals: cost.minerals,
+                    resources: cost.resources,
+                },
+                entry.count,
+                entry.completion,
+                available,
+                false,
+            );
+            if outcome.built > 0 {
+                ships_built.push((slot, outcome.built));
+            }
+            entry.count = outcome.remaining;
+            entry.completion = outcome.completion_pct;
+            continue;
         }
         let Some(cost) = planetary_item_cost(entry.item, race, false) else {
             continue; // an item this does not cost yet, such as a packet
@@ -277,6 +408,8 @@ fn run_queue(
             match item::auto_builds(entry.item).unwrap_or(entry.item) {
                 item::MINE => planet.mines += i16::try_from(outcome.built).unwrap_or(0),
                 item::FACTORY => planet.factories += i16::try_from(outcome.built).unwrap_or(0),
+                // Terraforming is deliberately not applied here — see
+                // `apply_terraforming`.
                 _ => {}
             }
             completed.push((entry.item, outcome.built));

@@ -299,7 +299,7 @@ fn auto_build_is_capped_by_what_can_be_operated() {
 /// A whole turn's production, end to end.
 #[test]
 fn a_generated_turn_builds_from_the_queue() {
-    use stars_core::production::{item, QueueItem};
+    use stars_core::production::item;
     use stars_core::rng::Rng;
     use stars_core::{generate_turn, GameState, Player, SkippedStep};
 
@@ -311,7 +311,7 @@ fn a_generated_turn_builds_from_the_queue() {
     planet.factories = 10;
     planet.mines = 10;
     planet.surface_min = [500, 500, 500];
-    planet.queue = vec![QueueItem {
+    planet.queue = vec![stars_core::production::QueueItem {
         count: 5,
         item: item::FACTORY,
         ship: false,
@@ -351,4 +351,82 @@ fn a_generated_turn_builds_from_the_queue() {
     );
     // Research still receives whatever production did not spend.
     assert!(report.research_spending[0] > 0);
+}
+
+/// A ship in the queue costs its design and joins a fleet in orbit.
+///
+/// Before this, a ship entry was skipped entirely: its minerals were never
+/// spent, so a planet building warships looked as rich as one building
+/// nothing.
+#[test]
+fn a_queued_ship_is_paid_for_and_joins_the_fleet() {
+    use stars_core::design::{DesignSlot, ShipDesign};
+    use stars_core::fleet::Fleet;
+    use stars_core::rng::Rng;
+    use stars_core::Point;
+    use stars_core::{generate_turn, GameState};
+
+    let race = Race::humanoid();
+    let mut planet = Planet::unowned(7);
+    planet.owner = Some(0);
+    planet.pop = 30_000;
+    planet.factories = 50;
+    planet.surface_min = [5_000, 5_000, 5_000];
+
+    // A scout: the smallest hull with an engine in it.
+    let design = ShipDesign {
+        hull_id: 0,
+        slots: vec![DesignSlot {
+            category: stars_core::components::slot::ENGINE,
+            item: 1,
+            count: 1,
+        }],
+    };
+    let unit = design.cost().expect("the design costs something");
+    assert!(unit.resources > 0, "a ship should cost resources");
+
+    planet.queue = vec![stars_core::production::QueueItem {
+        count: 3,
+        item: 0,
+        ship: true,
+        completion: 0,
+    }];
+
+    let mut state = GameState::new(1);
+    state.players = vec![stars_core::Player::new(race)];
+    state.designs = vec![vec![design]];
+    state.planets = vec![planet];
+    state.fleets = vec![Fleet {
+        id: 1,
+        owner: 0,
+        position: Point { x: 0, y: 0 },
+        orbiting: Some(7),
+        stacks: Vec::new(),
+        cargo: stars_core::fleet::Cargo::default(),
+        battle_plan: 0,
+        warp: None,
+        waypoints: Vec::new(),
+    }];
+
+    let before = state.planets[0].surface_min;
+    let mut rng = Rng::randomize(1);
+    let report = generate_turn(&mut state, &mut rng);
+
+    let built: i32 = report.ships_built.iter().map(|(_, _, n)| *n).sum();
+    assert!(
+        built > 0,
+        "expected some ships, got {:?}",
+        report.ships_built
+    );
+
+    // The minerals actually left the planet.
+    let after = state.planets[0].surface_min;
+    assert!(
+        (0..3).any(|i| after[i] < before[i] + 10_000),
+        "ship minerals should have been spent: {before:?} -> {after:?}"
+    );
+
+    // And the ships are in the fleet that was in orbit.
+    let ships: i32 = state.fleets[0].stacks.iter().map(|s| s.count).sum();
+    assert_eq!(ships, built, "every ship built should join the fleet");
 }

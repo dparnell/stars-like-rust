@@ -101,6 +101,24 @@ for some players: several residual cases land exactly right with a reach two
 smaller. It does not fit all of them, and narrowing the reach to make it fit
 would be tuning to the data rather than reading the binary, so it is left open.
 
+## Applying a step during the turn
+
+Writing this and wiring it into the production queue makes the whole-turn
+replay **worse**: population falls from 87% to 82% over 438 planet-years. A
+planet's environment drives its habitability and so its growth, so a
+terraforming step applied to the wrong factor is worse than none at all.
+
+`MANUAL.PDF` p. 6-15 says the task "always works on the factor that is the
+furthest out of range", and that is what was implemented — pick the variable
+furthest from the race's ideal that can still move inside its band, and move it
+one click. It does not reproduce the original. Getting the *count* of steps
+right is not enough; the choice of factor has to match as well.
+
+`turn.rs::apply_terraforming` keeps the implementation with this recorded
+against it, and the turn leaves the environment alone, which is the more
+accurate of the two options. Recovering the factor choice from the binary
+rather than the manual is the prerequisite for turning it on.
+
 ## Open questions
 
 - The residual 30% above, most likely in `terraform_reach`.

@@ -281,19 +281,30 @@ Remaining in this step:
    already arrived, leaving 36 waypoint legs with a warp. Scoring either needs
    `.x` order files, which the fixtures do not include. See
    `docs/formulas/ai.md`.
-2. **Orders beyond movement** — cargo transfer, colonisation and remote mining
-   are decoded by the format layer but not processed, and ship building cannot
-   turn a finished design into a fleet. This is now the largest single gap in
-   the whole-turn replay: it holds surface minerals at 27% and factories at
-   71%.
+2. **Orders beyond movement** — **ship building is done**: a queued ship is
+   costed from its design, its minerals and resources are spent, and the
+   finished ships join a fleet the owner has in orbit. A planet with no fleet
+   there reports the ships but cannot place them, because a new fleet needs
+   coordinates and a planet's position lives in the `.xy` file rather than in
+   `GameState`. This does not move the Exodus replay, which queues five ship
+   entries in forty turns; the sixteen-AI corpus is where ships are built.
+   Cargo transfer, colonisation and remote mining remain, and cargo transfer
+   is the likeliest driver of the 27% surface-mineral figure — freighters
+   loading and unloading minerals at planets is the one large unmodelled
+   consumer left.
 3. **Torpedo combat resolution**, which needs the RNG in the right state, and
    the residual movement-scoring gap (`docs/formulas/combat.md`).
 4. **Terraforming** — the reach model is recovered and verified (96% of 10,165
    planet-turns), which unblocks `PctPlanetOptValue` and the colonisation gate.
-   The step count matches 70% of the AI's fresh terraform orders; the earlier
-   23% figure was an artifact of scoring against queue entries that count down
-   as they are built. The turn's terraform step is still supplied from the
-   recorded files. See `docs/formulas/terraforming.md`.
+   The step count matches 70% of the AI's fresh terraform orders. Applying the
+   step during the turn was written and then **backed out**: it costs five
+   points of whole-turn population accuracy (87% to 82%), because the
+   environment drives habitability and so growth. Getting the count right is
+   not enough — the choice of *which factor* to terraform must match too, and
+   the manual's "furthest out of range" does not reproduce it. `turn.rs` keeps
+   `apply_terraforming` with that finding recorded; recovering the factor
+   choice from the binary is the prerequisite. See
+   `docs/formulas/terraforming.md`.
 
 ###   Step 5: Build the egui desktop frontend with faithful core screens
 `stars-desktop` runs a playable single-player game on Windows/macOS/Linux with recreated key screens.
