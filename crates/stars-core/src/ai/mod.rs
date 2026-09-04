@@ -12,6 +12,7 @@
 //! `docs/formulas/ai.md` but not yet written.
 
 pub mod production;
+pub mod ships;
 
 /// One of the seven computer opponents Stars! ships.
 ///

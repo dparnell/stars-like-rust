@@ -255,6 +255,59 @@ whole-turn replay already shows are imperfect (67% on mines, 71% on factories)
 `cargo run --release -p stars-core --example ai_production --
 fixtures/games/all-computer-players` reproduces every figure here.
 
+### Shipbuilding — the starbase decision
+
+Ship orders behave differently from installations in one useful way: a ship
+takes several turns to pay for, so its queue entry survives to be recorded.
+There are 5873 of them in the corpus, against 80 for mines and factories, so
+these decisions can be scored against the queue directly.
+
+A ship is queued as `class = grobjFleet` with the design slot as the item.
+`QueueAiStarbases` (`1090:8524`) settles the slot layout: it emits
+`AddItemToQueue(ishdefSBLatest + 0x10, 1, grobjFleet, 1)`, so slots 0-15 are
+the 16 ship designs and 16-25 the 10 starbase designs. Every ship entry in the
+fixtures falls in that range.
+
+The routine equips a planet that has **no** starbase. It declines when the
+player has no starbase design yet, when the player is Macinti, when the planet
+already holds a real starbase design (0-9), when population is not above 79,
+when the AI's own scratch state has the planet busy or untracked, and when the
+queue already holds a starbase order. Implemented as
+`ai::ships::queue_ai_starbase`.
+
+Across 2440 planet-turns with a starbase queued:
+
+| claim | violations |
+|-------|------------|
+| never more than one starbase order at a time | 0 |
+| the order's count is always 1 | 0 |
+| population is above 79 | 1 |
+| never re-queues the design the planet already has | 0 of 1237 |
+
+The single population violation is a planet at 14, which lost people after the
+order was placed.
+
+**Replacing** a starbase is a different routine, `FUpgradeAiStarbase`
+(`1090:882a`), and is not implemented. Of the 2440 orders, 1203 go to planets
+with no starbase — `QueueAiStarbases` — while 934 upgrade to a newer design and
+303 queue an *older* one. Not one queues the design already in place.
+
+That routine resists the same treatment as the rest: every branch is gated on a
+`Random(100)` roll, so an individual decision cannot be checked without the RNG
+in the right state, only its distribution. Its Macinti arm walks a per-turn
+recycling table (`vAiMacRecycleSB`) and its non-Macinti arm groups designs into
+families — indices 1, 3, 6 and 8 are handled together via
+`IshdefAiSBLatestOF`, and the replacement index is computed as
+`latest + (isb % 5)`, which is what produces the older-design orders. Macinti
+accounts for 1060 of the starbase orders, the most of any personality, which
+fits: both Macinti players in this game are Alternate Reality races, and an AR
+empire lives on its starbases.
+
+The AI's per-planet scratch state — `vlpbAiPlanet`, sixteen bytes per planet,
+and `vlpbAiData`, the list of planets it is working on — is allocated inside
+`DoAiTurn` and never written to a save file, so neither can be recovered from
+fixtures. `ai::ships::PlanetTask` takes them from the caller.
+
 ### Other queue sources
 
 Eighteen functions call `AddItemToQueue`. Besides the two above, the AI-side

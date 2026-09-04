@@ -271,8 +271,9 @@ Remaining in this step:
    decision reproduces *whether* the AI builds (99% recall, 72% precision over
    21,508 planet-year pairs) but gets the amount right only a third of the
    time; the residual most likely lies in the economy rather than the AI.
-   Colonisation, war and fleet dispatch are mapped but unwritten. See
-   `docs/formulas/ai.md`.
+   Starbase orders are transcribed and their shape confirmed on 2440
+   planet-turns; upgrading a starbase, colonisation, war and fleet dispatch are
+   mapped but unwritten. See `docs/formulas/ai.md`.
 2. **Orders beyond movement** — cargo transfer, colonisation and remote mining
    are decoded by the format layer but not processed, and ship building cannot
    turn a finished design into a fleet. This is now the largest single gap in

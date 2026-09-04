@@ -47,6 +47,11 @@ pub struct Planet {
     pub homeworld: bool,
     /// Whether the planet has a starbase (`fStarbase`).
     pub starbase: bool,
+    /// The starbase's design index (`isb`), when one is present.
+    ///
+    /// The AI treats a value above 9 as "no usable starbase" — only 0-9 are
+    /// real starbase designs. See [`crate::ai::ships`].
+    pub starbase_design: Option<u8>,
     /// The planet's production queue, in build order.
     pub queue: Vec<crate::production::QueueItem>,
     /// Whether this planet is exempt from the research skim (`fNoResearch`).
@@ -70,6 +75,7 @@ impl Planet {
             factories: 0,
             homeworld: false,
             starbase: false,
+            starbase_design: None,
             queue: Vec::new(),
             no_research: false,
         }

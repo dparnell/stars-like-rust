@@ -321,3 +321,96 @@ fn the_mine_and_factory_decision_predicts_when_the_ai_builds() {
     assert!(recall >= 95, "recall fell to {recall}% (was 99%)");
     assert!(precision >= 65, "precision fell to {precision}% (was 72%)");
 }
+
+/// What the corpus confirms about the AI's starbase orders.
+///
+/// `QueueAiStarbases` (`1090:8524`) and `FUpgradeAiStarbase` (`1090:882a`)
+/// both append exactly one starbase, with a count of one, and both refuse
+/// outright when the queue already holds a starbase order. The design index is
+/// encoded as `slot - 0x10`.
+#[test]
+fn starbase_orders_follow_the_shape_the_routines_impose() {
+    use stars_core::ai::ships::{is_starbase_slot, STARBASE_MIN_POP};
+
+    let years = {
+        let dir = workspace_root().join("fixtures/games/all-computer-players");
+        if !dir.is_dir() {
+            eprintln!("skipping: all-computer-players fixture absent");
+            return;
+        }
+        let mut v: Vec<_> = std::fs::read_dir(&dir)
+            .expect("game directory")
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.is_dir())
+            .collect();
+        v.sort();
+        v
+    };
+
+    let mut orders = 0usize;
+    let mut more_than_one = 0usize;
+    let mut count_not_one = 0usize;
+    let mut below_pop_gate = 0usize;
+    let mut same_design_as_existing = 0usize;
+    let mut with_existing = 0usize;
+
+    for year in &years {
+        let Ok(bytes) = std::fs::read(year.join("Game.hst")) else {
+            continue;
+        };
+        let Ok(file) = StarsFile::decode(&bytes) else {
+            continue;
+        };
+        let (state, _) = GameState::from_file(&file);
+        for planet in &state.planets {
+            let Some(owner) = planet.owner else { continue };
+            let Some(player) = state.players.get(owner as usize) else {
+                continue;
+            };
+            if !player.control.is_computer() {
+                continue;
+            }
+            let bases: Vec<_> = planet
+                .queue
+                .iter()
+                .filter(|e| e.ship && is_starbase_slot(e.item))
+                .collect();
+            if bases.is_empty() {
+                continue;
+            }
+            orders += 1;
+            if bases.len() > 1 {
+                more_than_one += 1;
+            }
+            if bases.iter().any(|e| e.count != 1) {
+                count_not_one += 1;
+            }
+            if planet.pop <= STARBASE_MIN_POP {
+                below_pop_gate += 1;
+            }
+            if let Some(have) = planet.starbase_design.filter(|_| planet.starbase) {
+                with_existing += 1;
+                if bases.iter().any(|e| e.item - 0x10 == u16::from(have)) {
+                    same_design_as_existing += 1;
+                }
+            }
+        }
+    }
+
+    assert!(orders > 2000, "expected a large sample, got {orders}");
+    assert_eq!(more_than_one, 0, "two starbases queued at once");
+    assert_eq!(
+        count_not_one, 0,
+        "a starbase order with a count other than 1"
+    );
+    assert!(
+        same_design_as_existing == 0,
+        "{same_design_as_existing} of {with_existing} orders re-queue the design \
+         the planet already has"
+    );
+    // One planet in the corpus dips below the gate after its order was placed.
+    assert!(
+        below_pop_gate <= 1,
+        "{below_pop_gate} starbase orders sit below the population gate"
+    );
+}

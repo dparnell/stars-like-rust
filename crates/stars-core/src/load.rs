@@ -140,6 +140,7 @@ pub fn planet_from_record(record: &PlanetRecord) -> Option<Planet> {
         factories: i16::try_from(installations.factories).ok()?,
         homeworld: record.homeworld,
         starbase: record.has_starbase,
+        starbase_design: record.starbase.map(|s| s.design),
         queue: Vec::new(),
         no_research: installations.no_research,
     })
