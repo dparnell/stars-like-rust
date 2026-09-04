@@ -414,3 +414,86 @@ fn starbase_orders_follow_the_shape_the_routines_impose() {
         "{below_pop_gate} starbase orders sit below the population gate"
     );
 }
+
+/// Every recorded Macinti starbase replacement is one of the three moves
+/// `FUpgradeAiStarbase` can make.
+///
+/// The routine is gated on `Random(100)` throughout, so no single decision can
+/// be checked without the RNG in the same state. Its *arithmetic* is
+/// deterministic given the design being replaced, and that is what this pins:
+/// from design `d` the only reachable results are `d + 1` (and only from the
+/// four hull slots that have one above them), `d + 3`, and `d - 3` where
+/// `d + 3` would pass 9. Designs below 4 walk the recycling table instead and
+/// are excluded.
+#[test]
+fn macinti_starbase_replacements_use_only_the_moves_the_routine_has() {
+    use stars_core::ai::ships::is_starbase_slot;
+
+    let dir = workspace_root().join("fixtures/games/all-computer-players");
+    if !dir.is_dir() {
+        eprintln!("skipping: all-computer-players fixture absent");
+        return;
+    }
+    let mut years: Vec<_> = std::fs::read_dir(&dir)
+        .expect("game directory")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.is_dir())
+        .collect();
+    years.sort();
+
+    let mut checked = 0usize;
+    let mut unexplained: BTreeMap<(u8, u8), usize> = BTreeMap::new();
+
+    for year in &years {
+        let Ok(bytes) = std::fs::read(year.join("Game.hst")) else {
+            continue;
+        };
+        let Ok(file) = StarsFile::decode(&bytes) else {
+            continue;
+        };
+        let (state, _) = GameState::from_file(&file);
+        for planet in &state.planets {
+            let Some(owner) = planet.owner else { continue };
+            let Some(player) = state.players.get(owner as usize) else {
+                continue;
+            };
+            let Control::Computer { personality, .. } = player.control else {
+                continue;
+            };
+            if personality != Some(AiPersonality::Macinti) || !planet.starbase {
+                continue;
+            }
+            let Some(have) = planet.starbase_design else {
+                continue;
+            };
+            if have < 4 {
+                continue; // walks the recycling table, whose state is not saved
+            }
+            for e in planet
+                .queue
+                .iter()
+                .filter(|e| e.ship && is_starbase_slot(e.item))
+            {
+                let want = u8::try_from(e.item - 0x10).unwrap_or(u8::MAX);
+                checked += 1;
+
+                let nudge = matches!(have, 4 | 5 | 7 | 8) && want == have + 1;
+                let jump = if have + 3 > 9 {
+                    want + 3 == have
+                } else {
+                    want == have + 3
+                };
+                if !nudge && !jump {
+                    *unexplained.entry((have, want)).or_default() += 1;
+                }
+            }
+        }
+    }
+
+    assert!(checked > 200, "expected a real sample, got {checked}");
+    assert!(
+        unexplained.is_empty(),
+        "{} of {checked} Macinti replacements are moves the routine cannot make: {unexplained:?}",
+        unexplained.values().sum::<usize>()
+    );
+}

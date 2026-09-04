@@ -287,21 +287,66 @@ Across 2440 planet-turns with a starbase queued:
 The single population violation is a planet at 14, which lost people after the
 order was placed.
 
-**Replacing** a starbase is a different routine, `FUpgradeAiStarbase`
-(`1090:882a`), and is not implemented. Of the 2440 orders, 1203 go to planets
-with no starbase — `QueueAiStarbases` — while 934 upgrade to a newer design and
-303 queue an *older* one. Not one queues the design already in place.
+### Replacing a starbase
 
-That routine resists the same treatment as the rest: every branch is gated on a
-`Random(100)` roll, so an individual decision cannot be checked without the RNG
-in the right state, only its distribution. Its Macinti arm walks a per-turn
-recycling table (`vAiMacRecycleSB`) and its non-Macinti arm groups designs into
-families — indices 1, 3, 6 and 8 are handled together via
-`IshdefAiSBLatestOF`, and the replacement index is computed as
-`latest + (isb % 5)`, which is what produces the older-design orders. Macinti
-accounts for 1060 of the starbase orders, the most of any personality, which
-fits: both Macinti players in this game are Alternate Reality races, and an AR
-empire lives on its starbases.
+`FUpgradeAiStarbase` (`1090:882a`) handles a planet that already has one. Of
+the 2440 starbase orders, 1203 go to planets with none — `QueueAiStarbases` —
+while 934 upgrade to a newer design and 303 queue an *older* one. Not one
+queues the design already in place. Implemented as
+`ai::ships::upgrade_ai_starbase`.
+
+**Every arm is gated on `Random(100)`**, so no single decision can be checked
+against a recording without the RNG in the same state. What *is* checkable is
+the arithmetic each arm uses once it fires, which is deterministic given the
+design being replaced.
+
+The ten starbase slots are two banks of five: slot `n` and slot `n + 5` are the
+same hull, which is why the routine works in `isb % 5` throughout and why the
+four slots it singles out — 1, 3, 6 and 8 — are hull types 1 and 3 in both
+banks. Those take the orbital-fort branch and measure themselves against
+`IshdefAiSBLatestOF` rather than the newest design overall.
+
+For everyone but Macinti, a design counted as outdated is replaced with
+`latest + (isb % 5)`, one lower for the orbital-fort family. How eagerly
+depends on the design's age: no eagerness for its first ten turns, then half
+the turns elapsed, plus a flat five percent. Failing that, the AI may still
+move sideways to `isb + 2`, but only six times in a hundred and only on a
+planet holding at least 200 of every surface mineral. Cyber does none of this
+before turn 40.
+
+Macinti is different, and is why it has 1060 of the starbase orders — the most
+of any personality. Both Macinti players here are Alternate Reality races,
+which live on their starbases. Its arm consults `vAiMacRecycleSB`, a per-turn
+table indexed by design: a design marked 3 is never left alone, one marked 2 is
+left alone nine times in ten. When the table has *not* claimed the design, the
+only move available is a one-in-twelve nudge to `isb + 1`, and only from the
+four slots that have one above them. When the table *has* claimed it, the AI
+jumps three hulls — `isb + 3`, wrapping down to `isb - 3` where that would pass
+9. Designs below 4 instead walk the table upward for the first unclaimed slot.
+
+The corpus bears the arithmetic out exactly. Every Macinti pairing of current
+design to queued design with a current design of 4 or more:
+
+| from | to | orders | move |
+|------|----|--------|------|
+| 4 | 5 | 61 | nudge |
+| 5 | 6 | 21 | nudge |
+| 7 | 8 | 144 | nudge |
+| 8 | 9 | 17 | nudge |
+| 4 | 7 | 23 | jump |
+| 5 | 8 | 21 | jump |
+| 6 | 9 | 4 | jump |
+| 7 | 4 | 59 | wrapped jump |
+| 8 | 5 | 111 | wrapped jump |
+| 9 | 6 | 55 | wrapped jump |
+
+516 replacements, and not one is a move the routine cannot make. The nudges
+appear from 4, 5, 7 and 8 and never from 6 or 9, exactly as the code excludes
+them.
+
+Two of the routine's inputs cannot come from a fixture and are taken from the
+caller: `vAiMacRecycleSB`, which lives only for the turn, and bit 9 at offset
+`0x7b` of a design record, whose meaning is not recovered.
 
 The AI's per-planet scratch state — `vlpbAiPlanet`, sixteen bytes per planet,
 and `vlpbAiData`, the list of planets it is working on — is allocated inside

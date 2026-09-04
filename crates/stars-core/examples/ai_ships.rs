@@ -34,6 +34,7 @@ fn main() {
     let mut sb_design: BTreeMap<Option<u8>, usize> = BTreeMap::new();
     let mut queued_when_has_sb = 0usize;
     let mut upgrade: BTreeMap<i32, usize> = BTreeMap::new();
+    let mut pairs: BTreeMap<&'static str, BTreeMap<(u8, u16), usize>> = BTreeMap::new();
 
     for year in &years {
         let Ok(bytes) = std::fs::read(year.join("Game.hst")) else {
@@ -66,10 +67,17 @@ fn main() {
                 sb_entries += 1;
                 if planet.starbase {
                     queued_when_has_sb += 1;
-                    let have = i32::from(planet.starbase_design.unwrap_or(0));
+                    let have = planet.starbase_design.unwrap_or(0);
                     for e in &starbases {
-                        let want = i32::from(e.item - STARBASE_SLOT_BASE);
-                        *upgrade.entry((want - have).signum()).or_default() += 1;
+                        let want = e.item - STARBASE_SLOT_BASE;
+                        *upgrade
+                            .entry((i32::from(want) - i32::from(have)).signum())
+                            .or_default() += 1;
+                        *pairs
+                            .entry(name)
+                            .or_default()
+                            .entry((have, want))
+                            .or_default() += 1;
                     }
                 }
                 *by_personality.entry(name).or_default() += 1;
@@ -101,6 +109,12 @@ fn main() {
     println!("  queued while the planet already had a starbase: {queued_when_has_sb}");
     println!("  of those, queued design vs current (-1 older, 0 same, 1 newer): {upgrade:?}");
     println!("\nstarbase design index on planets that have one: {sb_design:?}");
+    println!("\ncurrent design -> queued design, by personality:");
+    for (name, m) in &pairs {
+        let mut v: Vec<_> = m.iter().collect();
+        v.sort();
+        println!("  {name:<12} {v:?}");
+    }
     println!("\nstarbase entries by personality: {by_personality:?}");
     println!("\ncounts for ordinary ship entries: {ship_counts:?}");
 }
