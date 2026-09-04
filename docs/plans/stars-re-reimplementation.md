@@ -260,7 +260,7 @@ Measured against real save files:
 | battle movement, scored | 379 of 450 among our best-rated (chance 72%) |
 | terraform reach | 37,712 of 37,743 axis-readings (99.9%) |
 | AI terraform order, fresh | 196 of 196 (100%) |
-| AI mine/factory decision, isolated | 5,773 of 7,997 (72%; chance 27%, floor 49%) |
+| AI mine/factory decision, isolated | 6,826 of 7,997 (85%; chance 28%, floor 49%) |
 | `.xy` planet coordinates vs fleets in orbit | 43,769 of 43,769 exact |
 
 Remaining in this step:

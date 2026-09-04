@@ -269,20 +269,20 @@ planet-year pairs:
 
 | measure | result |
 |---------|--------|
-| said it would build, and it did (recall) | 7735 of 7764 (99%) |
-| said build, and it did (precision) | 7735 of 10728 (72%) |
-| exact counts, where it built | 2699 of 7764 (34%) |
-| exact counts, nothing else queued | 2565 of 6458 (39%) |
+| said it would build, and it did (recall) | 7715 of 7764 (99%) |
+| said build, and it did (precision) | 7715 of 10134 (76%) |
+| exact counts, where it built | 4360 of 7764 (56%) |
+| exact counts, nothing else queued | 4180 of 6458 (64%) |
 
-*When* the AI builds is reproduced almost exactly. *How much* reads as a third
-here, but that figure is contaminated — see below, where isolating the decision
-from production raises it to 72%.
+*When* the AI builds is reproduced almost exactly. *How much* reads lower here
+than it should, because this observable is contaminated — see below, where
+isolating the decision from production raises it to 85%.
 
 Two controls, because the headline number is misleading on its own. Overall
-agreement is 62%, and simply predicting "nothing is ever built" scores 63% —
+agreement is 72%, and simply predicting "nothing is ever built" scores 63% —
 most planet-years build nothing, so that comparison says nothing either way.
 Scoring each prediction against a different planet's outcome from the same year
-gives 33%. The split above is the measure that carries information.
+gives 35%. The split above is the measure that carries information.
 
 ### The 34% is mostly the observable, not the routine
 
@@ -309,31 +309,52 @@ decision and the year's building are the same quantity:
 
 | measure | result |
 |---------|--------|
-| both counts exact | 5,773 (**72%**) |
-| exact where it built | 2,369 of 4,015 (59%) |
-| factories exact | 6,397 (80%) |
-| mines exact | 5,961 (75%) |
-| *chance control* — same predictions, another clean planet's outcome | 2,168 (27%) |
+| both counts exact | 6,826 (**85%**) |
+| exact where it built | 3,164 of 4,015 (78%) |
+| mines exact | 7,388 (92%) |
+| factories exact | 6,930 (87%) |
+| *chance control* — same predictions, another clean planet's outcome | 2,312 (28%) |
 | *predict-nothing control* | 3,982 (49%) |
 
-72% against a 49% floor and a 27% chance rate is a materially different reading
-of the routine from "right about a third of the time". The headline 34% is a
+85% against a 49% floor and a 28% chance rate is a materially different reading
+of the routine from "right about a third of the time". The headline figure is a
 real number about *whole-turn outcomes* and is the right thing to quote when
 asking how well the pipeline reproduces a year; it is the wrong thing to quote
 when asking whether `FFillProdMinesAndFactories` is transcribed correctly.
 
-What is left is genuinely the model. On the clean subset the errors are
+### The population the cap is measured against
 
-```text
-factories (predicted - actual): {-1: 201, 0: 6397, 1: 113, ..., >=9: 330}
-mines     (predicted - actual): {-1:  18, 0: 5961, 1: 487, ..., >=9: 482}
+Isolating the decision this way also made a real transcription error visible,
+which the contaminated figure had buried. The first measurement of the clean
+subset gave 72%, with a lopsided error: mine over-prediction outnumbered
+under-prediction roughly ten to one, and the commonest wrong answer was **one
+mine too many**. Splitting those cases by which limit was binding showed 379 of
+487 bound by the operable-mine cap rather than by affordability — so the cap was
+one too high, not the resource estimate.
+
+`CMaxOperableMines(lppl, iplr, fNextYear)` takes a flag saying whether to
+advance the planet's population by this year's growth first. The implementation
+passed `true`. Both call sites in `FFillProdMinesAndFactories` push a literal
+zero:
+
+```asm
+10a8:2fbd  MOV AX,0x0
+10a8:2fc0  PUSH AX                  ; fNextYear = 0
+10a8:2fc1  PUSH word ptr [0x18c]    ; idPlayer
+10a8:2fc5  PUSH [BP+0x8] / [BP+0x6] ; planet, far
+10a8:2fcb  CALLF 0x1048:7304        ; CMaxOperableMines
 ```
 
-Factory error is roughly symmetric; **mine error is not** — over-prediction
-dominates almost ten to one, and the single commonest wrong answer is one mine
-too many. That asymmetry is the next thing to chase, and it points at the mine
-count or its cost rather than at the shared resource estimate, which would move
-both alike.
+and the same shape at `10a8:308b` before `CMaxOperableFactories` at
+`10a8:3099`. The decompiler mangles this argument list — the far planet pointer
+takes two slots, so it reports `fNextYear` where `iplr` belongs — which is why
+the flag had been read wrongly in the first place.
+
+**The AI sizes its order against the population the planet has now, not the one
+it will have after growing.** With that corrected the clean subset went 72% →
+85%, mines 75% → 92%, and the cap-bound over-predictions fell from 379 to 4. It
+lifted every headline figure too: exact-where-it-built 34% → 56%, precision 72%
+→ 76%, recall unchanged.
 
 `cargo run --release -p stars-core --example ai_production --
 fixtures/games/all-computer-players` reproduces every figure here.

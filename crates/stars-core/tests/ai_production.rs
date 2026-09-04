@@ -259,10 +259,14 @@ fn the_transcription_honours_its_gates() {
 /// planet-year pairs that show no queue entry at all. This scores the change
 /// in the planet's counts instead.
 ///
-/// The thresholds are set below the measured values (99% recall, 72%
+/// The thresholds are set below the measured values (99% recall, 76%
 /// precision) so that a real regression trips them without normal drift doing
-/// so. Exact counts are only right about a third of the time and are
-/// deliberately not asserted.
+/// so.
+///
+/// Exact counts are asserted only loosely here, because the change in a
+/// planet's counts is production's output rather than the AI's decision on any
+/// planet that is also building ships. Isolating the decision — no starbase and
+/// an empty queue — gives 85%; see `docs/formulas/ai.md`.
 #[test]
 fn the_mine_and_factory_decision_predicts_when_the_ai_builds() {
     use stars_core::ai::production::{fill_prod_mines_and_factories, Context};
@@ -339,7 +343,7 @@ fn the_mine_and_factory_decision_predicts_when_the_ai_builds() {
     let recall = true_positive * 100 / built;
     let precision = true_positive * 100 / predicted_some.max(1);
     assert!(recall >= 95, "recall fell to {recall}% (was 99%)");
-    assert!(precision >= 65, "precision fell to {precision}% (was 72%)");
+    assert!(precision >= 70, "precision fell to {precision}% (was 76%)");
 }
 
 /// What the corpus confirms about the AI's starbase orders.

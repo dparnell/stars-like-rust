@@ -250,11 +250,18 @@ pub fn fill_prod_mines_and_factories(planet: &Planet, race: &Race, ctx: &Context
     let mines_queued = queued(item::AUTO_MINE);
     let factories_queued = queued(item::AUTO_FACTORY);
 
-    let mines_wanted = (i32::from(max_operable_mines(planet, race, true))
+    // `fNextYear = 0`: the AI sizes its order against the population the planet
+    // has **now**, not the one it will have after this year's growth. Both call
+    // sites push a literal zero — `MOV AX,0x0; PUSH AX` at `10a8:2fbd` before
+    // the `CMaxOperableMines` call at `10a8:2fcb`, and again at `10a8:308b`
+    // before `CMaxOperableFactories` at `10a8:3099`. The decompiler mangles
+    // this argument list (the far planet pointer takes two slots), so it is
+    // read from the disassembly.
+    let mines_wanted = (i32::from(max_operable_mines(planet, race, false))
         - i32::from(mines_operating(planet, race))
         - mines_queued)
         .max(0);
-    let factories_wanted = (i32::from(max_operable_factories(planet, race, true))
+    let factories_wanted = (i32::from(max_operable_factories(planet, race, false))
         - i32::from(factories_operating(planet, race))
         - factories_queued)
         .max(0);

@@ -34,6 +34,8 @@ struct Predicted {
     /// competes with the AI's shipbuilding for the same resources, and those
     /// orders are gone from the queue by the time the turn is recorded.
     starbase: bool,
+    /// How many mines the operable cap alone would have allowed.
+    mines_wanted: i32,
 }
 
 fn main() {
@@ -84,6 +86,7 @@ fn main() {
     let mut merr: std::collections::BTreeMap<i32, usize> = std::collections::BTreeMap::new();
     let mut cferr: std::collections::BTreeMap<i32, usize> = std::collections::BTreeMap::new();
     let mut cmerr: std::collections::BTreeMap<i32, usize> = std::collections::BTreeMap::new();
+    let mut bind: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
 
     for year in &years {
         let Ok(bytes) = std::fs::read(year.join("Game.hst")) else {
@@ -150,6 +153,16 @@ fn main() {
                     .entry((p.factories - d_factories).clamp(-9, 9))
                     .or_default() += 1;
                 *cmerr.entry((p.mines - d_mines).clamp(-9, 9)).or_default() += 1;
+                if p.mines - d_mines == 1 {
+                    // Which limit was binding when we predicted one mine too many?
+                    *bind
+                        .entry(if p.mines == p.mines_wanted {
+                            "the operable-mine cap"
+                        } else {
+                            "affordability"
+                        })
+                        .or_default() += 1;
+                }
                 if d_mines == 0 && d_factories == 0 {
                     clean_nothing += 1;
                 }
@@ -253,6 +266,12 @@ fn main() {
                 factories_cost_all_minerals: false,
             };
             let d = fill_prod_mines_and_factories(planet, &player.race, &ctx);
+            let mines_wanted =
+                i32::from(stars_core::resources::max_operable_mines(
+                    planet,
+                    &player.race,
+                    true,
+                )) - i32::from(stars_core::mining::mines_operating(planet, &player.race));
             pending.insert(
                 planet.id,
                 Predicted {
@@ -261,6 +280,7 @@ fn main() {
                     from: (planet.mines, planet.factories),
                     queue_was_clear: planet.queue.is_empty(),
                     starbase: planet.starbase,
+                    mines_wanted: mines_wanted.max(0),
                 },
             );
         }
@@ -332,6 +352,7 @@ fn main() {
     );
     println!("  clean factory error: {cferr:?}");
     println!("  clean mine error:    {cmerr:?}");
+    println!("  when one mine too many, the binding limit was: {bind:?}");
     println!(
         "\non the {nb_scored} pairs at planets with no starbase (no shipbuilding \
          competing for resources):"
