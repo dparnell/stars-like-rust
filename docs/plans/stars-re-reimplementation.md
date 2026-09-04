@@ -273,8 +273,10 @@ Remaining in this step:
    time; the residual most likely lies in the economy rather than the AI.
    Starbase orders and replacements are transcribed, their shape confirmed on
    2440 planet-turns and their arithmetic on 516 Macinti replacements;
-   colonisation, war and fleet dispatch are mapped but unwritten. See
-   `docs/formulas/ai.md`.
+   the colonisation target rule is transcribed but its "nearest planet" test
+   is unscored until the loader keeps partial planet records, which are how an
+   AI's own view of the galaxy is stored; war and fleet dispatch are mapped but
+   unwritten. See `docs/formulas/ai.md`.
 2. **Orders beyond movement** — cargo transfer, colonisation and remote mining
    are decoded by the format layer but not processed, and ship building cannot
    turn a finished design into a fleet. This is now the largest single gap in

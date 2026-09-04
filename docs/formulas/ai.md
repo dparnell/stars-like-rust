@@ -353,6 +353,89 @@ and `vlpbAiData`, the list of planets it is working on — is allocated inside
 `DoAiTurn` and never written to a save file, so neither can be recovered from
 fixtures. `ai::ships::PlanetTask` takes them from the caller.
 
+### Colonisation
+
+`IdNearestColonizablePlanet` (`1090:0e3e`) chooses the target; `FColonizeAiFleet`
+(`1090:0c78`) sets the waypoint at the warp `IFindIdealWarp` picks. Implemented
+as `ai::colonise`.
+
+The routine writes a one-byte mark for every planet into its scratch array and
+then returns the **nearest** planet still marked colonisable, by squared
+distance from the colony fleet. Nothing but distance is weighed — an adequate
+planet nearby beats an ideal one further out.
+
+| Mark | Meaning |
+|------|---------|
+| `0x00` | unowned and worth settling — the only value the search accepts |
+| `0x01` | already ours |
+| `0x02` | held by somebody else |
+| `0x04` | unowned, but another of our colony fleets is already going there |
+| `0x08` | unowned and not worth settling |
+| `0x10` | a planet this player knows nothing about |
+
+Robotoid and Macinti differ twice over: they skip the habitability test
+entirely, and they default an *unknown* planet to colonisable rather than
+`0x10`, so they will strike out into unexplored space where the others will
+not. For Macinti that follows from what it is — the Macinti players here are
+Alternate Reality races, which live on their starbases.
+
+#### `PctPlanetOptValue` — habitability *after* terraforming
+
+The habitability test is not the plain desirability. `PctPlanetOptValue`
+(`1048:6b88`) asks `FCanTerraformLppl` how far each environment variable could
+be moved, temporarily writes those values into the planet, takes
+`PctPlanetDesirability`, and then puts the original values back.
+
+This distinction is load-bearing: a world that would kill colonists today but
+can be terraformed into something habitable is a legitimate target. It is why
+the corpus shows computer players settling planets whose *current* value is
+negative — 368 of 513 settled planets are habitable as they stand, and the
+shortfall is concentrated in exactly the personalities that apply the test.
+
+How far a planet can be terraformed is not modelled yet, so
+`ai::colonise::pct_planet_opt_value` takes the reachable environment from the
+caller. This is the same gap that leaves the AI's terraform step count
+unmodelled, and closing it would settle both.
+
+#### What the corpus does and does not settle
+
+513 planets pass from unowned to owned across the game. Habitability as it
+stands, by personality:
+
+| Personality | habitable / settled |
+|-------------|---------------------|
+| Robotoid | 168 / 168 |
+| Rototill | 6 / 6 |
+| Automitron | 18 / 24 |
+| Turindrone | 48 / 72 |
+| Cyber | 41 / 75 |
+| Macinti | 87 / 168 |
+
+Consistent with the post-terraforming gate, but not proof of it: Robotoid
+skips the test altogether and still settled nothing hostile, which says more
+about the planets near it than about the rule.
+
+**The "nearest planet" rule is not yet scored, and the reason is worth
+recording.** Two attempts failed for instructive reasons:
+
+- Ranking the settled planet against all unowned planets, by distance from the
+  player's nearest planet, gives 19% exact and 41% within the nearest three
+  against a chance rate near zero. Better than chance, but the candidate set is
+  wrong: it includes planets the AI has never seen, which for every personality
+  but Robotoid and Macinti are not candidates at all.
+- Scoring a colony fleet against its own position gives 1% against a 1% chance
+  rate — no signal. That measurement is simply invalid: a ship under way has
+  already flown past planets that were not candidates when its orders were
+  given. Restricting to fleets still in orbit over their origin, which is the
+  moment of the decision, leaves **4** cases in the whole game, because a fleet
+  departs within the same turn generation that gives it orders.
+
+Scoring this properly needs the AI's own view of the galaxy — the planets it
+knows about — which lives in its `.mN` file as *partial* planet records. The
+loader currently counts those and discards them, so the known-planet set cannot
+be reconstructed. Loading partial planets is the prerequisite, and is the next
+step for this decision.
+
 ### Other queue sources
 
 Eighteen functions call `AddItemToQueue`. Besides the two above, the AI-side

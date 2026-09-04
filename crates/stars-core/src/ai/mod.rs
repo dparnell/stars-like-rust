@@ -11,6 +11,7 @@
 //! decision-making — colonisation, war, fleet dispatch — is mapped in
 //! `docs/formulas/ai.md` but not yet written.
 
+pub mod colonise;
 pub mod production;
 pub mod ships;
 
