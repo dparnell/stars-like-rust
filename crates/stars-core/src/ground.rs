@@ -34,6 +34,30 @@ pub fn defence_weight(prt: Option<Prt>) -> i32 {
     }
 }
 
+/// Whether a race will take an item from its default production queue when a
+/// new planet inherits one.
+///
+/// Source: the template loop in `DropColonists` (`10b8:3d1a`). A newly settled
+/// planet is given a queue built from its owner's default template — the "zip"
+/// production queue, `PLAYER.zpq1` — with two races filtering it:
+///
+/// - **Alternate Reality** drops every item at or below
+///   [`crate::production::item::DEFENSE`], because it has no planetary
+///   installations to build.
+/// - **Claim Adjuster** drops the two terraforming items, because it terraforms
+///   from orbit for free.
+///
+/// The item is taken from the low six bits of the template word.
+#[must_use]
+pub fn template_allows(prt: Option<Prt>, item: u16) -> bool {
+    use crate::production::item;
+    match prt {
+        Some(Prt::Ar) => item > item::DEFENSE,
+        Some(Prt::Ca) => item != item::MIN_TERRAFORM && item != item::MAX_TERRAFORM,
+        _ => true,
+    }
+}
+
 /// One player's colonists arriving at a planet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Landing {
@@ -230,6 +254,35 @@ mod tests {
                 assert!(colonists > 800, "but not be gutted: {colonists}");
             }
             other => panic!("expected the defender to hold, got {other:?}"),
+        }
+    }
+
+    /// The two races that filter their inherited queue, and what they drop.
+    #[test]
+    fn the_queue_template_filter_matches_the_routine() {
+        use crate::production::item;
+
+        // Alternate Reality builds no planetary installation at all.
+        for i in [item::MINE, item::FACTORY, item::DEFENSE] {
+            assert!(
+                !template_allows(Some(Prt::Ar), i),
+                "AR should drop item {i}"
+            );
+        }
+        assert!(template_allows(Some(Prt::Ar), item::ALCHEMY));
+
+        // Claim Adjuster terraforms for free, so it queues no terraforming.
+        for i in [item::MIN_TERRAFORM, item::MAX_TERRAFORM] {
+            assert!(
+                !template_allows(Some(Prt::Ca), i),
+                "CA should drop item {i}"
+            );
+        }
+        assert!(template_allows(Some(Prt::Ca), item::FACTORY));
+
+        // Everyone else takes the template as it stands.
+        for i in 0..=12u16 {
+            assert!(template_allows(Some(Prt::Joat), i));
         }
     }
 

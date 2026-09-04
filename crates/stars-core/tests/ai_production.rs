@@ -497,3 +497,97 @@ fn macinti_starbase_replacements_use_only_the_moves_the_routine_has() {
         unexplained.values().sum::<usize>()
     );
 }
+
+/// The two races that filter their inherited production queue never queue the
+/// items `DropColonists` drops for them.
+///
+/// Alternate Reality builds no planetary installation, and Claim Adjuster no
+/// terraforming. Both hold across every AI planet-turn in the corpus, and both
+/// are distinguishing: every other trait uses the items they omit.
+#[test]
+fn the_queue_template_exclusions_hold_across_the_corpus() {
+    use stars_core::ground::template_allows;
+    use stars_core::production::item;
+
+    let dir = workspace_root().join("fixtures/games/all-computer-players");
+    if !dir.is_dir() {
+        eprintln!("skipping: all-computer-players fixture absent");
+        return;
+    }
+    let mut years: Vec<_> = std::fs::read_dir(&dir)
+        .expect("game directory")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.is_dir())
+        .collect();
+    years.sort();
+
+    let mut ar_entries = 0usize;
+    let mut ca_entries = 0usize;
+    let mut violations: Vec<String> = Vec::new();
+    let mut others_use_installations = false;
+    let mut others_use_terraform = false;
+
+    for year in &years {
+        let Ok(bytes) = std::fs::read(year.join("Game.hst")) else {
+            continue;
+        };
+        let Ok(file) = StarsFile::decode(&bytes) else {
+            continue;
+        };
+        let (state, _) = GameState::from_file(&file);
+        for planet in &state.planets {
+            let Some(owner) = planet.owner else { continue };
+            let Some(player) = state.players.get(owner as usize) else {
+                continue;
+            };
+            let prt = player.race.prt();
+            for e in planet.queue.iter().filter(|e| !e.ship) {
+                // The auto-build forms count as their base item here.
+                let base = item::auto_builds(e.item).unwrap_or(e.item);
+                match prt {
+                    Some(stars_core::race::Prt::Ar) => {
+                        ar_entries += 1;
+                        if !template_allows(prt, base) {
+                            violations.push(format!("AR queued item {}", e.item));
+                        }
+                    }
+                    Some(stars_core::race::Prt::Ca) => {
+                        ca_entries += 1;
+                        if !template_allows(prt, base) {
+                            violations.push(format!("CA queued item {}", e.item));
+                        }
+                    }
+                    _ => {
+                        if base <= item::DEFENSE {
+                            others_use_installations = true;
+                        }
+                        if base == item::MAX_TERRAFORM || base == item::MIN_TERRAFORM {
+                            others_use_terraform = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    assert!(
+        ar_entries > 1000,
+        "expected many AR entries, got {ar_entries}"
+    );
+    assert!(
+        ca_entries > 10,
+        "expected some CA entries, got {ca_entries}"
+    );
+    assert!(
+        violations.is_empty(),
+        "{} exclusions broken, e.g. {:?}",
+        violations.len(),
+        &violations[..violations.len().min(5)]
+    );
+    // Both exclusions are only meaningful because other races do use them.
+    assert!(
+        others_use_installations,
+        "other races should build installations"
+    );
+    assert!(others_use_terraform, "other races should terraform");
+}

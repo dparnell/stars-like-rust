@@ -53,12 +53,56 @@ the original's formula.
 
 ## Also in `DropColonists`, not yet transcribed
 
-- **The new planet's production queue.** A freshly settled planet is given a
-  queue built from the owner's default template (`rgplr[player].zpq1`), which is
-  why newly colonised planets show a queue immediately. Worth doing: it is
-  checkable against the 513 settlings.
 - **Wreckage salvage.** Taking an inhabited planet runs `ITechLearnATech`
   against the loser's technology — the "wreckage discovered, research boosted"
   message.
 - **Mineral discovery.** A settling can grant a random mineral concentration
   bonus, gated on a game flag and `Random(6)` / `Random(301)`.
+
+
+## The inherited production queue
+
+A freshly settled planet is given a queue built from its owner's **default
+template**, which is why a newly colonised planet shows a queue immediately.
+The template is `PLAYER.zpq1`, at offset 86 of the 192-byte player structure:
+
+| Offset | Size | Field |
+|--------|------|-------|
+| 0 | 1 | `fNoResearch` — the new planet's "no research" flag |
+| 1 | 1 | `cpq` — how many entries follow |
+| 2 | 24 | `rgpq[12]` — twelve 2-byte entries |
+
+Each entry's low six bits are the item; `DropColonists` reads them as
+`entry & 0x3f`. It is the "zip" production queue the `ZipProdDlg` dialog edits.
+
+### Two races filter it
+
+```
+Alternate Reality  drops every item <= iobjDefense   # no planetary installations
+Claim Adjuster     drops the two terraform items     # terraforms from orbit, free
+```
+
+Implemented as `ground::template_allows`, and both hold across every AI
+planet-turn in `fixtures/games/all-computer-players`:
+
+| trait | planetary queue items ever seen |
+|-------|--------------------------------|
+| Alternate Reality | 3, 11, 12, 16, 17 — **never** an installation, in any form |
+| Claim Adjuster | 7, 8 — **never** a terraform item |
+| Hyper Expansion, Inner Strength, Packet Physics, Super Stealth | installations *and* terraforming |
+
+Both are distinguishing rather than vacuous: every other trait uses exactly the
+items these two omit. The Claim Adjuster sample is small — 48 entries against
+5723 for Alternate Reality — so that half rests on less evidence.
+
+### The template itself is not in the fixtures
+
+`zpq1` is player state, not race state, and it is **not** in the serialised
+race struct: that struct is a packed 0x68-byte format of its own (see
+`../formats/race-r.md`), not a copy of the player structure's memory, and the
+26 bytes the template needs do not fit in what the player block leaves over
+after the relations table and the packed names.
+
+So the *rule* is recovered and its filter verified, but the template a given
+player would hand a new planet cannot be read from these saves. Predicting the
+exact queue a settling produces needs it.
