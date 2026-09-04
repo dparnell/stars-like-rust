@@ -246,7 +246,7 @@ Measured against real save files:
 | whole-turn replay: planet population | 87% of 438 planet-years |
 | whole-turn replay: mineral concentrations | 86% |
 | whole-turn replay: mines / factories | 67% / 71% |
-| whole-turn replay: surface minerals | 27% |
+| whole-turn replay: surface minerals | 27% all three, 83% per mineral within 1 kT |
 | whole-turn replay: fleet positions | 378 of 438 exact |
 | computer players identified | 3 games, all players, exact |
 | mining, isolated | 13,981 of 14,192 readings (98%) |
@@ -293,11 +293,21 @@ Remaining in this step:
    50,173 waypoints in the fixtures, but block types 1, 2, 23 and 25 in the `.x`
    order files. Ids and quantities decode; the two mode bytes are constant
    across every sample and are exposed raw. It is **not** the cause of the 27%
-   surface-mineral figure, as previously supposed — every recorded planet
-   transfer moves colonists, not minerals — so that gap needs a fresh
-   diagnosis. Colonisation and remote mining remain unprocessed.
-3. **Torpedo combat resolution**, which needs the RNG in the right state, and
-   the residual movement-scoring gap (`docs/formulas/combat.md`).
+   surface-mineral figure — every recorded planet transfer moves colonists, not
+   minerals. That figure is now diagnosed (see below). Colonisation and remote
+   mining remain unprocessed.
+3. **RNG alignment through a turn**, which now blocks two things at once.
+   Torpedo combat resolution needs the RNG in the right state, and so does the
+   surface-mineral figure: that 27% is mostly the mining remainder roll, not
+   missing consumption. Per reading the model is 61% exact and **83% within one
+   kilotonne**, and the error distribution is dominated by 0, -1 and +1 — the
+   width of one `Random(100)` roll. The replay starts the RNG fresh instead of
+   in the state the original had reached, so the rolls are independent of the
+   original's. Aligning the stream would take per-mineral agreement to about
+   83% and the all-three figure to roughly 57%. The genuinely unmodelled
+   residual is the 8% of readings off by six or more — a far smaller target
+   than 73%. Also the residual movement-scoring gap
+   (`docs/formulas/combat.md`).
 4. **Terraforming** — the reach model is recovered and verified (96% of 10,165
    planet-turns), which unblocks `PctPlanetOptValue` and the colonisation gate.
    The step count matches 70% of the AI's fresh terraform orders. Applying the

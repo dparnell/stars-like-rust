@@ -108,3 +108,36 @@ modelled shows up without pretending the rest is finished.
 - The player shuffle at step 1 consumes RNG draws before anything else does, so
   reproducing a turn bit-for-bit will require it even though it only decides
   the order order-files are replayed in.
+
+
+## The whole-turn replay's surface-mineral figure
+
+The replay reports "surface minerals 27%", which reads much worse than the
+model is. That figure demands **all three minerals match at once**, which
+compounds a per-mineral error cubically. Per reading, over 1314 readings across
+438 planet-years:
+
+| result | readings |
+|--------|----------|
+| exact | 804 (61%) |
+| within one kilotonne | 1097 (83%) |
+| off by 2 to 5 | ~110 |
+| off by 6 or more | 107 (8%) |
+
+The error distribution is dominated by 0, -1 and +1 — 804, 212 and 81 readings.
+That single kilotonne is the **mining remainder roll**: `EstMineralsMined`
+resolves the leftover hundredths with `Random(100)`, and the replay starts the
+RNG fresh rather than in the state the original had reached by the time it
+mined. The rolls are therefore independent of the original's, and disagree
+about a third of the time by exactly the amount one roll is worth.
+
+So the surface-mineral figure is mostly **RNG misalignment, not missing
+consumption**. Aligning the stream would take per-mineral agreement to
+something near 83% and the all-three figure to roughly 57%.
+
+The residual that is not rounding is the 8% off by six or more. That is where a
+genuinely unmodelled effect lives, and it is a much smaller target than 73%.
+
+This also ties two open items together: torpedo combat resolution is blocked on
+the same thing, "needs the RNG in the right state". Recovering the RNG's
+position through a turn would move both.
