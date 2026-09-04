@@ -118,6 +118,12 @@ pub fn generate_turn(state: &mut GameState, rng: &mut Rng) -> TurnReport {
     // --- Produce: mine first, so this year's minerals are on the surface
     // before anything can spend them.
     for index in 0..state.planets.len() {
+        // A planet the file only scanned has no population or installations to
+        // simulate; it is present so the player's own view of the galaxy is
+        // complete, not so it can be run.
+        if !state.planets[index].detail.is_full() {
+            continue;
+        }
         let Some(race) = owner_race(state, index) else {
             continue;
         };
@@ -130,6 +136,9 @@ pub fn generate_turn(state: &mut GameState, rng: &mut Rng) -> TurnReport {
     // modelled, every resource a planet makes ends up in research, which is
     // what the original does for a planet whose queue is empty.
     for index in 0..state.planets.len() {
+        if !state.planets[index].detail.is_full() {
+            continue;
+        }
         let Some(owner) = state.planets[index].owner else {
             continue;
         };

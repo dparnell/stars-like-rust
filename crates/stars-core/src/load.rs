@@ -118,6 +118,7 @@ pub fn planet_from_record(record: &PlanetRecord) -> Option<Planet> {
 
     Some(Planet {
         id: i16::try_from(record.id).ok()?,
+        detail: crate::planet::Detail::Full,
         owner: Some(i16::from(owner)),
         env: [
             env.gravity as i8,
@@ -151,6 +152,51 @@ pub fn planet_from_record(record: &PlanetRecord) -> Option<Planet> {
         queue: Vec::new(),
         no_research: installations.no_research,
     })
+}
+
+/// Build a planet from a record that does **not** describe it fully.
+///
+/// A player's file records the planets it owns in full and everything else at
+/// whatever detail it has scanned: some carry environment and mineral
+/// concentrations, some only a header. Those planets cannot be simulated — the
+/// population and installations simply are not there — but a player's own view
+/// of the galaxy is exactly what they are, and the AI's colonisation search
+/// works from it.
+///
+/// The unknown fields are left at their [`Planet::unowned`] defaults; callers
+/// must check [`Planet::detail`] before trusting anything beyond the id, the
+/// owner, and whatever [`Detail::Scanned`] guarantees.
+#[must_use]
+pub fn partial_planet_from_record(record: &PlanetRecord) -> Option<Planet> {
+    use crate::planet::Detail;
+
+    let id = i16::try_from(record.id).ok()?;
+    let mut planet = Planet::unowned(id);
+    planet.owner = record.owner.map(i16::from);
+    planet.starbase = record.has_starbase;
+    planet.starbase_design = record.starbase.map(|s| s.design);
+    planet.homeworld = record.homeworld;
+
+    planet.detail = match (record.environment, record.concentration) {
+        (Some(env), Some(conc)) => {
+            planet.env = [
+                env.gravity as i8,
+                env.temperature as i8,
+                env.radiation as i8,
+            ];
+            planet.min_conc = [conc.ironium, conc.boranium, conc.germanium];
+            planet.env_orig = record.original_environment.map(|e| {
+                [
+                    i8::try_from(e.gravity).unwrap_or(0),
+                    i8::try_from(e.temperature).unwrap_or(0),
+                    i8::try_from(e.radiation).unwrap_or(0),
+                ]
+            });
+            Detail::Scanned
+        }
+        _ => Detail::Minimal,
+    };
+    Some(planet)
 }
 
 /// Convert a decoded fleet record.
@@ -282,7 +328,15 @@ impl GameState {
                     state.planets.push(planet);
                     report.planets_loaded += 1;
                 }
-                None => report.planets_partial += 1,
+                None => {
+                    // Not a planet this file describes fully. Keep it, apart
+                    // from the simulated ones: it is part of what this player
+                    // knows about the galaxy.
+                    if let Some(planet) = partial_planet_from_record(&record) {
+                        state.known_planets.push(planet);
+                    }
+                    report.planets_partial += 1;
+                }
             }
         }
 

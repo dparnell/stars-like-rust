@@ -273,9 +273,9 @@ Remaining in this step:
    time; the residual most likely lies in the economy rather than the AI.
    Starbase orders and replacements are transcribed, their shape confirmed on
    2440 planet-turns and their arithmetic on 516 Macinti replacements;
-   the colonisation target rule is transcribed but its "nearest planet" test
-   is unscored until the loader keeps partial planet records, which are how an
-   AI's own view of the galaxy is stored. War and fleet dispatch are now
+   the colonisation target rule is transcribed and its target now ranks 27%
+   exact and 52% within three against a 1% chance rate, using the partial
+   planet records the loader now keeps. War and fleet dispatch are now
    transcribed too, and both are unverifiable against this corpus: host files
    carry no battle records and only 56 conquests, and a recorded fleet has
    already arrived, leaving 36 waypoint legs with a warp. Scoring either needs

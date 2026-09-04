@@ -15,11 +15,43 @@ pub const BORANIUM: usize = 1;
 /// Index of germanium in mineral arrays.
 pub const GERMANIUM: usize = 2;
 
+/// How much a record said about a planet.
+///
+/// Source: the `det` field of a planet block — see `docs/formats/planet.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Detail {
+    /// Header only: the planet's id, and whether anyone holds it.
+    Minimal,
+    /// Environment and mineral concentrations, but no population or
+    /// installations. This is a planet the player has scanned but does not own.
+    Scanned,
+    /// Everything: population, installations, surface minerals. Only a planet
+    /// the player owns is recorded this way.
+    Full,
+}
+
+impl Detail {
+    /// Whether the record carries population and installations, and so can be
+    /// simulated rather than merely known about.
+    #[must_use]
+    pub fn is_full(self) -> bool {
+        self == Self::Full
+    }
+}
+
 /// A planet, as far as the deterministic planetary simulation is concerned.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Planet {
     /// Planet id (index into the universe's planet array).
     pub id: i16,
+    /// How much of this planet the file actually recorded.
+    ///
+    /// A player's own file describes the planets it owns in full and everything
+    /// else at whatever detail it has scanned. Only a [`Detail::Full`] planet
+    /// carries a trustworthy population and installation count; the others are
+    /// present so that code which needs to know *what a player knows* — the AI's
+    /// colonisation search above all — can see them at all.
+    pub detail: Detail,
     /// Owning player index, or `None` when unowned (`PLANET.iPlayer == -1`).
     pub owner: Option<i16>,
     /// Current gravity, temperature and radiation, as clicks in `0..=100`.
@@ -68,6 +100,7 @@ impl Planet {
     pub fn unowned(id: i16) -> Self {
         Self {
             id,
+            detail: Detail::Full,
             owner: None,
             env: [50, 50, 50],
             env_orig: None,

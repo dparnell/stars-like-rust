@@ -51,7 +51,6 @@ fn main() {
         .collect();
 
     let mut prev: Option<GameState> = None;
-    let mut prev_dir: Option<std::path::PathBuf> = None;
     let mut events = 0usize;
     let mut habitable = 0usize;
     let mut rank_sum = 0usize;
@@ -141,17 +140,27 @@ fn main() {
                         .unwrap_or(i64::MAX)
                 };
 
-                // The AI only weighs planets it knows about, and its own view is
-                // its .mN file — the host file records nothing about a planet
-                // nobody owns. A planet it has never scanned keeps the default
-                // mark, which excludes it for every personality but Robotoid
-                // and Macinti.
-                let known = known_planets(prev_dir.as_deref(), owner);
-                let mut candidates: Vec<(i64, i16)> = known
+                // Candidates are everything nobody held last turn. The host
+                // file records unowned planets it has seen as partial records,
+                // which is where their environment comes from; a planet with no
+                // record at all is judged habitable, since the AI cannot rule
+                // out what it has not seen.
+                let env: HashMap<i16, &stars_core::planet::Planet> = before
+                    .planets
+                    .iter()
+                    .chain(before.known_planets.iter())
+                    .map(|p| (p.id, p))
+                    .collect();
+                let mut candidates: Vec<(i64, i16)> = pos
                     .iter()
                     .filter(|(id, _)| !owned_before.contains_key(id))
-                    .filter(|(_, p)| skips_test || pct_planet_desirability(p, &player.race) >= 0)
-                    .filter_map(|(id, _)| pos.get(id).map(|&c| (dist(c), *id)))
+                    .filter(|(id, _)| {
+                        skips_test
+                            || env
+                                .get(id)
+                                .is_none_or(|p| pct_planet_desirability(p, &player.race) >= 0)
+                    })
+                    .map(|(id, &c)| (dist(c), *id))
                     .collect();
                 if candidates.len() < 2 {
                     continue;
@@ -264,7 +273,6 @@ fn main() {
         }
 
         prev = Some(state);
-        prev_dir = Some(year.clone());
     }
 
     println!("{events} colonisation events");
@@ -301,26 +309,6 @@ fn main() {
     for (name, (ok, total)) in &by_personality {
         println!("  {name:<12} {ok:>4} / {total:<5} {}%", pct(*ok, *total));
     }
-}
-
-/// The planets a player's own `.mN` file records, which is everything that
-/// player knows about.
-fn known_planets(
-    dir: Option<&std::path::Path>,
-    owner: i16,
-) -> HashMap<i16, stars_core::planet::Planet> {
-    let Some(dir) = dir else {
-        return HashMap::new();
-    };
-    let path = dir.join(format!("Game.m{}", owner + 1));
-    let Ok(bytes) = std::fs::read(path) else {
-        return HashMap::new();
-    };
-    let Ok(file) = StarsFile::decode(&bytes) else {
-        return HashMap::new();
-    };
-    let (state, _) = GameState::from_file(&file);
-    state.planets.into_iter().map(|p| (p.id, p)).collect()
 }
 
 fn pct(n: usize, total: usize) -> usize {

@@ -430,11 +430,25 @@ recording.** Two attempts failed for instructive reasons:
   moment of the decision, leaves **4** cases in the whole game, because a fleet
   departs within the same turn generation that gives it orders.
 
-Scoring this properly needs the AI's own view of the galaxy — the planets it
-knows about — which lives in its `.mN` file as *partial* planet records. The
-loader currently counts those and discards them, so the known-planet set cannot
-be reconstructed. Loading partial planets is the prerequisite, and is the next
-step for this decision.
+Partial planet records are now loaded, into `GameState::known_planets`. That
+improved the landing measurement — from 19% exact and 41% within three to **27%
+and 52%**, with mean rank falling from 20.3 to 7.7 against a chance rate of 1%
+— because an unowned planet's environment comes from the host's partial record,
+so the candidate set can finally be filtered by habitability.
+
+It did **not** do what was predicted of it, and that is worth recording. The
+expectation was that a player's `.mN` file would carry its own view of the
+galaxy as partial records. It does not: across the corpus a player's file holds
+full records for exactly the planets it owns and almost nothing else — usually
+one further planet, occasionally eighteen. There is no planet-knowledge block
+in a player file at all; the block types present are messages, fleets,
+waypoints, designs, battle plans, battle recordings, scores and objects.
+
+So the AI's known-planet set still cannot be reconstructed, and the residual
+gap to "strictly nearest" is still unmeasured. The remaining proxy is the one
+that matters: distance is taken from the player's nearest planet rather than
+from the colony fleet, whose position at the moment of decision no file
+records.
 
 ### War and fleet dispatch
 

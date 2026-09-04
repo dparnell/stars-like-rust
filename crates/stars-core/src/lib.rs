@@ -140,6 +140,16 @@ pub struct GameState {
     pub seed: u32,
     /// Every planet in the universe, indexed by planet id.
     pub planets: Vec<Planet>,
+    /// Planets this file records but does not describe fully — everything the
+    /// player has scanned but does not own.
+    ///
+    /// Kept apart from [`Self::planets`] deliberately. These carry no
+    /// population and no installations, so anything that simulates a planet
+    /// must not see them; but a player's own view of the galaxy is exactly
+    /// this list plus the owned planets, and decisions like the AI's
+    /// colonisation search are made from that view. See
+    /// [`crate::planet::Detail`].
+    pub known_planets: Vec<Planet>,
     /// Every player.
     pub players: Vec<Player>,
     /// Every fleet in play.
@@ -158,6 +168,7 @@ impl GameState {
             turn: 0,
             seed,
             planets: Vec::new(),
+            known_planets: Vec::new(),
             players: Vec::new(),
             fleets: Vec::new(),
             designs: Vec::new(),

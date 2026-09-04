@@ -357,3 +357,42 @@ fn fuel_range_reflects_the_engine_table() {
         "IFE should reduce {fast} but gave {efficient}"
     );
 }
+
+/// Planets a file records but does not describe fully are kept, apart from the
+/// simulated ones.
+///
+/// A host file describes every owned planet in full and carries partial records
+/// for unowned planets it has seen; those partials are where an unowned
+/// planet's environment comes from, which is what the AI's colonisation search
+/// needs. They must not land in `planets`, because nothing there can be
+/// simulated without a population.
+#[test]
+fn partial_planet_records_are_kept_separately() {
+    let host = workspace_root().join("fixtures/games/all-computer-players/2450/Game.hst");
+    if !host.is_file() {
+        eprintln!("skipping: {} absent", host.display());
+        return;
+    }
+    let bytes = std::fs::read(&host).expect("read host file");
+    let file = stars_formats::StarsFile::decode(&bytes).expect("decode host file");
+    let (state, report) = stars_core::GameState::from_file(&file);
+
+    assert_eq!(state.known_planets.len(), report.planets_partial);
+    assert!(
+        state.known_planets.len() > 50,
+        "expected the host to know of many unowned planets, got {}",
+        state.known_planets.len()
+    );
+
+    // Everything simulated is full; everything known-but-not-owned is not.
+    assert!(state.planets.iter().all(|p| p.detail.is_full()));
+    assert!(state.known_planets.iter().all(|p| !p.detail.is_full()));
+
+    // The partials carry the environment the colonisation search reads.
+    let scanned = state
+        .known_planets
+        .iter()
+        .filter(|p| p.detail == stars_core::planet::Detail::Scanned)
+        .count();
+    assert!(scanned > 50, "expected scanned environments, got {scanned}");
+}

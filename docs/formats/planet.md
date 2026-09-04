@@ -133,3 +133,27 @@ Tutorial host file: 24 planets, 2 homeworlds, all decode without error.
 - Decode the `.x` **Planet Change** block (type 35): `planetId` (u16) + a 32-bit
   bitfield `fNoResearch / idFling / iWarpFling / idRoute` (per `StarsPlanet.pl`).
 - Fleet (16), Design (26) and full Player (6) records still to be decoded.
+
+
+## Partial records in `stars-core`
+
+A file describes the planets its owner holds in full (type 13 with `det == 7`)
+and everything else at whatever detail it has: type 14 carries environment and
+mineral concentrations but no population or installations, type 15 only a
+header.
+
+`stars-core` keeps the two apart. `GameState::planets` holds only planets that
+can be simulated; `GameState::known_planets` holds the rest, and
+`Planet::detail` says which is which (`Full`, `Scanned`, `Minimal`). Mixing
+them was tried and rejected: every consumer that iterates planets then has to
+know not to trust a population that was never recorded, and the whole-turn
+replay silently grew from 438 planet-years to 457 as a result.
+
+The practical value of the partials is the environment of **unowned** planets,
+which appears nowhere else. A host file for a 360-planet galaxy carries around
+95 of them.
+
+Note what a player file does *not* contain: any record of the galaxy beyond its
+own planets. A player's file holds full records for exactly what it owns plus a
+handful more, and there is no planet-knowledge block. What a player knows about
+distant planets is not recoverable from these files.
