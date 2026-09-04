@@ -140,24 +140,35 @@ pub fn optimal_env(planet: &Planet, race: &Race, tech: [u8; 6]) -> [i8; VARIABLE
 /// moved toward the race's ideal. This is the count the AI's terraform decision
 /// caps at four — see [`crate::ai::production::queue_ai_terraforming`].
 ///
-/// # This over-counts
+/// # How well this matches
 ///
 /// Scored against the AI's recorded auto-terraform orders in
-/// `fixtures/games/all-computer-players`, `min(terraform_steps, 4)` matches the
-/// order 207 times in 865. Every disagreement is in the same direction: we
-/// never predict fewer steps than the game did, and the shortfall is 1, 2 or 3.
+/// `fixtures/games/all-computer-players`, `min(terraform_steps, 4)` matches
+/// **131 of 187** fresh orders (70%).
 ///
-/// Following one planet across turns, the recorded count falls by exactly one
-/// each time a variable is terraformed one click, so the game is tracking the
-/// same quantity — but from a band one click narrower than the one
-/// [`reachable_band`] computes. Whether that is an off-by-one in the band, a
-/// resource limit already applied by `InitProduction` when it builds the
-/// catalogue, or something else is not resolved, so this is **not** wired into
-/// the AI decision, which still takes the count from its caller.
+/// "Fresh" is doing the work there. A terraform entry stays in the queue and
+/// counts *down* as production builds it, so scoring every planet-turn that
+/// carries one compares a decision against the remains of an older decision
+/// and scores 23%. Only a planet that had no terraform order the turn before
+/// is a decision being made. This is the same trap the mine and factory
+/// decision fell into, and it is worth remembering as a general rule about
+/// this game's queues: **a queue entry is a running balance, not a record of
+/// what was chosen**.
 ///
-/// [`terraform_reach`] itself is in much better shape: across 10,165
-/// planet-turns that record an original environment, 96% have moved no further
-/// than the reach computed here allows.
+/// The residual 30% are all over-predictions where this saturates at the cap
+/// of four while the game queued one to three. Two explanations were tested
+/// and rejected: limiting the count by what the planet can pay for that year
+/// swings it hard the other way (7% exact, mostly under-predicting), and
+/// counting the gain in habitability *value* rather than clicks does slightly
+/// worse than clicks (66%). The most likely remaining explanation is that
+/// [`terraform_reach`] is too generous for some players, since several of the
+/// residual cases would land exactly right with a reach two smaller — but that
+/// does not fit all of them, and tuning the reach to make it fit is precisely
+/// what this project does not do.
+///
+/// [`terraform_reach`] itself is in good shape: across 10,165 planet-turns that
+/// record an original environment, 96% have moved no further than the reach
+/// computed here allows.
 #[must_use]
 pub fn terraform_steps(planet: &Planet, race: &Race, tech: [u8; 6]) -> i32 {
     let target = optimal_env(planet, race, tech);

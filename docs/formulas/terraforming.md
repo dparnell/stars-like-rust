@@ -53,32 +53,59 @@ Against `fixtures/games/all-computer-players`:
 | check | result |
 |-------|--------|
 | environment moved no further than `reach` allows | 9760 of 10,165 planet-turns (96%) |
-| AI auto-terraform order equals `min(steps, 4)` | 207 of 865 (23%) |
+| AI auto-terraform order equals `min(steps, 4)`, fresh orders | 131 of 187 (70%) |
 
 The reach model holds. The 405 planet-turns that exceed it are worth chasing:
 Claim Adjuster races terraform from orbit, and a planet that changed hands
 carries terraforming done by a previous owner with different technology, so
 both would show as overshoot against the *current* owner's reach.
 
-The step count does not hold, and fails in one direction only — it never
-predicts fewer steps than the game used, and the shortfall is 1, 2 or 3.
-Following a single planet across turns, the recorded count drops by exactly one
-each time a variable moves one click, so the game is tracking the same
-quantity, but from a band one click narrower than the one computed here. On
-planet 86 at 2424, with environment `[45, 73, 4]`, original `[45, 73, 3]`,
-ideal `[35, 0, 50]` and reach `[5, 0, 5]`, the radiation band computes as
-`1..=8` and the recorded counts behave as though it were `1..=7`.
+## The count: what the discrepancy turned out to be
 
-Whether that is an off-by-one in the band, a resource limit `InitProduction`
-has already applied when it builds the production catalogue, or something else
-is unresolved. Because of that the step count is **not** wired into the AI's
-terraform decision, which still takes the count from its caller.
+An earlier revision of this document reported the step count matching only 23%
+and described it as a one-click error in the band. That diagnosis was wrong.
+
+A terraform entry **stays in the queue and counts down** as production builds
+it. Scoring every planet-turn that carries one therefore compares a fresh
+decision against the remains of an older one. Restricting to planets that had
+no terraform order the turn before — the only planet-turns where a decision is
+actually being made — moves the match from 23% to **70%**.
+
+This is exactly the trap the mine and factory decision fell into, and the
+general rule is worth stating plainly: **in this game a queue entry is a
+running balance, not a record of what was chosen.** Any decision scored against
+a queue has to be scored against a *fresh* entry.
+
+The apparent "one click" was an artifact of the same thing. Following planet 86
+across turns, the recorded count fell by one each time radiation rose by one —
+not because the band was one narrower, but because production was spending the
+order down.
+
+### The residual 30%
+
+The 56 fresh orders still wrong are all over-predictions, where this saturates
+at the cap of four while the game queued one to three. Two explanations were
+tested and rejected:
+
+- **A resource limit.** Capping the count by what the planet can pay for that
+  year swings it hard the other way — 7% exact, mostly under-predicting. The AI
+  queues terraforming it cannot yet afford, which makes sense for an auto-build
+  item that is paid off over several turns.
+- **Habitability gain rather than clicks.** Counting the improvement in the
+  planet's *value* instead of the number of one-percent steps scores 66%,
+  slightly worse than clicks, and introduces under-predictions the click model
+  does not have.
+
+The most likely remaining explanation is that `terraform_reach` is too generous
+for some players: several residual cases land exactly right with a reach two
+smaller. It does not fit all of them, and narrowing the reach to make it fit
+would be tuning to the data rather than reading the binary, so it is left open.
 
 ## Open questions
 
-- The one-click discrepancy above.
+- The residual 30% above, most likely in `terraform_reach`.
 - The direction-selection arm of `FCanTerraformLppl`, which picks which way to
   terraform for the UI's environment graph. It is not needed for the value or
   the step count, and the decompilation of that branch is not yet trustworthy.
-- Claim Adjuster orbital terraforming (`MANUAL.PDF` p. 19-3), which is a
-  separate mechanism.
+- Claim Adjuster orbital terraforming (`MANUAL.PDF` p. 19-3), a separate
+  mechanism and a likely source of the reach overshoots.

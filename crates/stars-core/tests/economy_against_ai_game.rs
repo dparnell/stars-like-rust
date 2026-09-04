@@ -189,3 +189,48 @@ fn modelled_resources_cover_the_research_that_came_from_them() {
          the research recorded against them (was 99%)"
     );
 }
+
+/// The terraforming reach model, against every planet that records an original
+/// environment.
+///
+/// A planet's environment can never have been moved further from its original
+/// values than the owner's technology reaches. A handful legitimately exceed
+/// it — Claim Adjusters terraform from orbit, and a planet that changed hands
+/// carries work done by an owner with different technology — so this allows a
+/// small margin rather than demanding none.
+#[test]
+fn terraforming_never_exceeds_the_reach_we_compute() {
+    use stars_core::terraform::terraform_reach;
+
+    let years = game_years();
+    if years.is_empty() {
+        eprintln!("skipping: all-computer-players fixture absent");
+        return;
+    }
+    let (mut scored, mut within) = (0usize, 0usize);
+    for year in &years {
+        let Some(state) = load(&year.join("Game.hst")) else {
+            continue;
+        };
+        for planet in &state.planets {
+            let Some(owner) = planet.owner else { continue };
+            let Some(player) = state.players.get(owner as usize) else {
+                continue;
+            };
+            let Some(orig) = planet.env_orig else {
+                continue;
+            };
+            let reach = terraform_reach(&player.race, player.research.levels);
+            scored += 1;
+            if (0..3).all(|v| i32::from(planet.env[v] - orig[v]).abs() <= i32::from(reach[v])) {
+                within += 1;
+            }
+        }
+    }
+    assert!(scored > 5000, "expected a large sample, got {scored}");
+    let pct = within * 100 / scored;
+    assert!(
+        pct >= 94,
+        "terraform reach agreement fell to {pct}% of {scored} planet-turns (was 96%)"
+    );
+}

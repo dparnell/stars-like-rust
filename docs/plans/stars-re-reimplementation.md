@@ -286,8 +286,9 @@ Remaining in this step:
    the residual movement-scoring gap (`docs/formulas/combat.md`).
 4. **Terraforming** — the reach model is recovered and verified (96% of 10,165
    planet-turns), which unblocks `PctPlanetOptValue` and the colonisation gate.
-   The count of steps still available over-counts by one to three and is not
-   yet wired into the AI; the turn's terraform step is still supplied from the
+   The step count matches 70% of the AI's fresh terraform orders; the earlier
+   23% figure was an artifact of scoring against queue entries that count down
+   as they are built. The turn's terraform step is still supplied from the
    recorded files. See `docs/formulas/terraforming.md`.
 
 ###   Step 5: Build the egui desktop frontend with faithful core screens

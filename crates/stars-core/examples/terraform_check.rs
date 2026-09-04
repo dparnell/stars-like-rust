@@ -6,7 +6,7 @@
 //! `min(steps available, 4)`, which tests [`terraform_steps`], the quantity
 //! that until now had to be stubbed at zero.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use stars_core::ai::{AiPersonality, Control};
 use stars_core::terraform::{terraform_reach, terraform_steps};
@@ -34,6 +34,13 @@ fn main() {
     let mut queue_diff: BTreeMap<i32, usize> = BTreeMap::new();
     let mut shown = 0usize;
     let mut shown2 = 0usize;
+    let mut shown3 = 0usize;
+    // A terraform entry persists and counts down as production builds it, so
+    // only an order that was not there last turn is a fresh decision.
+    let mut had_terraform: HashMap<i16, bool> = HashMap::new();
+    let mut fresh = 0usize;
+    let mut fresh_exact = 0usize;
+    let mut fresh_diff: BTreeMap<i32, usize> = BTreeMap::new();
 
     for year in &years {
         let Ok(bytes) = std::fs::read(year.join("Game.hst")) else {
@@ -98,6 +105,29 @@ fn main() {
             }
             queued += 1;
             let predicted = terraform_steps(planet, &player.race, tech).min(4);
+            if !had_terraform.get(&planet.id).copied().unwrap_or(false) {
+                fresh += 1;
+                if predicted == recorded {
+                    fresh_exact += 1;
+                }
+                *fresh_diff
+                    .entry((predicted - recorded).clamp(-4, 4))
+                    .or_default() += 1;
+                if verbose && predicted != recorded && shown3 < 14 {
+                    shown3 += 1;
+                    let band = stars_core::terraform::reachable_band(planet, &player.race, tech);
+                    let opt = stars_core::terraform::optimal_env(planet, &player.race, tech);
+                    println!(
+                        "  F {} p{:>3}: pred {predicted} rec {recorded} env {:?} orig {:?} \
+                         ideal {:?} reach {reach:?} band {band:?} opt {opt:?}",
+                        state.year(),
+                        planet.id,
+                        planet.env,
+                        planet.env_orig,
+                        player.race.env_center
+                    );
+                }
+            }
             if predicted == recorded {
                 queue_exact += 1;
             }
@@ -117,6 +147,15 @@ fn main() {
                 );
             }
         }
+        // Remember which planets carried a terraform order this turn.
+        had_terraform.clear();
+        for planet in &state.planets {
+            let has = planet
+                .queue
+                .iter()
+                .any(|e| !e.ship && e.item == 12 && e.count > 0);
+            had_terraform.insert(planet.id, has);
+        }
     }
 
     println!("{with_orig} planet-turns record an original environment");
@@ -134,6 +173,12 @@ fn main() {
         pct(queue_exact, queued)
     );
     println!("  predicted - recorded: {queue_diff:?}");
+    println!("\n{fresh} of those are fresh orders (none queued the turn before):");
+    println!(
+        "  count matches min(steps, 4): {fresh_exact} ({}%)",
+        pct(fresh_exact, fresh)
+    );
+    println!("  predicted - recorded: {fresh_diff:?}");
 }
 
 fn pct(n: usize, total: usize) -> usize {
