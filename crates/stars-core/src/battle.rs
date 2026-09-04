@@ -79,12 +79,22 @@ pub fn distance(a: Square, b: Square) -> u8 {
 
 /// Starting squares, laid out by how many players are in the battle.
 ///
-/// The table is a flat concatenation of the layouts for 1..=16 players; the
+/// The table is a flat concatenation of the layouts for 1..=12 players; the
 /// layout for `n` players begins at `n * (n - 1) / 2`. Two players start at
 /// (1,4) and (8,5) — opposite sides of the board.
 ///
-/// Transcribed from `rgbrcStart` at the start of the battle segment.
-const START_SQUARES: [u8; 36] = [
+/// Transcribed from `rgbrcStart` at `10f0:0000`, verified byte for byte
+/// against the binary.
+///
+/// # A version caveat
+///
+/// This is the **2.7j** table, which is the binary this project reads. It
+/// matches every two-player battle in both fixture games, but not the
+/// three-player battles in `fixtures/games/all-computer-players`, which was
+/// saved by 2.66 — see `docs/formats/battle.md`. The same version split that
+/// governs the action record layout appears to reach this table too, and a 2.6
+/// binary would be needed to confirm it.
+const START_SQUARES: [u8; 78] = [
     // 1 player
     0x44, // (4,4)
     // 2 players
@@ -100,14 +110,18 @@ const START_SQUARES: [u8; 36] = [
     // 7 players
     0x11, 0x51, 0x82, 0x86, 0x68, 0x28, 0x15, // (1,1) (1,5) (2,8) (6,8) (8,6) (8,2) (5,1)
     // 8 players
-    0x31, 0x61, 0x83, 0x86, 0x68, 0x38, 0x16, 0x13,
+    0x31, 0x61, 0x83, 0x86, 0x68, 0x38, 0x16, 0x13, // 9 players
+    0x31, 0x68, 0x83, 0x16, 0x61, 0x38, 0x86, 0x13, 0x44, // 10 players
+    0x12, 0x15, 0x18, 0x41, 0x48, 0x54, 0x71, 0x78, 0x83, 0x86, // 11 players
+    0x31, 0x68, 0x83, 0x16, 0x61, 0x38, 0x86, 0x13, 0x43, 0x36, 0x66, // 12 players
+    0x41, 0x58, 0x82, 0x17, 0x86, 0x13, 0x61, 0x38, 0x21, 0x84, 0x15, 0x78,
 ];
 
 /// The square the `side`-th participant starts on, in a battle with `players`
 /// participants.
 ///
 /// Returns `None` for player counts the transcribed table does not cover
-/// (more than eight) or a side index beyond the count.
+/// (more than twelve) or a side index beyond the count.
 #[must_use]
 pub fn start_square(players: u8, side: u8) -> Option<Square> {
     if players == 0 || side >= players {

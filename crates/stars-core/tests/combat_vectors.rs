@@ -422,3 +422,32 @@ fn target_classes_match_the_filter() {
     assert!(is_target_of(&armed, TargetClass::ArmedShips));
     assert!(!is_target_of(&freighter, TargetClass::ArmedShips));
 }
+
+/// The starting-square table covers up to twelve players, and its rows are
+/// laid out triangularly.
+///
+/// Verified byte for byte against `rgbrcStart` at `10f0:0000`.
+#[test]
+fn the_starting_square_table_covers_twelve_players() {
+    use stars_core::battle::{start_square, Square};
+
+    // Two players face each other across the board.
+    assert_eq!(start_square(2, 0), Some(Square { x: 1, y: 4 }));
+    assert_eq!(start_square(2, 1), Some(Square { x: 8, y: 5 }));
+
+    // The rows recovered beyond the original transcription.
+    assert_eq!(start_square(9, 8), Some(Square { x: 4, y: 4 }));
+    assert_eq!(start_square(12, 11), Some(Square { x: 8, y: 7 }));
+
+    // Every count up to twelve resolves every side, and nothing beyond does.
+    for players in 1..=12u8 {
+        for side in 0..players {
+            assert!(
+                start_square(players, side).is_some(),
+                "{players} players, side {side}"
+            );
+        }
+        assert_eq!(start_square(players, players), None);
+    }
+    assert_eq!(start_square(13, 0), None);
+}

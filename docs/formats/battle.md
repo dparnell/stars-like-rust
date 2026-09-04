@@ -198,10 +198,31 @@ The firing-range test asserted `range <= 4`, on the reasoning that beams reach
 cousins have `range_max: 5` in the component table. Exodus never fires beyond 4
 only because it never researches missiles. The bound is now 5.
 
-## Still open: the starting-square table in 2.66
+## The starting-square table
 
-One test remains on the Exodus corpus. In the 2.66 game, battle `0x0c02` of
-2429 — a **three-player** battle — starts a token at (3,1) where the table
-recovered from Exodus says (4,1). Two-player battles agree across both
-versions, so either the three-player starting squares changed between releases
-or the table was recovered from too few three-player samples. Exodus has few.
+`rgbrcStart` at `10f0:0000` is a flat concatenation of the layouts for 1 to 12
+players; the row for `n` begins at `n(n-1)/2`. It is transcribed in
+`stars-core::battle::START_SQUARES` and verified byte for byte against the
+binary — all 78 bytes. An earlier revision stopped at eight players; the rows
+for 9 to 12 are now included.
+
+### It does not fit the 2.66 game's three-player battles
+
+Two-player battles agree across both fixture games. A three-player battle does
+not: `2429` battle `0x0c02` in the 2.66 game puts its three sides at (3,1),
+(1,8) and (8,6), where the 2.7j table's three-player row is (4,1), (8,8),
+(1,8). Only one of the three matches.
+
+The other two squares do appear in the table, but in rows for larger player
+counts — (8,6) in the seven-player row, (3,1) in the six- and eight-player
+rows — and no single row of the 2.7j table contains all three.
+
+Since the binary this project reads **is** 2.7j, its table cannot be wrong for
+2.7j; and the same version split that governs the action record layout above
+plausibly reaches this table too. Confirming that needs a 2.6 binary, which
+the project does not have. The starting-square test therefore runs on the
+Exodus corpus, which is 2.81, with a comment saying why.
+
+This is worth remembering more generally: two format details have now turned
+out to be version-dependent, and every format in `docs/formats` was recovered
+from Exodus or from the 2.7j binary alone.

@@ -99,9 +99,11 @@ fn exodus_battles() -> Vec<(i32, BattleRecord)> {
 
 #[test]
 fn tokens_start_on_the_squares_the_table_says() {
-    // Exodus only. A three-player battle in the 2.66 game (2429, 0x0c02) starts
-    // a token at (3,1) where this table says (4,1), so the starting-square table
-    // differs between versions — see docs/formats/battle.md.
+    // Exodus (2.81) only. The 2.66 game's three-player battles do not fit the
+    // 2.7j table this crate transcribes — 2429 battle 0x0c02 puts its sides at
+    // (3,1), (1,8) and (8,6) where the table's three-player row is (4,1),
+    // (8,8), (1,8). Two-player battles agree across both versions. See
+    // docs/formats/battle.md.
     let battles = exodus_battles();
     if battles.is_empty() {
         eprintln!("skipping: no Exodus fixtures");
