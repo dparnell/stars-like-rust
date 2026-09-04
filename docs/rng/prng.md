@@ -152,8 +152,50 @@ planet shuffle when it is set, `FFillProdMinesAndFactories` charges factories
 all three minerals rather than germanium alone, and `QueueAiStarbases` changes
 its guard. It reads as a "reproducible / test game" mode.
 
-None of the fixture games sets it — none of them even carries a type-7 `rtGame`
-block for the flags to live in. A game created with it set would be the single
-most valuable fixture this project could acquire: it would make the whole-turn
-replay exact rather than statistical, and it is the prerequisite for torpedo
-combat resolution, which needs the RNG in the right state to score at all.
+### What sets it
+
+Exactly one instruction in the binary writes bit 11 into the game flags word at
+`DS:0x588`, in `ExecuteButton` (`1068:14ea`):
+
+```asm
+SHL  AX, CL                      ; AX = 1 << (checkbox index)
+XOR  word ptr [0x51aa], AX       ; toggle that checkbox
+MOV  AX, [0x588]
+AND  AX, 0x800
+JNZ  done                        ; already set: nothing to do
+MOV  AX, 1 ; SHL AX, CL
+AND  AX, word ptr [0x51aa]
+JZ   done                        ; the checkbox went *off*: nothing to do
+OR   word ptr [0x588], 0x800     ; set it
+CALLF 14f8:0274                  ; and tell the user
+```
+
+So it is a **checkbox in a dialog**. Ticking it sets the flag and pops a
+message; the flag is **never cleared anywhere in the binary**, so the choice is
+one-way once made. Which checkbox it is has not been identified — the handler
+works from a bit index in a local, so the label is not reachable from this code
+alone.
+
+`StartTutor` (`10f8:074e`) also ORs `0x800`, but into `[0x7ca]`, a different
+word — the settings/INI flags, not the game flags. The tutorial is therefore
+*not* this flag, and `fixtures/games/tutorial` does not supply what is needed.
+
+### What that means for the fixtures
+
+None of the fixture games sets it, and the `.xy` game-info block does not
+obviously carry it either: the 64-byte block differs in shape between the
+tutorial and the played games, and no word in it has bit 11 set in any fixture.
+
+A game created with the checkbox ticked would be the single most valuable
+fixture this project could acquire. It would make the whole-turn replay exact
+rather than statistical, and it is the prerequisite for torpedo combat
+resolution, which needs the RNG in the right state to score at all.
+
+### A caution on naming it
+
+An earlier note here called this a "reproducible / test game" mode. That reads
+well against three of its four known effects — fixed RNG seed per turn, no AI
+planet shuffle, an altered `QueueAiStarbases` guard — but the fourth, charging
+factories all three minerals rather than germanium alone
+(`FFillProdMinesAndFactories`), has nothing to do with determinism. The flag is
+better described by what it does than by a guessed name.
