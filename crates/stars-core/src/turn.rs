@@ -80,6 +80,8 @@ pub struct TurnReport {
     pub terraformed: Vec<i16>,
     /// Planets remote terraforming moved, as `(planet id, clicks applied)`.
     pub remote_terraformed: Vec<(i16, i32)>,
+    /// Recorded cargo transfers that moved something in this state.
+    pub transfers: usize,
     /// Pipeline steps not performed, and therefore not reflected above.
     pub skipped: Vec<SkippedStep>,
 }
@@ -94,6 +96,29 @@ pub struct TurnReport {
 /// `rng` supplies the mining rounding draws; pass a generator seeded from the
 /// game to reproduce a specific turn.
 pub fn generate_turn(state: &mut GameState, rng: &mut Rng) -> TurnReport {
+    generate_turn_with_orders(state, &TurnOrders::default(), rng)
+}
+
+/// The recorded orders a turn is generated from.
+///
+/// A `.x` file is a replay of what a player's client already did, so these are
+/// applied verbatim rather than validated. Only the parts that move simulation
+/// state are carried; settings changes belong to the file layer.
+#[derive(Debug, Clone, Default)]
+pub struct TurnOrders {
+    /// Cargo transfers, in the order the file records them.
+    pub cargo: Vec<stars_formats::CargoTransferRecord>,
+}
+
+/// Advance the game by one year, applying a set of recorded orders first.
+///
+/// `DoOrders(0)` runs before movement and production, which is why a transfer
+/// can feed the same year's growth — see `docs/formulas/turn-order.md`.
+pub fn generate_turn_with_orders(
+    state: &mut GameState,
+    orders: &TurnOrders,
+    rng: &mut Rng,
+) -> TurnReport {
     let mut report = TurnReport {
         skipped: vec![
             SkippedStep::Orders,
@@ -106,6 +131,13 @@ pub fn generate_turn(state: &mut GameState, rng: &mut Rng) -> TurnReport {
         breakthroughs: vec![Vec::new(); state.players.len()],
         ..TurnReport::default()
     };
+
+    // --- DoOrders(0): the recorded cargo transfers, before anything moves or
+    // produces. A transfer applied here feeds this year's growth.
+    if !orders.cargo.is_empty() {
+        report.skipped.retain(|s| *s != SkippedStep::Orders);
+        report.transfers = crate::orders::apply_cargo_transfers(state, &orders.cargo);
+    }
 
     // --- MoveFleets, which happens before Produce.
     for index in 0..state.fleets.len() {

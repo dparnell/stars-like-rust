@@ -81,7 +81,9 @@ pub use block::{
     join_blocks, split_blocks, Block, BlockType, BLOCK_SIZE_MASK, BLOCK_TYPE_SHIFT,
     FILE_HEADER_BLOCK, MAX_BLOCK_SIZE, MAX_BLOCK_TYPE,
 };
-pub use cargo::{cargo_transfers_in, CargoTransferRecord};
+pub use cargo::{
+    cargo_transfers_in, ship_transfers_in, CargoTransferRecord, GrobjClass, ShipTransferRecord,
+};
 pub use crypt::{StarsRng, PRIMES};
 pub use design::{design_records, DesignRecord, Slot};
 pub use file::{Segment, StarsFile, FILE_FOOTER_BLOCK};

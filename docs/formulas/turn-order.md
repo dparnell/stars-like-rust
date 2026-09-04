@@ -69,7 +69,8 @@ UpdatePopulations → UpdateResearchStatus → RandomEvents
 
 ## What `generate_turn` currently performs
 
-`crates/stars-core/src/turn.rs` runs mining, the per-planet resource split,
+`crates/stars-core/src/turn.rs` runs the recorded **cargo transfers**
+(`DoOrders(0)`), mining, the per-planet resource split,
 **the production queue**, population growth, the research advance and
 **`AutoTerraform`** (step 16, the Claim Adjuster's free terraforming) and
 **`RemoteTerraforming`** (step 17, Orbital Adjusters acting from orbit) — the

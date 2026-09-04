@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use stars_core::rng::Rng;
-use stars_core::{generate_turn, GameState};
+use stars_core::{generate_turn, generate_turn_with_orders, GameState, TurnOrders};
 use stars_formats::StarsFile;
 
 fn workspace_root() -> PathBuf {
@@ -26,10 +26,39 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
+/// The cargo transfers the player's own `.x` order file records for this year.
+///
+/// The host replays these before anything else in the turn, so a replay that
+/// skips them is missing colonists that were loaded or dropped.
+fn orders_for(year: &Path) -> TurnOrders {
+    let Some(bytes) = std::fs::read(year.join("EXODUS.X6")).ok() else {
+        return TurnOrders::default();
+    };
+    let Ok(file) = stars_formats::StarsFile::decode(&bytes) else {
+        return TurnOrders::default();
+    };
+    let segment = file.latest_segment();
+    TurnOrders {
+        cargo: stars_formats::cargo_transfers_in(file.segment_blocks(segment)),
+    }
+}
+
 fn load(path: &Path) -> Option<GameState> {
     let bytes = std::fs::read(path).ok()?;
     let file = StarsFile::decode(&bytes).ok()?;
-    Some(GameState::from_file(&file).0)
+    let (mut state, _) = GameState::from_file(&file);
+    // Planet coordinates live in the universe file, and a planet that finishes
+    // ships with no fleet in orbit needs them to start one.
+    if let Some(universe) = path
+        .parent()
+        .and_then(Path::parent)
+        .map(|games| games.join("exodus.xy"))
+        .and_then(|p| std::fs::read(p).ok())
+        .and_then(|b| stars_formats::Universe::decode(&b).ok())
+    {
+        state.apply_universe(&universe);
+    }
+    Some(state)
 }
 
 /// How often each field of a planet comes out right.
@@ -80,7 +109,11 @@ fn generating_a_year_reproduces_much_of_the_next_file() {
         let actual: BTreeMap<i16, _> = after.planets.iter().map(|p| (p.id, p.clone())).collect();
 
         let mut rng = Rng::randomize(before.seed);
-        generate_turn(&mut before, &mut rng);
+        generate_turn_with_orders(
+            &mut before,
+            &orders_for(&games.join(w[0].to_string())),
+            &mut rng,
+        );
         pairs += 1;
 
         for planet in &before.planets {
@@ -105,12 +138,17 @@ fn generating_a_year_reproduces_much_of_the_next_file() {
     let pct = |n: usize| (n * 100).checked_div(total.planets).unwrap_or(0);
     eprintln!(
         "whole-turn replay over {pairs} year pairs, {} planet-years:\n  \
-         population {}%  mines {}%  factories {}%  surface minerals {}%  concentrations {}%",
+         population {}/{} ({}%)  mines {}%  factories {}%  surface minerals {}%  \
+         concentrations {}/{} ({}%)",
+        total.planets,
+        total.population,
         total.planets,
         pct(total.population),
         pct(total.mines),
         pct(total.factories),
         pct(total.minerals),
+        total.concentration,
+        total.planets,
         pct(total.concentration),
     );
     // "Surface minerals" above demands all three match at once, which
@@ -231,5 +269,100 @@ fn fleets_move_to_where_the_engine_put_them() {
     assert!(
         pct >= 50,
         "only {pct}% of fleets moved to where the engine put them"
+    );
+}
+
+/// The recorded cargo transfers, applied on the planet-years they name.
+///
+/// A `.x` order file logs the transfers a player's client already performed,
+/// and the host replays them before anything else in the turn. Scoring them
+/// across the whole replay dilutes them to nothing — Exodus records 43 in forty
+/// files — so this scores only the planets a transfer actually names, with the
+/// orders applied and again without them as a control.
+///
+/// The result is small but one-sided, which is the point: applying the orders
+/// can only help here, and never turns a right answer into a wrong one.
+#[test]
+fn recorded_cargo_transfers_improve_the_planets_they_name() {
+    use stars_core::rng::Rng;
+    use stars_formats::GrobjClass;
+
+    let root = workspace_root();
+    let games = root.join("fixtures/games/exodus");
+    if !games.is_dir() {
+        eprintln!("skipping: no Exodus fixtures");
+        return;
+    }
+    let mut years: Vec<i32> = std::fs::read_dir(&games)
+        .expect("readable fixture dir")
+        .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
+        .collect();
+    years.sort_unstable();
+
+    let (mut named_total, mut with, mut without) = (0usize, 0usize, 0usize);
+    for w in years.windows(2) {
+        if w[1] != w[0] + 1 {
+            continue;
+        }
+        let (Some(before), Some(after)) = (
+            load(&games.join(w[0].to_string()).join("exodus.m6")),
+            load(&games.join(w[1].to_string()).join("exodus.m6")),
+        ) else {
+            continue;
+        };
+        let orders = orders_for(&games.join(w[0].to_string()));
+        let mut named: Vec<i16> = Vec::new();
+        for record in &orders.cargo {
+            for (class, id) in [
+                (record.source_class, record.source),
+                (record.destination_class, record.destination),
+            ] {
+                if class == Some(GrobjClass::Planet) {
+                    if let Ok(id) = i16::try_from(id) {
+                        named.push(id);
+                    }
+                }
+            }
+        }
+        if named.is_empty() {
+            continue;
+        }
+        named_total += named.len();
+
+        for (apply, tally) in [(true, &mut with), (false, &mut without)] {
+            let mut state = before.clone();
+            let mut rng = Rng::randomize(state.seed);
+            let used = if apply {
+                orders.clone()
+            } else {
+                TurnOrders::default()
+            };
+            generate_turn_with_orders(&mut state, &used, &mut rng);
+            for id in &named {
+                let (Some(ours), Some(theirs)) = (
+                    state.planets.iter().find(|p| p.id == *id),
+                    after.planets.iter().find(|p| p.id == *id),
+                ) else {
+                    continue;
+                };
+                if ours.pop == theirs.pop {
+                    *tally += 1;
+                }
+            }
+        }
+    }
+
+    if named_total == 0 {
+        eprintln!("skipping: no recorded transfers in the fixtures");
+        return;
+    }
+    eprintln!(
+        "cargo transfers: {named_total} planet-years named; population exact \
+         {with} with the orders, {without} without"
+    );
+    assert!(
+        with > without,
+        "applying the recorded transfers should not make the replay worse \
+         ({with} with, {without} without)"
     );
 }

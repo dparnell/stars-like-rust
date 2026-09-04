@@ -298,7 +298,7 @@ Remaining in this step:
    the `.xy` x chain starts at 1000, not 0 — confirmed because a fleet the
    engine records as orbiting a planet must stand on it, and all 43,769 such
    readings were off by exactly `(1000, 0)` before the fix and exact after.
-   **Cargo transfer is decoded** (`docs/formats/cargo.md`): it is not the
+   **Cargo transfer is decoded and wired in** (`docs/formats/cargo.md`): it is not the
    waypoint's Transport task, which is consumed on execution and reads 0 on all
    50,173 waypoints in the fixtures, but block types 1, 2, 23 and 25 in the `.x`
    order files. Ids and quantities decode; the two mode bytes are constant

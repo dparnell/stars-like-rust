@@ -55,6 +55,7 @@ pub mod hab;
 pub mod load;
 pub mod mining;
 pub mod movement;
+pub mod orders;
 pub mod planet;
 pub mod population;
 pub mod production;
@@ -89,7 +90,7 @@ pub use resources::{
 };
 pub use rng::Rng;
 pub use scanning::{combine_ranges, planet_scanner_range, ScannerRange};
-pub use turn::{generate_turn, SkippedStep, TurnReport};
+pub use turn::{generate_turn, generate_turn_with_orders, SkippedStep, TurnOrders, TurnReport};
 
 /// One player: their race, their research, and the settings that drive both.
 #[derive(Debug, Clone, PartialEq, Eq)]
