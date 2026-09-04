@@ -298,7 +298,8 @@ Remaining in this step:
    mining remain unprocessed, though **landing colonists is now recovered**:
    `DropColonists` does both settling and invasion, and its weights (attackers
    110%, War Monger 165%, Alternate Reality 0%; defenders 100%, Inner Strength
-   200%) and winner rule are implemented in `stars-core::ground`. See
+   200%) and winner rule are implemented in `stars-core::ground`, along with the queue a new planet inherits from its
+   owner's template and the wreckage salvage a captured planet grants. See
    `docs/formulas/ground.md`.
 3. **RNG alignment through a turn** — investigated, and **blocked by the game's
    design rather than by effort**. There are two generators; the gameplay one

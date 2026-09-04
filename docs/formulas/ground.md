@@ -53,9 +53,6 @@ the original's formula.
 
 ## Also in `DropColonists`, not yet transcribed
 
-- **Wreckage salvage.** Taking an inhabited planet runs `ITechLearnATech`
-  against the loser's technology — the "wreckage discovered, research boosted"
-  message.
 - **Mineral discovery.** A settling can grant a random mineral concentration
   bonus, gated on a game flag and `Random(6)` / `Random(301)`.
 
@@ -106,3 +103,52 @@ after the relations table and the packed names.
 So the *rule* is recovered and its filter verified, but the template a given
 player would hand a new planet cannot be read from these saves. Predicting the
 exact queue a settling produces needs it.
+
+
+## Wreckage salvage
+
+Taking an inhabited planet copies the loser's six technology levels into
+`rgTechBattle` and calls `ITechLearnATech` — the "wreckage discovered, research
+boosted" message. Implemented as `ground::learn_from_wreckage`.
+
+```
+if the player already learned something this turn:  nothing
+if Random(100) <= 49:                               nothing        # so half the time
+repeat 6 times:
+    f = Random(6)
+    if myTech[f] < loserTech[f]:
+        credit GetTechLevelCost(f, myTech[f] + 1) to rgResSpent[f]
+        mark the player as having learned this turn
+        stop
+```
+
+Three things are worth drawing out.
+
+**It is not a free level.** The routine credits the *resources* the next level
+costs, into `rgResSpent` for that field. The level then arrives at the next
+research tick like any other, which is why the message speaks of research being
+boosted rather than a level gained.
+
+**One per turn, from any source.** Bit 3 of the player's state word is set on
+success and checked on entry, so a player who has already learned from a
+Mystery Trader or another wreck this turn takes nothing from this one.
+
+**The field is drawn, not chosen.** Six attempts each pick a field with
+`Random(6)` and take the first where the loser led. A player behind in one
+field of six is therefore likelier to come away empty-handed than the "half the
+time" gate suggests.
+
+### The Mystery Trader half
+
+The same routine tries thirteen Mystery Trader parts first, each with its own
+percentage in `rgTechTrader`, skipping any the player already holds
+(`PLAYER.grbitTrader`). It is not modelled: the part table is not in any
+fixture.
+
+### Not verified
+
+Nothing in the fixtures exercises this. Only 56 planets change hands across
+`fixtures/games/all-computer-players`, none of them attributable to an invasion
+without the fleet orders, and a credited research cost is indistinguishable in
+a save file from research the player paid for itself. The transcription is
+structural, and the unit tests check its shape rather than its output.

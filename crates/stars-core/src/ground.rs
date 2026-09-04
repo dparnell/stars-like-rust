@@ -8,7 +8,9 @@
 //! players who both send colonists to the same empty world contest it, and an
 //! invasion by several players at once is a three-way fight.
 
-use crate::race::Prt;
+use crate::race::{Prt, Race};
+use crate::research::{tech_level_cost, Research};
+use crate::rng::Rng;
 
 /// How much an attacker's colonists are worth, as a percentage.
 ///
@@ -165,6 +167,84 @@ pub fn resolve_landings(defender: Option<(i32, Option<Prt>)>, landings: &[Landin
     }
 }
 
+/// The number of technology fields wreckage can teach.
+pub const TECH_FIELDS: usize = 6;
+
+/// A player learns at most one thing per turn from wreckage or a trader
+/// (`10f8:...` sets bit 3 of the player's state word and every entry checks it).
+pub const ONE_PER_TURN: bool = true;
+
+/// What a player took away from a wreck.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Salvage {
+    /// The technology field advanced, 0 to 5.
+    pub field: usize,
+    /// Resources credited toward that field's next level. This is **not** a
+    /// free level: the research is paid for, and the level arrives at the next
+    /// research tick like any other.
+    pub resources: i32,
+}
+
+/// Learn a technology from a beaten enemy's wreckage.
+///
+/// Source: `ITechLearnATech` (`10f8:...`), called from `DropColonists` when an
+/// inhabited planet is taken, with the loser's six technology levels copied
+/// into `rgTechBattle` first.
+///
+/// The shape of it:
+///
+/// 1. A player who has already learned something this turn gets nothing —
+///    one per turn, whatever the source.
+/// 2. `Random(100)` must come out **above 49**, so it works half the time.
+/// 3. Six attempts, each picking a field with `Random(6)`. A field where the
+///    loser knew more than the winner is taken, and the cost of the winner's
+///    next level in that field is credited to its research.
+///
+/// The Mystery Trader half of the routine — thirteen parts, each with its own
+/// chance — is not modelled here: it needs the trader's part table, which no
+/// fixture carries.
+///
+/// `slow_tech` is the game option that doubles research costs, which feeds
+/// straight through [`tech_level_cost`].
+///
+/// # Not verified
+///
+/// Nothing in the fixtures exercises this. Only 56 planets change hands across
+/// `fixtures/games/all-computer-players`, none of them attributable to an
+/// invasion without the fleet orders, and a credited research cost is
+/// indistinguishable in a save file from research the player paid for itself.
+#[must_use]
+pub fn learn_from_wreckage(
+    winner: &Research,
+    winner_race: &Race,
+    loser_tech: [u8; TECH_FIELDS],
+    already_learned_this_turn: bool,
+    slow_tech: bool,
+    rng: &mut Rng,
+) -> Option<Salvage> {
+    if already_learned_this_turn {
+        return None;
+    }
+    if i32::from(rng.random(100)) <= 49 {
+        return None;
+    }
+    for _ in 0..TECH_FIELDS {
+        let field = usize::try_from(rng.random(6)).unwrap_or(0);
+        let (Some(mine), Some(theirs)) = (
+            winner.levels.get(field).copied(),
+            loser_tech.get(field).copied(),
+        ) else {
+            continue;
+        };
+        if mine >= theirs {
+            continue;
+        }
+        let resources = tech_level_cost(field, mine + 1, winner, winner_race, slow_tech);
+        return Some(Salvage { field, resources });
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,6 +364,57 @@ mod tests {
         for i in 0..=12u16 {
             assert!(template_allows(Some(Prt::Joat), i));
         }
+    }
+
+    /// Salvage never fires twice in a turn, and never from a loser who knew
+    /// less.
+    #[test]
+    fn wreckage_only_teaches_what_the_loser_knew_better() {
+        use crate::research::Research;
+
+        let race = Race::humanoid();
+        let winner = Research {
+            levels: [3, 3, 3, 3, 3, 3],
+            ..Research::default()
+        };
+
+        // Already learned this turn: nothing, whatever the wreck holds.
+        let mut rng = Rng::randomize(1);
+        assert_eq!(
+            learn_from_wreckage(&winner, &race, [9; 6], true, false, &mut rng),
+            None
+        );
+
+        // A loser who knew no more teaches nothing, however many seeds we try.
+        for seed in 0..50u32 {
+            let mut rng = Rng::randomize(seed);
+            assert_eq!(
+                learn_from_wreckage(&winner, &race, [3; 6], false, false, &mut rng),
+                None,
+                "seed {seed}"
+            );
+        }
+
+        // A better-informed loser eventually teaches something, and only in a
+        // field it actually led in.
+        let mut taught = 0;
+        for seed in 0..200u32 {
+            let mut rng = Rng::randomize(seed);
+            let loser = [9, 3, 3, 3, 3, 3];
+            if let Some(s) = learn_from_wreckage(&winner, &race, loser, false, false, &mut rng) {
+                assert_eq!(s.field, 0, "only field 0 was ahead");
+                assert!(
+                    s.resources > 0,
+                    "the credit should be the next level's cost"
+                );
+                taught += 1;
+            }
+        }
+        assert!(
+            taught > 20,
+            "expected salvage to fire sometimes, got {taught}"
+        );
+        assert!(taught < 200, "and not always");
     }
 
     #[test]
