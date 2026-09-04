@@ -26,6 +26,29 @@ impl StarsApp {
         Self { app }
     }
 
+    fn save(&mut self, ask: bool) {
+        let target = if ask || self.app.path.is_none() {
+            rfd::FileDialog::new()
+                .set_title("Save the game")
+                .set_file_name(
+                    self.app
+                        .path
+                        .as_ref()
+                        .and_then(|p| p.file_name())
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "game.m1".into()),
+                )
+                .save_file()
+        } else {
+            self.app.path.clone()
+        };
+        let Some(path) = target else { return };
+        match self.app.save(&path) {
+            Ok(()) => self.app.error = None,
+            Err(e) => self.app.error = Some(e),
+        }
+    }
+
     fn pick_file(&mut self) {
         let picked = rfd::FileDialog::new()
             .set_title("Open a Stars! save")
@@ -57,6 +80,26 @@ impl eframe::App for StarsApp {
                         ui.close_menu();
                         self.pick_file();
                     }
+                    let open = self.app.game.is_some();
+                    if ui
+                        .add_enabled(open, egui::Button::new("Save"))
+                        .on_hover_text(
+                            "Writes back only what you changed. Everything this project \
+                             does not model is kept exactly as it was read.",
+                        )
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.save(false);
+                    }
+                    if ui
+                        .add_enabled(open, egui::Button::new("Save as…"))
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.save(true);
+                    }
+                    ui.separator();
                     if ui.button("Quit").clicked() {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
@@ -87,7 +130,11 @@ impl eframe::App for StarsApp {
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(self.app.status_line());
+                    let mut status = self.app.status_line();
+                    if self.app.dirty {
+                        status.push_str(" · unsaved changes");
+                    }
+                    ui.label(status);
                 });
             });
         });

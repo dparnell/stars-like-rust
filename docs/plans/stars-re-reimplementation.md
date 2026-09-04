@@ -530,18 +530,46 @@ disagree.
    never offered terraforming and an Alternate Reality race is offered no
    installation at all. **Turn generation** is wired to a button, and reports
    what it did *and what it did not simulate*.
-6. **Order entry** — the other half of `TurnOrders`, and what now stands between
-   this and a playable game. Production is editable; fleet waypoints, cargo
-   transfers and research settings are not. The turn generator already consumes
-   a `TurnOrders`, so this is plumbing a UI into a shape the engine takes.
-   **Saving** is the other half of it: nothing writes a file back yet, though
-   `stars-formats` round-trips every format byte-for-byte, so the machinery is
-   there.
+6. ~~**Order entry and saving.**~~ **Done, for four kinds of order.** Cargo can
+   be moved between a fleet and the planet it orbits, a fleet can be sent to a
+   planet at a chosen warp, research can be dialled, and a production queue
+   edited. A transfer is applied **at once** and logged, which is what the game
+   does — an order file records what the client already did, not what it intends.
+   **Saving writes back only what was changed**: 2,063 fixture files save
+   byte-for-byte identical when untouched, and an edited queue survives a save
+   and reload. See "Saving is not re-encoding" below.
+7. **What is still missing to call it playable.** Waypoint *tasks* (colonise,
+   transport, remote mining) cannot be set from the UI even though the turn
+   generator executes them; there is no new-game flow, so a game must be opened
+   from an existing save; and no `.x` order file is written, so the orders a
+   player makes reach the turn generator but not a host.
 7. **The race wizard**, which needs `CAdvantagePoints` to price a race. It is
    located (`10e0:444c`, in `docs/ghidra/stars-signatures.csv`) but not
    transcribed, and remains the largest unknown in this step. `FGenerateTurn`
    calls it to re-price every race each turn and to claw points back from a race
    that prices above 500, which is a usable cross-check once it is written.
+
+#### Saving is not re-encoding
+
+A save file is mostly data this project models partially or not at all. A save
+that re-derived the file from `GameState` would quietly lose whatever was not
+understood, so saving keeps the file exactly as it was read and replaces only
+the blocks the player changed.
+
+Two boundaries turned out to matter, and both were found by a test asserting
+that an untouched game saves byte-for-byte:
+
+- **Only edited queues are rewritten.** Re-encoding an untouched queue from the
+  simulation's own model produced different bytes, because that model is a
+  simplification of the file's.
+- **Only the latest segment is rewritten.** A `.mN` can hold several turns —
+  Exodus's do — and the game state is read from the last of them. Writing the
+  current queues over an earlier turn's would corrupt the history the file is
+  keeping.
+
+The production queue is the one record type that can now be *written*
+(`ProductionQueueRecord::encode`), and it round-trips on all 26,938 queue blocks
+in the fixtures before ever being asked to write an edit.
 
 #### Carried into Step 5 unverified
 

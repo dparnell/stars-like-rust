@@ -21,8 +21,11 @@
 //! auto-build item runs (e.g. five auto-factory items, the first partly built,
 //! plus an auto-mine item).
 //!
-//! Like the other record decoders this is an *interpreted, read-only view*;
-//! byte-exact write-back still goes through the container in [`crate::file`].
+//! Unlike the other record decoders this one can also **write**: a production
+//! queue is the one thing a player edits that has to reach the file, so
+//! [`QueueItem::to_word`] and [`ProductionQueueRecord::encode`] pack the entries
+//! back. Everything else still round-trips as opaque bytes through
+//! [`crate::file`].
 
 use crate::block::BlockType;
 use crate::file::StarsFile;
@@ -64,6 +67,26 @@ pub struct QueueItem {
     pub class: QueueClass,
     /// How far the *first* unit has been paid for, as a percentage (0-99).
     pub completion: u16,
+}
+
+impl QueueItem {
+    /// Pack this entry back into its 32-bit word.
+    ///
+    /// The inverse of the decode above, writing the same fields
+    /// `AddItemToQueue` writes. Bits 27-31 are left zero, as the game leaves
+    /// them when it queues an item; they are zero in every fixture.
+    #[must_use]
+    pub fn to_word(self) -> u32 {
+        let class = match self.class {
+            QueueClass::Planet => 1,
+            QueueClass::Fleet => 2,
+            QueueClass::Other(raw) => u32::from(raw),
+        };
+        (u32::from(self.count) & 0x3FF)
+            | ((u32::from(self.item) & 0x7F) << 10)
+            | ((class & 0x7) << 17)
+            | ((u32::from(self.completion) & 0x7F) << 20)
+    }
 }
 
 /// A decoded production queue (type-28 or type-29 block).
@@ -137,6 +160,22 @@ impl ProductionQueueRecord {
     }
 }
 
+impl ProductionQueueRecord {
+    /// Pack the queue back into a type-28 block payload.
+    ///
+    /// The type-28 form is a bare list of items with no planet id — the
+    /// association is positional, the queue belonging to the planet block it
+    /// follows. A caller replacing one must keep it in the same place.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.items.len() * 4);
+        for item in &self.items {
+            out.extend_from_slice(&item.to_word().to_le_bytes());
+        }
+        out
+    }
+}
+
 /// Decode every production-queue block (type 28) in a decoded [`StarsFile`], in
 /// file order.
 ///
@@ -188,6 +227,63 @@ pub fn production_queues_by_planet(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every queue block in every fixture packs back to the bytes it came from.
+    ///
+    /// This is the check that makes saving safe: an edited queue is written
+    /// with the same encoder, so anything it gets wrong would show up here
+    /// first on the thousands of queues the fixtures already contain.
+    #[test]
+    fn every_recorded_queue_round_trips() {
+        use crate::file::StarsFile;
+        use std::path::Path;
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let games = root.join("fixtures/games");
+        if !games.is_dir() {
+            eprintln!("skipping: no fixtures");
+            return;
+        }
+
+        let mut checked = 0usize;
+        let mut stack = vec![games];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                let Ok(bytes) = std::fs::read(&path) else {
+                    continue;
+                };
+                let Ok(file) = StarsFile::decode(&bytes) else {
+                    continue;
+                };
+                for block in &file.blocks {
+                    if block.block_type() != BlockType::ProductionQueue {
+                        continue;
+                    }
+                    let decoded = ProductionQueueRecord::decode(&block.data);
+                    assert_eq!(
+                        decoded.encode(),
+                        block.data,
+                        "queue block did not round-trip in {}",
+                        path.display()
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 100, "expected many queues, checked {checked}");
+        eprintln!("production queues round-tripped: {checked}");
+    }
 
     /// Encode a queue item into its packed 32-bit word (test helper), using the
     /// field layout `AddItemToQueue` writes.

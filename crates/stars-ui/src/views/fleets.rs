@@ -15,6 +15,11 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         .map(|(i, f)| (i, format!("fleet {} — {} ships", f.id, f.ships()), f.owner))
         .collect();
     let selected = app.selection.fleet;
+    // Chosen inside the panels, applied after: the game is borrowed for the
+    // whole of each closure.
+    let mut transfer: Option<(usize, usize, i32)> = None;
+    let mut destination: Option<(usize, i16)> = None;
+    let mut warp = app.warp;
 
     egui::SidePanel::left("fleet_list")
         .resizable(true)
@@ -120,5 +125,83 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 ));
             }
         }
+
+        // --- orders
+        let index = app.selection.fleet.unwrap_or(0);
+        let orbiting = fleet.orbiting;
+        let destinations: Vec<(i16, String)> = game
+            .planets
+            .iter()
+            .chain(game.known_planets.iter())
+            .filter(|p| p.position.is_some())
+            .map(|p| (p.id, format!("{} ({})", p.name.unwrap_or("unnamed"), p.id)))
+            .collect();
+
+        ui.separator();
+        ui.heading("orders");
+
+        if let Some(planet) = orbiting {
+            ui.label(format!("cargo, to and from planet {planet}"));
+            ui.label(
+                egui::RichText::new(
+                    "A transfer happens at once and is logged, which is what the game \
+                     does: an order file records what the client already did.",
+                )
+                .weak()
+                .small(),
+            );
+            for (kind, name) in [
+                (0usize, "ironium"),
+                (1, "boranium"),
+                (2, "germanium"),
+                (3, "colonists"),
+            ] {
+                ui.horizontal(|ui| {
+                    ui.label(format!("{name}:"));
+                    if ui.small_button("load 100").clicked() {
+                        transfer = Some((index, kind, 100));
+                    }
+                    if ui.small_button("load 10").clicked() {
+                        transfer = Some((index, kind, 10));
+                    }
+                    if ui.small_button("unload 10").clicked() {
+                        transfer = Some((index, kind, -10));
+                    }
+                    if ui.small_button("unload all").clicked() {
+                        let held = match kind {
+                            3 => fleet.cargo.colonists,
+                            k => fleet.cargo.minerals[k],
+                        };
+                        transfer = Some((index, kind, -held));
+                    }
+                });
+            }
+        } else {
+            ui.label(egui::RichText::new("not in orbit, so nothing to load from").weak());
+        }
+
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            ui.label("send to:");
+            egui::ComboBox::from_id_source("destination")
+                .selected_text("choose a planet")
+                .show_ui(ui, |ui| {
+                    for (id, label) in &destinations {
+                        if ui.selectable_label(false, label).clicked() {
+                            destination = Some((index, *id));
+                        }
+                    }
+                });
+            ui.label("at warp");
+            ui.add(egui::DragValue::new(&mut warp).range(1..=10));
+        });
     });
+
+    if let Some((fleet, kind, amount)) = transfer {
+        app.transfer_cargo(fleet, kind, amount);
+    }
+    if let Some((fleet, planet)) = destination {
+        app.set_destination(fleet, planet, warp);
+    }
+    app.warp = warp;
 }

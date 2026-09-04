@@ -7,7 +7,11 @@
 use std::path::{Path, PathBuf};
 
 use stars_core::{GameState, Planet};
-use stars_formats::{battle_records_in_with, ActionLayout, BattleRecord, StarsFile, Universe};
+use stars_formats::block::{Block, BlockType};
+use stars_formats::production::{ProductionQueueRecord, QueueClass, QueueItem};
+use stars_formats::{
+    battle_records_in_with, ActionLayout, BattleRecord, PlanetRecord, StarsFile, Universe,
+};
 
 use crate::vcr::Vcr;
 
@@ -80,6 +84,22 @@ pub struct App {
     pub error: Option<String>,
     /// What the last generated turn did, for the frontend to show.
     pub last_turn: Option<TurnSummary>,
+    /// The file exactly as it was read, so saving can put back everything the
+    /// simulation does not model.
+    file: Option<StarsFile>,
+    /// Whether anything has been changed since it was loaded.
+    pub dirty: bool,
+    /// Planets whose queue the player has edited. Only these are rewritten.
+    edited: std::collections::BTreeSet<i16>,
+    /// The warp the fleet screen last used, remembered between orders.
+    pub warp: u8,
+    /// Cargo transfers performed this turn.
+    ///
+    /// A Stars! order log is **not** a list of intentions: it records what the
+    /// player's client already did, so the host can replay it and stay in step.
+    /// So a transfer is applied to the game the moment it is made, and kept
+    /// here as the record a `.x` file would carry. Nothing re-applies them.
+    pub orders: Vec<stars_formats::CargoTransferRecord>,
 }
 
 /// A generated turn, reduced to what a player wants to be told.
@@ -115,7 +135,10 @@ impl App {
     /// Create an empty application (no game loaded).
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            warp: 7,
+            ..Self::default()
+        }
     }
 
     /// Human-readable one-line status used by the frontends' title bars.
@@ -166,8 +189,150 @@ impl App {
         self.playing = false;
         self.game = Some(state);
         self.path = Some(path.to_path_buf());
+        self.file = Some(file);
+        self.dirty = false;
+        self.edited.clear();
+        self.orders.clear();
         self.error = None;
         Ok(())
+    }
+
+    /// Write the game back, as bytes.
+    ///
+    /// Saving is **not** re-encoding the simulation. The overwhelming majority
+    /// of a save file is data this project models partially or not at all, and
+    /// re-deriving it would lose whatever was not understood. So the file is
+    /// kept exactly as it was read and only the blocks the player actually
+    /// changed are replaced — today that is the production queues.
+    ///
+    /// A queue is a type-28 block and its planet is positional: it belongs to
+    /// the planet block it follows, and in every one of the 26,938 queue blocks
+    /// in this repository's fixtures it sits **immediately** after. A planet
+    /// that gained a queue therefore gets one inserted in that position, and a
+    /// planet whose queue was emptied has its block dropped.
+    ///
+    /// Two boundaries matter and are easy to get wrong. Only queues the player
+    /// **actually edited** are rewritten — a queue re-encoded from the
+    /// simulation's own model would come back subtly different wherever that
+    /// model is a simplification, and there is no reason to touch it. And only
+    /// the **latest segment** is rewritten: a file can hold several turns, the
+    /// game state is read from the last of them, and writing the current queues
+    /// over an earlier turn's would corrupt the history the file is keeping.
+    ///
+    /// # Errors
+    /// Returns a message suitable for showing to the player.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
+        let file = self.file.as_ref().ok_or("no file is open")?;
+        let game = self.game.as_ref().ok_or("no game is loaded")?;
+
+        let source = &file.blocks;
+        let latest = file.latest_segment();
+        let (first, last) = (latest.start, latest.end);
+        let mut blocks: Vec<Block> = Vec::with_capacity(source.len());
+        let mut pending: Option<u16> = None;
+
+        for (index, block) in source.iter().enumerate() {
+            if index < first || index >= last {
+                // An earlier turn the file is keeping: leave it alone.
+                blocks.push(block.clone());
+                continue;
+            }
+            match block.block_type() {
+                BlockType::Planet => {
+                    blocks.push(block.clone());
+                    pending = PlanetRecord::decode(&block.data, block.type_id).map(|p| p.id);
+                    // A planet that has gained a queue needs a block making for
+                    // it, in the position the game puts one.
+                    let next_is_queue = source
+                        .get(index + 1)
+                        .is_some_and(|b| b.block_type() == BlockType::ProductionQueue);
+                    if !next_is_queue {
+                        if let Some(encoded) = pending
+                            .filter(|id| self.was_edited(*id))
+                            .and_then(|id| self.encode_queue(game, id))
+                        {
+                            if !encoded.is_empty() {
+                                blocks.push(
+                                    Block::new(BlockType::ProductionQueue.id(), encoded)
+                                        .map_err(|e| format!("cannot write a queue: {e}"))?,
+                                );
+                            }
+                        }
+                        pending = None;
+                    }
+                }
+                BlockType::ProductionQueue => {
+                    let encoded = pending
+                        .take()
+                        .filter(|id| self.was_edited(*id))
+                        .and_then(|id| self.encode_queue(game, id))
+                        .unwrap_or_else(|| block.data.clone());
+                    // An emptied queue loses its block rather than keeping an
+                    // empty one, which is what a file with no queue looks like.
+                    if !encoded.is_empty() {
+                        blocks.push(
+                            Block::new(BlockType::ProductionQueue.id(), encoded)
+                                .map_err(|e| format!("cannot write a queue: {e}"))?,
+                        );
+                    }
+                }
+                BlockType::PartialPlanet | BlockType::MinimalPlanet => {
+                    pending = None;
+                    blocks.push(block.clone());
+                }
+                _ => blocks.push(block.clone()),
+            }
+        }
+
+        let mut out = file.clone();
+        out.blocks = blocks;
+        out.encode()
+            .map_err(|e| format!("cannot write the file: {e}"))
+    }
+
+    /// Write the game back to a file.
+    ///
+    /// # Errors
+    /// Returns a message suitable for showing to the player.
+    pub fn save(&mut self, path: &Path) -> Result<(), String> {
+        let bytes = self.to_bytes()?;
+        std::fs::write(path, bytes).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+        self.path = Some(path.to_path_buf());
+        self.dirty = false;
+        Ok(())
+    }
+
+    /// Whether the player changed this planet's queue.
+    fn was_edited(&self, id: u16) -> bool {
+        i16::try_from(id).is_ok_and(|id| self.edited.contains(&id))
+    }
+
+    /// The packed queue for one planet, or `None` if the game has no such
+    /// planet to speak for.
+    fn encode_queue(&self, game: &GameState, id: u16) -> Option<Vec<u8>> {
+        let wanted = i16::try_from(id).ok()?;
+        let planet = game.planets.iter().find(|p| p.id == wanted)?;
+        let items = planet
+            .queue
+            .iter()
+            .map(|entry| QueueItem {
+                count: u16::try_from(entry.count).unwrap_or(0),
+                item: entry.item,
+                class: if entry.ship {
+                    QueueClass::Fleet
+                } else {
+                    QueueClass::Planet
+                },
+                completion: u16::try_from(entry.completion).unwrap_or(0),
+            })
+            .collect();
+        Some(
+            ProductionQueueRecord {
+                planet_id: None,
+                items,
+            }
+            .encode(),
+        )
     }
 
     /// Advance the game by one year.
@@ -198,6 +363,104 @@ impl App {
                 .collect(),
             skipped: report.skipped.iter().map(|s| format!("{s:?}")).collect(),
         });
+    }
+
+    /// Move cargo between a fleet and the planet it orbits.
+    ///
+    /// `amount` is what the **fleet** gains, matching the order log's own sign
+    /// convention: positive loads from the planet, negative unloads onto it.
+    /// The move is applied at once, because that is what the client does, and
+    /// recorded in [`Self::orders`].
+    ///
+    /// Returns how much actually moved — a hold has a capacity and a planet has
+    /// only what it has.
+    pub fn transfer_cargo(&mut self, fleet: usize, kind: usize, amount: i32) -> i32 {
+        use stars_core::orders::{apply_cargo_transfer, CARGO_KINDS};
+        use stars_formats::{CargoTransferRecord, GrobjClass};
+
+        if amount == 0 || kind >= CARGO_KINDS {
+            return 0;
+        }
+        let Some(game) = self.game.as_mut() else {
+            return 0;
+        };
+        let Some(fleet_record) = game.fleets.get(fleet) else {
+            return 0;
+        };
+        let Some(planet) = fleet_record.orbiting else {
+            return 0;
+        };
+        // The order names a fleet by the word the file packs: the number in the
+        // low nine bits and the owner above it.
+        let owner = u16::try_from(fleet_record.owner.max(0)).unwrap_or(0);
+        let source = (owner << 9) | (fleet_record.id & 0x1ff);
+
+        let mut quantities = [0i32; CARGO_KINDS];
+        quantities[kind] = amount;
+        let record = CargoTransferRecord {
+            source,
+            destination: planet,
+            source_class: Some(GrobjClass::Fleet),
+            destination_class: Some(GrobjClass::Planet),
+            mode: 0x12,
+            selector: 1 << kind,
+            quantities,
+        };
+        let moved = apply_cargo_transfer(game, &record)[kind];
+        if moved != 0 {
+            let mut done = record;
+            done.quantities[kind] = moved;
+            self.orders.push(done);
+            self.dirty = true;
+        }
+        moved
+    }
+
+    /// Set what share of a player's resources goes to research.
+    pub fn set_research(&mut self, player: usize, percent: u8) {
+        if let Some(p) = self.game.as_mut().and_then(|g| g.players.get_mut(player)) {
+            p.research_pct = percent.min(100);
+            self.dirty = true;
+        }
+    }
+
+    /// Send a fleet to a planet, at a given warp.
+    ///
+    /// This replaces whatever the fleet was doing: its waypoint list becomes
+    /// where it is now, then where it is going.
+    pub fn set_destination(&mut self, fleet: usize, planet: i16, warp: u8) {
+        let Some(game) = self.game.as_mut() else {
+            return;
+        };
+        let Some(target) = game
+            .planets
+            .iter()
+            .chain(game.known_planets.iter())
+            .find(|p| p.id == planet)
+            .and_then(|p| p.position)
+        else {
+            return;
+        };
+        let Some(fleet) = game.fleets.get_mut(fleet) else {
+            return;
+        };
+        let here = fleet.position;
+        fleet.waypoints = vec![
+            stars_core::fleet::Waypoint {
+                position: here,
+                target: None,
+                warp: 0,
+                task: 0,
+            },
+            stars_core::fleet::Waypoint {
+                position: target,
+                target: u16::try_from(planet).ok(),
+                warp,
+                task: 0,
+            },
+        ];
+        fleet.warp = Some(warp);
+        self.dirty = true;
     }
 
     /// Start playing a battle.
@@ -240,6 +503,7 @@ impl App {
     /// making a second one, which is what the original's `AddItemToQueue` does
     /// and what a player expects.
     pub fn queue_add(&mut self, item: u16, count: i32) {
+        self.note_edit();
         let Some(planet) = self.selected_planet_mut() else {
             return;
         };
@@ -256,6 +520,7 @@ impl App {
 
     /// Remove one entry from the selected planet's queue.
     pub fn queue_remove(&mut self, index: usize) {
+        self.note_edit();
         if let Some(planet) = self.selected_planet_mut() {
             if index < planet.queue.len() {
                 planet.queue.remove(index);
@@ -268,6 +533,7 @@ impl App {
     /// Order matters: production works the queue from the front, so an item
     /// ahead of another takes its resources first.
     pub fn queue_move(&mut self, index: usize, delta: isize) {
+        self.note_edit();
         let Some(planet) = self.selected_planet_mut() else {
             return;
         };
@@ -276,6 +542,14 @@ impl App {
         };
         if index < planet.queue.len() && target < planet.queue.len() {
             planet.queue.swap(index, target);
+        }
+    }
+
+    /// Mark the selected planet's queue as changed, so saving rewrites it.
+    fn note_edit(&mut self) {
+        self.dirty = true;
+        if let Some(id) = self.selection.planet {
+            self.edited.insert(id);
         }
     }
 
@@ -483,6 +757,217 @@ mod tests {
         // The report names what it did not do, so a partial turn cannot be
         // mistaken for a complete one.
         assert!(!turn.skipped.is_empty());
+    }
+
+    /// Saving an untouched game gives back the bytes it was read from.
+    ///
+    /// This is the property that makes saving safe at all. Most of a save file
+    /// is data this project models partially or not at all, so a save that
+    /// re-derived the file would quietly lose whatever was not understood.
+    /// Saving here replaces only the blocks the player changed, and when they
+    /// have changed nothing the file must come back byte-for-byte.
+    #[test]
+    fn saving_an_untouched_game_changes_nothing() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let games = root.join("fixtures/games");
+        if !games.is_dir() {
+            eprintln!("skipping: no fixtures");
+            return;
+        }
+
+        let mut checked = 0usize;
+        let mut stack = vec![games];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                let is_save = path.extension().is_some_and(|x| {
+                    let x = x.to_string_lossy().to_lowercase();
+                    x == "hst" || (x.starts_with('m') && x.len() == 2)
+                });
+                if !is_save {
+                    continue;
+                }
+                let Ok(original) = std::fs::read(&path) else {
+                    continue;
+                };
+                let mut app = App::new();
+                if app.open(&path).is_err() {
+                    continue;
+                }
+                let written = app.to_bytes().expect("an open game saves");
+                assert_eq!(
+                    written,
+                    original,
+                    "saving changed {} without being asked to",
+                    path.display()
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked > 100, "expected many save files, checked {checked}");
+        eprintln!("saved unchanged, byte for byte: {checked} files");
+    }
+
+    /// An edited queue survives a save and a reload, and nothing else moves.
+    #[test]
+    fn an_edited_queue_survives_a_round_trip() {
+        use stars_core::production::item;
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let path = root.join("fixtures/games/exodus/2414/exodus.m6");
+        if !path.is_file() {
+            eprintln!("skipping: no Exodus fixtures");
+            return;
+        }
+
+        let mut app = App::new();
+        app.open(&path).expect("the fixture loads");
+        // A planet the player owns in full, so its queue is really theirs.
+        let target = app
+            .game
+            .as_ref()
+            .unwrap()
+            .planets
+            .iter()
+            .find(|p| p.detail.is_full())
+            .map(|p| p.id)
+            .expect("an owned planet");
+        app.selection.planet = Some(target);
+        let before = app.selected_planet().unwrap().queue.len();
+
+        app.queue_add(item::FACTORY, 12);
+        assert!(app.dirty);
+        let written = app.to_bytes().expect("saves");
+
+        // Read the written bytes back as a fresh game.
+        let temp = std::env::temp_dir().join("stars-ui-queue-roundtrip.m6");
+        std::fs::write(&temp, &written).expect("writable temp dir");
+        let mut reloaded = App::new();
+        reloaded.open(&temp).expect("the written file loads");
+        let _ = std::fs::remove_file(&temp);
+
+        let planet = reloaded
+            .game
+            .as_ref()
+            .unwrap()
+            .planets
+            .iter()
+            .find(|p| p.id == target)
+            .expect("the planet is still there");
+        let _ = before;
+        let added = planet
+            .queue
+            .iter()
+            .find(|e| !e.ship && e.item == item::FACTORY)
+            .expect("the factories are queued");
+        assert!(
+            added.count >= 12,
+            "the twelve factories should have survived, saw {}",
+            added.count
+        );
+
+        // And the rest of the game came back intact.
+        let old = app.game.as_ref().unwrap();
+        let new = reloaded.game.as_ref().unwrap();
+        assert_eq!(old.planets.len(), new.planets.len());
+        assert_eq!(old.fleets.len(), new.fleets.len());
+        assert_eq!(old.year(), new.year());
+    }
+
+    /// Cargo moves at once and is recorded, and never more than there is.
+    #[test]
+    fn cargo_moves_and_is_recorded() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let path = root.join("fixtures/games/exodus/2414/exodus.m6");
+        if !path.is_file() {
+            eprintln!("skipping: no Exodus fixtures");
+            return;
+        }
+        let mut app = App::new();
+        app.open(&path).expect("the fixture loads");
+
+        // A fleet in orbit of a planet its owner holds, with room to carry.
+        let game = app.game.as_ref().unwrap();
+        let Some(index) = game.fleets.iter().position(|f| {
+            f.orbiting.is_some_and(|id| {
+                game.planets
+                    .iter()
+                    .any(|p| p.id == i16::try_from(id).unwrap_or(-1) && p.surface_min[0] > 0)
+            })
+        }) else {
+            eprintln!("skipping: no loaded fleet in orbit of a stocked planet");
+            return;
+        };
+
+        let before = game.fleets[index].cargo.minerals[0];
+        let moved = app.transfer_cargo(index, 0, 10);
+        let after = app.game.as_ref().unwrap().fleets[index].cargo.minerals[0];
+        assert_eq!(after - before, moved, "the hold gained exactly what moved");
+        if moved != 0 {
+            assert_eq!(app.orders.len(), 1, "and the order was recorded");
+            assert_eq!(app.orders[0].quantities[0], moved, "at what actually moved");
+            assert!(app.dirty);
+        }
+
+        // Asking for nothing does nothing, and a bad cargo kind is refused.
+        assert_eq!(app.transfer_cargo(index, 0, 0), 0);
+        assert_eq!(app.transfer_cargo(index, 99, 5), 0);
+    }
+
+    /// Research is clamped, and a destination gives the fleet a course.
+    #[test]
+    fn research_and_destinations_are_set() {
+        let mut app = App::new();
+        let mut game = GameState::new(1);
+        game.players
+            .push(stars_core::Player::new(stars_core::Race::humanoid()));
+        let mut planet = Planet::unowned(3);
+        planet.position = Some(stars_core::movement::Point::new(100, 200));
+        game.planets.push(planet);
+        game.fleets.push(stars_core::fleet::Fleet {
+            id: 1,
+            owner: 0,
+            position: stars_core::movement::Point::new(0, 0),
+            orbiting: None,
+            stacks: Vec::new(),
+            cargo: stars_core::fleet::Cargo::default(),
+            battle_plan: 0,
+            warp: None,
+            waypoints: Vec::new(),
+        });
+        app.game = Some(game);
+
+        app.set_research(0, 250);
+        assert_eq!(app.game.as_ref().unwrap().players[0].research_pct, 100);
+        app.set_research(0, 40);
+        assert_eq!(app.game.as_ref().unwrap().players[0].research_pct, 40);
+
+        app.set_destination(0, 3, 7);
+        let fleet = &app.game.as_ref().unwrap().fleets[0];
+        assert_eq!(fleet.waypoints.len(), 2);
+        assert_eq!(fleet.waypoints[1].position.x, 100);
+        assert_eq!(fleet.waypoints[1].warp, 7);
+        assert_eq!(fleet.warp, Some(7));
+
+        // A planet that is not there leaves the fleet alone.
+        app.set_destination(0, 999, 5);
+        assert_eq!(app.game.as_ref().unwrap().fleets[0].waypoints.len(), 2);
     }
 
     /// Opening a real save loads its planets, its universe and its battles.

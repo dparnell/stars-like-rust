@@ -8,6 +8,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     let Some(game) = app.game.as_ref() else {
         return;
     };
+    let mut research: Option<(usize, u8)> = None;
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         for (index, player) in game.players.iter().enumerate() {
@@ -47,7 +48,13 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                     ui.end_row();
 
                     ui.label("research");
-                    ui.label(format!("{}%", player.research_pct));
+                    let mut pct = player.research_pct;
+                    if ui
+                        .add(egui::Slider::new(&mut pct, 0..=100).suffix("%"))
+                        .changed()
+                    {
+                        research = Some((index, pct));
+                    }
                     ui.end_row();
 
                     if !player.relations.is_empty() {
@@ -74,4 +81,8 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             ui.separator();
         }
     });
+
+    if let Some((player, pct)) = research {
+        app.set_research(player, pct);
+    }
 }
