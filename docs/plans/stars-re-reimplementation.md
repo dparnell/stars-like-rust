@@ -352,6 +352,69 @@ Remaining in this step:
 - Wire `stars-desktop` (eframe/winit) to `stars-core` and `stars-formats` for new-game, save/load, and turn generation.
 - Recreate original layouts/behavior faithfully; keep rendering-independent view logic testable.
 
+#### What Step 4 settled that changes this
+
+**"Playable" has a hard dependency that is not met.** The turn generator does
+not execute waypoint tasks at all — no transport, no colonise, no remote
+mining. That is not an oversight: a task is consumed when it executes, so all
+50,173 waypoints in the fixtures read task 0 and there was nothing to verify
+against. The *rules* are recovered (`ground.md` for landing colonists,
+`mining.md` for remote mining, `cargo.md` for transfers), but nothing calls
+them. **Executing orders is the prerequisite for a playable game**, and it
+belongs at the head of Step 5 rather than being assumed done.
+
+**A `GameState` is one player's view, not the truth.** `planets` holds what can
+be simulated; `known_planets` holds what has only been scanned, and
+`Planet::detail` says which. The scanner pane must render the two differently —
+that distinction *is* the fog of war, and it falls out of the loader rather than
+needing UI-side bookkeeping.
+
+**The production dialog is race-dependent, and the rule is already written
+down.** An Alternate Reality race builds no planetary installation and a Claim
+Adjuster never terraforms; `ground::template_allows` encodes exactly the filter
+the game applies. The dialog should drive off it rather than reimplement it.
+
+**A queue entry is a running balance, not an order.** Its fields are
+`count:10, item:7, class:3, completion:7` — remaining count and percent paid,
+not what was chosen. The dialog should present it that way. Auto-build items
+are their own ids (`mdIdleFactory` 7, `mdIdleMine` 8, `mdIdleDefense` 9,
+`mdIdleAlchemy` 11, `mdIdleTerraform` 12), not a flag; ship entries carry
+`class = grobjFleet` and a design slot, 0-15 for ships and 16-25 for starbases.
+
+**The Selection Summary's habitability figure is two numbers**, current and
+after terraforming, and both are implemented — `hab::pct_planet_desirability`
+and `colonise::pct_planet_opt_value`, with `terraform::reachable_band` for the
+environment graph's bars.
+
+**One UI-facing gap remains in terraforming.** `FCanTerraformLppl`'s
+direction-selection arm — which way the graph should show a variable moving —
+was not read confidently and is not implemented. It is needed for the
+environment graph and nothing else; see `docs/formulas/terraforming.md`.
+
+**Save files are version-dependent.** Two format details already differ between
+2.6 and 2.8 — the battle action record and the three-player starting squares —
+and every format in `docs/formats` was recovered from one game or one binary.
+The loader must not assume a version; `ActionLayout::for_version` is the
+precedent for how to handle it.
+
+#### Suggested order
+
+1. **Execute waypoint tasks** in the turn generator, wiring the recovered rules
+   for colonising, cargo transfer and remote mining. Without this there is no
+   game to put a UI on.
+2. **The battle VCR** — the one screen that can be built entirely against
+   verified data. Recordings decode in both layouts, the board and movement are
+   modelled, and it needs no order execution. A good first screen and a
+   genuine test of `stars-ui`.
+3. **Scanner and planet/fleet detail panes**, reading `planets` and
+   `known_planets`.
+4. **The production dialog**, driving off the queue model and the race filter.
+5. **The race wizard**, which needs `CAdvantagePoints` to price a race. It is
+   located (`10e0:444c`, in `docs/ghidra/stars-signatures.csv`) but not
+   transcribed, and is the largest unknown in this step. `FGenerateTurn` calls
+   it to re-price every race each turn and to claw points back from a race that
+   prices above 500, which is a usable cross-check once it is written.
+
 ###   Step 6: Add hotseat and PBEM multiplayer
 Multiple humans can play via shared files and play-by-email turn exchange.
 

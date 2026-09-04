@@ -11,6 +11,16 @@
 //! The egui/eframe views are built in Step 5 of the delivery plan. For now
 //! this crate only holds the shared application-state container so the frontend
 //! crates have something concrete to wire up.
+//!
+//! Before starting those views, read the Step 5 notes in
+//! `docs/plans/stars-re-reimplementation.md`. Several things the screens need
+//! are already settled and should be driven off `stars-core` rather than
+//! reimplemented: which planets a player merely knows about
+//! (`Planet::detail`), which production items a race may build
+//! (`ground::template_allows`), what a queue entry's fields actually mean, and
+//! the two habitability figures the Selection Summary shows. It also records
+//! the one hard dependency — the turn generator does not execute waypoint
+//! tasks yet, so there is no playable game to attach a UI to until it does.
 
 #![forbid(unsafe_code)]
 
