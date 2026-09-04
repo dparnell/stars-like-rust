@@ -1,7 +1,24 @@
 # Format: planet blocks (`rtPlanetA`/`B`/`C`, types 13 / 14 / 15)
 
-- **Status:** **decoded & verified** against real host files; typed read-only
-  view implemented in `stars-formats::planet` (`PlanetRecord`, `planet_records`)
+- **Status:** **decoded & verified** against real host files, and **losslessly
+  re-encodable**: all 318,940 planet blocks in the fixtures round-trip byte for
+  byte through `PlanetRecord::decode`/`encode` (see `writing.md`). Implemented in
+  `stars-formats::planet` (`PlanetRecord`, `planet_records`)
+
+## What the round trip added
+
+Making the decoder lossless recovered a field it had been skipping: the
+**concentration-decay accumulators** (`rgpctMinLevel`), which the mining formula
+reads and which the decoder previously stepped over. They are stored as a
+presence bitmask followed by one byte per mineral whose accumulator is non-zero;
+across all 266,403 planet blocks with detail 3 or more, each two-bit field of
+that mask reads only `0` or `1` and no stored byte is `0`. `stars-core` now
+reads the real values rather than assuming every planet is at full
+concentration.
+
+Two bitfields in the installations word — the NB09 `unused5` (bits 17-21) and
+`unused2` (bits 24-31) — are also kept now. They are zero in every planet block
+in the corpus but one, which carries 22 and 11.
 - **Reference used:** TotalHost `StarsPlanet.pl` (Rick Steeves), itself derived
   from the `starsapi` project; offsets cross-checked against
   `fixtures/incoming/turn0/Game.hst` and `fixtures/games/tutorial/tutorial.hst`

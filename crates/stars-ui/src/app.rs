@@ -349,13 +349,66 @@ impl App {
         Ok(())
     }
 
+    /// Write a generated game to disk as a complete set of Stars! files.
+    ///
+    /// `path` names the host file; the universe and one turn file per player
+    /// are written beside it under the same stem, so choosing `Kestrel.hst`
+    /// produces `Kestrel.xy`, `Kestrel.hst` and `Kestrel.m1`, `.m2`, …
+    ///
+    /// The game is then **re-opened from the host file**, so what is on screen
+    /// afterwards is what is on disk, and further saves go through the ordinary
+    /// edit-preserving path rather than rewriting everything.
+    ///
+    /// # Errors
+    /// Returns a message suitable for showing to the player.
+    pub fn save_new_game(&mut self, path: &Path) -> Result<Vec<PathBuf>, String> {
+        let game = self.game.as_ref().ok_or("no game is loaded")?;
+        let universe = self
+            .universe
+            .as_ref()
+            .ok_or("this game has no universe to write")?;
+
+        let directory = path.parent().unwrap_or_else(|| Path::new("."));
+        let stem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .filter(|s| !s.is_empty())
+            .ok_or("the file name has no stem to build the other files from")?;
+
+        let mut written = Vec::new();
+        let write = |name: String, bytes: Vec<u8>| -> Result<PathBuf, String> {
+            let target = directory.join(name);
+            std::fs::write(&target, bytes)
+                .map_err(|e| format!("cannot write {}: {e}", target.display()))?;
+            Ok(target)
+        };
+
+        let bytes = universe
+            .encode()
+            .map_err(|e| format!("cannot encode the universe: {e}"))?;
+        written.push(write(format!("{stem}.xy"), bytes)?);
+
+        let bytes = stars_core::save::host_file(game)
+            .map_err(|e| format!("cannot build the host file: {e}"))?;
+        let host = write(format!("{stem}.hst"), bytes)?;
+        written.push(host.clone());
+
+        for player in 0..game.players.len() {
+            let bytes = stars_core::save::player_file(game, player)
+                .map_err(|e| format!("cannot build player {player}'s file: {e}"))?;
+            written.push(write(format!("{stem}.m{}", player + 1), bytes)?);
+        }
+
+        self.open(&host)?;
+        Ok(written)
+    }
+
     /// Whether the loaded game can be written back to a save file.
     ///
     /// A game opened from disk can: saving replaces the blocks the player
-    /// edited and leaves the rest of the file alone. A **generated** game
-    /// cannot, because there is no file to edit and this crate has no writers
-    /// for planet, player, fleet or design blocks yet — only the `.xy`, which
-    /// [`App::save_universe`] writes.
+    /// edited and leaves the rest of the file alone. A **generated** game has
+    /// no file to edit, and is written instead by [`App::save_new_game`],
+    /// which produces the whole set of files from scratch.
     #[must_use]
     pub fn can_save_game(&self) -> bool {
         self.file.is_some()

@@ -208,19 +208,25 @@ pub struct NewPlayer {
     pub race: Race,
     /// Whether a person or the computer plays the slot.
     pub control: Control,
+    /// The race's singular name, which names the player too.
+    pub name: String,
+    /// The race's plural name.
+    pub plural_name: String,
 }
 
 impl NewPlayer {
-    /// A human player of `race`.
+    /// A human player of `race`, named "Humanoid".
     #[must_use]
     pub fn human(race: Race) -> Self {
         Self {
             race,
             control: Control::Human,
+            name: "Humanoid".to_string(),
+            plural_name: "Humanoids".to_string(),
         }
     }
 
-    /// A computer player of `race`.
+    /// A computer player of `race`, named "Humanoid".
     #[must_use]
     pub fn computer(race: Race) -> Self {
         Self {
@@ -229,6 +235,8 @@ impl NewPlayer {
                 personality: None,
                 skill_bits: 0,
             },
+            name: "Humanoid".to_string(),
+            plural_name: "Humanoids".to_string(),
         }
     }
 }
@@ -721,6 +729,10 @@ fn settle_players(
         let race = config.players[i].race.clone();
         let mut player = Player::new(race);
         player.control = config.players[i].control;
+        player.name.clone_from(&config.players[i].name);
+        player
+            .plural_name
+            .clone_from(&config.players[i].plural_name);
         player.relations = vec![0; count];
         player.research.levels = starting_tech(&player.race);
         player.research.current_field = 0;
@@ -743,7 +755,10 @@ fn settle_players(
         home.owner = Some(owner);
         home.homeworld = true;
         home.starbase = true;
-        home.starbase_design = Some(startup::FIRST_STARBASE_SLOT);
+        // `PLANET.isb` indexes the player's **starbase** design list, not the
+        // combined design array: 0 is the first starbase design, which lives at
+        // `startup::FIRST_STARBASE_SLOT` in `GameState::designs`.
+        home.starbase_design = Some(0);
         home.artifact = false;
         home.factories = 10;
         home.mines = 10;
@@ -780,7 +795,7 @@ fn settle_players(
             home.mines = 0;
             home.factories = 0;
             home.defenses = 0;
-            home.starbase_design = Some(startup::FIRST_STARBASE_SLOT + 1);
+            home.starbase_design = Some(1);
         }
     }
 
@@ -797,7 +812,7 @@ fn settle_players(
         let home_pop = planets[homes[i]].pop;
         planets[index].owner = Some(owner);
         planets[index].starbase = true;
-        planets[index].starbase_design = Some(startup::FIRST_STARBASE_SLOT + 1);
+        planets[index].starbase_design = Some(1);
         planets[index].pop = home_pop * 2 / 5;
         planets[homes[i]].pop = home_pop * 4 / 5;
         for j in 0..3 {
@@ -871,7 +886,20 @@ fn second_planet(
 /// Public because it is the one stage of generation with a numeric vector to
 /// check it against — see `crates/stars-core/tests/new_game.rs`.
 pub fn spend_leftover_points(home: &mut Planet, race: &Race) {
-    let points = advantage_points(race).min(50);
+    spend_points(home, race, advantage_points(race).min(MAX_LEFTOVER_POINTS));
+}
+
+/// The largest leftover balance a homeworld is ever stocked with.
+pub const MAX_LEFTOVER_POINTS: i16 = 50;
+
+/// Spend a **given** number of leftover points, which is the rule on its own.
+///
+/// Split out from [`spend_leftover_points`] so the rule can be checked against
+/// the turn-0 fixture's own numbers without depending on
+/// [`crate::advantage_points`] agreeing about what those numbers should be —
+/// for one of that game's two races it does not. See
+/// `docs/formulas/new-game.md`.
+pub fn spend_points(home: &mut Planet, race: &Race, points: i16) {
     if points <= 0 {
         return;
     }
@@ -1121,6 +1149,9 @@ fn starting_ships(
         };
         while designs.len() < usize::from(startup::FIRST_STARBASE_SLOT) {
             designs.push(ShipDesign {
+                name: String::new(),
+                picture: 0,
+                stored_armor: 0,
                 hull_id: -1,
                 slots: Vec::new(),
             });

@@ -27,6 +27,9 @@ fn workspace_root() -> PathBuf {
 
 fn to_design(r: &DesignRecord) -> ShipDesign {
     ShipDesign {
+        name: String::new(),
+        picture: 0,
+        stored_armor: 0,
         hull_id: i16::from(r.hull_id),
         slots: r
             .slots

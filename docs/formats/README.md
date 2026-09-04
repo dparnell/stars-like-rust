@@ -32,6 +32,9 @@ Shared foundation:
   the whole format layer in the actual shipped code. See also `../rng/prng.md`.
 - `strings.md` — the **packed-string codec** used for user-supplied text (race
   names, etc.), implemented & tested in `stars-formats::strings`.
+- `writing.md` — **writing files from scratch**: the per-record encoders, what
+  the record-by-record round trip over 1,576,529 blocks found, and the
+  block-for-block comparison against a real host file and its turn files.
 
 Per-format (payload record layouts, populated as decoded in Step 2):
 

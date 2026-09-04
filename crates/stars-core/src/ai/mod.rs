@@ -57,6 +57,21 @@ impl AiPersonality {
         })
     }
 
+    /// The three-bit dispatch value `DoAiTurn` selects on, the inverse of
+    /// [`AiPersonality::from_mode`].
+    #[must_use]
+    pub fn mode(self) -> u8 {
+        match self {
+            Self::Robotoid => 0,
+            Self::TurinDrone => 1,
+            Self::Automitron => 2,
+            Self::Rototill => 3,
+            Self::Cyber => 4,
+            Self::Macinti => 5,
+            Self::Maid => 7,
+        }
+    }
+
     /// The name Stars! shows for this opponent.
     #[must_use]
     pub fn name(self) -> &'static str {
@@ -104,6 +119,28 @@ impl Control {
         Self::Computer {
             personality: AiPersonality::from_mode(u16::from(flags) << 8),
             skill_bits: (flags >> 2) & 0x03,
+        }
+    }
+
+    /// The flags byte this control setting is stored as, the inverse of
+    /// [`Control::from_flags`].
+    ///
+    /// Bit 0 is set on every player block in the fixtures; bit 1 marks a
+    /// computer player; bits 2-3 hold the skill bits and the top three bits the
+    /// personality `DoAiTurn` dispatches on. A computer player with no
+    /// recognised personality is written as the `Robotoid` slot, because a
+    /// value the jump table skips would leave the host running no AI at all.
+    #[must_use]
+    pub fn to_flags(self) -> u8 {
+        match self {
+            Self::Human => 0x01,
+            Self::Computer {
+                personality,
+                skill_bits,
+            } => {
+                let mode = personality.map_or(0, AiPersonality::mode) & 0x07;
+                0x03 | ((skill_bits & 0x03) << 2) | (mode << 5)
+            }
         }
     }
 

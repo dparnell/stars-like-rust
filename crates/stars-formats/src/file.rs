@@ -187,6 +187,33 @@ impl StarsFile {
         join_blocks(&raw)
     }
 
+    /// Assemble a complete file from a header, a body and a footer payload.
+    ///
+    /// The inverse of reading a file that was never read: the header block is
+    /// written first as plaintext, every body block is framed and encrypted
+    /// with the keystream the header seeds, and the footer follows in
+    /// plaintext. This is what writes a `.hst` or `.mN` that this crate
+    /// produced rather than loaded.
+    ///
+    /// # Errors
+    ///
+    /// [`FormatError::Malformed`] if a block's payload is longer than the
+    /// 10-bit size field of a block header.
+    pub fn build(header: &FileHeader, body: &[Block], footer: Vec<u8>) -> Result<Vec<u8>> {
+        let mut rng = header.init_rng();
+        let mut raw = Vec::with_capacity(body.len() + 2);
+        raw.push(Block::new(FILE_HEADER_BLOCK, header.to_payload().to_vec())?);
+        for block in body {
+            if is_plaintext(block.type_id) {
+                raw.push(block.clone());
+            } else {
+                raw.push(Block::new(block.type_id, rng.apply(&block.data))?);
+            }
+        }
+        raw.push(Block::new(FILE_FOOTER_BLOCK, footer)?);
+        join_blocks(&raw)
+    }
+
     /// Count the blocks in this file grouped by [`BlockType`].
     ///
     /// A quick structural inventory of a decoded file — useful for triaging an

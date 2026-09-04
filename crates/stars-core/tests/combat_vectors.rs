@@ -139,7 +139,13 @@ fn design_armour_matches_the_vectors() {
             });
         }
 
-        let design = ShipDesign { hull_id, slots };
+        let design = ShipDesign {
+            hull_id,
+            slots,
+            name: String::new(),
+            picture: 0,
+            stored_armor: 0,
+        };
         assert_eq!(
             i64::from(design.armor(regenerating).expect("known hull")),
             i(case, "expect"),

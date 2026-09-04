@@ -232,3 +232,62 @@ fn a_generated_game_takes_orders_and_turns() {
     assert!(app.last_turn.is_some());
     draw(&mut app, Screen::Planets);
 }
+
+/// A new game can be written out whole, and comes back as a real save.
+#[test]
+fn a_new_game_can_be_saved_and_reopened() {
+    use stars_core::newgame::{NewGame, NewPlayer, Size};
+    use stars_core::opponents;
+
+    let mut app = App::new();
+    let config = NewGame {
+        name: "Saved Game".into(),
+        size: Size::Small,
+        players: vec![
+            NewPlayer::human(stars_core::Race::humanoid()),
+            opponents::opponent(1, 1).expect("Turindrones").as_player(),
+        ],
+        ..NewGame::default()
+    };
+    app.new_game(&config).expect("creates the game");
+    assert!(!app.can_save_game(), "a game with no file behind it");
+
+    let planets = app.game.as_ref().expect("game").planets.len();
+    let fleets = app.game.as_ref().expect("game").fleets.len();
+
+    let dir = std::env::temp_dir().join("stars-ui-save-new-game-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let written = app
+        .save_new_game(&dir.join("Kestrel.hst"))
+        .expect("writes the game");
+
+    let names: Vec<String> = written
+        .iter()
+        .filter_map(|p| p.file_name())
+        .map(|n| n.to_string_lossy().to_string())
+        .collect();
+    assert_eq!(
+        names,
+        vec!["Kestrel.xy", "Kestrel.hst", "Kestrel.m1", "Kestrel.m2"]
+    );
+
+    // Saving re-opens from the host file, so the app is now backed by one.
+    assert!(app.can_save_game());
+    assert_eq!(app.path.as_deref(), Some(dir.join("Kestrel.hst").as_path()));
+    let game = app.game.as_ref().expect("game");
+    assert_eq!(game.planets.len() + game.known_planets.len(), planets);
+    assert_eq!(game.fleets.len(), fleets);
+    // The universe was found beside the host file, so planets have positions.
+    assert!(game.planets.iter().all(|p| p.position.is_some()));
+
+    // And every screen draws for the reopened game.
+    for screen in Screen::ALL {
+        draw(&mut app, screen);
+    }
+
+    // Saving again goes through the ordinary edit-preserving path.
+    app.save(&dir.join("Kestrel.hst")).expect("saves again");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

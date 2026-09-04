@@ -1,6 +1,8 @@
 # Subsystem: New game creation (universe, homeworlds, starting fleets)
 
-- **Status:** verified (against a real turn-0 game; the exceptions are listed below)
+- **Status:** verified (against a real turn-0 game; the exceptions are listed
+  below, and one of them — `CAdvantagePoints` for a race with several lesser
+  traits — is a known discrepancy rather than an untested claim)
 - **Ghidra routine(s):** `GenerateWorld`, `CreateStartupShip`, `CAdvantagePoints`
   (`10e0:444c`), `LInnateRaceHabitability` (`10e0:4cb2`)
 - **Manual reference:** `MANUAL.PDF` pp. 2-1..2-3 (the New Game wizard) and
@@ -191,12 +193,17 @@ currency `rsUseLeftover` names:
 | Factories | `points / 5` |
 | Defences | `(points + 5) / 10` |
 
-**Verified, and it is what pins `CAdvantagePoints` down.** The fixture's
-homeworlds hold `399/399/432` (player 0) and `462/462/556` (players 1 and 2).
-Both come from the same planet-0 stock by the rule above, and the only stock and
-point pair that produces both is `[337, 337, 306]` with 25 and 50 points — which
-is what our transcription returns for the two races, the second capped down from
-72. See `../vectors/new-game.json`.
+**The rule is verified; the point values are only half verified.** The
+fixture's homeworlds hold `399/399/432` (player 0) and `462/462/556` (players 1
+and 2). Both come from the same planet-0 stock by the rule above, and the only
+stock and point pair that produces both is `[337, 337, 306]` with 25 and 50 —
+and 50 is the cap, so the second says only "50 or more".
+
+Our `CAdvantagePoints` returns exactly **25** for the Jack of All Trades. For
+the two computer players it returns **13**, not 50 or more. See the open
+question below. `../vectors/new-game.json` records both, and the test drives the
+spending rule from the value the file implies rather than the one we compute, so
+the rule and the pricing are checked separately.
 
 `CAdvantagePoints` itself is a long sum over habitability, growth rate, economy,
 primary and lesser traits and research costs, divided by three at the end. Its
@@ -262,7 +269,8 @@ Standard, Tough or Expert.
 
 **Verified**: the fixture's two computer players are `Turindrones, Standard`
 field for field — same economy bytes, same habitable bands, same growth rate,
-same lesser traits.
+same lesser traits, including the Cheap Factories checkbox that entry's
+`grbitAttr` bit 31 calls for.
 
 ## Edge cases & clamps
 
@@ -295,15 +303,26 @@ same lesser traits.
 
 ## Open questions
 
-- **Cheap Factories on the built-in opponents.** The reconstructed
-  `vrgplrComp` sets bit 31 (`ibitRaceCheapFact`) and bit 29 (`ibitRaceTech3`) on
-  the harder entries. A race record on disk carries only sixteen bits, so
-  neither can ever reach us through a file. They are masked off in
-  `opponents.rs` because the fixture settles it the other way: its two
-  Turindrones were stocked as a 50-point race, and 50 is what
-  `CAdvantagePoints` returns for that entry only with bit 31 clear — Cheap
-  Factories would cost it 58 points and leave 14. Whether the constant is a
-  decompilation artefact or the flag is applied somewhere later is unresolved.
+- **`CAdvantagePoints` is wrong for a race with several lesser traits.** The
+  transcription prices the stock Humanoid at exactly 25, which the fixture
+  confirms twice over. It prices `Turindrones, Standard` at **13**, and that
+  game's homeworlds were stocked as a race of **50 or more**. The gap is at
+  least 111 points on the internal scale (the function divides by three at the
+  end), so it is not rounding and not the single Cheap Factories deduction.
+  What the two races differ in is the terms only the second exercises: four
+  lesser traits, an off-centre and lopsided habitable band, a growth rate of 14,
+  and a mine-operation figure below the baseline. One of those coefficients is
+  wrong or missing. Nothing else in this spec depends on it: the homeworld it
+  produces is stocked a little more thinly than the original's.
+
+  An earlier revision of this note had it the other way round, and said the
+  fixture proved the built-in opponents do *not* have Cheap Factories. That was
+  wrong, and writing the file formats disproved it: a race record stores that
+  trait and "expensive tech starts at level 3" **outside** the sixteen-bit
+  lesser-trait field, as bits 7 and 5 of the checkbox byte at offset 81 — and
+  the fixture's computer players carry the Cheap Factories checkbox exactly as
+  `vrgplrComp`'s bit 31 says. The reconstructed table is right; the pricing
+  function is what does not add up.
 - **`mdStartDist`'s base.** Only the values 1 and 3 appear in the fixtures, and
   the formula divides by 3, so 1..3 is assumed (Close, Moderate, Distant). A
   fixture with 2 would confirm it and one with 0 would refute it.

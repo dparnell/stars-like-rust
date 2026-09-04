@@ -315,6 +315,9 @@ mod tests {
 
     fn bomber(item: u8, count: u8) -> ShipDesign {
         ShipDesign {
+            name: String::new(),
+            picture: 0,
+            stored_armor: 0,
             hull_id: 0,
             slots: vec![DesignSlot {
                 category: slot::BOMB,

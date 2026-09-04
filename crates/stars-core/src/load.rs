@@ -19,7 +19,7 @@ use crate::fleet::{Cargo, Fleet, ShipStack, Waypoint};
 use crate::movement::Point;
 use crate::planet::Planet;
 use crate::production::QueueItem;
-use crate::race::{Prt, Race, RaceStat};
+use crate::race::{lrt, Prt, Race, RaceStat};
 use crate::research::{NextField, Research, TECH_FIELDS};
 use crate::{GameState, Player};
 
@@ -56,6 +56,7 @@ pub fn race_from_record(record: &RaceRecord) -> Race {
     attrs[RaceStat::MineBuild as usize] = i16::from(record.economy.mine_build_cost);
     attrs[RaceStat::MineOperate as usize] = i16::from(record.economy.mines_operated);
     attrs[RaceStat::MajorAdv as usize] = prt_from_abbrev(record.prt.abbrev()) as i16;
+    attrs[RaceStat::UseLeftover as usize] = i16::from(record.spend_leftover_points);
     for (field, cost) in record.research_cost.iter().enumerate() {
         attrs[RaceStat::TechBonus1 as usize + field] = i16::from(*cost);
     }
@@ -74,7 +75,13 @@ pub fn race_from_record(record: &RaceRecord) -> Race {
 
     Race {
         attrs,
-        lrt_bits: u32::from(record.lrt_bits),
+        // The fourteen selectable traits are a 16-bit field; two more that the
+        // race wizard also offers are stored as checkbox bits at offset 81, at
+        // the bit positions `ibitRaceTech3` (29) and `ibitRaceCheapFact` (31)
+        // occupy in the engine's own `grbitAttr`.
+        lrt_bits: u32::from(record.lrt_bits)
+            | (u32::from(record.expensive_tech_starts_at_level_3) << lrt::TECH3)
+            | (u32::from(record.factories_cost_one_less_germanium) << lrt::CHEAP_FACT),
         env_center: [gc, tc, rc],
         env_min: [gl, tl, rl],
         env_max: [gh, th, rh],
@@ -182,6 +189,7 @@ pub fn partial_planet_from_record(record: &PlanetRecord) -> Option<Planet> {
     planet.starbase = record.has_starbase;
     planet.starbase_design = record.starbase.map(|s| s.design);
     planet.homeworld = record.homeworld;
+    planet.artifact = record.artifact;
 
     planet.detail = match (record.environment, record.concentration) {
         (Some(env), Some(conc)) => {
@@ -265,6 +273,9 @@ pub fn fleet_from_record(record: &FleetRecord) -> Option<Fleet> {
 #[must_use]
 pub fn design_from_record(record: &DesignRecord) -> crate::design::ShipDesign {
     crate::design::ShipDesign {
+        name: record.name.clone(),
+        picture: record.pic,
+        stored_armor: record.armor.unwrap_or(0),
         hull_id: i16::from(record.hull_id),
         slots: record
             .slots
@@ -306,6 +317,9 @@ impl GameState {
                 }
                 if let Some(race) = record.race.as_ref() {
                     let mut player = Player::new(race_from_record(race));
+                    player.name.clone_from(&record.singular_name);
+                    player.plural_name.clone_from(&record.plural_name);
+                    player.logo = record.logo;
                     player.control = crate::ai::Control::from_flags(record.flags_byte);
                     player.relations.clone_from(&record.player_relations);
                     player.research_pct = race.research_percentage;
@@ -368,28 +382,79 @@ impl GameState {
         }
 
         // Designs, indexed by owner and then by design slot.
-        if let Ok(designs) = stars_formats::design_records(file) {
-            report.designs_loaded = designs.len();
-            for record in &designs {
-                if !record.full_design || record.starbase {
-                    continue;
-                }
-                // A player file carries its own designs and any it has learned;
-                // index them by slot for the file's own player.
-                let owner = usize::from(segment.header.player).min(15);
-                if state.designs.len() <= owner {
-                    state.designs.resize_with(owner + 1, Vec::new);
-                }
-                let slot = usize::from(record.design_number);
-                if state.designs[owner].len() <= slot {
-                    state.designs[owner].resize_with(slot + 1, || crate::design::ShipDesign {
-                        hull_id: -1,
-                        slots: Vec::new(),
-                    });
-                }
-                state.designs[owner][slot] = design_from_record(record);
+        //
+        // A design block says which *slot* it fills and whether it is a
+        // starbase, but not whose it is: the file lists each player's designs
+        // in turn, and the player blocks say how many each has. So the blocks
+        // are handed out by consuming those counts in file order. A `.mN` has
+        // one player block and its own designs; a `.hst` has one per player and
+        // all of them, which is why attributing them to the file's header
+        // player — 31 in a host file — put every design on player 15.
+        //
+        // Anything left over after the counts are used up (a foreign design a
+        // player has learned, or a file whose counts do not add up) falls back
+        // to the file's own player, which is what a `.mN` wants.
+        let mut ship_quota: Vec<(usize, usize)> = Vec::new();
+        let mut base_quota: Vec<(usize, usize)> = Vec::new();
+        if let Ok(records) = stars_formats::player_records_in(blocks) {
+            for record in &records {
+                let owner = usize::from(record.player_number).min(15);
+                ship_quota.push((owner, usize::from(record.ship_design_count)));
+                base_quota.push((owner, usize::from(record.starbase_design_count)));
             }
         }
+        ship_quota.reverse();
+        base_quota.reverse();
+
+        let fallback = usize::from(segment.header.player).min(15);
+        let mut designs_loaded = 0usize;
+        for block in blocks {
+            if block.block_type() != stars_formats::block::BlockType::Design {
+                continue;
+            }
+            let Ok(record) = stars_formats::DesignRecord::from_payload(&block.data) else {
+                continue;
+            };
+            designs_loaded += 1;
+            if !record.full_design {
+                continue;
+            }
+            let quota = if record.starbase {
+                &mut base_quota
+            } else {
+                &mut ship_quota
+            };
+            while quota.last().is_some_and(|(_, left)| *left == 0) {
+                quota.pop();
+            }
+            let owner = match quota.last_mut() {
+                Some((owner, left)) => {
+                    *left -= 1;
+                    *owner
+                }
+                None => fallback,
+            };
+
+            let slot = if record.starbase {
+                usize::from(crate::startup::FIRST_STARBASE_SLOT) + usize::from(record.design_number)
+            } else {
+                usize::from(record.design_number)
+            };
+            if state.designs.len() <= owner {
+                state.designs.resize_with(owner + 1, Vec::new);
+            }
+            if state.designs[owner].len() <= slot {
+                state.designs[owner].resize_with(slot + 1, || crate::design::ShipDesign {
+                    name: String::new(),
+                    picture: 0,
+                    stored_armor: 0,
+                    hull_id: -1,
+                    slots: Vec::new(),
+                });
+            }
+            state.designs[owner][slot] = design_from_record(&record);
+        }
+        report.designs_loaded = designs_loaded;
 
         // Fleets, with the waypoint blocks that follow each one. Association
         // is by position in the block stream: a fleet's waypoints are written

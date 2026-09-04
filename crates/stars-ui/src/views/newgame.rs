@@ -164,9 +164,9 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) -> Option<Action> {
         ui.add_space(4.0);
         ui.label(
             egui::RichText::new(
-                "A generated game plays and generates turns, but cannot yet be saved as a \
-                 .hst or .mN: this project has no writers for planet, player, fleet or design \
-                 blocks. Its universe can be written as a .xy.",
+                "Saving a new game writes the whole set: a .xy universe, a .hst host file \
+                 and one .mN per player. Space objects and messages are not written, \
+                 because the simulation does not carry them.",
             )
             .weak(),
         );

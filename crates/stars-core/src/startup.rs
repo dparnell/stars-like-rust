@@ -27,6 +27,11 @@ pub struct Template {
     pub name: &'static str,
     /// Hull id.
     pub hull: i16,
+    /// Picture index (`HUL.ibmp`), which the game draws the design with.
+    pub picture: u8,
+    /// Stored armour (`HUL.dp`). Zero for every ship template — a ship's
+    /// armour comes from its hull and fitted plate — and 1000 for a starbase.
+    pub armor: u16,
     /// The fitted slots, in hull-slot order: `(category, item, count)`.
     pub slots: &'static [(u16, u8, u8)],
 }
@@ -36,6 +41,9 @@ impl Template {
     #[must_use]
     pub fn design(&self) -> ShipDesign {
         ShipDesign {
+            name: self.name.to_string(),
+            picture: self.picture,
+            stored_armor: self.armor,
             hull_id: self.hull,
             slots: self
                 .slots
@@ -118,6 +126,8 @@ pub const SHIPS: [Template; 22] = [
     Template {
         name: "Lilliputian Freighter",
         hull: 0,
+        picture: 0,
+        armor: 0,
         slots: &[
             (slot::ENGINE, 1, 1),
             (slot::SCANNER, 0, 1),
@@ -127,6 +137,8 @@ pub const SHIPS: [Template; 22] = [
     Template {
         name: "Shadow Transport",
         hull: 0,
+        picture: 2,
+        armor: 0,
         slots: &[
             (slot::ENGINE, 1, 1),
             (slot::SPECIAL_E, 0, 1),
@@ -136,6 +148,8 @@ pub const SHIPS: [Template; 22] = [
     Template {
         name: "Smaugarian Peeping Tom",
         hull: 4,
+        picture: 16,
+        armor: 0,
         slots: &[
             (slot::ENGINE, 1, 1),
             (slot::SCANNER, 0, 1),
@@ -145,6 +159,8 @@ pub const SHIPS: [Template; 22] = [
     Template {
         name: "Armed Probe",
         hull: 4,
+        picture: 17,
+        armor: 0,
         slots: &[
             (slot::ENGINE, 1, 1),
             (slot::SCANNER, 0, 1),
@@ -154,6 +170,8 @@ pub const SHIPS: [Template; 22] = [
     Template {
         name: "Long Range Scout",
         hull: 4,
+        picture: 18,
+        armor: 0,
         slots: &[
             (slot::ENGINE, 1, 1),
             (slot::SCANNER, 0, 1),
@@ -163,6 +181,8 @@ pub const SHIPS: [Template; 22] = [
     Template {
         name: "Shadow Sleuth",
         hull: 4,
+        picture: 19,
+        armor: 0,
         slots: &[
             (slot::ENGINE, 1, 1),
             (slot::SCANNER, 0, 1),
@@ -172,6 +192,8 @@ pub const SHIPS: [Template; 22] = [
     Template {
         name: "Teamster",
         hull: 1,
+        picture: 4,
+        armor: 0,
         slots: &[
             (slot::ENGINE, 1, 1),
             (slot::SCANNER, 0, 1),
@@ -181,6 +203,8 @@ pub const SHIPS: [Template; 22] = [
     Template {
         name: "Stalwart Defender",
         hull: 6,
+        picture: 24,
+        armor: 0,
         slots: &[
             (slot::ENGINE, 1, 1),
             (slot::BEAM, 0, 1),
@@ -194,6 +218,8 @@ pub const SHIPS: [Template; 22] = [
     Template {
         name: "Swashbuckler",
         hull: 11,
+        picture: 44,
+        armor: 0,
         slots: &[
             (slot::ENGINE, 1, 1),
             (slot::ARMOR, 1, 2),
@@ -205,31 +231,43 @@ pub const SHIPS: [Template; 22] = [
     Template {
         name: "Santa Maria",
         hull: 15,
+        picture: 60,
+        armor: 0,
         slots: &[(slot::ENGINE, 1, 1), (slot::SPECIAL_M, 0, 1)],
     },
     Template {
         name: "Pinta",
         hull: 15,
+        picture: 61,
+        armor: 0,
         slots: &[(slot::ENGINE, 1, 1), (slot::SPECIAL_M, 1, 1)],
     },
     Template {
         name: "Mayflower",
         hull: 15,
+        picture: 62,
+        armor: 0,
         slots: &[(slot::ENGINE, 1, 1), (slot::SPECIAL_M, 0, 1)],
     },
     Template {
         name: "Spore Cloud",
         hull: 14,
+        picture: 56,
+        armor: 0,
         slots: &[(slot::ENGINE, 0, 1), (slot::SPECIAL_M, 0, 1)],
     },
     Template {
         name: "Gadfly",
         hull: 16,
+        picture: 65,
+        armor: 0,
         slots: &[(slot::ENGINE, 1, 1), (slot::BOMB, 0, 2)],
     },
     Template {
         name: "Cotton Picker",
         hull: 21,
+        picture: 85,
+        armor: 0,
         slots: &[
             (slot::ENGINE, 1, 1),
             (slot::SCANNER, 0, 1),
@@ -240,11 +278,15 @@ pub const SHIPS: [Template; 22] = [
     Template {
         name: "Potato Bug",
         hull: 20,
+        picture: 82,
+        armor: 0,
         slots: &[(slot::ENGINE, 1, 1), (slot::MINING, 0, 2)],
     },
     Template {
         name: "Little Hen",
         hull: 27,
+        picture: 108,
+        armor: 0,
         slots: &[
             (slot::ENGINE, 1, 1),
             (slot::MINES, 0, 2),
@@ -255,6 +297,8 @@ pub const SHIPS: [Template; 22] = [
     Template {
         name: "Change of Heart",
         hull: 21,
+        picture: 86,
+        armor: 0,
         slots: &[
             (slot::ENGINE, 1, 1),
             (slot::SCANNER, 0, 1),
@@ -265,6 +309,8 @@ pub const SHIPS: [Template; 22] = [
     Template {
         name: "Speed Turtle",
         hull: 27,
+        picture: 108,
+        armor: 0,
         slots: &[
             (slot::ENGINE, 1, 1),
             (slot::MINES, 7, 2),
@@ -275,6 +321,8 @@ pub const SHIPS: [Template; 22] = [
     Template {
         name: "M.T. Lifeboat",
         hull: 29,
+        picture: 108,
+        armor: 0,
         slots: &[
             (slot::ENGINE, 8, 3),
             (slot::ARMOR, 9, 3),
@@ -294,6 +342,8 @@ pub const SHIPS: [Template; 22] = [
     Template {
         name: "M.T. Scout",
         hull: 30,
+        picture: 122,
+        armor: 0,
         slots: &[
             (slot::ENGINE, 8, 2),
             (slot::SHIELD, 6, 3),
@@ -307,6 +357,8 @@ pub const SHIPS: [Template; 22] = [
     Template {
         name: "M.T. Probe",
         hull: 30,
+        picture: 123,
+        armor: 0,
         slots: &[
             (slot::ENGINE, 8, 2),
             (slot::ARMOR, 9, 3),
@@ -324,6 +376,8 @@ pub const STARBASES: [Template; 4] = [
     Template {
         name: "Starbase",
         hull: 34,
+        picture: 8,
+        armor: 1000,
         slots: &[
             (slot::SPECIAL_SB, 0, 0),
             (slot::BEAM, 0, 8),
@@ -345,6 +399,8 @@ pub const STARBASES: [Template; 4] = [
     Template {
         name: "Accelerator Platform",
         hull: 32,
+        picture: 0,
+        armor: 1000,
         slots: &[
             (slot::SPECIAL_SB, 7, 1),
             (slot::BEAM, 0, 6),
@@ -356,6 +412,8 @@ pub const STARBASES: [Template; 4] = [
     Template {
         name: "Porthole to Beyond",
         hull: 32,
+        picture: 1,
+        armor: 1000,
         slots: &[
             (slot::SPECIAL_SB, 0, 1),
             (slot::BEAM, 0, 6),
@@ -367,6 +425,8 @@ pub const STARBASES: [Template; 4] = [
     Template {
         name: "Starter Colony",
         hull: 32,
+        picture: 1,
+        armor: 1000,
         slots: &[
             (slot::SPECIAL_SB, 0, 0),
             (slot::BEAM, 0, 0),

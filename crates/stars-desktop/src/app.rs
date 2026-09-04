@@ -11,6 +11,8 @@ use stars_ui::{App, Screen};
 /// The eframe application.
 pub struct StarsApp {
     app: App,
+    /// The files the last "save a new game" wrote, to report back.
+    written: Vec<String>,
 }
 
 impl StarsApp {
@@ -23,10 +25,47 @@ impl StarsApp {
                 app.error = Some(e);
             }
         }
-        Self { app }
+        Self {
+            app,
+            written: Vec::new(),
+        }
+    }
+
+    /// Write a generated game out as a complete set of files.
+    fn save_new_game(&mut self) {
+        let suggestion = self
+            .app
+            .universe
+            .as_ref()
+            .and_then(|u| u.game().ok())
+            .map(|g| format!("{}.hst", sanitise(&g.name)))
+            .unwrap_or_else(|| "game.hst".into());
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Save the new game")
+            .set_file_name(suggestion)
+            .add_filter("Stars! host file", &["hst"])
+            .save_file()
+        else {
+            return;
+        };
+        match self.app.save_new_game(&path) {
+            Ok(written) => {
+                self.app.error = None;
+                self.written = written
+                    .iter()
+                    .filter_map(|p| p.file_name())
+                    .map(|n| n.to_string_lossy().to_string())
+                    .collect();
+            }
+            Err(e) => self.app.error = Some(e),
+        }
     }
 
     fn save(&mut self, ask: bool) {
+        if !self.app.can_save_game() {
+            self.save_new_game();
+            return;
+        }
         let target = if ask || self.app.path.is_none() {
             rfd::FileDialog::new()
                 .set_title("Save the game")
@@ -150,12 +189,13 @@ impl eframe::App for StarsApp {
                         ui.close_menu();
                         self.pick_file();
                     }
-                    let open = self.app.game.is_some() && self.app.can_save_game();
+                    let open = self.app.game.is_some();
                     if ui
                         .add_enabled(open, egui::Button::new("Save"))
                         .on_hover_text(
-                            "Writes back only what you changed. Everything this project \
-                             does not model is kept exactly as it was read.",
+                            "A game opened from a file is written back by replacing only \
+                             what you changed. A new game is written out whole: a .xy, a \
+                             .hst and one .mN per player.",
                         )
                         .clicked()
                     {
@@ -168,15 +208,6 @@ impl eframe::App for StarsApp {
                     {
                         ui.close_menu();
                         self.save(true);
-                    }
-                    if !self.app.can_save_game() && self.app.game.is_some() {
-                        ui.label(
-                            egui::RichText::new(
-                                "A generated game has no save file yet — only its \
-                                 universe can be written.",
-                            )
-                            .weak(),
-                        );
                     }
                     if ui
                         .add_enabled(
@@ -230,6 +261,18 @@ impl eframe::App for StarsApp {
                 });
             });
         });
+
+        if !self.written.is_empty() {
+            let written = self.written.join(", ");
+            egui::TopBottomPanel::top("written").show(ctx, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(format!("Wrote {written}"));
+                    if ui.button("dismiss").clicked() {
+                        self.written.clear();
+                    }
+                });
+            });
+        }
 
         if let Some(error) = self.app.error.clone() {
             egui::TopBottomPanel::top("error").show(ctx, |ui| {

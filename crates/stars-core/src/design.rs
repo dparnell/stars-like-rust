@@ -68,6 +68,24 @@ pub struct ShipDesign {
     pub hull_id: i16,
     /// The fitted slots, in hull-slot order.
     pub slots: Vec<DesignSlot>,
+    /// The name the player gave the design (`HUL.szClass`), e.g.
+    /// `"Long Range Scout"`.
+    ///
+    /// Nothing in the simulation reads it — a design is identified by its slot
+    /// — but it is stored in the file and shown everywhere in the game, so it
+    /// travels with the design rather than being looked up.
+    pub name: String,
+    /// Picture index (`HUL.ibmp`): which of the game's ship icons it is drawn
+    /// with. Cosmetic, and stored in the file, so it travels with the design.
+    pub picture: u8,
+    /// The armour figure **as stored** (`HUL.dp`), which is `0` for every ship
+    /// and `1000` for a starbase.
+    ///
+    /// This is not the armour the simulation uses: [`ShipDesign::armor`]
+    /// derives that from the hull and what is fitted, exactly as the game
+    /// recomputes it. This field exists so a design written back to a file
+    /// carries the same figure it was read with.
+    pub stored_armor: u16,
 }
 
 /// A design's derived cost.

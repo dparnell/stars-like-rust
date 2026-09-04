@@ -255,7 +255,10 @@ impl PlayerRecord {
         out[4] = (self.fleets & 0xFF) as u8;
         out[5] =
             (out[5] & 0x0C) | ((self.fleets >> 8) & 0x03) as u8 | (self.starbase_design_count << 4);
-        out[6] = (self.logo << 3) | (u8::from(self.full_data) << 2) | (out[6] & 0x03);
+        // Bits 0-1 of byte 6 are set on all 7,040 full-data player blocks in
+        // the fixtures; a record built from scratch has to set them too.
+        let low = if self.full_data { 0x03 } else { out[6] & 0x03 };
+        out[6] = (self.logo << 3) | (u8::from(self.full_data) << 2) | low;
         out[7] = self.flags_byte;
 
         if self.full_data {

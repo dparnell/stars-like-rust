@@ -313,6 +313,9 @@ fn fuel_range_reflects_the_engine_table() {
 
     // Design 0: a Long Hump 6 (index 3) in a Scout hull (4).
     let design = ShipDesign {
+        name: String::new(),
+        picture: 0,
+        stored_armor: 0,
         hull_id: 4,
         slots: vec![DesignSlot {
             category: slot::ENGINE,

@@ -44,6 +44,9 @@ fn main() {
         };
         let blocks = file.segment_blocks(file.latest_segment());
         let to_design = |r: &DesignRecord| ShipDesign {
+            name: String::new(),
+            picture: 0,
+            stored_armor: 0,
             hull_id: i16::from(r.hull_id),
             slots: r
                 .slots

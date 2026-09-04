@@ -337,6 +337,9 @@ fn first_beam_hits_reproduce_the_recorded_damage() {
     years.sort_unstable();
 
     let to_design = |r: &DesignRecord| ShipDesign {
+        name: String::new(),
+        picture: 0,
+        stored_armor: 0,
         hull_id: i16::from(r.hull_id),
         slots: r
             .slots
@@ -496,6 +499,9 @@ fn beam_only_battles_replay_to_the_recorded_casualties() {
     years.sort_unstable();
 
     let to_design = |r: &DesignRecord| ShipDesign {
+        name: String::new(),
+        picture: 0,
+        stored_armor: 0,
         hull_id: i16::from(r.hull_id),
         slots: r
             .slots
@@ -746,6 +752,9 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
     years.sort_unstable();
 
     let to_design = |r: &DesignRecord| ShipDesign {
+        name: String::new(),
+        picture: 0,
+        stored_armor: 0,
         hull_id: i16::from(r.hull_id),
         slots: r
             .slots

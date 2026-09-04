@@ -69,6 +69,7 @@ pub mod race;
 pub mod research;
 pub mod resources;
 pub mod rng;
+pub mod save;
 pub mod scanning;
 pub mod startup;
 pub mod terraform;
@@ -130,6 +131,16 @@ pub struct Player {
     /// player whose record was not in the file: the engine waits for orders
     /// rather than inventing them.
     pub control: ai::Control,
+    /// The race's singular name, which is also how the game names the player
+    /// (`"Humanoid"`).
+    pub name: String,
+    /// The race's plural name (`"Humanoids"`). May be empty: a good many
+    /// player blocks in the fixtures store no plural.
+    pub plural_name: String,
+    /// The race emblem, `0..=31` — which of the game's logos the player is
+    /// drawn with. Cosmetic, and stored in the player block, so it travels
+    /// with the player.
+    pub logo: u8,
 }
 
 impl Player {
@@ -157,6 +168,9 @@ impl Player {
             dead: false,
             relations: Vec::new(),
             control: ai::Control::Human,
+            name: "Humanoid".to_string(),
+            plural_name: "Humanoids".to_string(),
+            logo: 0,
         }
     }
 }

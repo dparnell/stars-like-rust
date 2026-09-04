@@ -119,6 +119,24 @@ impl XferAction {
         }
     }
 
+    /// The four-bit `iAction` code this action is stored as.
+    #[must_use]
+    pub fn to_raw(self) -> u8 {
+        match self {
+            Self::None => 0,
+            Self::LoadAll => 1,
+            Self::UnloadAll => 2,
+            Self::LoadExact => 3,
+            Self::UnloadExact => 4,
+            Self::FillPercent => 5,
+            Self::WaitPercent => 6,
+            Self::LoadDunnage => 7,
+            Self::SetAmount => 8,
+            Self::SetWaypoint => 9,
+            Self::Other(other) => other & 0x0F,
+        }
+    }
+
     /// Whether this action moves cargo **into** the fleet.
     #[must_use]
     pub fn loads(self) -> bool {
@@ -323,6 +341,20 @@ pub fn waypoint_records(file: &StarsFile) -> Vec<WaypointRecord> {
         .filter(|b| b.block_type() == BlockType::Waypoint)
         .filter_map(|b| WaypointRecord::decode(&b.data))
         .collect()
+}
+
+impl TransportTask {
+    /// Re-encode the per-cargo instructions as the ten-byte `ORDER` task
+    /// union, the inverse of [`WaypointRecord::transport`].
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(10);
+        for item in &self.items {
+            let word = (item.quantity & 0x0FFF) | (u16::from(item.action.to_raw()) << 12);
+            out.extend_from_slice(&word.to_le_bytes());
+        }
+        out
+    }
 }
 
 #[cfg(test)]

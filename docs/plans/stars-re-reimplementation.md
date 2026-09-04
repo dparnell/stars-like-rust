@@ -579,14 +579,39 @@ disagree.
    given. What remains is the wizard's own screens: a race can be chosen from
    the ten primary traits or loaded from a `.rN` file, but not designed.
 
-10. **What is still missing to call it playable.** A **generated game cannot be
-    saved**: this project has no writers for planet, player, fleet or design
-    blocks, so only its `.xy` can be written and the game itself lives in
-    memory until the process ends. Beyond that, no `.x` order file is written,
-    so orders reach the turn generator but not a host; the tasks beyond
-    colonise, transport and remote mining (merge, scrap, lay minefield, patrol,
-    route, transfer) can be set but are not simulated; and generation does not
-    place wormholes or the Mystery Trader, which live in the `THING` list
+10. ~~**The `.hst` and `.mN` writers.**~~ **Done.** Every record type a save
+    file holds now has an encoder that is an exact inverse of its decoder,
+    asserted over **1,576,529 blocks** in the fixtures — planets, fleets,
+    waypoints, designs, players and races, battle plans, production queues and
+    space objects — plus a packed-string encoder checked on 230 distinct names.
+    `stars_core::save` assembles them into a host file and one turn file per
+    player, and `stars_ui::App::save_new_game` writes the whole set (`.xy`,
+    `.hst`, `.m1`…) and re-opens the game from it.
+
+    The test that matters is not the round trip but the comparison with the
+    original engine: the turn-0 fixture is loaded and written out again, and
+    **190 of its host file's blocks and all 67 of its three turn files' come
+    back byte for byte**. The only things excused are the file header — whose
+    version word and cipher salt are ours to choose — and the two sections a
+    `GameState` does not carry, space objects and messages.
+
+    Doing it record by record found two decoder bugs that the whole-file round
+    trip could never have caught, because a block's payload was being kept
+    verbatim: planet blocks were dropping the concentration-decay accumulators
+    the mining formula reads, and the plural race name was read past its length
+    byte, decoding padding as trailing spaces in 54,185 blocks. It also
+    disproved a conclusion in `docs/formulas/new-game.md`: the two racial traits
+    that do not fit the sixteen-bit trait field are stored in the checkbox byte,
+    so the built-in opponents really do have Cheap Factories, and it is
+    `CAdvantagePoints` that does not add up for them. See
+    `docs/formats/writing.md`.
+
+11. **What is still missing to call it playable.** No `.x` order file is
+    written, so orders reach the turn generator but not a host; the waypoint
+    tasks beyond colonise, transport and remote mining (merge, scrap, lay
+    minefield, patrol, route, transfer) can be set but are not simulated; and
+    neither generation nor the writers carry wormholes, the Mystery Trader,
+    messages, battle recordings or scores, all of which live in structures
     `GameState` does not model.
 
 #### Saving is not re-encoding

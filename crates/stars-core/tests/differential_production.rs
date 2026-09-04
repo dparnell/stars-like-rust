@@ -375,6 +375,9 @@ fn a_queued_ship_is_paid_for_and_joins_the_fleet() {
 
     // A scout: the smallest hull with an engine in it.
     let design = ShipDesign {
+        name: String::new(),
+        picture: 0,
+        stored_armor: 0,
         hull_id: 0,
         slots: vec![DesignSlot {
             category: stars_core::components::slot::ENGINE,

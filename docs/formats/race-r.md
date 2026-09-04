@@ -1,6 +1,7 @@
 # Format: `.rN` — race definition
 
 - **Status:** container **verified byte-for-byte**; race record **largely
+
   decoded** (habitability, growth, economy, research %, per-field research cost,
   PRT, LRTs, checkbox flags, **singular + plural names**) — a couple of flag bits
   remain; a typed read-only view is implemented
@@ -20,6 +21,19 @@
 - **Implemented in:** round-trips via `stars-formats::file::StarsFile`; the
   verified fields are exposed as a typed read-only view via
   `stars-formats::race::RaceRecord` (`from_file` / `from_payload`)
+
+> **Two corrections from writing the format back out** (see `writing.md`):
+>
+> * The **plural name** field is bounded by its own length byte, not by the end
+>   of the record. Reading to the end decoded any padding after it as trailing
+>   spaces in the name — which affected 54,185 player blocks in the fixtures.
+> * The checkbox byte at offset 81 holds the two racial traits that do not fit
+>   the sixteen-bit lesser-trait field: bit 5 is *expensive tech starts at level
+>   3* and bit 7 is *factories cost one less germanium*, at the positions
+>   `ibitRaceTech3` (29) and `ibitRaceCheapFact` (31) occupy in the engine's own
+>   `grbitAttr`. `stars_core::Race` now folds them into its trait bits, so a
+>   race loaded from a file carries the same traits the engine's own table gives
+>   it.
 
 ## Overview
 

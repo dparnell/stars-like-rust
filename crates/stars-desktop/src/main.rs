@@ -16,9 +16,10 @@
 //!
 //! `--new` takes `--size tiny|small|medium|large|huge`,
 //! `--density sparse|normal|dense|packed`, `--distance close|moderate|distant`,
-//! `--players N` (the rest are Turindrones, Standard), `--clumping` and
-//! `--id 0x...`. It writes `<name>.xy` beside the working directory and prints
-//! the starting position, which is how the generator is exercised without a
+//! `--players N` (the rest are computer players), `--clumping` and `--id 0x...`.
+//! It writes the whole set of files — `<name>.xy`, `<name>.hst` and one
+//! `<name>.mN` per player — into the working directory and prints the starting
+//! position, which is how the generator and the writers are exercised without a
 //! window.
 //!
 //! `--vcr` is the first screen of the frontend proper, rendered here as text
@@ -374,30 +375,63 @@ fn create_game(args: &[String]) -> ExitCode {
         }
     };
 
-    let file: String = name
+    let stem: String = name
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '-' })
         .collect();
-    let file = format!("{}.xy", file.trim_matches('-'));
-    let bytes = match made.universe.encode() {
-        Ok(bytes) => bytes,
+    let stem = stem.trim_matches('-').to_string();
+    let stem = if stem.is_empty() {
+        "game".to_string()
+    } else {
+        stem
+    };
+
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    match made.universe.encode() {
+        Ok(bytes) => files.push((format!("{stem}.xy"), bytes)),
         Err(e) => {
             eprintln!("cannot encode the universe: {e}");
             return ExitCode::FAILURE;
         }
-    };
-    if let Err(e) = std::fs::write(&file, bytes) {
-        eprintln!("cannot write {file}: {e}");
-        return ExitCode::FAILURE;
+    }
+    match stars_core::save::host_file(&made.state) {
+        Ok(bytes) => files.push((format!("{stem}.hst"), bytes)),
+        Err(e) => {
+            eprintln!("cannot build the host file: {e}");
+            return ExitCode::FAILURE;
+        }
+    }
+    for player in 0..made.state.players.len() {
+        match stars_core::save::player_file(&made.state, player) {
+            Ok(bytes) => files.push((format!("{stem}.m{}", player + 1), bytes)),
+            Err(e) => {
+                eprintln!("cannot build player {player}'s file: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+    for (path, bytes) in &files {
+        if let Err(e) = std::fs::write(path, bytes) {
+            eprintln!("cannot write {path}: {e}");
+            return ExitCode::FAILURE;
+        }
     }
 
     println!("{name}");
     println!(
-        "  {} universe, {} density, players {}, {} planets -> {file}",
+        "  {} universe, {} density, players {}, {} planets",
         size.name(),
         density.name(),
         config.players.len(),
         made.state.planets.len()
+    );
+    println!(
+        "  wrote {}",
+        files
+            .iter()
+            .map(|(path, bytes)| format!("{path} ({} bytes)", bytes.len()))
+            .collect::<Vec<_>>()
+            .join(", ")
     );
     for (i, player) in made.state.players.iter().enumerate() {
         let home = made
@@ -424,8 +458,8 @@ fn create_game(args: &[String]) -> ExitCode {
         }
     }
     println!(
-        "  note: only the .xy is written. A generated game has no .hst yet — \
-         this project has no writers for planet, player, fleet or design blocks."
+        "  note: space objects and messages are not written, because the \
+         simulation does not carry them."
     );
     ExitCode::SUCCESS
 }

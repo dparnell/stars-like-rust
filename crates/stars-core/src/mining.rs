@@ -220,6 +220,9 @@ mod remote_tests {
 
     fn miner(count: u8) -> ShipDesign {
         ShipDesign {
+            name: String::new(),
+            picture: 0,
+            stored_armor: 0,
             hull_id: 0,
             slots: vec![DesignSlot {
                 category: slot::MINING,
@@ -250,6 +253,9 @@ mod remote_tests {
     #[test]
     fn a_fleet_with_no_miners_operates_none() {
         let plain = ShipDesign {
+            name: String::new(),
+            picture: 0,
+            stored_armor: 0,
             hull_id: 0,
             slots: vec![DesignSlot {
                 category: slot::ENGINE,
