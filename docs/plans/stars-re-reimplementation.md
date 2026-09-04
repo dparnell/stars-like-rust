@@ -330,8 +330,22 @@ Remaining in this step:
    owner's template and the wreckage salvage a captured planet grants. See
    `docs/formulas/ground.md`, and remote mining's fleet mine count
    (`CMineFromLpfl`, capped at 4000) is in `docs/formulas/mining.md`.
-3. **RNG alignment through a turn** — investigated, and **blocked by the game's
-   design rather than by effort**. There are two generators; the gameplay one
+3. **RNG alignment through a turn** — investigated twice, searched, and still
+   **blocked**, but for a sharper reason than first recorded. The startup
+   seeding is `Randomize2(GetTickCount())`, and `Randomize2` writes the same
+   state as `Randomize`: both index a 128-entry primes table with two 7-bit
+   values, so the generator starts in one of at most 16,256 states however
+   arbitrary the clock. That is small enough to enumerate, and mining supplies
+   the constraints to test each one — `MineMinerals` draws exactly one
+   `Random(100)` per mineral with a non-zero remainder, in planet-id order, and
+   a quiet planet's surface change says whether that draw rounded up. The search
+   (`examples/rng_search`) tries every seeding against every offset and **finds
+   nothing**: a run of 39 where luck reaches 52, and 197 of 242 where luck
+   reaches 207. It is not vacuous — given a planted seed and offset it recovers
+   them exactly, 556 of 556. So the state is not merely unrecorded; the space it
+   lives in has been enumerated and does not yield the stream from these files.
+   Consecutive tutorial-mode turns remain the fixture that would settle it,
+   because they remove the offset problem entirely. There are two generators; the gameplay one
    (`lRandSeed1`/`lRandSeed2`, driven by `Random`) is never re-seeded when a
    turn is generated, so its state depends on everything the host process did
    since it started and is written to no save file. A recorded turn therefore

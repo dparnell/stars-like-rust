@@ -107,7 +107,7 @@ different state.
 | generator | state | driven by | seeded by |
 |-----------|-------|-----------|-----------|
 | file cipher | `DAT_1118_237e` / `DAT_1118_2382` | `FUN_1038_8a58` | the file header, on every block stream |
-| gameplay | `lRandSeed1` / `lRandSeed2` | `Random` (`1040:16d2`) | `Randomize` |
+| gameplay | `lRandSeed1` / `lRandSeed2` | `Random` (`1040:16d2`) | `Randomize` **and `Randomize2`** — see below; the two write the same state |
 
 The cipher's seeding is fully recovered — it is why the fixtures decode at all.
 The gameplay generator is the one every simulation formula draws from, and its
@@ -139,6 +139,78 @@ entirely.
 cannot be replayed draw-for-draw from the fixtures, however completely the
 formulas are recovered. This is a property of the game, not a gap in the
 reverse engineering.
+
+### But the state is only fourteen bits wide, so it can be searched
+
+The paragraph above is right that the state is not recorded, and an earlier
+revision stopped there. It overstates the difficulty. The startup seeding is
+`Randomize2((uint32_t)GetTickCount())` in `WinMain`, and **`Randomize2` writes
+the same `lRandSeed1`/`lRandSeed2` as `Randomize`** — they are two seedings of
+one generator, not two generators:
+
+```c
+void Randomize2(uint32_t dw) {
+    b = (dw & 0x7F) ^ 0x35;   a = ((dw >> 7) & 0x7F) ^ 0x5C;
+    if (b == a) a = (a + 1) & 0x7F;
+    lRandSeed1 = rgPrimes[b];  lRandSeed2 = rgPrimes[a];
+}
+```
+
+Both indices are seven bits into a 128-entry table, so however arbitrary the
+tick count, the generator starts in one of at most **128 x 127 = 16,256
+states**. The tick count itself is irrelevant; only its low fourteen bits reach
+the generator. The real unknown is not the state but the *offset*: how many
+draws the host consumed between seeding and the point of interest.
+
+That makes alignment a search rather than an impossibility, and mining supplies
+the constraints. `MineMinerals` walks every planet in id order and
+`EstMineralsMined` draws exactly one `Random(100)` per mineral whose hundredths
+remainder is non-zero — nothing else in that loop draws, and an unowned or
+unpopulated planet returns before drawing at all. On a planet whose surface
+change is only what it mined, the change says whether that draw rounded up. One
+year pair of `all-computer-players` yields 556 draws in a known order, 242 of
+them constrained.
+
+### The search, and what it found
+
+`cargo run --release -p stars-core --example rng_search -- <game dir> <span>
+[tolerance] [selftest]` tries every seeding against every offset up to `span`.
+
+**It found nothing.** Two passes, both negative:
+
+| pass | span | tolerance | best score | what luck reaches |
+|------|-----:|----------:|-----------:|------------------:|
+| exact prefix | 50,000 | 0 | run of 39 | about 52 |
+| tolerant | 3,000 | 60 wrong | 197 of 242 | about 207 |
+
+Both are *inside* what chance produces, so neither is a signal. The comparison
+matters: constraints are not coin flips — a draw with a remainder of 90 rounds
+up nine times in ten — so a random stream already satisfies 68% of them, and
+over 5x10^7 tries the luckiest reaches 197 on its own.
+
+The search is not vacuous, and that is checked rather than assumed. Run it as
+`... 20000 0 selftest` and it replaces the observed outcomes with ones generated
+from a known seed and offset; it recovers them exactly — `best run 556 (seeds
+37,71 offset 12345)`, a full match.
+
+So the negative is real within those bounds. Three things could explain it, and
+this corpus cannot separate them:
+
+- the offset is larger than the spans searched, though the steps between seeding
+  and mining — the player shuffle, thing movement, fleet movement, decay — should
+  draw only tens of times;
+- the draw sequence differs from the model, most likely in `CMinesOperating`,
+  where being one mine out changes a remainder and so the constraint;
+- too many of the 242 observed outcomes are wrong. Only 44% of the draws could
+  be constrained at all, and a planet that also spent minerals can still land
+  one kilotonne from the mined figure by coincidence.
+
+**The conclusion stands, but for a sharper reason than "the state is not
+stored":** it is not stored, the space it lives in is small enough to enumerate,
+and enumerating it does not recover the stream from these files. Consecutive
+turns from a tutorial-mode game remain the fixture that would settle it, because
+they remove the offset problem entirely — the generator is re-seeded to a known
+constant at the head of every turn.
 
 ### The exception: tutorial mode
 
