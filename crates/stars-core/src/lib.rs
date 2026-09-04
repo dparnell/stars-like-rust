@@ -62,6 +62,7 @@ pub mod research;
 pub mod resources;
 pub mod rng;
 pub mod scanning;
+pub mod terraform;
 pub mod turn;
 
 // `battle::distance` is board geometry and `movement::distance` is interstellar,

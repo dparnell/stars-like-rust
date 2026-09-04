@@ -163,6 +163,15 @@ impl Race {
         self.prt() == Some(Prt::Ar)
     }
 
+    /// Whether the race is immune to one environment variable.
+    ///
+    /// A negative upper bound marks immunity: every value of that variable is
+    /// ideal, so it never needs terraforming and never limits habitability.
+    #[must_use]
+    pub fn is_immune(&self, variable: usize) -> bool {
+        self.env_max.get(variable).is_some_and(|m| *m < 0)
+    }
+
     /// A Humanoid-like default: every economy stat at its baseline, a
     /// symmetric habitable range, and no lesser traits. Useful for tests.
     #[must_use]

@@ -284,8 +284,11 @@ Remaining in this step:
    71%.
 3. **Torpedo combat resolution**, which needs the RNG in the right state, and
    the residual movement-scoring gap (`docs/formulas/combat.md`).
-4. **Terraforming**, which runs before growth in the turn and currently has to
-   be supplied from the recorded files for the differential tests.
+4. **Terraforming** — the reach model is recovered and verified (96% of 10,165
+   planet-turns), which unblocks `PctPlanetOptValue` and the colonisation gate.
+   The count of steps still available over-counts by one to three and is not
+   yet wired into the AI; the turn's terraform step is still supplied from the
+   recorded files. See `docs/formulas/terraforming.md`.
 
 ###   Step 5: Build the egui desktop frontend with faithful core screens
 `stars-desktop` runs a playable single-player game on Windows/macOS/Linux with recreated key screens.

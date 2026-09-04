@@ -24,6 +24,10 @@ pub struct Planet {
     pub owner: Option<i16>,
     /// Current gravity, temperature and radiation, as clicks in `0..=100`.
     pub env: [i8; MINERALS],
+    /// The environment before any terraforming (`rgEnvVarOrig`), when the
+    /// planet records it. Terraforming reach is measured from these, not from
+    /// [`Self::env`] — see [`crate::terraform`].
+    pub env_orig: Option<[i8; MINERALS]>,
     /// Mineral concentration under the surface, `0..=100+` (`rgMinConc`).
     pub min_conc: [u8; MINERALS],
     /// Sub-concentration decay accumulator, in 1/256ths (`rgpctMinLevel`).
@@ -66,6 +70,7 @@ impl Planet {
             id,
             owner: None,
             env: [50, 50, 50],
+            env_orig: None,
             min_conc: [50, 50, 50],
             min_level: [0, 0, 0],
             surface_min: [0, 0, 0],

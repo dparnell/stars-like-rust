@@ -124,6 +124,13 @@ pub fn planet_from_record(record: &PlanetRecord) -> Option<Planet> {
             env.temperature as i8,
             env.radiation as i8,
         ],
+        env_orig: record.original_environment.map(|e| {
+            [
+                i8::try_from(e.gravity).unwrap_or(0),
+                i8::try_from(e.temperature).unwrap_or(0),
+                i8::try_from(e.radiation).unwrap_or(0),
+            ]
+        }),
         min_conc: [conc.ironium, conc.boranium, conc.germanium],
         // The sub-concentration accumulator is not stored per planet in the
         // formats decoded so far; it starts full.
