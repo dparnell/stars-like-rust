@@ -285,6 +285,113 @@ pub fn torpedoes_hitting(count: i32, accuracy_pct: i32, rng: &mut Rng) -> i32 {
     }
 }
 
+/// How a volley of torpedoes is split between shots taken and shots held back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TorpedoSplit {
+    /// Torpedoes that hit.
+    pub hits: i32,
+    /// Torpedoes that missed. These still splash the shields.
+    pub misses: i32,
+    /// Damage per torpedo, after the missile bonus.
+    pub dp: i32,
+}
+
+impl TorpedoSplit {
+    /// Torpedoes actually spent on this target — the rest stay in the tubes.
+    #[must_use]
+    pub fn fired(self) -> i32 {
+        self.hits + self.misses
+    }
+
+    /// Shield damage from the misses: an eighth each.
+    #[must_use]
+    pub fn splash(self) -> i32 {
+        self.misses * self.dp / 8
+    }
+
+    /// Damage from the hits, applied to shields **and** armour alike — each
+    /// hit does `dp/2` to the pool and `dp/2` to the hull.
+    #[must_use]
+    pub fn strike(self) -> i32 {
+        self.hits * self.dp / 2
+    }
+}
+
+/// How many of a volley's torpedoes are spent on one target.
+///
+/// Source: the `hstTorp` arm of the firing loop in `battle.c`. A token does
+/// **not** always empty its tubes: if the target would die to fewer torpedoes
+/// than the token is carrying, it fires only as many as it needs and keeps the
+/// rest for its next target. The loop walks the number of torpedoes committed
+/// upward from the target's ship count until the armour they would strip
+/// reaches what the target has left:
+///
+/// ```c
+/// i = ptokTarget->csh;
+/// if (i >= cTorpBase || cTorpHit * dp <= dpArmorLeft) {
+///     cTorpFire = cTorpHit;  cTorpMiss = cTorpBase - cTorpHit;    // fire them all
+/// } else {
+///     for (; i <= cTorpBase; i++) {
+///         cTorpFire = (i * cTorpHit + cTorpBase - 1) / cTorpBase;
+///         cTorpMiss = i - cTorpFire;
+///         dpShieldCur = max(dpShieldLeft - cTorpMiss * dp / 8, 0) - cTorpFire * dp / 2;
+///         dpHitArmor  = cTorpFire * dp / 2;
+///         if (dpShieldCur < 0) dpHitArmor -= dpShieldCur;
+///         if (dpHitArmor >= dpArmorLeft) break;
+///     }
+/// }
+/// ```
+///
+/// The hits are scaled with the committed count, rounding up, so the ratio of
+/// hits to misses is preserved as the volley is trimmed — the roll has already
+/// happened over the whole volley and is not re-run.
+///
+/// `hits` is the outcome of [`torpedoes_hitting`], and `shield_pool` and
+/// `armour_left` are what the target has left across the whole stack.
+#[must_use]
+pub fn torpedo_split(
+    available: i32,
+    hits: i32,
+    target_ships: i32,
+    weapon: Weapon,
+    shield_pool: i32,
+    armour_left: i32,
+) -> TorpedoSplit {
+    // A missile hits twice as hard once the shields are gone.
+    let dp = if weapon.missile && shield_pool <= 0 {
+        weapon.dp * 2
+    } else {
+        weapon.dp
+    };
+    let split = |fired: i32, hits: i32| TorpedoSplit {
+        hits,
+        misses: fired - hits,
+        dp,
+    };
+
+    if target_ships >= available || hits * dp <= armour_left {
+        return split(available, hits);
+    }
+
+    let mut committed = target_ships;
+    let mut chosen = split(committed, (committed * hits + available - 1) / available);
+    while committed <= available {
+        let fire = (committed * hits + available - 1) / available;
+        chosen = split(committed, fire);
+        let after_splash = (shield_pool - chosen.splash()).max(0);
+        let shields_now = after_splash - chosen.strike();
+        let mut into_armour = chosen.strike();
+        if shields_now < 0 {
+            into_armour -= shields_now;
+        }
+        if into_armour >= armour_left {
+            break;
+        }
+        committed += 1;
+    }
+    chosen
+}
+
 /// Damage a stack of ships takes, and what survives.
 ///
 /// Shields **overlap across the whole token**: twenty scouts with 20 shield
@@ -357,6 +464,14 @@ fn ceil_div(a: i32, b: i32) -> i32 {
     (a + b - 1) / b
 }
 
+/// Index of the Jihad Missile in [`crate::components::TORPEDOES`], the first of
+/// the four missiles (`itorpJihadMissile`).
+///
+/// A missile does **double damage** against a target whose shields are already
+/// down. The four run to the end of the table, so `item >= FIRST_MISSILE` is
+/// the whole test the firing loop makes.
+pub const FIRST_MISSILE: usize = 8;
+
 /// A weapon fitted to a design, flattened out of its slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Weapon {
@@ -377,6 +492,10 @@ pub struct Weapon {
     pub accuracy: i32,
     /// Ability flags; bit 0 marks a sapper (shields only).
     pub abilities: i32,
+    /// Whether this torpedo is one of the four **missiles**, which do double
+    /// damage to a target whose shields are already down (`part.hs.iItem >=
+    /// itorpJihadMissile && <= itorpArmageddonMissile`).
+    pub missile: bool,
 }
 
 impl Weapon {
@@ -735,7 +854,7 @@ fn fire_weapon(
     events: &mut Vec<DamageEvent>,
 ) {
     if weapon.torpedo {
-        // Torpedoes roll per shot; not resolved here (see the module note).
+        // Torpedoes need the generator, so the caller supplies it separately.
         return;
     }
     let (player, square, capacitor, ships) = {
@@ -821,6 +940,100 @@ fn fire_weapon(
 ///
 /// Torpedoes are skipped: they roll per shot, and reproducing a recorded
 /// battle needs the generator in the right state.
+/// Fire one token's torpedo launcher, rolling each shot.
+///
+/// Source: the `hstTorp` arm of the firing loop in `battle.c`. The token keeps
+/// picking targets while it still has torpedoes, and each volley is split by
+/// [`torpedo_split`], so a token with more torpedoes than the first target
+/// needs carries the rest to the next one.
+///
+/// Unlike the beam loop this consumes RNG — `CTorpHit` rolls every torpedo
+/// individually below 201 of them — so a recorded battle cannot be reproduced
+/// through it without the generator in the same state. See `docs/rng/prng.md`.
+pub fn fire_torpedoes(
+    tokens: &mut [CombatToken],
+    attacker: usize,
+    weapon: Weapon,
+    rng: &mut Rng,
+    events: &mut Vec<DamageEvent>,
+) {
+    let (player, square, ships) = {
+        let t = &tokens[attacker];
+        (t.player, t.square, t.state.ships)
+    };
+    let mut left = weapon.count * ships;
+
+    for _ in 0..tokens.len() {
+        if left <= 0 || !tokens[attacker].alive() {
+            break;
+        }
+        // Torpedoes use the same target preference as beams.
+        let mut best: Option<(usize, i32)> = None;
+        for (i, t) in tokens.iter().enumerate() {
+            if i == attacker || !t.alive() || t.player == player {
+                continue;
+            }
+            if i32::from(distance(square, t.square)) > weapon.range {
+                continue;
+            }
+            let score = beam_target_score(t, false);
+            if score > 0 && best.is_none_or(|(_, b)| score > b) {
+                best = Some((i, score));
+            }
+        }
+        let Some((target, _)) = best else { break };
+
+        let accuracy = torpedo_accuracy(
+            weapon.accuracy,
+            tokens[target].pct_jam,
+            tokens[attacker].pct_computer,
+        );
+        let hits = torpedoes_hitting(left, accuracy, rng);
+
+        let state = tokens[target].state;
+        let pool = state.shields * state.ships;
+        let armour_left = armour_remaining(state);
+        let split = torpedo_split(left, hits, state.ships, weapon, pool, armour_left);
+
+        // The misses splash the shields first, then the hits land on shields
+        // and armour together.
+        let mut after = state;
+        if split.splash() > 0 {
+            after = apply_damage(after, split.splash(), true).after;
+        }
+        let strike = apply_damage(after, split.strike(), false);
+        let mut hull = apply_damage(strike.after, split.strike(), false);
+        hull.ships_killed += strike.ships_killed;
+        tokens[target].state = hull.after;
+        if hull.after.ships <= 0 {
+            tokens[target].active = false;
+        }
+        events.push(DamageEvent {
+            attacker,
+            target,
+            shield_damage: strike.shield_damage + split.splash().min(pool),
+            ships_killed: hull.ships_killed,
+        });
+
+        left -= split.fired();
+    }
+}
+
+/// Armour points a stack has left, across every ship in it.
+///
+/// `dpArmorLeft = dpSingle * csh`, less what the already-damaged ships are
+/// carrying: `dpSingle * pctDp / 10 * pctSh / 10 * csh / 500`.
+#[must_use]
+pub fn armour_remaining(state: TokenState) -> i32 {
+    let mut left = state.armor * state.ships;
+    if state.damage.pct_damage != 0 {
+        left -= state.armor * state.damage.pct_damage / 10 * state.damage.pct_ships / 10
+            * state.ships
+            / 500;
+    }
+    left.max(0)
+}
+
 pub fn fire_round(tokens: &mut [CombatToken]) -> Vec<DamageEvent> {
     let mut events = Vec::new();
 
@@ -1333,5 +1546,87 @@ pub fn move_search(tokens: &[CombatToken], mover: usize, primary: bool) -> MoveS
     MoveSearch {
         radius: 1,
         beeline: nearest.map(|(_, square)| square),
+    }
+}
+
+#[cfg(test)]
+mod torpedo_tests {
+    use super::*;
+
+    fn torp(dp: i32, count: i32, missile: bool) -> Weapon {
+        Weapon {
+            torpedo: true,
+            dp,
+            count,
+            range: 4,
+            nominal_range: 4,
+            initiative: 0,
+            accuracy: 75,
+            abilities: 0,
+            missile,
+        }
+    }
+
+    /// With more ships in the target than torpedoes in the tubes, everything
+    /// is fired and the misses are whatever did not hit.
+    #[test]
+    fn a_big_target_takes_the_whole_volley() {
+        let w = torp(12, 1, false);
+        let split = torpedo_split(10, 7, 20, w, 100, 1000);
+        assert_eq!(split.hits, 7);
+        assert_eq!(split.misses, 3);
+        assert_eq!(split.fired(), 10);
+        // Hits do dp/2 to shields and the same to armour; misses dp/8 each.
+        assert_eq!(split.strike(), 7 * 12 / 2);
+        assert_eq!(split.splash(), 3 * 12 / 8);
+    }
+
+    /// A token does not empty its tubes into a target that dies to fewer.
+    /// Two ships with 10 armour each fall to a handful of torpedoes, so most
+    /// of a large volley is kept back.
+    #[test]
+    fn torpedoes_are_held_back_from_an_overkilled_target() {
+        let w = torp(20, 1, false);
+        let all = torpedo_split(40, 30, 2, w, 0, 20);
+        assert!(
+            all.fired() < 40,
+            "should keep torpedoes back, fired {}",
+            all.fired()
+        );
+        // What it does fire must still be enough to strip the armour.
+        assert!(all.strike() >= 20, "fired too few: {}", all.strike());
+    }
+
+    /// A missile hits twice as hard once the shields are down, and normally
+    /// while they hold.
+    #[test]
+    fn a_missile_doubles_against_a_bare_hull() {
+        let w = torp(30, 1, true);
+        assert_eq!(torpedo_split(4, 4, 99, w, 0, 9999).dp, 60);
+        assert_eq!(torpedo_split(4, 4, 99, w, 500, 9999).dp, 30);
+        // An ordinary torpedo never doubles.
+        assert_eq!(torpedo_split(4, 4, 99, torp(30, 1, false), 0, 9999).dp, 30);
+    }
+
+    /// Armour left accounts for the damage the stack is already carrying.
+    #[test]
+    fn armour_left_subtracts_existing_damage() {
+        let fresh = TokenState {
+            ships: 10,
+            shields: 0,
+            armor: 100,
+            damage: Damage::default(),
+        };
+        assert_eq!(armour_remaining(fresh), 1000);
+
+        let hurt = TokenState {
+            damage: Damage {
+                pct_ships: 100,
+                pct_damage: 250,
+            },
+            ..fresh
+        };
+        // Half the armour gone across the whole stack.
+        assert_eq!(armour_remaining(hurt), 1000 - 100 * 25 * 10 * 10 / 500);
     }
 }

@@ -262,6 +262,7 @@ fn beam_damage_falls_off_with_range() {
         initiative: 5,
         accuracy: 100,
         abilities: 0,
+        missile: false,
     };
 
     assert_eq!(
@@ -301,6 +302,7 @@ fn movement_scoring_prefers_squares_it_can_shoot_from() {
         initiative: 5,
         accuracy: 100,
         abilities: 0,
+        missile: false,
     };
     let token = |player: u8, x: u8, y: u8, tactic: Tactic| CombatToken {
         player,

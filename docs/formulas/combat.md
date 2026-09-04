@@ -1,6 +1,6 @@
 # Subsystem: Combat
 
-- **Status:** in progress — board, movement (schedule, search, scoring), targeting, accuracy, the damage estimate and the beam firing loop implemented and verified; torpedoes are resolved everywhere except the replay's firing loop, which is blocked on the RNG
+- **Status:** in progress — board, movement (schedule, search, scoring, 94% against a 72% chance rate), targeting, the damage estimate and **both** firing loops implemented; the torpedo accuracy formula is transcribed but unverified, and replaying a recorded torpedo battle needs the RNG
 - **Ghidra routine(s):** `battle.c` region — `DxyFromSpdRound`, `DzFromBrcBrc`, `CTorpHit`, `ScoreFromGiveAndTakeAndTactic`, `FAttack`, `FDamageTok`, `DxyMoveTokTo`, and the `rgbrcStart` table
 - **Manual reference:** `MANUAL.PDF` pp. 23-2..23-10
 - **Uses RNG:** **yes** — torpedo hits are rolled individually
@@ -433,24 +433,25 @@ accuracy, the starting-square table and Chebyshev distance against
 
 ## Open questions
 
-- The residual 8% of scored moves and 6 beeline moves are unexplained; the
-  damage estimate `DpFromPtokBrcToBrc` is the likeliest culprit, since it is
-  the one piece of the movement path still taken from a decompilation rather
-  than the disassembly.
+- 28 scored moves are unexplained and no beeline ones. The RNG is a plausible
+  share of that: `DxyMoveTokTo` breaks ties by reservoir sampling.
 - Even complete, movement cannot be reproduced exactly without the RNG, because
   every tie-break draws from it.
 - Three of the eleven replayable battles still come out inverted. All three are
   symmetric duels where both ships can destroy the other in one volley, so the
   result turns on exactly when in the round each closed to range; firing once
   at the end of the round is an approximation there.
-- **Torpedo resolution** is specified but not driven: hits are rolled per
-  torpedo, so reproducing a recorded battle needs the generator in the right
-  state, which in turn needs every earlier draw in the turn.
+- **The torpedo accuracy formula is unverified.** The firing loop is now
+  implemented and the recording marks hits apart from misses, but only 8 of 100
+  recorded volleys yield a clean count — 24 shots, which decides nothing. A
+  corpus with more torpedo fire would settle it without needing the RNG.
 - Gattling weapons, which hit every target in range rather than one, are
   described in `FAttack` but not implemented.
 - `FIsTargetOfMdTarget` — the primary/secondary target-class filter — is not
   implemented, so target selection currently considers every enemy in range.
-- `grfWeapon` bit meanings in the kill records are not yet mapped.
+- `grfWeapon` is now mapped: `bitFBeamLow` 0x01, `bitFBeamHigh` 0x02,
+  `bitFTorp` 0x04, `bitFMissile` 0x08, `bitFDeflected` 0x80, plus the unnamed
+  `0xC0` `FDamageTok` adds to a torpedo record that stopped at the shields.
 - The three-phase movement order and the heaviest-first rule within a phase are
   documented here from the manual but not yet implemented or checked.
 - Bombing (`DoBombing`) and ground combat are separate from ship battles and
@@ -485,35 +486,96 @@ multiplies its torpedo count by 200 before calling `CTorpHit`, purely as fixed
 point so that fractional damage survives, and dividing by 200 afterwards. That
 scaling always pushes the count past the threshold, so **the estimate never
 rolls** — movement scoring is deterministic even though torpedo combat is not.
+### Damage, and the volley split
 
-### Damage
+The `hstTorp` arm of the firing loop is now transcribed in full, and two rules
+in it were not previously written down.
 
-A torpedo that hits damages shields and armour together. A torpedo that
-**misses still splashes the shields**, for an eighth of its damage, whenever
-the target has any. Both are implemented.
+**A hit does `dp/2` twice.** `FDamageTok(target, &dpT, dpT, ...)` is called with
+the same figure in both the shield and the armour argument, where
+`dpT = cTorpFire * dp / 2`. So a torpedo that hits puts half its damage into the
+shield pool and half into the hull — that is what "damages shields and armour
+together" means arithmetically. A torpedo that **misses still splashes the
+shields**, for `dp/8`.
 
-Two more rules came out of the same read and are worth recording:
+**A token does not always empty its tubes.** If the target would die to fewer
+torpedoes than the token carries, it fires only as many as it needs and keeps
+the rest for its next target:
+
+```c
+i = ptokTarget->csh;
+if (i >= cTorpBase || cTorpHit * dp <= dpArmorLeft) {
+    cTorpFire = cTorpHit;  cTorpMiss = cTorpBase - cTorpHit;    /* fire them all */
+} else {
+    for (; i <= cTorpBase; i++) {
+        cTorpFire = (i * cTorpHit + cTorpBase - 1) / cTorpBase;
+        cTorpMiss = i - cTorpFire;
+        dpShieldCur = max(dpShieldLeft - cTorpMiss * dp / 8, 0) - cTorpFire * dp / 2;
+        dpHitArmor  = cTorpFire * dp / 2;
+        if (dpShieldCur < 0) dpHitArmor -= dpShieldCur;
+        if (dpHitArmor >= dpArmorLeft) break;
+    }
+}
+```
+
+The hits are rescaled with the committed count, rounding up, so the hit-to-miss
+ratio survives the trimming — the roll happened over the whole volley and is not
+re-run. Implemented as `battle::torpedo_split`, driven by
+`battle::fire_torpedoes`.
+
+Three more rules from the same read:
 
 - **A starbase gets +1 to every weapon's range**, from `grobj == grobjPlanet`.
 - **Beam damage falls off with range** by `dp * dz / (10 * nominal_range)`, so a
   beam at its own maximum range does 10% less. Note the estimate applies this
   *before* beam deflection where `FAttack` applies deflection first; each step
   truncates, so the two orders are not interchangeable.
+- **A missile doubles its damage** against a target whose shields are already
+  down. The four missiles end the torpedo table, so the test is
+  `item >= itorpJihadMissile`.
+
+### The recording says which torpedoes missed
+
+`FDamageTok` writes one kill record per call and a volley makes two — the splash
+and the strike. It marks them apart through a flag the `GrfWeapon` enum does not
+name:
+
+```c
+if ((lpbBattleCur[1] & bitFTorp) != 0) lpbBattleCur[1] |= 0xC0u;
+```
+
+That sits on the early-out path, taken when the damage never reached armour. So
+a torpedo record of `0x04` reached the hull and one of `0xC4` (196) stopped at
+the shields. Across the Exodus recordings the weapon flags are exactly
+`{1: 73, 4: 140, 196: 108}` — beams, torpedo strikes, torpedo splashes — with no
+other value, which is what identified `0xC0`.
+
+It matters because it means the recording carries the **outcome of the roll**:
+`dpCol = cTorpMiss * dp / 8` and `dpT = cTorpFire * dp / 2`, so where the shields
+absorbed a whole record its `dpShield` divides back out to a count.
 
 ### What is left, and why
 
-The battle replay's firing loop still handles beams only, so a battle where any
-token carries a torpedo is skipped: 8 of 11 beam-only battles replay exactly,
-and the torpedo ones are not attempted.
+The firing loop is implemented. What cannot be done is *reproducing* a recorded
+torpedo battle, because `CTorpHit` rolls each torpedo with `Random(100)` and
+`../rng/prng.md` establishes that the generator's state cannot be recovered from
+these files.
 
-This is **not** a transcription gap. Torpedo hits are rolled individually with
-`Random(100)`, and `docs/rng/prng.md` establishes that the gameplay generator's
-state cannot be recovered from these save files — it is never re-seeded during
-turn generation except in tutorial mode. A torpedo battle replayed with a fresh
-generator gets different rolls and therefore different casualties, however
-perfect the formulas.
+Recovering the rolls from the recording instead was tried, and this corpus is
+too thin for it. Of 100 recorded volleys only **8** have both counts cleanly
+recoverable; the rest carry a record capped by an exhausted shield pool, which
+says only "at least this much". Those 8 come to 24 torpedoes with 16 hits — 67%
+against the 56% the accuracy formula predicts. At that sample the difference is
+about one standard deviation, so it neither confirms the formula nor challenges
+it. `examples/torp_check` reproduces the figure.
 
-So torpedo resolution needs the same thing the surface-mineral figure needs:
-consecutive turns from a game played in tutorial mode. It is the one remaining
-item in this subsystem, and it is an acquisition problem rather than a
-reverse-engineering one.
+Worth separating the three states this subsystem is now in:
+
+| | state |
+|-|-------|
+| volley split, damage, missile bonus | transcribed from the firing loop; unit-tested |
+| accuracy formula | transcribed from `CTorpHit`; **unverified** — 24 shots is no sample |
+| replaying a recorded torpedo battle | needs the RNG, and that needs tutorial-mode turns |
+
+Only the third is an acquisition problem. The second would be settled by any
+game with more torpedo fire in it, tutorial mode or not.

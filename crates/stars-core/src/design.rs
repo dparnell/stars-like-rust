@@ -308,6 +308,7 @@ impl ShipDesign {
                         initiative: i32::from(p.initiative),
                         accuracy: 100,
                         abilities: i32::from(p.abilities),
+                        missile: false,
                     });
                 }
             } else if s.category == slot::TORPEDO {
@@ -321,6 +322,8 @@ impl ShipDesign {
                         initiative: i32::from(p.initiative),
                         accuracy: i32::from(p.hit_chance),
                         abilities: 0,
+                        // Jihad, Juggernaut, Doomsday and Armageddon.
+                        missile: item >= crate::battle::FIRST_MISSILE,
                     });
                 }
             }
