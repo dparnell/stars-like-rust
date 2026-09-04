@@ -297,8 +297,8 @@ Measured against the recordings, splitting the two paths a move can take:
 
 | path | result |
 |------|--------|
-| beeline moves (nothing in reach) | **105 of 111 close on the target — 94%** |
-| scored moves | **379 of 450 among our best-rated — 84%**, against a 72% chance rate |
+| beeline moves (nothing in reach) | **83 of 83 close on the target — 100%** |
+| scored moves | **450 of 478 among our best-rated — 94%**, against a 72% chance rate |
 
 The chance rate is what makes the second number mean anything: a scorer that
 rated every square identically would hit 100% on the first figure and 100% on
@@ -312,6 +312,7 @@ For reference, as the pieces landed:
 | scoring transcribed, real tactics | 86% | 71% | 15 |
 | plus search radius and class filter | 92% | 81% | 11 |
 | `DpFromPtokBrcToBrc` re-read from the disassembly | 84% | 72% | 12 |
+| the replay kept the board current (see below) | **94%** | 72% | **22** |
 
 That last row is the one to be careful about. Transcribing the damage estimate
 faithfully from the disassembly, rather than from the decompilation, **lowered**
@@ -341,13 +342,51 @@ whether a token still has ships, and this crate was filtering the dead out. It
 makes no difference to the measured rate on this corpus, so it is a
 faithfulness fix rather than an improvement.
 
-### Where the gap is
+### Where the gap was: the replay, not the model
 
-The residual is 6 beeline moves and 71 scored ones, and it is **not** in the
-mover. Nor, as an earlier revision of this document supposed, is it in loose
-ends in the damage estimate: `DpFromPtokBrcToBrc` has since been read from the
-disassembly in full, and the sapper cap and the torpedo path it named are both
-implemented. What remains unexplained is unexplained.
+The residual was 6 beeline moves and 71 scored ones, and an earlier revision of
+this document recorded it as unexplained after clearing both `DxyMoveTokTo` and
+the damage estimate. It was in neither. **It was in the harness**, which fed the
+scorer a battle that had stopped being the one the engine was fighting.
+
+Two things were never updated as a recording was replayed:
+
+- **Casualties.** Only actions carrying a destination were processed; firing
+  records were skipped outright, so no token ever lost a ship, shields or
+  armour. Every round after the first was scored against a board at full
+  strength. The recording carries what is needed — `ships_killed`,
+  `shield_damage` and the packed remaining damage — so it is applied as it
+  happens. (`shields` is per ship while the recorded figure is the whole pool,
+  so it has to go through the pool exactly as `apply_damage` does, recomputing
+  the per-ship value against the ship count *before* the casualties.)
+- **`moves_left`.** This is what a token has left to spend *in the current
+  round*, and the scorer reads it twice: `DzMoveRangeToConsider` sizes the
+  search box from the mover's, and `ScoreGuessBattleDamage` compares each
+  enemy's against it to decide whether that enemy can close the distance. Read
+  once from the token record it stayed at the starting allowance forever. It is
+  now reset at the head of every round from `movement_this_round` and spent one
+  per step.
+
+The second was the larger error by far, and it was mis-scoring *which branch a
+move took*: a stale allowance gives the wrong search radius, so moves fell into
+the beeline path that the engine scored, and vice versa. Correcting it moved 29
+moves out of the beeline path and into the scored one.
+
+| | beeline | scored | chance | gap |
+|-|--------:|-------:|-------:|----:|
+| as recorded before | 105/111 (94%) | 379/450 (84%) | 72% | 12 |
+| casualties applied | 103/112 (91%) | 395/449 (87%) | 75% | 12 |
+| plus `moves_left` maintained | **83/83 (100%)** | **450/478 (94%)** | 72% | **22** |
+
+Applying casualties alone barely moved the gap — the hit rate and the chance
+rate rose together — and it was kept because it is what the engine does, not
+because of the number. Maintaining `moves_left` is what actually separated the
+scorer from chance.
+
+What remains is 28 scored moves and no beeline ones. That residual is genuinely
+unexplained, and it is now small enough that the RNG is a plausible share of it:
+`DxyMoveTokTo` breaks ties by reservoir sampling, so where several squares tie
+on score the engine's choice among them is not reproducible at all.
 
 ## Armour and shields
 

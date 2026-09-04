@@ -256,8 +256,8 @@ Measured against real save files:
 | ship design mass | 73 of 85 battle tokens exact, rest explained by cargo |
 | ship design armour | 493 designs, zero disagreements |
 | battle replay, beam-only | 8 of 11 battles reproduce recorded casualties |
-| battle movement, beeline | 105 of 111 close on their target |
-| battle movement, scored | 379 of 450 among our best-rated (chance 72%) |
+| battle movement, beeline | 83 of 83 close on their target |
+| battle movement, scored | 450 of 478 among our best-rated (chance 72%) |
 | terraform reach | 37,712 of 37,743 axis-readings (99.9%) |
 | AI terraform order, fresh | 196 of 196 (100%) |
 | AI mine/factory decision, isolated | 6,826 of 7,997 (85%; chance 28%, floor 49%) |
@@ -370,12 +370,15 @@ Remaining in this step:
    original's. Aligning the stream would take per-mineral agreement to about
    83% and the all-three figure to roughly 57%. The genuinely unmodelled
    residual is the 8% of readings off by six or more — a far smaller target
-   than 73%. Also the residual movement-scoring
-   gap, which has now been narrowed: `DxyMoveTokTo` has been checked against
-   the implementation line by line and the mover is not where the loss is —
-   it is in `ScoreGuessBattleDamage` and the damage estimate beneath it, whose
-   loose ends are the same ones torpedo resolution is blocked on. The two are
-   likely one job (`docs/formulas/combat.md`).
+   than 73%. The residual movement-scoring gap is **resolved**, and it was not in the model
+   at all: `DxyMoveTokTo` and the damage estimate had both been cleared, and the
+   loss was in the replay harness, which never applied the recorded casualties
+   and never updated `moves_left`. A token's remaining moves size its search box
+   and decide whether an enemy can close on it, so a stale value put moves in
+   the wrong branch entirely. Fixing both took beelines from 105 of 111 to
+   **83 of 83** and scored moves from 84% to **94%** against an unchanged 72%
+   chance rate — a gap of 22 where the best previously recorded was 15
+   (`docs/formulas/combat.md`).
 4. **Terraforming** — recovered and applied during the turn, and now verified
    end to end. The reach model is right for 37,712 of 37,743 axis-readings
    (99.9%) and unblocks `PctPlanetOptValue` and the colonisation gate; the step

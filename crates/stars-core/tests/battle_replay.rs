@@ -804,18 +804,65 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
                 continue;
             }
 
+            // `moves_left` is what a token has left to spend *this round*, and
+            // the scorer compares the mover's against each enemy's to decide
+            // whether that enemy can close the distance. Read once from the
+            // token record it would be the starting allowance forever, so it is
+            // reset at the head of every round and spent as tokens move.
+            let mut round = u8::MAX;
             for action in &battle.actions {
+                if action.round != round {
+                    round = action.round;
+                    for token in &mut tokens {
+                        token.moves_left = movement_this_round(token.speed_index, round);
+                    }
+                }
+                // Keep the board current. Scoring a square weighs what each
+                // token could give and take, which depends on how many ships it
+                // still has and what armour is left on them — so the casualties
+                // the recording carries have to be applied as they happen, or
+                // every round after the first is scored against a battle that is
+                // no longer being fought.
+                let apply_kills = |tokens: &mut Vec<CombatToken>| {
+                    for kill in &action.kills {
+                        let Some(hit) = tokens.get_mut(usize::from(kill.token)) else {
+                            continue;
+                        };
+                        // `shields` is per ship and the recording's figure is
+                        // the whole pool, so it has to go through the pool the
+                        // way `apply_damage` does — and, as there, the per-ship
+                        // value is recomputed against the ship count *before*
+                        // the casualties, not after.
+                        let pool = hit.state.shields * hit.state.ships;
+                        let left = (pool - i32::from(kill.shield_damage)).max(0);
+                        if hit.state.ships > 0 {
+                            hit.state.shields = left / hit.state.ships;
+                        }
+                        hit.state.ships = (hit.state.ships - i32::from(kill.ships_killed)).max(0);
+                        hit.state.damage = Damage::from_raw(kill.damage);
+                        if hit.state.ships == 0 {
+                            // `alive()` already gates on the ship count; this
+                            // only zeroes the pool so the estimate cannot read
+                            // shields off a stack that no longer exists.
+                            hit.state.shields = 0;
+                        }
+                    }
+                };
+
                 let Some(dest) = action.destination else {
+                    apply_kills(&mut tokens);
                     continue;
                 };
                 let mover = usize::from(action.token);
                 let Some(token) = tokens.get(mover) else {
+                    apply_kills(&mut tokens);
                     continue;
                 };
                 let here = token.square;
                 let to = CoreSquare::new(dest.x, dest.y);
                 if to == here {
-                    continue; // a firing record, not a move
+                    apply_kills(&mut tokens); // a firing record, not a move
+                    continue;
                 }
 
                 // What the engine would have done: if nothing is in reach
@@ -832,6 +879,8 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
                         beelines_toward += 1;
                     }
                     tokens[mover].square = to;
+                    tokens[mover].moves_left = tokens[mover].moves_left.saturating_sub(1);
+                    apply_kills(&mut tokens);
                     continue;
                 }
 
@@ -868,6 +917,8 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
                 candidates += candidate_count;
                 best_set += best_squares.len();
                 tokens[mover].square = to;
+                tokens[mover].moves_left = tokens[mover].moves_left.saturating_sub(1);
+                apply_kills(&mut tokens);
             }
         }
     }
@@ -886,16 +937,17 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
         moves > 100,
         "expected a decent sample of moves, got {moves}"
     );
-    // Measured when written: 86% against a 71% chance rate. Both are asserted
-    // against regression only. The stronger assertion below is the definition
-    // of done, and needs DzMoveRangeToConsider and FIsTargetOfMdTarget:
-    //
-    //     assert!(pct >= 99, "...");
-    //
+    // Measured: 94% against a 72% chance rate, and every beeline closes. Both
+    // are asserted against regression.
     assert!(
-        pct >= 80,
+        pct >= 90,
         "movement scoring agreed with the engine on only {pct}% of scored moves, below \
-         the 84% measured when written"
+         the 94% measured"
+    );
+    assert!(
+        beeline_pct >= 95,
+        "only {beeline_pct}% of beeline moves close on their target, below the 100% \
+         measured"
     );
     assert!(
         chance <= 78,
@@ -903,7 +955,7 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
          than it did when this was written"
     );
     assert!(
-        pct >= chance + 8,
+        pct >= chance + 18,
         "the scorer ({pct}%) is no longer meaningfully better than chance ({chance}%)"
     );
 }
