@@ -74,6 +74,7 @@ pub mod resources;
 pub mod rng;
 pub mod save;
 pub mod scanning;
+pub mod score;
 pub mod startup;
 pub mod terraform;
 pub mod turn;

@@ -115,7 +115,26 @@ pub fn planet_from_record(record: &PlanetRecord) -> Option<Planet> {
     let env = record.environment?;
     let conc = record.concentration?;
     let pop = record.population?;
-    let installations = record.installations?;
+    // `fIncImp` is clear when there is nothing to describe: a colony settled
+    // this year has no mines, factories or defences, and the block simply
+    // leaves the field out. Such a planet is still fully described — owner,
+    // environment, concentrations and population are all there — so it loads
+    // with zeroes rather than being demoted to a scanned sighting. Getting
+    // this wrong cost the planet its population everywhere downstream, which
+    // is how the scoreboard found it.
+    let installations = record
+        .installations
+        .unwrap_or(stars_formats::Installations {
+            delta_pop: 0,
+            mines: 0,
+            factories: 0,
+            defenses: 0,
+            scanner: 31,
+            artifact: false,
+            no_research: false,
+            unused2: 0,
+            unused5: 0,
+        });
 
     let surface = record.surface_minerals.unwrap_or(stars_formats::Minerals {
         ironium: 0,
@@ -334,6 +353,14 @@ impl GameState {
                     }
                     player.control = crate::ai::Control::from_flags(record.flags_byte);
                     player.password = record.password.unwrap_or(0);
+                    // `PLAYER.fDead`, bit 0 of the word at offset 84 — the flag
+                    // `CalcPlayerScore` tests before it scores tech levels, and
+                    // the one that makes the scoreboard report a player as all
+                    // zeroes.
+                    player.dead = record
+                        .fixed
+                        .get(84..86)
+                        .is_some_and(|b| u16::from_le_bytes([b[0], b[1]]) & 1 != 0);
                     player.relations.clone_from(&record.player_relations);
                     player.research_pct = race.research_percentage;
                     if let Some(research) = record.research {
@@ -477,9 +504,6 @@ impl GameState {
                 continue;
             };
             designs_loaded += 1;
-            if !record.full_design {
-                continue;
-            }
             let quota = if record.starbase {
                 &mut base_quota
             } else {
@@ -495,6 +519,15 @@ impl GameState {
                 }
                 None => fallback,
             };
+            // A design block that carries no slots is a **foreign** design the
+            // file's player has merely seen. There is nothing to store, but it
+            // still belongs to its owner's count: skipping it without spending
+            // that count handed the next player's first design to whoever the
+            // foreign one belonged to, which quietly moved a design between
+            // players and lost the ships built to it.
+            if !record.full_design {
+                continue;
+            }
 
             let slot = if record.starbase {
                 usize::from(crate::startup::FIRST_STARBASE_SLOT) + usize::from(record.design_number)

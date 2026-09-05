@@ -958,16 +958,44 @@ disagree.
     No fixture contains one, so this rests on the binary alone; the messages
     are not modelled.
 
-26. **What is still missing to call it playable.** Every waypoint task is now
+26. ~~**Player scores.**~~ **Done, and exactly right.** `CalcPlayerScore`
+    (`1038:58a6`) transcribed and checked against the scoreboards Stars! wrote:
+    **1,826 of 1,826** comparable rows in the fixtures match exactly — the
+    score and the planet, starbase and tech counts beside it. The spec is
+    `docs/formulas/scores.md`.
+
+    A planet is worth nothing for itself: a point per hundred thousand
+    colonists, six at most. Starbases are three each, but only those with a
+    dock, so an Orbital Fort scores nothing. Resources are a point per thirty.
+    Tech levels rise in bands. And the ship counts are **capped by the number
+    of planets**, so a huge fleet over a small empire scores as though it were
+    small: half a point an unarmed ship, two an escort, and
+    `8 × capital × planets / (capital + planets)`.
+
+    Designs are sorted by `LComputePower` (`1038:0b32`) — beams by
+    `damage × count × (range + 3) / 4`, a sapper a third of that, torpedoes and
+    bombs likewise, with capacitors multiplying the beam total — into unarmed
+    (no power), escort (under 2000) and capital. The one term left out is the
+    speed adjustment, whose `SpdOfShip` is not recovered; leaving it out changed
+    none of the 1,826 rows.
+
+    **Two loader bugs fell out of making the numbers agree**, and neither had a
+    test of its own. A planet with no installations at all — a colony settled
+    that year — was being demoted to a scanned sighting and losing its
+    population, because the block leaves the installations field out when there
+    is nothing in it. And a foreign design, stored without its slots, was
+    skipped without spending its owner's design count, so the next player's
+    first design was attributed to the wrong player and the ships built to it
+    stopped being counted. Both are the sort of thing a differential test finds
+    and a unit test never would.
+
+27. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
-    - **Player scores.** The last visible number the engine does not produce.
-      The formula is located and written down in `docs/formulas/scores.md`;
-      what is missing is the scale of `LComputePower` and the two thresholds
-      that sort ships into unarmed, escort and capital. Every `.mN` and `.hN`
-      in the fixtures carries real score rows, so this can be settled
-      differentially rather than by transcription alone.
+    - **Victory conditions.** The scoreboard is right; who has *won* is not
+      modelled. `UpdatePlayerScores` checks each condition the game is using
+      against a threshold, and a player meeting enough of them wins.
     - **Messages.** The engine decides plenty that the original would tell the
       player about — a fleet stopped by mines, a gift refused, a patrol
       targeted — and says none of it. `FSendPlrMsg` is everywhere in the

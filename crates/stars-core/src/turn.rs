@@ -98,6 +98,8 @@ pub struct TurnReport {
     pub mines_swept: Vec<(u16, i16, i32)>,
     /// Interceptions a patrol ordered, as `(patrolling fleet, target fleet)`.
     pub patrols: Vec<(u16, u16)>,
+    /// The scoreboard, one entry per player, after the year's events.
+    pub scores: Vec<crate::score::PlayerScore>,
     /// Pipeline steps not performed, and therefore not reflected above.
     pub skipped: Vec<SkippedStep>,
 }
@@ -331,6 +333,10 @@ pub fn generate_turn_with_orders(
     // --- SweepForMines, which the original runs late, after the second pass
     // of orders: everything armed with beams clears what it is sitting in.
     report.mines_swept = sweep_minefields(state);
+
+    // --- UpdatePlayerScores, which the original runs near the end of the
+    // year, once everything that could change a score has happened.
+    report.scores = crate::score::scores(state);
 
     // --- Patrol: every patrolling fleet looks for something to intercept.
     // The original does this as it writes each player's file, after everything
