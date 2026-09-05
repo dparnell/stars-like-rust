@@ -1236,3 +1236,85 @@ fn the_survey_pane_summarises_a_fleet_and_deep_space() {
 
     let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
 }
+
+/// The fleet pane reports a fleet the way the original's tiles do.
+#[test]
+fn the_fleet_pane_reports_a_fleet() {
+    use stars_core::fleet::Waypoint;
+    use stars_ui::Screen;
+
+    let (mut app, host) = a_saved_game("fleetpane");
+    app.screen = Screen::Fleets;
+    app.selection.fleet = Some(0);
+
+    // Fuel & Cargo: fuel first, then the three minerals and the colonists.
+    let cargo = app.fleet_cargo_tile();
+    let labels: Vec<&str> = cargo.iter().map(|(l, _)| l.as_str()).collect();
+    assert_eq!(
+        labels,
+        vec![
+            "Fuel",
+            "Ironium",
+            "Boranium",
+            "Germanium",
+            "Colonists",
+            "Cargo"
+        ]
+    );
+    assert!(
+        cargo[0].1.contains(" of "),
+        "fuel is of capacity: {}",
+        cargo[0].1
+    );
+
+    // Fleet Composition: a design and how many of it.
+    let composition = app.fleet_composition_tile();
+    assert!(!composition.is_empty(), "a fleet has ships in it");
+    assert!(
+        composition[0].1.parse::<i32>().is_ok(),
+        "a count: {}",
+        composition[0].1
+    );
+
+    // With no orders, the waypoint tile says where it is and nothing more.
+    let rows = app.fleet_waypoints_tile();
+    assert_eq!(rows[0].0, "Coming From");
+    assert_eq!(rows[1], ("Next Way Pt".to_string(), "(none)".to_string()));
+    assert_eq!(app.fleet_task_tile(), "(no task here)");
+
+    // Give it somewhere to go, and the leg is costed.
+    {
+        let fleet = &mut app.game.as_mut().expect("game").fleets[0];
+        let from = fleet.position;
+        fleet.waypoints.push(Waypoint {
+            position: stars_core::movement::Point::new(from.x + 100, from.y),
+            target: None,
+            target_class: 4,
+            warp: 5,
+            task: stars_formats::task::COLONIZE,
+            transport: None,
+            task_data: Vec::new(),
+        });
+    }
+    let rows = app.fleet_waypoints_tile();
+    let labels: Vec<&str> = rows.iter().map(|(l, _)| l.as_str()).collect();
+    assert_eq!(
+        labels,
+        vec![
+            "Coming From",
+            "Next Way Pt",
+            "Warp Factor",
+            "Distance",
+            "Travel Time",
+            "Est Fuel Usage"
+        ]
+    );
+    assert_eq!(rows[2].1, "5");
+    assert_eq!(rows[3].1, "100 l.y.");
+    // A hundred light years at warp 5 is twenty-five a year: four years.
+    assert_eq!(rows[4].1, "4.0 years");
+    assert!(rows[5].1.ends_with("kT"), "{}", rows[5].1);
+    assert_eq!(app.fleet_task_tile(), "Colonize");
+
+    let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
+}

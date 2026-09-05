@@ -335,9 +335,18 @@ impl eframe::App for StarsApp {
                             egui::ScrollArea::vertical()
                                 .show(ui, |ui| stars_ui::views::survey::view(&mut self.app, ui));
                         });
+                    // One pane, two tile tables: the original swaps the
+                    // planet's tiles for the fleet's when a fleet is selected.
+                    let fleet =
+                        matches!(self.app.survey_subject(), stars_ui::SurveySubject::Fleet(_));
                     egui::CentralPanel::default().show_inside(ui, |ui| {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| stars_ui::views::planet::view(&mut self.app, ui));
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            if fleet {
+                                stars_ui::views::fleet::view(&mut self.app, ui);
+                            } else {
+                                stars_ui::views::planet::view(&mut self.app, ui);
+                            }
+                        });
                     });
                 });
         }

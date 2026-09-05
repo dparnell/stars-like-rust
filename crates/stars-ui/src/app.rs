@@ -1789,6 +1789,189 @@ impl App {
             .collect()
     }
 
+    // --- The fleet pane ----------------------------------------------------
+    //
+    // The same window as the planet pane, with a different tile table
+    // (`rgtileShip`, `1120:090e`) when a fleet is selected. See
+    // `docs/ui/fleet-pane.md`.
+
+    /// The fleet the pane is showing, if one is selected.
+    #[must_use]
+    pub fn pane_fleet(&self) -> Option<&stars_core::fleet::Fleet> {
+        let SurveySubject::Fleet(index) = self.survey_subject() else {
+            return None;
+        };
+        self.game.as_ref().and_then(|g| g.fleets.get(index))
+    }
+
+    /// The designs of whoever owns the fleet on show.
+    fn pane_fleet_designs(&self) -> &[stars_core::design::ShipDesign] {
+        let (Some(game), Some(fleet)) = (self.game.as_ref(), self.pane_fleet()) else {
+            return &[];
+        };
+        usize::try_from(fleet.owner)
+            .ok()
+            .and_then(|owner| game.designs.get(owner))
+            .map_or(&[][..], Vec::as_slice)
+    }
+
+    /// Where the fleet is: the planet's name, or `In Deep Space`
+    /// (`DrawShipPlanet`, `1050:17b6`).
+    #[must_use]
+    pub fn fleet_location_title(&self) -> String {
+        let Some(fleet) = self.pane_fleet() else {
+            return "In Deep Space".to_string();
+        };
+        let Some(id) = fleet.orbiting else {
+            return "In Deep Space".to_string();
+        };
+        let id = i16::try_from(id).unwrap_or(-1);
+        self.universe
+            .as_ref()
+            .and_then(|u| {
+                u.planets_resolved()
+                    .into_iter()
+                    .find(|p| i16::try_from(p.id).is_ok_and(|p| p == id))
+                    .and_then(|p| p.name)
+            })
+            .map_or_else(|| format!("Planet #{id}"), ToString::to_string)
+    }
+
+    /// The **Fleet Waypoints** tile: where it has come from, where it is going,
+    /// and what the leg costs (`DrawShipOrders`, `1050:0000`).
+    #[must_use]
+    pub fn fleet_waypoints_tile(&self) -> Vec<(String, String)> {
+        let Some(fleet) = self.pane_fleet() else {
+            return Vec::new();
+        };
+        let here = fleet.waypoints.first();
+        let next = fleet.waypoints.get(1);
+        let mut rows = vec![(
+            "Coming From".to_string(),
+            here.map_or_else(
+                || format!("({}, {})", fleet.position.x, fleet.position.y),
+                |w| format!("({}, {})", w.position.x, w.position.y),
+            ),
+        )];
+        let Some(next) = next else {
+            rows.push(("Next Way Pt".to_string(), "(none)".to_string()));
+            return rows;
+        };
+        rows.push((
+            "Next Way Pt".to_string(),
+            format!("({}, {})", next.position.x, next.position.y),
+        ));
+        let warp = i32::from(next.warp);
+        rows.push((
+            "Warp Factor".to_string(),
+            if warp == 0 {
+                "(stopped)".to_string()
+            } else {
+                warp.to_string()
+            },
+        ));
+        let distance = stars_core::movement::distance(fleet.position, next.position);
+        rows.push(("Distance".to_string(), format!("{distance:.0} l.y.")));
+        // A year covers the square of the warp factor.
+        let per_year = warp * warp;
+        rows.push((
+            "Travel Time".to_string(),
+            if per_year <= 0 {
+                "never".to_string()
+            } else {
+                let years = distance / f64::from(per_year);
+                format!("{years:.1} years")
+            },
+        ));
+        let designs = self.pane_fleet_designs();
+        if !designs.is_empty() && warp > 0 {
+            let ife = self
+                .game
+                .as_ref()
+                .and_then(|g| {
+                    usize::try_from(fleet.owner)
+                        .ok()
+                        .and_then(|o| g.players.get(o))
+                })
+                .is_some_and(|p| p.race.has_lrt(stars_core::race::lrt::IFE));
+            #[allow(clippy::cast_possible_truncation)]
+            let fuel = fleet.fuel_use(designs, next.warp, distance as i32, ife);
+            rows.push(("Est Fuel Usage".to_string(), format!("{fuel}kT")));
+        }
+        rows
+    }
+
+    /// The **Waypoint Task** tile (`DrawShipWayPtOrders`, `1050:0912`).
+    #[must_use]
+    pub fn fleet_task_tile(&self) -> String {
+        self.pane_fleet()
+            .and_then(|f| f.waypoints.get(1))
+            .map_or_else(
+                || "(no task here)".to_string(),
+                |w| task_name(w.task).to_string(),
+            )
+    }
+
+    /// The **Fuel & Cargo** tile (`DrawShipCargo`, `1050:1a54`).
+    #[must_use]
+    pub fn fleet_cargo_tile(&self) -> Vec<(String, String)> {
+        let Some(fleet) = self.pane_fleet() else {
+            return Vec::new();
+        };
+        let designs = self.pane_fleet_designs();
+        let mut rows = vec![(
+            "Fuel".to_string(),
+            if designs.is_empty() {
+                format!("{}mg", fleet.cargo.fuel)
+            } else {
+                format!("{} of {}mg", fleet.cargo.fuel, fleet.fuel_capacity(designs))
+            },
+        )];
+        for (name, amount) in ["Ironium", "Boranium", "Germanium"]
+            .iter()
+            .zip(fleet.cargo.minerals.iter())
+        {
+            rows.push(((*name).to_string(), format!("{amount}kT")));
+        }
+        rows.push((
+            "Colonists".to_string(),
+            format!("{}kT", fleet.cargo.colonists),
+        ));
+        if !designs.is_empty() {
+            rows.push((
+                "Cargo".to_string(),
+                format!(
+                    "{} of {}kT",
+                    fleet.cargo.minerals.iter().sum::<i32>() + fleet.cargo.colonists,
+                    fleet.cargo_capacity(designs)
+                ),
+            ));
+        }
+        rows
+    }
+
+    /// The **Fleet Composition** tile: which designs, and how many of each
+    /// (`DrawFleetComp`, `1050:1e72`).
+    #[must_use]
+    pub fn fleet_composition_tile(&self) -> Vec<(String, String)> {
+        let Some(fleet) = self.pane_fleet() else {
+            return Vec::new();
+        };
+        let designs = self.pane_fleet_designs();
+        fleet
+            .stacks
+            .iter()
+            .filter(|stack| stack.count > 0)
+            .map(|stack| {
+                let name = designs
+                    .get(usize::from(stack.design))
+                    .filter(|d| d.hull_id >= 0 && !d.name.is_empty())
+                    .map_or_else(|| format!("Design #{}", stack.design), |d| d.name.clone());
+                (name, stack.count.to_string())
+            })
+            .collect()
+    }
+
     // --- The mine survey pane ---------------------------------------------
     //
     // `DrawMineSurvey` (`1028:065a`): whatever is selected, summarised — a

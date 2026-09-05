@@ -29,6 +29,7 @@ fn draw(app: &mut App, screen: Screen) {
             egui::TopBottomPanel::bottom("messages")
                 .show(ctx, |ui| stars_ui::views::messages::view(app, ui));
             egui::SidePanel::left("planet").show(ctx, |ui| stars_ui::views::planet::view(app, ui));
+            egui::SidePanel::left("fleet").show(ctx, |ui| stars_ui::views::fleet::view(app, ui));
             egui::SidePanel::left("survey").show(ctx, |ui| stars_ui::views::survey::view(app, ui));
         }
         egui::CentralPanel::default().show(ctx, |ui| {

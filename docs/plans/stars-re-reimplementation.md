@@ -1301,7 +1301,29 @@ disagree.
     planet the player owns is reported as current and everything else leaves the
     row out rather than guessing.
 
-38. **What is still missing to call it playable.** Every waypoint task is now
+38. ~~**The fleet pane.**~~ **Done** — the fourth screen from the original.
+    `docs/ui/fleet-pane.md` is the spec.
+
+    There is no separate fleet window: the fleet pane is the **planet pane's
+    window with a different tile table**. `PlanetWndProc` draws `rgtilePlanet`
+    for a planet and `rgtileShip` for a fleet, and the title bar swaps the name.
+    Reading the second table the same way as the first gives seven tiles — the
+    fleet's picture, where it is (or `In Deep Space`), Fleet Waypoints,
+    Waypoint Task, Fuel & Cargo, Fleet Composition, and the fleets-here tile
+    **shared with the planet pane**, the same routine in the same corner, so
+    that whatever is selected the bottom right always answers "what else is
+    here?".
+
+    The waypoints table is the substance: coming from, next way point, warp
+    factor, distance, travel time — the distance over the square of the warp —
+    and the estimated fuel for the leg, which comes from this engine's own
+    movement model rather than a guess.
+
+    Not reproduced, and listed: the pictures and emblems, the mining-rate row,
+    the fuel and cargo gauges, and the Battle Plans, Jettison and Xfer buttons,
+    whose dialogs do not exist here yet.
+
+39. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -1316,10 +1338,9 @@ disagree.
       scaling and shield absorption.
     - A loaded state file still cannot carry structural fleet changes back —
       the game does not either; the order log does.
-    - **The rest of the screens.** The message, planet and survey panes are
-      taken from the original; the fleet pane and the scanner are still this
-      project's own inventions and should go the same way, one spec in
-      `docs/ui/` at a time.
+    - **The scanner.** The four panes down the left are taken from the
+      original now; the map itself is still this project's own, and is the
+      biggest screen left to do that way.
     - **`PLANET.turn`**, the stamp saying when a planet was last seen, which
       the survey pane wants for its report-age line.
 
