@@ -690,3 +690,68 @@ fn every_message_round_trips() {
         eprintln!("  message {id} x{count}");
     }
 }
+
+/// Every message-filter record in the fixtures reads and writes back exactly.
+///
+/// They live only in the player history files (`.hN`), they are all 45 bytes,
+/// and not one bit is set in any of them: nobody in the captured games ever
+/// silenced a message. So this checks the shape of the record and nothing about
+/// its meaning — the meaning is checked against the binary, in
+/// `stars_core::message`.
+#[test]
+fn every_message_filter_round_trips() {
+    use std::collections::BTreeMap;
+
+    let mut checked = 0usize;
+    let mut with_bits = 0usize;
+    let mut lengths: BTreeMap<usize, usize> = BTreeMap::new();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");
+    let mut stack = vec![root];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            let Ok(file) = StarsFile::decode(&bytes) else {
+                continue;
+            };
+            for block in file
+                .blocks
+                .iter()
+                .filter(|b| b.type_id == stars_formats::MESSAGE_FILTER_BLOCK)
+            {
+                let filter = stars_formats::MessageFilter::decode(&block.data);
+                assert_eq!(
+                    filter.encode().as_slice(),
+                    block.data.as_slice(),
+                    "{}: a message filter did not come back",
+                    path.display()
+                );
+                *lengths.entry(block.data.len()).or_default() += 1;
+                with_bits += usize::from(!filter.is_empty());
+                checked += 1;
+            }
+        }
+    }
+
+    if checked == 0 {
+        eprintln!("skipping: no message filters in the fixtures");
+        return;
+    }
+    eprintln!(
+        "{checked} message filters round-tripped, lengths {lengths:?}, {with_bits} not empty"
+    );
+    assert_eq!(
+        lengths.keys().copied().collect::<Vec<_>>(),
+        vec![stars_formats::MESSAGE_FILTER_LEN],
+        "the record is always the same length"
+    );
+}

@@ -13,6 +13,10 @@ pub struct StarsApp {
     app: App,
     /// The files the last "save a new game" wrote, to report back.
     written: Vec<String>,
+    /// `fViewFilteredMsg`: whether the messages the player has silenced are
+    /// shown anyway. Off by default, and not saved anywhere — the original
+    /// keeps it for the session too.
+    show_filtered: bool,
 }
 
 impl StarsApp {
@@ -28,6 +32,7 @@ impl StarsApp {
         Self {
             app,
             written: Vec::new(),
+            show_filtered: false,
         }
     }
 
@@ -311,9 +316,50 @@ impl eframe::App for StarsApp {
                         self.app.last_turn = None;
                     }
                 });
-                // The year's news, in the engine's own words.
-                for line in &turn.messages {
-                    ui.label(egui::RichText::new(format!("· {line}")).small());
+                // The year's news, in the engine's own words. A message the
+                // player has silenced is stepped over, exactly as the
+                // original's message pane steps over it, unless they have
+                // asked to see the filtered ones (`fViewFilteredMsg`).
+                let filter = self.app.message_filter();
+                let hidden = turn
+                    .messages
+                    .iter()
+                    .filter(|(id, _)| filter.hidden(*id))
+                    .count();
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} message{}",
+                            turn.messages.len(),
+                            if turn.messages.len() == 1 { "" } else { "s" }
+                        ))
+                        .small(),
+                    );
+                    if hidden > 0 {
+                        ui.checkbox(&mut self.show_filtered, format!("show {hidden} filtered"));
+                    }
+                });
+                let mut silence = None;
+                for (id, line) in &turn.messages {
+                    let filtered = filter.hidden(*id);
+                    if filtered && !self.show_filtered {
+                        continue;
+                    }
+                    ui.horizontal(|ui| {
+                        let text = egui::RichText::new(format!("· {line}")).small();
+                        ui.label(if filtered { text.weak() } else { text });
+                        let (label, hint) = if filtered {
+                            ("show", "stop filtering messages like this one")
+                        } else {
+                            ("filter", "stop showing messages like this one")
+                        };
+                        if ui.small_button(label).on_hover_text(hint).clicked() {
+                            silence = Some((*id, !filtered));
+                        }
+                    });
+                }
+                if let Some((id, hide)) = silence {
+                    self.app.filter_message(id, hide);
                 }
             });
         }

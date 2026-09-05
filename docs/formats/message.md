@@ -94,9 +94,55 @@ colonists cannot be given away — was read out of the binary as a comparison
 against `FLEET.rgwtMin[3]`, and the message the same routine sends says exactly
 that in words. Two independent readings of the same rule.
 
+## The filter (`rtMsgFilt`, type 33)
+
+A player can silence a kind of message they do not want to read again. The
+choice is a **bitfield with one bit per message id** — bit set means filtered —
+and it is a *reading* choice only: a filtered message is still sent, still
+written to the file, and still counted. All that changes is that the message
+list steps over it (`IMsgNext`, `IMsgPrev`).
+
+| | |
+|---|---|
+| record | type 33, **45 bytes** — 360 ids' worth |
+| bit | id `n` is bit `n % 8` of byte `n / 8` |
+| where | the player's history (`.hN`), and their order log |
+
+Ids from 360 up cannot be filtered at all. The record is 45 bytes in every one
+of the 3,204 filter records in the fixtures, and **not one bit is set in any of
+them**: nobody in the captured games ever silenced a message. So the fixtures
+confirm the record's shape and nothing about its meaning.
+
+**Filtering is by family, not by id.** `SetFilteringGroups` (`1030:a018`)
+silences every other wording of the same event along with the one the player
+picked — the game has several sentences for one happening, and a reader who does
+not want one does not want any. The families, read from that routine's own
+comparisons:
+
+| ids | what they say |
+|-----|---------------|
+| `0x2b`–`0x2e` | a fleet loaded, beamed or unloaded cargo at a planet |
+| `0x2f`–`0x30` | your starbase built a ship, or several |
+| `0x35`–`0x36` | you built a factory, or several |
+| `0x37`–`0x38` | you built a mine, or several |
+| `0x39`–`0x3a` | you built a defence, or several |
+| `0x42`–`0x43` | you transferred cargo to another player |
+| `0x44`–`0x45` | you received cargo from another player |
+| `0x46`–`0x47` | a transfer arrived short |
+| `0x48`–`0x49` | a delivery arrived short |
+| `0x4a`–`0x4b` | a transfer arrived not at all |
+| `0x4c`–`0x4d` | a delivery arrived not at all |
+| `0x60`–`0x64` | your bombers hit a planet, five ways |
+| `0x6a`–`0x6e` | somebody bombed one of yours, the same five |
+| `0x79`–`0x7a` | a fleet loaded or beamed cargo from another fleet |
+| `0x91`–`0xa8` | a battle report, in any of its two dozen forms |
+
+The pairs are adjacent ids, so a pair and a range are one rule. The original
+writes a pair as `id ^ a ^ b`, which for two adjacent ids comes to the same
+thing, and the community reconstruction's `^ 0x0f` and `^ 0x1f` companions do
+not exist in this binary.
+
 ## What is not modelled
 
-The engine sends the six messages above. Every other event the original narrates
-— and there are hundreds of ids — passes silently. Nothing reads a message
-**filter** (`rtMsgFilt`, type 33) either, so a file's filter settings are
-carried but not obeyed.
+The engine sends nineteen of the message ids. Every other event the original
+narrates — and there are hundreds of ids — passes silently.

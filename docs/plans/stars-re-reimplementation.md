@@ -1198,12 +1198,35 @@ disagree.
     file and is the same for everybody in a game, but a stale variable all the
     same.
 
-34. **What is still missing to call it playable.** Every waypoint task is now
+34. ~~**The message filter.**~~ **Done.** A player can silence a kind of
+    message; the choice is a bitfield with one bit per message id, 45 bytes of
+    it, living in the player's history file and in their order log.
+
+    The rule worth having is that filtering is **by family, not by id**:
+    `SetFilteringGroups` (`1030:a018`) silences every other wording of the same
+    event along with the one the player picked, because the game has several
+    sentences for one happening — singular and plural, minerals and colonists,
+    the five ways a bombing run can go, the two dozen forms of a battle report.
+    Fifteen families, read from the routine's own comparisons and written down
+    in `docs/formats/message.md`. The community reconstruction's `^ 0x0f` and
+    `^ 0x1f` companions do not exist in this binary; every companion here is
+    the adjacent id.
+
+    It is a **reading** choice and nothing else: a filtered message is still
+    sent, still written to the file and still counted, and all that changes is
+    that the list steps over it. So the filter is applied where messages are
+    shown, not where they are made.
+
+    The fixtures settle the record's shape and nothing about its meaning:
+    3,204 filter records, every one 45 bytes, and **not one bit set in any of
+    them** — nobody in the captured games ever silenced a message. The meaning
+    is checked against the binary and by construction.
+
+35. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
-    - **More messages.** Nineteen ids are sent; the original has hundreds, and
-      the message filter (type 33) is carried but not obeyed.
+    - **More messages.** Nineteen ids are sent; the original has hundreds.
     - **Packets, the rest of the way**: launching them from a production
       queue, catching them with a planet's own mass driver, and the damage and
       terraforming when one lands.
@@ -1214,6 +1237,10 @@ disagree.
       scaling and shield absorption.
     - A loaded state file still cannot carry structural fleet changes back —
       the game does not either; the order log does.
+    - **The message pane itself.** The filter is obeyed, but the messages are
+      shown as a list rather than the original's one-at-a-time viewer with its
+      Prev/Next, its count and its Goto button. Any UI here is meant to work
+      the way the original works.
 
 #### Saving is not re-encoding
 

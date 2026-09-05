@@ -827,3 +827,56 @@ fn a_password_is_ordered_and_saved() {
 
     let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
 }
+
+/// Silencing a message is ordered, saved, and reaches the host.
+#[test]
+fn a_message_filter_is_ordered_and_replayed() {
+    let (mut app, host) = a_saved_game("filter");
+    assert!(app.message_filter().is_empty());
+
+    // "You have built a factory" — and with it "You have built N factories",
+    // which is the same news in the plural.
+    assert!(app.filter_message(0x35, true));
+    assert!(app.message_filter().hidden(0x35));
+    assert!(app.message_filter().hidden(0x36));
+    // Silencing it again is not a change.
+    assert!(!app.filter_message(0x35, true));
+    // Nor is silencing the other wording of the same thing.
+    assert!(!app.filter_message(0x36, true));
+
+    // A second change replaces the record rather than adding one: the record
+    // carries the whole bitfield.
+    assert!(app.filter_message(0x91, true));
+    assert_eq!(
+        app.orders
+            .iter()
+            .filter(|r| r.record_type == LogRecordType::MessageFilter)
+            .count(),
+        1
+    );
+
+    app.save(&host).expect("saves");
+
+    // A host replaying the log ends up with the same filter.
+    let log = {
+        let bytes = std::fs::read(host.with_extension("x1")).expect("reads back");
+        let file = StarsFile::decode(&bytes).expect("decodes");
+        order_log(&file)
+    };
+    let original = {
+        let bytes = std::fs::read(host.with_file_name("filter.hst")).expect("reads");
+        StarsFile::decode(&bytes).expect("decodes")
+    };
+    let (mut state, _) = stars_core::GameState::from_file(&original);
+    let mut cargo = stars_core::TurnOrders::default();
+    let report = stars_core::replay::replay(&mut state, 0, &log, &mut cargo);
+    assert_eq!(report.message_filters, 1);
+    let filter = state.players[0].message_filter;
+    assert!(filter.hidden(0x35) && filter.hidden(0x36));
+    // Every wording of a battle report went with the one that was silenced.
+    assert!((0x91..=0xa8).all(|id| filter.hidden(id)));
+    // And nothing else did.
+    assert!(!filter.hidden(0x37));
+
+    let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
+}

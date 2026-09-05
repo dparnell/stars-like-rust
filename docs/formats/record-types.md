@@ -49,7 +49,7 @@ variant.
 | 30 | `rtBtlPlan` | `BattlePlan` | battle plan; the same bytes are also the order operation that defines one |
 | 31 | `rtBtlData` | `Battle` | battle recording data (VCR) — **decoded**, see `battle.md` |
 | 32 | `rtHistHdr` | `HistoryHeader` | history-file (`.hN`) header |
-| 33 | `rtMsgFilt` | `MessagesFilter` | message filter bitfield |
+| 33 | `rtMsgFilt` | `MessagesFilter` | message filter: 45 bytes, one bit per message id — **decoded**, see `message.md`. Also the order operation that sets it |
 | 34 | `rtLogResearch` | `ResearchChange` | order: research settings |
 | 35 | `rtLogPlanetRouting` | `PlanetChange` | order: planet routing/starbase/infra |
 | 36 | `rtChgPassword` | `ChangePassword` | order: change turn password (4 bytes: the salt) |

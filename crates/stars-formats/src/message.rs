@@ -172,6 +172,154 @@ pub fn message_records(file: &StarsFile) -> Vec<MessageRecord> {
         .collect()
 }
 
+/// The message filter (`rtMsgFilt`, type 33).
+///
+/// A player can silence a kind of message they do not want to read again, and
+/// the choice is remembered in a **bitfield with one bit per message id**:
+/// bit set means the message is filtered out of the list. The record travels in
+/// the player's history file (`.hN`) and in their order log (`log.c` writes it
+/// with `WriteRt(rtMsgFilt, ...)`), so the choice survives a turn and reaches
+/// the host.
+///
+/// Which ids a checkbox covers is a matter of game rules, not of the format,
+/// and lives in `stars_core::message`: filtering one message silences every
+/// other wording of the same event.
+pub mod filter {
+    use crate::block::BlockType;
+    use crate::file::StarsFile;
+
+    /// The block type id of the message filter.
+    pub const MESSAGE_FILTER_BLOCK: u8 = 33;
+
+    /// How many bytes the record holds — 360 message ids' worth.
+    ///
+    /// Every one of the 3,204 filter records in the fixtures is exactly this
+    /// long. Note that the message-id space runs past it: ids from 360 up (the
+    /// [`crate::message::PARAMETER_COUNT`] table has 387 entries) cannot be
+    /// filtered at all, and none of the ids the game groups for filtering comes
+    /// anywhere near the end.
+    pub const MESSAGE_FILTER_LEN: usize = 45;
+
+    /// Which messages a player has silenced.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct MessageFilter {
+        /// One bit per message id, lowest id in the low bit of byte 0.
+        pub bits: [u8; MESSAGE_FILTER_LEN],
+    }
+
+    impl Default for MessageFilter {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl MessageFilter {
+        /// A filter that hides nothing, which is how every game in the
+        /// fixtures stands: 3,204 records, not one bit set between them.
+        #[must_use]
+        pub const fn new() -> Self {
+            Self {
+                bits: [0; MESSAGE_FILTER_LEN],
+            }
+        }
+
+        /// Whether this message id is filtered out.
+        ///
+        /// An id past the end of the bitfield is never filtered.
+        #[must_use]
+        pub fn hidden(&self, id: u16) -> bool {
+            let index = usize::from(id) / 8;
+            self.bits
+                .get(index)
+                .is_some_and(|byte| byte & (1 << (id % 8)) != 0)
+        }
+
+        /// Filter this one id, or stop filtering it.
+        ///
+        /// This is the raw bit. The game never sets one on its own — see
+        /// `stars_core::message::set_filtered`, which silences the whole family
+        /// of wordings the id belongs to.
+        pub fn set(&mut self, id: u16, hidden: bool) {
+            let index = usize::from(id) / 8;
+            if let Some(byte) = self.bits.get_mut(index) {
+                let mask = 1 << (id % 8);
+                if hidden {
+                    *byte |= mask;
+                } else {
+                    *byte &= !mask;
+                }
+            }
+        }
+
+        /// Whether anything at all is filtered.
+        #[must_use]
+        pub fn is_empty(&self) -> bool {
+            self.bits.iter().all(|b| *b == 0)
+        }
+
+        /// Decode a record payload. Shorter payloads are padded with zeroes and
+        /// longer ones truncated, so an unexpected length reads as "nothing
+        /// filtered beyond what fits".
+        #[must_use]
+        pub fn decode(data: &[u8]) -> Self {
+            let mut bits = [0u8; MESSAGE_FILTER_LEN];
+            let n = data.len().min(MESSAGE_FILTER_LEN);
+            bits[..n].copy_from_slice(&data[..n]);
+            Self { bits }
+        }
+
+        /// The record payload, always [`MESSAGE_FILTER_LEN`] bytes.
+        #[must_use]
+        pub fn encode(&self) -> [u8; MESSAGE_FILTER_LEN] {
+            self.bits
+        }
+    }
+
+    /// The message filter carried by a file, if it has one.
+    #[must_use]
+    pub fn message_filter(file: &StarsFile) -> Option<MessageFilter> {
+        let segment = file.latest_segment();
+        file.segment_blocks(segment)
+            .iter()
+            .find(|b| b.block_type() == BlockType::MessagesFilter)
+            .map(|b| MessageFilter::decode(&b.data))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// A bit is a message id, lowest id first.
+        #[test]
+        fn a_bit_is_a_message_id() {
+            let mut filter = MessageFilter::new();
+            assert!(filter.is_empty());
+            filter.set(0, true);
+            assert_eq!(filter.bits[0], 0x01);
+            filter.set(0x35, true);
+            // Id 0x35 is bit 5 of byte 6.
+            assert_eq!(filter.bits[6], 0x20);
+            assert!(filter.hidden(0x35));
+            assert!(!filter.hidden(0x36));
+            filter.set(0x35, false);
+            assert!(!filter.hidden(0x35));
+        }
+
+        /// The bitfield stops short of the highest message ids, and asking
+        /// about one of those is not an error.
+        #[test]
+        fn ids_past_the_end_are_never_hidden() {
+            let mut filter = MessageFilter::new();
+            filter.bits = [0xFF; MESSAGE_FILTER_LEN];
+            assert!(filter.hidden(359), "the last id it reaches");
+            assert!(!filter.hidden(360));
+            assert!(!filter.hidden(386), "the last id the game has");
+            filter.set(400, true);
+            assert_eq!(filter.bits[MESSAGE_FILTER_LEN - 1], 0xFF, "and unchanged");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

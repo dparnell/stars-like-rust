@@ -164,6 +164,13 @@ pub struct Player {
     /// to ask for a password before opening a turn is a question for a
     /// frontend, not for the simulation.
     pub password: u32,
+    /// Which messages this player has silenced (`rtMsgFilt`, type 33).
+    ///
+    /// A reading preference rather than a rule: nothing in the simulation looks
+    /// at it, and a filtered message is still sent and still written to the
+    /// file. It is carried so that a player's choice survives a turn — see
+    /// [`crate::message::set_filtered`].
+    pub message_filter: stars_formats::MessageFilter,
     /// Which Mystery Trader technologies this player has already been given
     /// (`PLAYER.grbitTrader`, offset `0x52`), as a mask of
     /// [`wormhole::part`] bits.
@@ -253,6 +260,7 @@ impl Player {
             logo: 0,
             default_queue: stars_formats::DefaultQueue::default(),
             password: 0,
+            message_filter: stars_formats::MessageFilter::new(),
             trader_parts: 0,
             crippled: false,
             battle_plans: default_battle_plans(0),

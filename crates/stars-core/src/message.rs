@@ -11,7 +11,7 @@
 //! project's own. The **ids** are the game's, and only ids read out of
 //! `stars.2.7j.exe` itself are used, each cited where it is defined.
 
-use stars_formats::MessageRecord;
+use stars_formats::{MessageFilter, MessageRecord};
 
 /// Message ids this engine sends, each read from the routine that sends it.
 ///
@@ -74,6 +74,74 @@ pub mod id {
     pub const TRADER_GAVE_SHIP: u16 = 0x14F;
     /// The Trader meant to give a ship and could not (`1110:133b`).
     pub const TRADER_TRIED_SHIP: u16 = 0x150;
+}
+
+/// The families of message ids the filter treats as one thing.
+///
+/// `SetFilteringGroups` (`1030:a018`) does not silence one id: it silences
+/// every other **wording of the same event** with it. The game has several
+/// sentences for one happening — singular and plural, minerals and colonists,
+/// the five ways a bombing run can go — and a player who does not want to read
+/// one does not want to read any of them.
+///
+/// Each entry is an inclusive range of ids, read out of the routine's own
+/// comparisons:
+///
+/// | ids | what they say |
+/// |-----|---------------|
+/// | `0x2b..=0x2e` | a fleet loaded, beamed, or unloaded cargo at a planet |
+/// | `0x2f..=0x30` | your starbase built a ship, or several |
+/// | `0x35..=0x36` | you built a factory, or several |
+/// | `0x37..=0x38` | you built a mine, or several |
+/// | `0x39..=0x3a` | you built a defence, or several |
+/// | `0x42..=0x43` | you transferred cargo to another player |
+/// | `0x44..=0x45` | you received cargo from another player |
+/// | `0x46..=0x47` | a transfer arrived short |
+/// | `0x48..=0x49` | a delivery arrived short |
+/// | `0x4a..=0x4b` | a transfer arrived not at all |
+/// | `0x4c..=0x4d` | a delivery arrived not at all |
+/// | `0x60..=0x64` | your bombers hit a planet, five ways |
+/// | `0x6a..=0x6e` | somebody bombed one of yours, the same five |
+/// | `0x79..=0x7a` | a fleet loaded or beamed cargo from another fleet |
+/// | `0x91..=0xa8` | a battle report, in any of its two dozen forms |
+///
+/// The pairs among these are adjacent ids, so a pair and a range are the same
+/// rule; the original writes the pairs as `id ^ a ^ b`, which for two adjacent
+/// ids comes to the same thing.
+pub const FILTER_GROUPS: [(u16, u16); 15] = [
+    (0x2b, 0x2e),
+    (0x2f, 0x30),
+    (0x35, 0x36),
+    (0x37, 0x38),
+    (0x39, 0x3a),
+    (0x42, 0x43),
+    (0x44, 0x45),
+    (0x46, 0x47),
+    (0x48, 0x49),
+    (0x4a, 0x4b),
+    (0x4c, 0x4d),
+    (0x60, 0x64),
+    (0x6a, 0x6e),
+    (0x79, 0x7a),
+    (0x91, 0xa8),
+];
+
+/// Every id that is filtered along with this one, itself included.
+#[must_use]
+pub fn filter_group(id: u16) -> std::ops::RangeInclusive<u16> {
+    FILTER_GROUPS
+        .iter()
+        .find(|(lo, hi)| (*lo..=*hi).contains(&id))
+        .map_or(id..=id, |(lo, hi)| *lo..=*hi)
+}
+
+/// Silence a message, or stop silencing it — and its whole family with it.
+///
+/// This is what the filter checkbox does: `SetFilteringGroups` (`1030:a018`).
+pub fn set_filtered(filter: &mut MessageFilter, id: u16, hidden: bool) {
+    for member in filter_group(id) {
+        filter.set(member, hidden);
+    }
 }
 
 /// An object id as a message carries it: a fleet has bit 15 set.
@@ -186,6 +254,16 @@ impl Message {
         }
     }
 
+    /// Whether a player's filter hides this message.
+    ///
+    /// The filter is a **reading** choice, not a rule of the game: the message
+    /// is still sent, still written to the file, and still counted. All it
+    /// changes is whether the list steps over it.
+    #[must_use]
+    pub fn hidden_by(&self, filter: &MessageFilter) -> bool {
+        filter.hidden(self.id)
+    }
+
     /// The record this message writes into a file.
     #[must_use]
     pub fn record(&self) -> MessageRecord {
@@ -237,5 +315,55 @@ mod tests {
     fn a_fleet_object_carries_its_flag() {
         assert_eq!(fleet_object(3), -32765);
         assert_eq!(fleet_object(3) as u16 & 0x1ff, 3);
+    }
+
+    /// A filter checkbox silences a family of messages, not one sentence.
+    #[test]
+    fn filtering_one_wording_filters_them_all() {
+        let mut filter = MessageFilter::new();
+        // "You have built a factory" and "You have built 3 factories".
+        set_filtered(&mut filter, 0x35, true);
+        assert!(filter.hidden(0x35));
+        assert!(filter.hidden(0x36));
+        // The mine messages next door are untouched.
+        assert!(!filter.hidden(0x37));
+
+        // A battle report silences every form of battle report.
+        set_filtered(&mut filter, 0xa0, true);
+        for id in 0x91..=0xa8 {
+            assert!(filter.hidden(id), "battle report {id:#04x}");
+        }
+        assert!(!filter.hidden(0x90));
+        assert!(!filter.hidden(0xa9));
+
+        // And clearing one clears the family.
+        set_filtered(&mut filter, 0x91, false);
+        assert!((0x91..=0xa8).all(|id| !filter.hidden(id)));
+    }
+
+    /// A message with no family is filtered on its own.
+    #[test]
+    fn an_ungrouped_message_stands_alone() {
+        let mut filter = MessageFilter::new();
+        set_filtered(&mut filter, id::MINES_LAID, true);
+        assert_eq!(
+            filter_group(id::MINES_LAID),
+            id::MINES_LAID..=id::MINES_LAID
+        );
+        assert!(filter.hidden(id::MINES_LAID));
+        assert!(!filter.hidden(id::MINES_LAID + 1));
+
+        let message = Message {
+            player: 0,
+            id: id::MINES_LAID,
+            object: fleet_object(1),
+            params: vec![1],
+        };
+        assert!(message.hidden_by(&filter));
+        assert!(!Message {
+            id: id::FLEET_SWEPT,
+            ..message
+        }
+        .hidden_by(&filter));
     }
 }

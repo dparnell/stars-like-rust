@@ -69,6 +69,8 @@ pub struct ReplayReport {
     pub battle_plans: usize,
     /// Turn passwords changed.
     pub passwords: usize,
+    /// Message filters set.
+    pub message_filters: usize,
     /// Default production queues replaced.
     pub default_queues: usize,
     /// Operations dropped because they named something the player does not own,
@@ -95,6 +97,7 @@ impl ReplayReport {
             + self.relations
             + self.battle_plans
             + self.passwords
+            + self.message_filters
             + self.default_queues
     }
 }
@@ -308,6 +311,23 @@ fn apply(
                 PlanEdit::Applied => report.battle_plans += 1,
                 PlanEdit::Ignored => {}
                 PlanEdit::Rejected => report.rejected += 1,
+            }
+        }
+        LogRecordType::MessageFilter => {
+            // `log.c` writes the whole bitfield each time the player changes
+            // it, so the record replaces rather than edits. It is a reading
+            // preference and changes nothing about the game; the host keeps it
+            // so that it survives into the next turn's file.
+            let Some(filter) = record.as_message_filter() else {
+                report.rejected += 1;
+                return;
+            };
+            match state.players.get_mut(player) {
+                Some(record) => {
+                    record.message_filter = filter;
+                    report.message_filters += 1;
+                }
+                None => report.rejected += 1,
             }
         }
         LogRecordType::ChangePassword => {

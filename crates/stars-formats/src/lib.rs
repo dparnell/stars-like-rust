@@ -92,6 +92,9 @@ pub use file::{Segment, StarsFile, FILE_FOOTER_BLOCK};
 pub use fleet::{fleet_records, Cargo, FleetRecord, ShipDamage, ShipStack, FLEET_NAME_BLOCK};
 pub use header::{FileHeader, FileType};
 pub use history::{history_header, HistoryHeader};
+pub use message::filter::{
+    message_filter, MessageFilter, MESSAGE_FILTER_BLOCK, MESSAGE_FILTER_LEN,
+};
 pub use message::{message_records, MessageRecord, MESSAGE_BLOCK};
 pub use names::{planet_name, planet_name_count};
 pub use orders::{

@@ -72,5 +72,7 @@ Per-format (payload record layouts, populated as decoded in Step 2):
   (`stars-formats::orders`), backed by the 40-turn `EXODUS.X6` fixtures.
 - `race-r.md` — race definition (`.rN`): record largely decoded
 - player history (`.hN`): container round-trips; the **history header**
-  (`RTHISTHDR`, type 32) is decoded & verified (`stars-formats::history`) and the
-  score record (type 45) is decoded; other record layouts not yet decoded.
+  (`RTHISTHDR`, type 32) is decoded & verified (`stars-formats::history`), the
+  score record (type 45) is decoded, and the **message filter** (`rtMsgFilt`,
+  type 33) is decoded & verified — 3,204 records, all 45 bytes, see
+  `message.md`; other record layouts not yet decoded.

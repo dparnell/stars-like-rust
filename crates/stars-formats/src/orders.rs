@@ -70,6 +70,8 @@ pub enum LogRecordType {
     BattlePlan,
     /// Change the player's turn password (`rtChgPassword`, 36).
     ChangePassword,
+    /// Set the player's message filter (`rtMsgFilt`, 33).
+    MessageFilter,
     /// Research settings (`rtLogResearch`, 34).
     Research,
     /// Planet routing / starbase / infrastructure bits (`rtLogPlanetRouting`, 35).
@@ -111,6 +113,7 @@ impl LogRecordType {
             29 => Self::PlanetProdQueue,
             30 => Self::BattlePlan,
             36 => Self::ChangePassword,
+            33 => Self::MessageFilter,
             34 => Self::Research,
             35 => Self::PlanetRouting,
             37 => Self::FleetMerge,
@@ -143,6 +146,7 @@ impl LogRecordType {
             Self::PlanetProdQueue => 29,
             Self::BattlePlan => 30,
             Self::ChangePassword => 36,
+            Self::MessageFilter => 33,
             Self::Research => 34,
             Self::PlanetRouting => 35,
             Self::FleetMerge => 37,
@@ -1225,6 +1229,13 @@ impl LogRecord {
             .flatten()
     }
 
+    /// Decode this record as a message-filter change.
+    #[must_use]
+    pub fn as_message_filter(&self) -> Option<crate::MessageFilter> {
+        (self.record_type == LogRecordType::MessageFilter)
+            .then(|| crate::MessageFilter::decode(&self.data))
+    }
+
     /// Decode this record as a password change.
     #[must_use]
     pub fn as_password_change(&self) -> Option<PasswordChange> {
@@ -1356,6 +1367,12 @@ impl LogRecord {
     #[must_use]
     pub fn change_password(change: PasswordChange) -> Self {
         Self::raw(LogRecordType::ChangePassword, change.encode().to_vec())
+    }
+
+    /// Set which messages the player has silenced.
+    #[must_use]
+    pub fn message_filter(filter: &crate::MessageFilter) -> Self {
+        Self::raw(LogRecordType::MessageFilter, filter.encode().to_vec())
     }
 
     /// Set how the player regards everyone.

@@ -417,6 +417,22 @@ impl GameState {
             }
         }
 
+        // The message filter, which belongs to whoever owns the file. It lives
+        // in the player's history (`.hN`) rather than in a `.hst` or `.mN`, so
+        // this fires only for a file that has one.
+        {
+            let player = usize::from(segment.header.player).min(15);
+            if let Some(filter) = blocks
+                .iter()
+                .find(|b| b.type_id == stars_formats::MESSAGE_FILTER_BLOCK)
+                .map(|b| stars_formats::MessageFilter::decode(&b.data))
+            {
+                if let Some(record) = state.players.get_mut(player) {
+                    record.message_filter = filter;
+                }
+            }
+        }
+
         // Minefields, out of the object section. The other kinds of THING —
         // packets, wormholes, the Mystery Trader — are not modelled, so they
         // are left where they are rather than half-loaded.

@@ -198,9 +198,13 @@ pub struct TurnSummary {
     /// Orders replayed from other players' `.xN` files, as
     /// `(player, operations)`.
     pub replayed: Vec<(usize, usize)>,
-    /// What the year has to tell this session's player, in the engine's own
-    /// words: see [`stars_core::message`].
-    pub messages: Vec<String>,
+    /// What the year has to tell this session's player: the message id and
+    /// the engine's own words for it. See [`stars_core::message`].
+    ///
+    /// Every message is kept, filtered or not — the filter is a reading
+    /// choice, so it is applied when the list is shown rather than when it is
+    /// built.
+    pub messages: Vec<(u16, String)>,
 }
 
 impl std::fmt::Debug for App {
@@ -910,11 +914,11 @@ impl App {
         let mut rng = stars_core::rng::Rng::randomize(state.seed);
         let report = stars_core::generate_turn_with_orders(state, &orders, &mut rng);
         // The year's news, for the player whose session this is.
-        let messages: Vec<String> = state
+        let messages: Vec<(u16, String)> = state
             .messages
             .iter()
             .filter(|m| m.player == me)
-            .map(stars_core::message::Message::summary)
+            .map(|m| (m.id, m.summary()))
             .collect();
         // The log covers one turn; the year has moved on.
         self.orders.clear();
@@ -1440,6 +1444,55 @@ impl App {
         self.player_edited = true;
         self.dirty = true;
         true
+    }
+
+    /// Silence a kind of message for the local player, or stop silencing it.
+    ///
+    /// The whole family of wordings goes with it — see
+    /// [`stars_core::message::set_filtered`] — because the game's several
+    /// sentences for one happening are one thing to a reader.
+    ///
+    /// This changes nothing about the game: a filtered message is still sent
+    /// and still written to the file, and all that changes is whether the list
+    /// steps over it.
+    ///
+    /// Returns whether it changed.
+    pub fn filter_message(&mut self, id: u16, hidden: bool) -> bool {
+        use stars_formats::{LogRecord, LogRecordType};
+
+        let me = self.local_player();
+        let Some(player) = self.game.as_mut().and_then(|g| g.players.get_mut(me)) else {
+            return false;
+        };
+        let before = player.message_filter;
+        stars_core::message::set_filtered(&mut player.message_filter, id, hidden);
+        let filter = player.message_filter;
+        if filter == before {
+            return false;
+        }
+
+        // The record carries the whole bitfield, so the last one wins and an
+        // earlier one is replaced rather than stacked.
+        if self
+            .orders
+            .last()
+            .is_some_and(|r| r.record_type == LogRecordType::MessageFilter)
+        {
+            self.orders.pop();
+        }
+        self.orders.push(LogRecord::message_filter(&filter));
+        self.dirty = true;
+        true
+    }
+
+    /// The local player's message filter.
+    #[must_use]
+    pub fn message_filter(&self) -> stars_formats::MessageFilter {
+        let me = self.local_player();
+        self.game
+            .as_ref()
+            .and_then(|g| g.players.get(me))
+            .map_or_else(stars_formats::MessageFilter::new, |p| p.message_filter)
     }
 
     /// Define or retune one of the local player's battle plans.
