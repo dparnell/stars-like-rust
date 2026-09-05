@@ -8,6 +8,7 @@
 pub mod battles;
 pub mod fleets;
 pub mod galaxy;
+pub mod messages;
 pub mod newgame;
 pub mod planets;
 pub mod players;

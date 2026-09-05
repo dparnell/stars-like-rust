@@ -23,6 +23,7 @@ should trace back to a document here.
 | `templates/`              | Copy-me starting points for each kind of RE artifact.             |
 | `formats/`                | One spec per on-disk file format (`.xy`, `.mN`, `.hN`, …).        |
 | `formulas/`               | One spec per simulation subsystem (production, growth, combat…).  |
+| `ui/`                     | One spec per screen of the original's interface, recovered the same way as a formula. |
 | `rng/`                    | Notes and reconstruction of the original PRNG.                    |
 | `vectors/`                | Golden test vectors (inputs → expected outputs) consumed by tests.|
 | `ghidra-triage.md`        | Map of the ~1350 functions into UI / simulation / file-I/O areas. |

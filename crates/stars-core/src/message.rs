@@ -165,6 +165,44 @@ pub fn fleet_name_word(fleet_id: u16, design: u8, mixed: bool) -> i16 {
     word as i16
 }
 
+/// What a message points at, and so what its **Goto** button does.
+///
+/// `SetMsgTitle` (`1030:7218`) classifies the message's object word into a
+/// `mdMsgObj`, and the Goto button is enabled only when that comes out
+/// non-zero. The word is not a plain id: negative values name a fleet or one of
+/// several dialogs, and the top two bits pick between a planet, a component in
+/// the browser and a place on the map.
+///
+/// ```text
+/// -1                 nothing to go to
+/// -2 -3 -4 -5 -7     one of the game's own windows: a report, the score
+///                    sheet, the serial-number box
+/// -6                 a THING, whose id is the first parameter
+/// 0xc000 set         a component, shown in the browser
+/// 0x4000 clear:
+///     negative       a fleet, id in the low 15 bits
+///     positive       a planet, id as it stands
+/// 0x4000 set         a place on the map, from the first two parameters —
+///                    which is how a battle report finds its battle
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Goto {
+    /// Nothing: the button is dead.
+    None,
+    /// A planet, by id.
+    Planet(i16),
+    /// A fleet, by id.
+    Fleet(u16),
+    /// A space object — a minefield, a wormhole, the Mystery Trader.
+    Thing(u16),
+    /// A place on the map, which is where a battle happened.
+    Position(i16, i16),
+    /// One of the original's own windows, which this engine has no equivalent
+    /// for. The original enables the button; here it does nothing, so the
+    /// button is left dead rather than lying about what it will do.
+    Elsewhere,
+}
+
 /// One message, for one player.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
@@ -251,6 +289,47 @@ impl Message {
                 "The Mystery Trader meant to give a ship and could not.".to_string()
             }
             other => format!("Message {other}."),
+        }
+    }
+
+    /// What this message points at.
+    ///
+    /// See [`Goto`]. A message about a fleet that no longer exists points at
+    /// nothing, which is why this needs to know which fleets there are.
+    #[must_use]
+    pub fn goto(&self, fleets: &[u16]) -> Goto {
+        let word = self.object;
+        match word {
+            -1 => Goto::None,
+            -6 => self
+                .params
+                .first()
+                .map_or(Goto::None, |id| Goto::Thing(*id as u16)),
+            -2 | -3 | -4 | -5 | -7 => Goto::Elsewhere,
+            _ => {
+                let bits = word as u16;
+                if bits & 0xC000 == 0xC000 {
+                    // A component, shown in the part browser.
+                    Goto::Elsewhere
+                } else if bits & 0x4000 == 0 {
+                    if word < 0 {
+                        let id = bits & 0x7FFF;
+                        if fleets.contains(&id) {
+                            Goto::Fleet(id)
+                        } else {
+                            Goto::None
+                        }
+                    } else {
+                        Goto::Planet(word)
+                    }
+                } else if bits & 0x3FFF == 0x800 {
+                    Goto::Elsewhere
+                } else {
+                    let x = self.params.first().copied().unwrap_or(0);
+                    let y = self.params.get(1).copied().unwrap_or(0);
+                    Goto::Position(x, y)
+                }
+            }
         }
     }
 

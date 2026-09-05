@@ -1222,7 +1222,33 @@ disagree.
     them** — nobody in the captured games ever silenced a message. The meaning
     is checked against the binary and by construction.
 
-35. **What is still missing to call it playable.** Every waypoint task is now
+35. ~~**The message pane.**~~ **Done**, and it is the first screen taken from
+    the original rather than invented: `docs/ui/message-pane.md` is the spec,
+    and `docs/ui/` is where the rest will go.
+
+    The pane shows **one message at a time**, which is the thing to get right —
+    a list is a different tool. The title bar says which message of how many
+    and carries two controls: a square at the left that silences the kind of
+    message being shown, and one at the right that reveals the silenced ones,
+    drawn only when something the player has been sent actually *is* silenced.
+    Prev and Next step over what is filtered; Goto follows the message to its
+    planet or its fleet; the keys are the original's, down to `+` filtering and
+    `-` revealing.
+
+    Two details from the binary are easy to miss and are in the spec. The pane
+    reads `0 of 12` while it sits before the first message, because the title
+    is `iMsgCur + 1` and `iMsgCur` starts at -1 — which is exactly where it
+    lands when every message of the year is filtered, and why there is a
+    sentence of text for that state. And the message's object word is not an
+    id: negative values name a fleet or one of the game's own windows, and the
+    top two bits pick between a planet, a component and a place on the map.
+
+    What is not reproduced is named in the spec rather than glossed: the
+    original's bitmaps, its diagonal FILTERED watermark, writing messages to
+    other players, and the Goto targets that need windows this project has not
+    got — which leave the button dead rather than lying about where it goes.
+
+36. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -1237,10 +1263,9 @@ disagree.
       scaling and shield absorption.
     - A loaded state file still cannot carry structural fleet changes back —
       the game does not either; the order log does.
-    - **The message pane itself.** The filter is obeyed, but the messages are
-      shown as a list rather than the original's one-at-a-time viewer with its
-      Prev/Next, its count and its Goto button. Any UI here is meant to work
-      the way the original works.
+    - **The rest of the screens.** The message pane is taken from the original;
+      the planet, fleet and scanner panes are this project's own inventions and
+      should go the same way, one spec in `docs/ui/` at a time.
 
 #### Saving is not re-encoding
 

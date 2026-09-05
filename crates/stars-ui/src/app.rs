@@ -129,6 +129,15 @@ pub struct App {
     pub screen: Screen,
     /// What is selected.
     pub selection: Selection,
+    /// Which message the pane is showing — the original's `iMsgCur`.
+    ///
+    /// `-1` means the pane is at the start of the list and showing nothing,
+    /// which is a state the original has and uses: it is what the pane sits in
+    /// when every message of the year is filtered.
+    pub message_index: i32,
+    /// `fViewFilteredMsg`: whether the messages the player has silenced are
+    /// shown anyway. Kept for the session, not saved.
+    pub view_filtered: bool,
     /// Battle recordings found in the loaded file.
     pub battles: Vec<BattleRecord>,
     /// The battle being played, if any.
@@ -295,6 +304,11 @@ impl App {
         self.battle_plans_edited = false;
         self.orders.clear();
         self.error = None;
+        // `ReadPlayerMessages` (`msg.c`) ends by moving the pane to the first
+        // message the player has not filtered, which leaves it before the
+        // start when every one of them is.
+        self.view_filtered = false;
+        self.show_first_message();
         Ok(())
     }
 
@@ -925,6 +939,8 @@ impl App {
         self.research_edited = false;
         self.player_edited = false;
         self.battle_plans_edited = false;
+        // A new year's messages: the pane goes back to the first of them.
+        self.show_first_message();
         self.last_turn = Some(TurnSummary {
             year: report.year,
             mined: report.mined.len(),
@@ -1444,6 +1460,260 @@ impl App {
         self.player_edited = true;
         self.dirty = true;
         true
+    }
+
+    // --- The message pane -------------------------------------------------
+    //
+    // `MessageWndProc` (`1030:5c92`) and `SetMsgTitle` (`1030:7218`): the pane
+    // shows the year's messages one at a time, with Prev and Next stepping over
+    // the ones the player has filtered.
+
+    /// The local player's messages for the year, in the order they were sent.
+    #[must_use]
+    pub fn messages(&self) -> Vec<&stars_core::message::Message> {
+        let me = self.local_player();
+        self.game
+            .as_ref()
+            .map(|game| game.messages.iter().filter(|m| m.player == me).collect())
+            .unwrap_or_default()
+    }
+
+    /// How many messages the year holds (`cMsg`).
+    #[must_use]
+    pub fn message_count(&self) -> usize {
+        self.messages().len()
+    }
+
+    /// The message the pane is showing, if it is showing one.
+    #[must_use]
+    pub fn current_message(&self) -> Option<stars_core::message::Message> {
+        let index = usize::try_from(self.message_index).ok()?;
+        self.messages().get(index).map(|m| (*m).clone())
+    }
+
+    /// The next message to show, stepping over what the filter hides
+    /// (`IMsgNext`, `1030:7808`).
+    ///
+    /// `filtered_only` inverts the test, which is how the pane walks the
+    /// *hidden* messages when the player asks to see them.
+    #[must_use]
+    pub fn message_next(&self, filtered_only: bool) -> Option<usize> {
+        let messages = self.messages();
+        let filter = self.message_filter();
+        let mut i = self.message_index;
+        loop {
+            i += 1;
+            let index = usize::try_from(i).ok()?;
+            let message = messages.get(index)?;
+            if filter.hidden(message.id) == filtered_only || (self.view_filtered && !filtered_only)
+            {
+                return Some(index);
+            }
+        }
+    }
+
+    /// The previous message to show (`IMsgPrev`, `1030:78d8`).
+    #[must_use]
+    pub fn message_previous(&self, filtered_only: bool) -> Option<usize> {
+        let messages = self.messages();
+        let filter = self.message_filter();
+        let mut i = self.message_index;
+        loop {
+            i -= 1;
+            let index = usize::try_from(i).ok()?;
+            let message = messages.get(index)?;
+            if filter.hidden(message.id) == filtered_only || (self.view_filtered && !filtered_only)
+            {
+                return Some(index);
+            }
+        }
+    }
+
+    /// Show the next message; returns whether there was one.
+    pub fn show_next_message(&mut self) -> bool {
+        match self.message_next(false) {
+            Some(index) => {
+                self.message_index = i32::try_from(index).unwrap_or(-1);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Show the previous message; returns whether there was one.
+    pub fn show_previous_message(&mut self) -> bool {
+        match self.message_previous(false) {
+            Some(index) => {
+                self.message_index = i32::try_from(index).unwrap_or(-1);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Show the first message, as Home does.
+    pub fn show_first_message(&mut self) {
+        self.message_index = -1;
+        self.show_next_message();
+    }
+
+    /// Show the last message, as End does.
+    pub fn show_last_message(&mut self) {
+        self.message_index = i32::try_from(self.message_count()).unwrap_or(0);
+        self.show_previous_message();
+    }
+
+    /// Silence the kind of message being shown, or stop silencing it.
+    ///
+    /// This is the `+` key and the button at the left of the title bar. The
+    /// whole family of wordings goes with it; see [`Self::filter_message`].
+    /// Returns whether anything changed.
+    pub fn toggle_message_filter(&mut self) -> bool {
+        let Some(message) = self.current_message() else {
+            return false;
+        };
+        let hidden = self.message_filter().hidden(message.id);
+        self.filter_message(message.id, !hidden)
+    }
+
+    /// Whether anything the player has been sent this year is filtered.
+    ///
+    /// The original keeps a second bitfield of the ids it has *sent*
+    /// (`bitfMsgSent`) and shows the view-filtered button only where the two
+    /// masks overlap: there is no point offering to reveal messages that do not
+    /// exist. Here the year's own messages serve as that mask.
+    #[must_use]
+    pub fn has_filtered_messages(&self) -> bool {
+        let filter = self.message_filter();
+        self.messages().iter().any(|m| filter.hidden(m.id))
+    }
+
+    /// Show the filtered messages too, or stop showing them — the `-` key and
+    /// the button at the right of the title bar.
+    ///
+    /// The original refuses when nothing is filtered, and moves off the current
+    /// message if the change would leave the pane showing something it should
+    /// not.
+    pub fn toggle_view_filtered(&mut self) -> bool {
+        if !self.has_filtered_messages() {
+            self.view_filtered = false;
+            return false;
+        }
+        self.view_filtered = !self.view_filtered;
+        let showing_filtered = self
+            .current_message()
+            .is_some_and(|m| self.message_filter().hidden(m.id));
+        if showing_filtered != self.view_filtered {
+            let index = self
+                .message_next(self.view_filtered)
+                .or_else(|| self.message_previous(self.view_filtered));
+            self.message_index = index.and_then(|i| i32::try_from(i).ok()).unwrap_or(-1);
+        }
+        true
+    }
+
+    /// What the pane's title bar says.
+    ///
+    /// `"Year: 2401  Messages: 3 of 12"`, or `"Year: 2401  Messages: (none)"`
+    /// — `idsYearDCMessagesDD` and `idsYearDCMessagesNone`.
+    #[must_use]
+    pub fn message_title(&self) -> String {
+        let year = self.game.as_ref().map_or(2400, stars_core::GameState::year);
+        let count = self.message_count();
+        if count == 0 {
+            return format!("Year: {year}  Messages: (none)");
+        }
+        let at = self.message_index + 1;
+        format!("Year: {year}  Messages: {at} of {count}")
+    }
+
+    /// What the middle button says: `Goto`, or `View` for a battle.
+    #[must_use]
+    pub fn message_goto_label(&self) -> &'static str {
+        match self.message_goto() {
+            stars_core::message::Goto::Position(_, _) => "View",
+            _ => "Goto",
+        }
+    }
+
+    /// What the message being shown points at.
+    #[must_use]
+    pub fn message_goto(&self) -> stars_core::message::Goto {
+        use stars_core::message::Goto;
+
+        let Some(message) = self.current_message() else {
+            return Goto::None;
+        };
+        // A filtered message's button is dead, even when it is on screen
+        // because the player asked to see the filtered ones.
+        if !self.view_filtered && self.message_filter().hidden(message.id) {
+            return Goto::None;
+        }
+        let fleets: Vec<u16> = self
+            .game
+            .as_ref()
+            .map(|g| g.fleets.iter().map(|f| f.id).collect())
+            .unwrap_or_default();
+        message.goto(&fleets)
+    }
+
+    /// Follow the message to what it is about: the Goto button, and Enter.
+    ///
+    /// Returns whether it went anywhere.
+    pub fn message_goto_follow(&mut self) -> bool {
+        use stars_core::message::Goto;
+
+        match self.message_goto() {
+            Goto::Planet(id) => {
+                self.selection.planet = Some(id);
+                self.screen = Screen::Planets;
+                true
+            }
+            Goto::Fleet(id) => {
+                let Some(index) = self
+                    .game
+                    .as_ref()
+                    .and_then(|g| g.fleets.iter().position(|f| f.id == id))
+                else {
+                    return false;
+                };
+                self.selection.fleet = Some(index);
+                self.screen = Screen::Fleets;
+                true
+            }
+            Goto::Position(x, y) => {
+                // The original opens the battle at that place; this engine
+                // shows the map there instead, which is as far as it goes.
+                self.screen = Screen::Galaxy;
+                let _ = (x, y);
+                true
+            }
+            Goto::Thing(_) | Goto::Elsewhere | Goto::None => false,
+        }
+    }
+
+    /// The body of the pane: what the message says, or why it is not saying
+    /// anything.
+    #[must_use]
+    pub fn message_body(&self) -> String {
+        let count = self.message_count();
+        let Some(message) = self.current_message() else {
+            if count > 0 {
+                // `idsMessagesHaveSentYearFilteredIfWant`.
+                return "All the messages you have been sent this year are filtered out. \
+                        If you want to view these messages, press the button at the right \
+                        of the title bar."
+                    .to_string();
+            }
+            return String::new();
+        };
+        if !self.view_filtered && self.message_filter().hidden(message.id) {
+            // `idsMessageTypeHasFilteredWillShownDefault`.
+            return "This message type has been filtered out and will not be shown by \
+                    default anymore."
+                .to_string();
+        }
+        message.summary()
     }
 
     /// Silence a kind of message for the local player, or stop silencing it.

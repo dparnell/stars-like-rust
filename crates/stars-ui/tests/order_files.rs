@@ -880,3 +880,145 @@ fn a_message_filter_is_ordered_and_replayed() {
 
     let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
 }
+
+/// The message pane steps through the year's news one message at a time, and
+/// steps over what the player has filtered.
+#[test]
+fn the_message_pane_browses_and_filters() {
+    use stars_core::message::{fleet_object, id, Message};
+
+    let (mut app, host) = a_saved_game("pane");
+
+    // Three messages for the local player: two of a kind, one of another.
+    {
+        let state = app.game.as_mut().expect("game");
+        state.messages = vec![
+            Message {
+                player: 0,
+                id: id::MINES_LAID,
+                object: fleet_object(1),
+                params: vec![1, 40, 0],
+            },
+            Message {
+                player: 0,
+                id: id::FLEET_SWEPT,
+                object: fleet_object(1),
+                params: vec![1, 10, 0],
+            },
+            Message {
+                player: 0,
+                id: id::MINES_LAID,
+                object: fleet_object(1),
+                params: vec![1, 60, 0],
+            },
+            // Another player's, which this pane never shows.
+            Message {
+                player: 1,
+                id: id::MINES_LAID,
+                object: fleet_object(2),
+                params: vec![2, 10, 0],
+            },
+        ];
+    }
+    app.show_first_message();
+
+    assert_eq!(app.message_count(), 3, "the other player's is not ours");
+    assert_eq!(app.message_index, 0);
+    assert!(app.message_title().contains("Messages: 1 of 3"));
+    assert!(app.message_body().contains("laid"));
+
+    // Next and Prev walk the list and stop at its ends.
+    assert!(app.show_next_message());
+    assert_eq!(app.message_index, 1);
+    assert!(app.show_next_message());
+    assert_eq!(app.message_index, 2);
+    assert!(!app.show_next_message(), "there is no fourth message");
+    assert!(app.show_previous_message());
+    assert_eq!(app.message_index, 1);
+    app.show_last_message();
+    assert_eq!(app.message_index, 2);
+    app.show_first_message();
+    assert_eq!(app.message_index, 0);
+
+    // Filtering the message being shown silences both of its kind, so Next
+    // steps straight past the third.
+    assert!(app.toggle_message_filter());
+    assert!(app.has_filtered_messages());
+    app.show_first_message();
+    assert_eq!(app.message_index, 1, "the first unfiltered one");
+    assert!(!app.show_next_message(), "the third is filtered too");
+    assert!(!app.show_previous_message(), "and so is the first");
+
+    // Asking to see the filtered ones brings them back.
+    assert!(app.toggle_view_filtered());
+    assert!(app.view_filtered);
+    app.show_first_message();
+    assert_eq!(app.message_index, 0);
+    assert!(app.show_next_message());
+    assert_eq!(app.message_index, 1);
+
+    let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
+}
+
+/// A message points at the thing it is about, and the Goto button follows it.
+#[test]
+fn the_message_pane_goes_to_what_a_message_is_about() {
+    use stars_core::message::{fleet_object, id, Goto, Message};
+
+    let (mut app, host) = a_saved_game("goto");
+    let (fleet_id, planet_id) = {
+        let state = app.game.as_ref().expect("game");
+        (state.fleets[0].id, state.planets[0].id)
+    };
+
+    {
+        let state = app.game.as_mut().expect("game");
+        state.messages = vec![
+            // About a fleet: bit 15 set.
+            Message {
+                player: 0,
+                id: id::MINES_LAID,
+                object: fleet_object(fleet_id),
+                params: vec![fleet_id as i16, 40, 0],
+            },
+            // About a planet: a plain positive id.
+            Message {
+                player: 0,
+                id: id::STARBASE_SWEPT,
+                object: planet_id,
+                params: vec![planet_id, 10, 0],
+            },
+            // About nothing: the button is dead.
+            Message {
+                player: 0,
+                id: id::TRADER_ANOTHER_PASS,
+                object: -1,
+                params: vec![1, 0],
+            },
+        ];
+    }
+    app.show_first_message();
+
+    assert_eq!(app.message_goto(), Goto::Fleet(fleet_id));
+    assert!(app.message_goto_follow());
+    assert_eq!(app.selection.fleet, Some(0));
+
+    app.show_next_message();
+    assert_eq!(app.message_goto(), Goto::Planet(planet_id));
+    assert!(app.message_goto_follow());
+    assert_eq!(app.selection.planet, Some(planet_id));
+
+    app.show_next_message();
+    assert_eq!(app.message_goto(), Goto::None, "nothing to go to");
+    assert!(!app.message_goto_follow());
+
+    // A filtered message's button is dead even while it is on screen.
+    app.show_first_message();
+    assert!(app.toggle_message_filter());
+    assert!(app.toggle_view_filtered());
+    app.show_first_message();
+    assert_eq!(app.message_index, 0);
+    assert_eq!(app.message_goto(), Goto::Fleet(fleet_id), "shown, so live");
+
+    let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
+}
