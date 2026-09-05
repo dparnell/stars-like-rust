@@ -59,6 +59,7 @@ pub mod file;
 pub mod fleet;
 pub mod header;
 pub mod history;
+pub mod message;
 pub mod names;
 pub mod orders;
 pub mod password;
@@ -91,6 +92,7 @@ pub use file::{Segment, StarsFile, FILE_FOOTER_BLOCK};
 pub use fleet::{fleet_records, Cargo, FleetRecord, ShipDamage, ShipStack, FLEET_NAME_BLOCK};
 pub use header::{FileHeader, FileType};
 pub use history::{history_header, HistoryHeader};
+pub use message::{message_records, MessageRecord, MESSAGE_BLOCK};
 pub use names::{planet_name, planet_name_count};
 pub use orders::{
     object_owner, order_log, BattlePlanChange, CargoTransfer, FleetMerge, FleetName,

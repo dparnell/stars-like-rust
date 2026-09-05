@@ -198,6 +198,9 @@ pub struct TurnSummary {
     /// Orders replayed from other players' `.xN` files, as
     /// `(player, operations)`.
     pub replayed: Vec<(usize, usize)>,
+    /// What the year has to tell this session's player, in the engine's own
+    /// words: see [`stars_core::message`].
+    pub messages: Vec<String>,
 }
 
 impl std::fmt::Debug for App {
@@ -893,6 +896,7 @@ impl App {
         // own are not: this session already applied them as they were made,
         // which is exactly what the log records.
         let logs = self.submitted_orders();
+        let me = self.local_player();
         let Some(state) = self.game.as_mut() else {
             return;
         };
@@ -905,6 +909,13 @@ impl App {
 
         let mut rng = stars_core::rng::Rng::randomize(state.seed);
         let report = stars_core::generate_turn_with_orders(state, &orders, &mut rng);
+        // The year's news, for the player whose session this is.
+        let messages: Vec<String> = state
+            .messages
+            .iter()
+            .filter(|m| m.player == me)
+            .map(stars_core::message::Message::summary)
+            .collect();
         // The log covers one turn; the year has moved on.
         self.orders.clear();
         self.research_edited = false;
@@ -924,6 +935,7 @@ impl App {
                 .collect(),
             skipped: report.skipped.iter().map(|s| format!("{s:?}")).collect(),
             replayed,
+            messages,
         });
     }
 

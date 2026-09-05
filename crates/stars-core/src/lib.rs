@@ -57,6 +57,7 @@ pub mod fleet;
 pub mod ground;
 pub mod hab;
 pub mod load;
+pub mod message;
 pub mod minefield;
 pub mod mining;
 pub mod movement;
@@ -278,6 +279,11 @@ pub struct GameState {
     /// The game's victory conditions, exactly as `GAME.rgvc` holds them. Read
     /// through [`stars_formats::GameInfo`]; see [`crate::victory`].
     pub victory: [u8; stars_formats::victory::COUNT],
+    /// What the host has to tell each player about the year just generated.
+    ///
+    /// Cleared at the start of a turn and written into each player's file. See
+    /// [`crate::message`].
+    pub messages: Vec<crate::message::Message>,
     /// Every minefield in play. They are `THING`s in the file, and the only
     /// kind of `THING` this engine models — see [`crate::minefield`].
     pub minefields: Vec<crate::minefield::Minefield>,
@@ -342,6 +348,7 @@ impl GameState {
             slow_tech: false,
             galaxy_planets: 0,
             victory: [0; stars_formats::victory::COUNT],
+            messages: Vec::new(),
             minefields: Vec::new(),
             other_things: Vec::new(),
         }

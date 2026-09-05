@@ -1014,14 +1014,36 @@ disagree.
     conditions met — come with a universe file in which every condition is
     switched off, so the settings they were played with are not in the corpus.
 
-28. **What is still missing to call it playable.** Every waypoint task is now
+28. ~~**Messages.**~~ **The format is decoded and verified; the engine sends
+    six of them.** `docs/formats/message.md` is the spec.
+
+    A message is a numeric id, an object and up to seven parameters. Two things
+    make the record harder than it looks, and both were found by a round trip
+    failing. **How many parameters a message has is not in the record** — it
+    comes from a 387-entry table at `1030:5b0e`, one byte per id — and **a
+    block is a run of messages, not one**: the host appends every message for a
+    player into one buffer and the writer emits it whole, so a 16-byte block
+    can be two 8-byte messages. All 1,053 messages in the fixtures now decode
+    and re-encode byte for byte, across 55 distinct ids.
+
+    The engine sends the six whose ids were read out of our own binary:
+    orders complete, mines dispersed, a fleet or a starbase sweeping mines, the
+    other side being told their field was swept, and a gift refused because
+    colonists were aboard. That last is a satisfying cross-check — the check was
+    read as a comparison against `FLEET.rgwtMin[3]`, and the message the same
+    routine sends says exactly that in words.
+
+    The text is *not* copied: it lives in the executable's resources, and this
+    project writes its own wording against the game's ids. Everything else the
+    original narrates — hundreds of ids — still passes silently, and the
+    message filter (type 33) is carried but not obeyed.
+
+29. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
-    - **Messages.** The engine decides plenty that the original would tell the
-      player about — a fleet stopped by mines, a gift refused, a patrol
-      targeted — and says none of it. `FSendPlrMsg` is everywhere in the
-      routines already read.
+    - **More messages.** Six ids are sent; the original has hundreds, and the
+      message filter (type 33) is carried but not obeyed.
     - **Mineral packets**, which are the most common object in the fixtures by
       far (95,798 of them), and **wormholes** and the **Mystery Trader**, which
       are now carried through a save verbatim but not simulated.

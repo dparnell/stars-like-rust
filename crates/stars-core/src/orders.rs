@@ -701,8 +701,17 @@ fn give_fleet(state: &mut GameState, index: usize) -> bool {
     if to >= state.players.len() || recipient == owner {
         return false;
     }
-    // People are not a gift.
+    // People are not a gift, and the player is told so.
     if fleet.cargo.colonists > 0 {
+        if let Ok(player) = usize::try_from(owner) {
+            let id = fleet.id;
+            state.messages.push(crate::message::Message {
+                player,
+                id: crate::message::id::GIFT_HAS_COLONISTS,
+                object: crate::message::fleet_object(id),
+                params: vec![i16::try_from(id).unwrap_or(0)],
+            });
+        }
         return false;
     }
 

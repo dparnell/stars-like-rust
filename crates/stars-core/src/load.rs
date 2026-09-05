@@ -394,6 +394,22 @@ impl GameState {
             state.victory = info.victory_bytes();
         }
 
+        // Messages. A player file's messages are that player's; a host file
+        // carries none, since the host is nobody.
+        {
+            let player = usize::from(segment.header.player).min(15);
+            for block in blocks
+                .iter()
+                .filter(|b| b.type_id == stars_formats::MESSAGE_BLOCK)
+            {
+                for record in stars_formats::MessageRecord::decode_all(&block.data) {
+                    state
+                        .messages
+                        .push(crate::message::Message::from_record(player, &record));
+                }
+            }
+        }
+
         // Minefields, out of the object section. The other kinds of THING —
         // packets, wormholes, the Mystery Trader — are not modelled, so they
         // are left where they are rather than half-loaded.

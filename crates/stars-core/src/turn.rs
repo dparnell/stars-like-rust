@@ -184,6 +184,10 @@ pub fn generate_turn_with_orders(
         }
     }
 
+    // Last year's news is last year's; the original queues a player's
+    // messages afresh each time it generates a turn.
+    state.messages.clear();
+
     // --- ThingDecay: an armed field goes off under everyone inside it, and
     // then every field loses a slice of itself. A field that runs out is gone.
     report.mine_hits.extend(detonate_minefields(state));
@@ -319,8 +323,20 @@ pub fn generate_turn_with_orders(
     for index in 0..state.fleets.len() {
         let laid = lay_mines_for_fleet(state, index);
         let id = state.fleets[index].id;
+        let owner = usize::try_from(state.fleets[index].owner).ok();
+        let total: i32 = laid.iter().map(|(_, mines)| mines).sum();
         for (kind, mines) in laid {
             report.mines_laid.push((id, kind, mines));
+        }
+        if let (Some(player), true) = (owner, total > 0) {
+            let mut params = vec![i16::try_from(id).unwrap_or(0)];
+            params.extend_from_slice(&crate::message::Message::long(total));
+            state.messages.push(crate::message::Message {
+                player,
+                id: crate::message::id::MINES_LAID,
+                object: crate::message::fleet_object(id),
+                params,
+            });
         }
     }
 
@@ -776,9 +792,12 @@ fn decay_minefields(state: &mut GameState) -> Vec<(u16, i16, i32)> {
 /// belong to a player it is not friendly with.
 fn sweep_minefields(state: &mut GameState) -> Vec<(u16, i16, i32)> {
     let mut swept = Vec::new();
+    // Both sides are told: `SweepForMines` sends the sweeper one message and
+    // the field's owner another.
+    let mut told: Vec<(i16, i16, Sweeper, u8, crate::movement::Point, i32)> = Vec::new();
 
     // A sweeper is a position, an owner, and how much it can clear.
-    let mut sweepers: Vec<(crate::movement::Point, i16, i32)> = Vec::new();
+    let mut sweepers: Vec<(crate::movement::Point, i16, i32, Sweeper)> = Vec::new();
     for fleet in &state.fleets {
         let Ok(owner) = usize::try_from(fleet.owner) else {
             continue;
@@ -788,7 +807,12 @@ fn sweep_minefields(state: &mut GameState) -> Vec<(u16, i16, i32)> {
         };
         let capacity = crate::minefield::fleet_sweep(fleet, designs);
         if capacity > 0 {
-            sweepers.push((fleet.position, fleet.owner, capacity));
+            sweepers.push((
+                fleet.position,
+                fleet.owner,
+                capacity,
+                Sweeper::Fleet(fleet.id),
+            ));
         }
     }
     for planet in &state.planets {
@@ -806,11 +830,11 @@ fn sweep_minefields(state: &mut GameState) -> Vec<(u16, i16, i32)> {
             })
             .map_or(0, crate::minefield::sweep_capacity);
         if capacity > 0 {
-            sweepers.push((position, owner, capacity));
+            sweepers.push((position, owner, capacity, Sweeper::Planet(planet.id)));
         }
     }
 
-    for (position, owner, capacity) in sweepers {
+    for (position, owner, capacity, from) in sweepers {
         let friend = usize::try_from(owner)
             .ok()
             .and_then(|i| state.players.get(i))
@@ -839,11 +863,57 @@ fn sweep_minefields(state: &mut GameState) -> Vec<(u16, i16, i32)> {
             if let Ok(bit) = u32::try_from(owner) {
                 field.detected_by |= u16::try_from(1u32 << (bit & 15)).unwrap_or(0);
             }
+            told.push((owner, field.owner, from, field.kind, position, take));
             swept.push((field.id, field.owner, take));
         }
         state.minefields.retain(|f| f.mines > 0);
     }
+
+    for (sweeper_owner, field_owner, from, kind, at, count) in told {
+        let (id, subject) = match from {
+            Sweeper::Fleet(fleet) => (
+                crate::message::id::FLEET_SWEPT,
+                crate::message::fleet_object(fleet),
+            ),
+            Sweeper::Planet(planet) => (crate::message::id::STARBASE_SWEPT, planet),
+        };
+        let mut params = vec![match from {
+            Sweeper::Fleet(fleet) => i16::try_from(fleet).unwrap_or(0),
+            Sweeper::Planet(planet) => planet,
+        }];
+        params.extend_from_slice(&crate::message::Message::long(count));
+        params.extend_from_slice(&[field_owner, i16::from(kind), at.x, at.y]);
+        if let Ok(player) = usize::try_from(sweeper_owner) {
+            state.messages.push(crate::message::Message {
+                player,
+                id,
+                object: subject,
+                params: params.clone(),
+            });
+        }
+        // The owner of the field hears it too, and is not told who did it.
+        if let Ok(player) = usize::try_from(field_owner) {
+            let mut theirs = vec![0];
+            theirs.extend_from_slice(&crate::message::Message::long(count));
+            theirs.extend_from_slice(&[i16::from(kind), at.x, at.y]);
+            state.messages.push(crate::message::Message {
+                player,
+                id: crate::message::id::YOUR_FIELD_SWEPT,
+                object: -6,
+                params: theirs,
+            });
+        }
+    }
     swept
+}
+
+/// What cleared a minefield, for the message that says so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Sweeper {
+    /// A fleet, by its number.
+    Fleet(u16),
+    /// A planet's starbase, by planet id.
+    Planet(i16),
 }
 
 /// The lowest fleet number a player is not already using.

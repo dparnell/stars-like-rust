@@ -59,6 +59,8 @@ Per-format (payload record layouts, populated as decoded in Step 2):
   **decoded & verified** (`stars-formats::production`)
 - `score.md` — player-scores blocks (type 45) in `.mN`/`.hN`:
   **decoded & verified** (`stars-formats::score`)
+- `message.md` — messages the host writes to a player (type 12) in `.mN`:
+  **decoded & verified** (`stars-formats::message`)
 - `thing.md` — space objects (type 43: minefields, mineral packets, wormholes,
   mystery traders) in `.hst`/`.mN`/`.hN`: count + `THING` records
 - `battle.md` — battle recordings (types 31/39: the VCR) in `.mN`:

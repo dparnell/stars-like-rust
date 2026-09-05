@@ -173,6 +173,7 @@ pub fn player_file(state: &GameState, player: usize) -> Result<Vec<u8>> {
         push_designs(&mut body, state, player, designs, true)?;
     }
     push_battle_plans(state, &mut body, player)?;
+    push_messages(state, &mut body, player)?;
 
     StarsFile::build(&header, &body, footer(state))
 }
@@ -678,6 +679,28 @@ fn waypoint_records(fleet: &Fleet) -> Vec<WaypointRecord> {
             }
         })
         .collect()
+}
+
+/// Append this player's messages, as one block.
+///
+/// The original appends every message for a player into one buffer and writes
+/// that, which is why a message block in a real file is a **run** of records
+/// rather than one. A player with nothing to be told gets no block.
+fn push_messages(state: &GameState, body: &mut Vec<Block>, player: usize) -> Result<()> {
+    let records: Vec<stars_formats::MessageRecord> = state
+        .messages
+        .iter()
+        .filter(|m| m.player == player)
+        .map(crate::message::Message::record)
+        .collect();
+    if records.is_empty() {
+        return Ok(());
+    }
+    body.push(block(
+        stars_formats::MESSAGE_BLOCK,
+        stars_formats::MessageRecord::encode_all(&records),
+    )?);
+    Ok(())
 }
 
 /// Append the object section: a count, then that many 18-byte `THING`s.

@@ -311,6 +311,10 @@ impl eframe::App for StarsApp {
                         self.app.last_turn = None;
                     }
                 });
+                // The year's news, in the engine's own words.
+                for line in &turn.messages {
+                    ui.label(egui::RichText::new(format!("· {line}")).small());
+                }
             });
         }
 

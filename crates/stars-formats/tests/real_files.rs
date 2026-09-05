@@ -621,3 +621,72 @@ fn every_game_info_re_encodes_exactly() {
     assert!(checked > 0, "no .xy fixtures were checked");
     eprintln!("{checked} game-info blocks re-encoded exactly");
 }
+
+/// Every message block in every fixture decodes and re-encodes byte for byte.
+///
+/// A message's length is not in the record: how many parameters it carries
+/// comes from a table indexed by its id, and each parameter is a byte or a word
+/// depending on its value. So a round trip here is a real check of both — get
+/// the count wrong and the bytes do not come back.
+#[test]
+fn every_message_round_trips() {
+    use std::collections::BTreeMap;
+
+    let mut checked = 0usize;
+    let mut by_id: BTreeMap<u16, usize> = BTreeMap::new();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");
+    let mut stack = vec![root];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            let Ok(file) = StarsFile::decode(&bytes) else {
+                continue;
+            };
+            for block in file
+                .blocks
+                .iter()
+                .filter(|b| b.type_id == stars_formats::MESSAGE_BLOCK)
+            {
+                // One block is a run of messages, not just one.
+                let records = stars_formats::MessageRecord::decode_all(&block.data);
+                assert!(
+                    !records.is_empty(),
+                    "{}: a message block did not decode",
+                    path.display()
+                );
+                assert_eq!(
+                    stars_formats::MessageRecord::encode_all(&records),
+                    block.data,
+                    "{}: a message block did not come back",
+                    path.display()
+                );
+                for record in &records {
+                    *by_id.entry(record.id).or_default() += 1;
+                    checked += 1;
+                }
+            }
+        }
+    }
+
+    if checked == 0 {
+        eprintln!("skipping: no messages in the fixtures");
+        return;
+    }
+    eprintln!(
+        "{checked} messages round-tripped, {} distinct ids",
+        by_id.len()
+    );
+    for (id, count) in &by_id {
+        eprintln!("  message {id} x{count}");
+    }
+}
