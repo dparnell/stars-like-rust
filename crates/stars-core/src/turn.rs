@@ -98,6 +98,8 @@ pub struct TurnReport {
     pub mines_swept: Vec<(u16, i16, i32)>,
     /// Packets that landed, as `(target planet, minerals delivered, damage)`.
     pub packets_landed: Vec<(i16, [i32; 3], i32)>,
+    /// Wormholes that jumped this year, by id.
+    pub wormholes_moved: Vec<u16>,
     /// Interceptions a patrol ordered, as `(patrolling fleet, target fleet)`.
     pub patrols: Vec<(u16, u16)>,
     /// The scoreboard, one entry per player, after the year's events.
@@ -167,8 +169,9 @@ pub fn generate_turn_with_orders(
         report.colonised = crate::orders::resolve_colonist_drops(state, &drops);
     }
 
-    // --- MoveThings(0): the packets already in flight cross a full year
-    // before anything else happens.
+    // --- MoveThings(0): the Mystery Trader crosses a year, and the packets
+    // already in flight do too, before anything else happens.
+    move_trader(state, rng);
     report.packets_landed = move_packets(state, false);
 
     // --- MoveFleets, which happens before Produce.
@@ -357,8 +360,9 @@ pub fn generate_turn_with_orders(
     }
 
     // --- MoveThings(1): a packet thrown this year covers half a year, and
-    // decays for it.
+    // decays for it; and the wormholes think about moving.
     report.packets_landed.extend(move_packets(state, true));
+    report.wormholes_moved = move_wormholes(state, rng);
 
     // --- SweepForMines, which the original runs late, after the second pass
     // of orders: everything armed with beams clears what it is sitting in.
@@ -1037,7 +1041,142 @@ fn land_packet(state: &mut GameState, index: usize) -> Option<(i16, [i32; 3], i3
     Some((target, delivered, damage))
 }
 
-/// The lowest fleet number a player is not already using./// The lowest fleet number a player is not already using.
+/// Fly the Mystery Trader a year.
+///
+/// `MoveThings` (`10b0:1af7`), before production. One year in twenty-five it
+/// changes its mind: it always **speeds up**, and one time in three it also
+/// picks a new destination on the edge of the galaxy. Then it covers the square
+/// of its warp toward wherever it is going, and stops when it arrives.
+fn move_trader(state: &mut GameState, rng: &mut Rng) {
+    let Some(trader) = state.trader.as_mut() else {
+        return;
+    };
+    // A universe size class, from the planet count the game info gave us; the
+    // original reads `game.mdSize` directly.
+    let size = i32::from(state.galaxy_planets).max(1);
+    if trader.warp <= 12 && rng.random(25) == 0 {
+        if rng.random(3) == 0 {
+            // The edge it heads for, and how far along that edge.
+            let span = size * 400;
+            let edge = if rng.random(2) == 0 {
+                span + 1380
+            } else {
+                1020
+            };
+            let along = i32::from(rng.random(i16::try_from(span + 361).unwrap_or(i16::MAX))) + 1020;
+            let (x, y) = if rng.random(2) == 0 {
+                (edge, along)
+            } else {
+                (along, edge)
+            };
+            trader.destination = crate::movement::Point::new(
+                i16::try_from(x).unwrap_or(i16::MAX),
+                i16::try_from(y).unwrap_or(i16::MAX),
+            );
+        }
+        trader.warp = (trader.warp + 1) & 0x0F;
+    }
+
+    let range = trader.range();
+    let target = trader.destination;
+    let distance = crate::movement::distance(trader.position, target);
+    if distance <= f64::from(range) {
+        trader.position = target;
+    } else {
+        trader.position = crate::movement::advance(trader.position, target, range);
+    }
+}
+
+/// Let the wormholes wander.
+///
+/// `MoveThings` (`10b0:194c`), after production. Each end rolls against
+/// [`crate::wormhole::jump_chance`]; a **jump** puts it anywhere in the galaxy
+/// and forgets who had seen it, while otherwise it merely drifts within twelve
+/// light years of where it was. Either way the original tries up to a hundred
+/// positions and takes the first that scores nothing against
+/// [`crate::wormhole::position_score`], or the best it found.
+///
+/// Returns the ends that jumped.
+fn move_wormholes(state: &mut GameState, rng: &mut Rng) -> Vec<u16> {
+    if state.wormholes.is_empty() {
+        return Vec::new();
+    }
+    let size = i32::from(state.galaxy_planets).max(1);
+    let span = size * 400;
+    let planets: Vec<crate::movement::Point> = state
+        .planets
+        .iter()
+        .chain(state.known_planets.iter())
+        .filter_map(|p| p.position)
+        .collect();
+    let fleets: Vec<crate::movement::Point> = state.fleets.iter().map(|f| f.position).collect();
+
+    let mut jumped = Vec::new();
+    for index in 0..state.wormholes.len() {
+        let others: Vec<(u16, crate::movement::Point)> = state
+            .wormholes
+            .iter()
+            .enumerate()
+            .filter(|(other, _)| *other != index)
+            .map(|(_, w)| (w.id, w.position))
+            .collect();
+
+        let hole = &state.wormholes[index];
+        let base = hole.position;
+        let chance = crate::wormhole::jump_chance(hole.stability, hole.years_still);
+        let jumping = i32::from(rng.random(100)) < chance;
+        let partner = hole.partner & 0x01FF;
+
+        let mut best: Option<(u8, crate::movement::Point)> = None;
+        for _ in 0..100 {
+            let at = if jumping {
+                crate::movement::Point::new(
+                    i16::try_from(
+                        i32::from(rng.random(i16::try_from(span + 400).unwrap_or(i16::MAX))) + 1000,
+                    )
+                    .unwrap_or(i16::MAX),
+                    i16::try_from(
+                        i32::from(rng.random(i16::try_from(span + 400).unwrap_or(i16::MAX))) + 1000,
+                    )
+                    .unwrap_or(i16::MAX),
+                )
+            } else {
+                crate::movement::Point::new(
+                    base.x + rng.random(25) - 12,
+                    base.y + rng.random(25) - 12,
+                )
+            };
+            if at == base {
+                continue;
+            }
+            let score =
+                crate::wormhole::position_score(at, size, partner, &others, &planets, &fleets);
+            if score == 0 {
+                best = Some((0, at));
+                break;
+            }
+            if best.is_none_or(|(worst, _)| score < worst) {
+                best = Some((score, at));
+            }
+        }
+
+        let hole = &mut state.wormholes[index];
+        if let Some((_, at)) = best {
+            hole.position = at;
+        }
+        if jumping {
+            hole.years_still = 0;
+            // Nobody knows where it went.
+            hole.detected_by = 0;
+            jumped.push(hole.id);
+        } else {
+            hole.years_still = hole.years_still.saturating_add(1);
+        }
+    }
+    jumped
+}
+
+/// The lowest fleet number a player is not already using./// The lowest fleet number a player is not already using./// The lowest fleet number a player is not already using.
 ///
 /// Fleet numbers are per player and are reused once a fleet is gone, which is
 /// why this looks for the first gap rather than counting.

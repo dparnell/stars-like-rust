@@ -81,6 +81,7 @@ pub mod startup;
 pub mod terraform;
 pub mod turn;
 pub mod victory;
+pub mod wormhole;
 
 // `battle::distance` is board geometry and `movement::distance` is interstellar,
 // so neither is re-exported bare; use the module path.
@@ -290,8 +291,12 @@ pub struct GameState {
     pub minefields: Vec<crate::minefield::Minefield>,
     /// Every mineral packet in flight. See [`crate::packet`].
     pub packets: Vec<crate::packet::Packet>,
-    /// The other space objects — wormholes and the Mystery Trader — exactly as
-    /// the file held them.
+    /// Every wormhole end in play. See [`crate::wormhole`].
+    pub wormholes: Vec<crate::wormhole::Wormhole>,
+    /// The Mystery Trader, when the galaxy has one.
+    pub trader: Option<crate::wormhole::MysteryTrader>,
+    /// Any space object none of the above covers, exactly as the file held
+    /// it.
     ///
     /// Nothing here simulates them, and that is the point: they are carried
     /// verbatim so that writing a game back does not quietly delete them.
@@ -354,6 +359,8 @@ impl GameState {
             messages: Vec::new(),
             minefields: Vec::new(),
             packets: Vec::new(),
+            wormholes: Vec::new(),
+            trader: None,
             other_things: Vec::new(),
         }
     }

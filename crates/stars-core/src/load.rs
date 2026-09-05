@@ -430,6 +430,34 @@ impl GameState {
                     });
                     continue;
                 }
+                stars_formats::ThingKind::Wormhole(hole) => {
+                    state.wormholes.push(crate::wormhole::Wormhole {
+                        id: thing.id,
+                        position: Point::new(thing.x, thing.y),
+                        stability: hole.stability,
+                        years_still: hole.last_move,
+                        dest_known: hole.dest_known,
+                        include: hole.include,
+                        detected_by: hole.players_seen,
+                        traversed_by: hole.players_traversed,
+                        partner: hole.partner_id,
+                        turn: thing.turn,
+                    });
+                    continue;
+                }
+                stars_formats::ThingKind::MysteryTrader(trader) => {
+                    state.trader = Some(crate::wormhole::MysteryTrader {
+                        id: thing.id,
+                        position: Point::new(thing.x, thing.y),
+                        destination: Point::new(trader.dest_x, trader.dest_y),
+                        warp: trader.warp,
+                        include: trader.include,
+                        detected_by: trader.players_seen,
+                        met_by: trader.players_met,
+                        turn: thing.turn,
+                    });
+                    continue;
+                }
                 stars_formats::ThingKind::Minefield(_) => {}
                 _ => {
                     // Not modelled, but not thrown away either.

@@ -710,7 +710,11 @@ fn push_messages(state: &GameState, body: &mut Vec<Block>, player: usize) -> Res
 /// back does not delete them. See `docs/formats/thing.md` for the section's
 /// shape.
 fn push_things(state: &GameState, body: &mut Vec<Block>) -> Result<()> {
-    let total = state.minefields.len() + state.packets.len() + state.other_things.len();
+    let total = state.minefields.len()
+        + state.packets.len()
+        + state.wormholes.len()
+        + usize::from(state.trader.is_some())
+        + state.other_things.len();
     let count = u16::try_from(total).unwrap_or(u16::MAX);
     body.push(block(43, count.to_le_bytes().to_vec())?);
     for field in &state.minefields {
@@ -758,6 +762,75 @@ fn push_things(state: &GameState, body: &mut Vec<Block>) -> Result<()> {
             turn: packet.turn,
         };
         body.push(block(43, thing.encode().to_vec())?);
+    }
+    for hole in &state.wormholes {
+        let carried = stars_formats::Wormhole {
+            stability: hole.stability,
+            last_move: hole.years_still,
+            dest_known: hole.dest_known,
+            include: hole.include,
+            players_seen: hole.detected_by,
+            players_traversed: hole.traversed_by,
+            partner_id: hole.partner,
+        };
+        let mut union = [0u8; 10];
+        let w0 = u16::from(carried.stability & 0x03)
+            | ((carried.last_move & 0x03FF) << 2)
+            | (u16::from(carried.dest_known) << 12)
+            | (u16::from(carried.include) << 13);
+        union[0..2].copy_from_slice(&w0.to_le_bytes());
+        union[2..4].copy_from_slice(&carried.players_seen.to_le_bytes());
+        union[4..6].copy_from_slice(&carried.players_traversed.to_le_bytes());
+        union[6..8].copy_from_slice(&carried.partner_id.to_le_bytes());
+        body.push(block(
+            43,
+            stars_formats::Thing {
+                id: hole.id & 0x01FF,
+                player: 0,
+                ith: 2,
+                thing_type: stars_formats::ThingType::Wormhole,
+                x: hole.position.x,
+                y: hole.position.y,
+                kind: stars_formats::ThingKind::Wormhole(carried),
+                union,
+                turn: hole.turn,
+            }
+            .encode()
+            .to_vec(),
+        )?);
+    }
+    if let Some(trader) = &state.trader {
+        let carried = stars_formats::MysteryTrader {
+            dest_x: trader.destination.x,
+            dest_y: trader.destination.y,
+            warp: trader.warp,
+            include: trader.include,
+            players_seen: trader.detected_by,
+            players_met: trader.met_by,
+        };
+        let mut union = [0u8; 10];
+        union[0..2].copy_from_slice(&carried.dest_x.to_le_bytes());
+        union[2..4].copy_from_slice(&carried.dest_y.to_le_bytes());
+        let w4 = u16::from(carried.warp & 0x0F) | (u16::from(carried.include) << 4);
+        union[4..6].copy_from_slice(&w4.to_le_bytes());
+        union[6..8].copy_from_slice(&carried.players_seen.to_le_bytes());
+        union[8..10].copy_from_slice(&carried.players_met.to_le_bytes());
+        body.push(block(
+            43,
+            stars_formats::Thing {
+                id: trader.id & 0x01FF,
+                player: 0,
+                ith: 3,
+                thing_type: stars_formats::ThingType::MysteryTrader,
+                x: trader.position.x,
+                y: trader.position.y,
+                kind: stars_formats::ThingKind::MysteryTrader(carried),
+                union,
+                turn: trader.turn,
+            }
+            .encode()
+            .to_vec(),
+        )?);
     }
     for thing in &state.other_things {
         body.push(block(43, thing.encode().to_vec())?);

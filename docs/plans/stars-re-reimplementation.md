@@ -1070,7 +1070,33 @@ disagree.
     as uncaught — the planet keeps its ninth), applying the arrival damage to
     colonists and defences, and the Packet Physics terraforming on impact.
 
-30. **What is still missing to call it playable.** Every waypoint task is now
+30. ~~**Wormholes and the Mystery Trader.**~~ **Both are modelled and moved;
+    what they are *for* is not.** `docs/formulas/wanderers.md` is the spec.
+
+    A wormhole's chance of jumping is `years still / 5 − (2 − stability)` per
+    cent, capped at six (`PctWormholeMoves`, `1110:0adc`), and where it lands is
+    the best of up to a hundred tries scored by `IValidateWormholePos`
+    (`1110:064c`). The scoring has a nice detail in it: an end is pushed
+    **furthest from its own partner** — the penalty reaches seventy light years
+    rather than thirty — which is what stops a pair collapsing into one corner
+    and becoming useless. A jump also clears who had seen it.
+
+    The Trader changes its mind one year in twenty-five: it always speeds up,
+    and one time in three it also picks a new destination on the edge of the
+    map. Then it covers the square of its warp.
+
+    Checked: 2,672 wormhole ends and 589 Traders round-trip unchanged; 1,764
+    ends have both halves in view and **every one of those pairs is mutual**;
+    and 527 of 547 Trader-years flew exactly the modelled distance. The twenty
+    that did not are the Trader's own doing — in each its warp went *down* and
+    its destination changed, and the course change only ever speeds it up, so
+    those are new passes rather than the same flight. Its arrival behaviour is
+    not modelled.
+
+    Nor is what either is for: a fleet can be sent to a wormhole but does not
+    come out the far end, and nothing trades with the Trader.
+
+31. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -1079,8 +1105,8 @@ disagree.
     - **Packets, the rest of the way**: launching them from a production
       queue, catching them with a planet's own mass driver, and the damage and
       terraforming when one lands.
-    - **Wormholes** and the **Mystery Trader**, carried through a save verbatim
-      but not simulated.
+    - **Going through a wormhole**, and **trading with the Mystery Trader**:
+      both wander correctly now, but neither does anything for a player.
     - Inside combat: the minefield damage step's interval merging, engine-count
       scaling and shield absorption.
     - A loaded state file still cannot carry structural fleet changes back —
