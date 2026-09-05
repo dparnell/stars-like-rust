@@ -31,6 +31,10 @@
 //!        footer
 //! ```
 //!
+//! A fleet the player has named carries its name in a block after its
+//! waypoints; one they have not carries nothing, which is why no file in the
+//! fixtures has a single such block.
+//!
 //! What a fresh game has none of — messages, battles, scores, the other
 //! players' partially-scanned planets — is simply absent, which is what the
 //! turn-0 fixture's own `.mN` files look like.
@@ -592,6 +596,14 @@ fn push_fleets(body: &mut Vec<Block>, state: &GameState, player: usize) -> Resul
         body.push(block(16, fleet_record(fleet, waypoints.len()).encode(16))?);
         for waypoint in &waypoints {
             body.push(block(waypoint.block_type(), waypoint.encode())?);
+        }
+        // A fleet the player has named carries the name after its waypoints,
+        // and one they have not carries nothing at all.
+        if let Some(name) = fleet.name.as_ref().filter(|n| !n.is_empty()) {
+            body.push(block(
+                stars_formats::FLEET_NAME_BLOCK,
+                stars_formats::encode_user_string(name),
+            )?);
         }
     }
     Ok(())

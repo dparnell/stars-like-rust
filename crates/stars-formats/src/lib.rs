@@ -87,7 +87,7 @@ pub use cargo::{
 pub use crypt::{StarsRng, PRIMES};
 pub use design::{design_records, DesignRecord, Slot};
 pub use file::{Segment, StarsFile, FILE_FOOTER_BLOCK};
-pub use fleet::{fleet_records, Cargo, FleetRecord, ShipDamage, ShipStack};
+pub use fleet::{fleet_records, Cargo, FleetRecord, ShipDamage, ShipStack, FLEET_NAME_BLOCK};
 pub use header::{FileHeader, FileType};
 pub use history::{history_header, HistoryHeader};
 pub use names::{planet_name, planet_name_count};
@@ -108,7 +108,10 @@ pub use production::{
 pub use race::{Economy, HabRange, Lrt, Prt, RaceRecord};
 pub use records::{planet_headers, PlanetHeader, MINIMAL_PLANET_LEN};
 pub use score::{score_records, ScoreRecord, VictoryConditions};
-pub use strings::{decode_field as decode_stars_string, decode_packed as decode_stars_packed};
+pub use strings::{
+    decode_field as decode_stars_string, decode_packed as decode_stars_packed, decode_user_string,
+    encode_user_string,
+};
 pub use thing::{
     thing_records, thing_section, Minefield, MineralPacket, MysteryTrader, Thing, ThingKind,
     ThingSection, ThingType, Wormhole, THING_BLOCK, THING_SIZE,

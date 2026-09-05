@@ -146,6 +146,8 @@ measured over the corpus rather than assumed:
   count of zero.
 - **Messages, battle recordings and scores**, for the same reason. A fresh game
   has none of them, which is what the turn-0 fixture's own files look like.
+- A **fleet's name** *is* written, in the type-21 block after its waypoints, but
+  no fixture has one to check against; see `fleet.md`.
 - **The `.hN` history files.** A host writes those; this project does not yet.
   The `.xN` order log **is** written — see `orders-x.md` — but with a zero
   registration serial, because this project has none.

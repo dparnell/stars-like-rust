@@ -377,6 +377,7 @@ fn fleets_split_merge_and_rename() {
             .as_deref(),
         Some("Bold Endeavour")
     );
+    let named_id = app.game.as_ref().expect("game").fleets[merged].id;
 
     assert!(app.split_fleet(merged, design, 1), "one ship splits off");
     let game = app.game.as_ref().expect("game");
@@ -404,10 +405,24 @@ fn fleets_split_merge_and_rename() {
         .expect("a merge record");
     assert_eq!(merge.absorbed().len(), 1, "one fleet was absorbed");
 
-    // A host replaying that log against a fresh copy of the same game reaches
-    // the same place.
+    // The name is in the saved game too, not just the order log.
     let mut fresh = App::new();
     fresh.open(&host).expect("opens");
+    assert_eq!(
+        fresh
+            .game
+            .as_ref()
+            .expect("game")
+            .fleets
+            .iter()
+            .find(|f| f.owner == 0 && f.id == named_id)
+            .and_then(|f| f.name.clone()),
+        Some("Bold Endeavour".to_string()),
+        "the name survived the save"
+    );
+
+    // A host replaying that log against a fresh copy of the same game reaches
+    // the same place.
     // The saved host file already has the orders applied, so replay against
     // the state as it was before them: generate from the original instead.
     let (mut original, _) = {
@@ -423,4 +438,70 @@ fn fleets_split_merge_and_rename() {
     assert_eq!(report.rejected, 0, "a host accepts its own player's orders");
 
     let _ = std::fs::remove_dir_all(&directory);
+}
+
+/// Clearing a fleet's name removes its block from the file again.
+#[test]
+fn a_cleared_fleet_name_leaves_no_block() {
+    let (mut app, host) = a_saved_game("unnamed");
+    let fleet = app
+        .game
+        .as_ref()
+        .expect("game")
+        .fleets
+        .iter()
+        .position(|f| f.owner == 0)
+        .expect("a fleet");
+    let id = app.game.as_ref().expect("game").fleets[fleet].id;
+
+    assert!(app.rename_fleet(fleet, "Temporary"));
+    app.save(&host).expect("saves");
+
+    let named = std::fs::read(&host).expect("reads");
+    let decoded = StarsFile::decode(&named).expect("decodes");
+    assert_eq!(
+        decoded
+            .blocks
+            .iter()
+            .filter(|b| b.type_id == stars_formats::FLEET_NAME_BLOCK)
+            .count(),
+        1,
+        "one name block"
+    );
+
+    // Reopen, clear the name, save again.
+    let mut app = App::new();
+    app.open(&host).expect("opens");
+    let fleet = app
+        .game
+        .as_ref()
+        .expect("game")
+        .fleets
+        .iter()
+        .position(|f| f.owner == 0 && f.id == id)
+        .expect("the fleet");
+    assert_eq!(
+        app.game.as_ref().expect("game").fleets[fleet]
+            .name
+            .as_deref(),
+        Some("Temporary")
+    );
+    assert!(app.rename_fleet(fleet, ""));
+    app.save(&host).expect("saves");
+
+    let cleared = std::fs::read(&host).expect("reads");
+    let decoded = StarsFile::decode(&cleared).expect("decodes");
+    assert_eq!(
+        decoded
+            .blocks
+            .iter()
+            .filter(|b| b.type_id == stars_formats::FLEET_NAME_BLOCK)
+            .count(),
+        0,
+        "and now none"
+    );
+    let (state, _) = stars_core::GameState::from_file(&decoded);
+    assert!(state.fleets.iter().all(|f| f.name.is_none()));
+
+    let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
 }

@@ -90,12 +90,11 @@ pub struct Fleet {
     /// An unnamed fleet is shown as its design and number ("Long Range Scout
     /// #3"), which is why this is optional rather than always filled in.
     ///
-    /// **It does not survive a save.** The game stores fleet names in a
-    /// separate type-21 string block, and no file in this repository's fixtures
-    /// contains one — nobody renamed a fleet in any of the captured games — so
-    /// neither the association rule nor the framing has been verified. A
-    /// rename submitted in an order log is replayed onto this field rather than
-    /// dropped; writing it back waits on a fixture that has one.
+    /// It is written to and read from a [`FLEET_NAME_BLOCK`] that follows the
+    /// fleet's waypoints. No file in this repository's fixtures contains one —
+    /// nobody renamed a fleet in any of the captured games — so the layout is
+    /// recovered from the binary rather than fixture-verified; see that
+    /// constant.
     pub name: Option<String>,
 }
 

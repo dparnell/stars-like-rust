@@ -473,6 +473,14 @@ impl GameState {
                         .as_ref()
                         .and_then(fleet_from_record);
                 }
+                // The name a player gave the fleet above, written after its
+                // waypoints. See `stars_formats::FLEET_NAME_BLOCK`.
+                stars_formats::FLEET_NAME_BLOCK => {
+                    if let Some(fleet) = pending.as_mut() {
+                        let name = stars_formats::decode_user_string(&block.data);
+                        fleet.name = (!name.is_empty()).then_some(name);
+                    }
+                }
                 // Waypoint blocks, which belong to the fleet above them.
                 19 | 20 => {
                     if let (Some(fleet), Some(w)) = (

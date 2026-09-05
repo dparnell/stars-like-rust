@@ -276,11 +276,6 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             if ui.button("rename").clicked() {
                 rename = Some(index);
             }
-            ui.label(
-                egui::RichText::new("(not saved yet — see the fleet docs)")
-                    .weak()
-                    .small(),
-            );
         });
 
         if !mergeable.is_empty() {

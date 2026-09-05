@@ -169,6 +169,74 @@ pub fn encode_packed(text: &str) -> Vec<u8> {
         .collect()
 }
 
+/// The largest packed form the game will write (`cOut = 0x1f` in
+/// `WriteRtString`); a longer one falls back to a literal string.
+pub const MAX_PACKED_LEN: usize = 31;
+
+/// Decode a **user string** field, the form the game writes for names the
+/// player typed: a fleet's name, and the name in a rename order.
+///
+/// It is the packed field with one escape. A length byte of `0` means the
+/// packed form did not fit, and what follows is the string itself as
+/// NUL-terminated bytes:
+///
+/// ```c
+/// // WriteRtString, save.c / 1070:87b4
+/// cOut = 0x1f;
+/// if (FCompressUserString(lpsz, rgb + 1, &cOut) == 0) {
+///     strcpy(rgb + 1, lpsz);       // the packed form did not fit
+///     rgb[0] = 0;
+///     cOut = strlen(lpsz) + 1;     // the NUL is written too
+/// } else {
+///     rgb[0] = cOut;
+/// }
+/// WriteRt(rtString, cOut + 1, rgb);
+/// ```
+#[must_use]
+pub fn decode_user_string(field: &[u8]) -> String {
+    match field.split_first() {
+        None => String::new(),
+        // The escape: a literal, NUL-terminated string.
+        Some((0, literal)) => literal
+            .iter()
+            .take_while(|b| **b != 0)
+            .map(|b| char::from(*b))
+            .collect(),
+        Some((length, packed)) => {
+            let end = usize::from(*length).min(packed.len());
+            decode_packed(&packed[..end])
+        }
+    }
+}
+
+/// Encode a **user string** field, the inverse of [`decode_user_string`].
+///
+/// The packed form is used when it fits in [`MAX_PACKED_LEN`] bytes, and the
+/// literal escape when it does not — which is the choice `WriteRtString` makes.
+/// The literal path can hold 31 characters, so longer names are truncated
+/// there rather than overrunning the 33-byte buffer the game reads into.
+#[must_use]
+pub fn encode_user_string(text: &str) -> Vec<u8> {
+    let packed = encode_packed(text);
+    if packed.len() <= MAX_PACKED_LEN {
+        let mut out = Vec::with_capacity(packed.len() + 1);
+        #[allow(clippy::cast_possible_truncation)]
+        out.push(packed.len() as u8);
+        out.extend_from_slice(&packed);
+        return out;
+    }
+    let mut out = vec![0u8];
+    for c in text.chars().take(MAX_PACKED_LEN) {
+        out.push(if (c as u32) < 256 && c != '\0' {
+            c as u8
+        } else {
+            b'?'
+        });
+    }
+    out.push(0);
+    out
+}
+
 /// Encode a string as a packed string **field**: a length byte followed by the
 /// packed data.
 ///
@@ -219,6 +287,33 @@ mod tests {
         let field = encode_field("a").expect("short enough");
         assert_eq!(field.len(), 2, "one length byte plus one packed byte");
         assert_eq!(decode_field(&field), "a");
+    }
+
+    #[test]
+    fn user_strings_round_trip() {
+        for text in [
+            "",
+            "Bold Endeavour",
+            "Fleet #7",
+            "The Second Expeditionary Force",
+            "!!! *** !!!",
+        ] {
+            let field = encode_user_string(text);
+            assert_eq!(decode_user_string(&field), text, "{text:?}");
+        }
+    }
+
+    /// A name too long to pack falls back to the literal escape.
+    #[test]
+    fn a_name_that_will_not_pack_is_written_literally() {
+        // Every character escapes to three nibbles, so 21 of them pack to 32
+        // bytes — one over the budget.
+        let awkward: String = std::iter::repeat_n('#', 21).collect();
+        assert!(encode_packed(&awkward).len() > MAX_PACKED_LEN);
+        let field = encode_user_string(&awkward);
+        assert_eq!(field[0], 0, "the literal escape");
+        assert_eq!(field.last(), Some(&0), "and it is NUL-terminated");
+        assert_eq!(decode_user_string(&field), awkward);
     }
 
     #[test]

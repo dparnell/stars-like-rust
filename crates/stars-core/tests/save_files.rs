@@ -292,3 +292,80 @@ fn read_file(path: &str) -> Option<StarsFile> {
 fn read_universe(path: &str) -> Option<Universe> {
     Universe::decode(&std::fs::read(path).ok()?).ok()
 }
+
+/// A fleet's name survives a save, and sits where the game puts it.
+///
+/// No file in the fixtures has a name block — nobody renamed a fleet in any
+/// captured game — so this is checked against the binary rather than against
+/// real data: `WriteFleet` (`1070:8776`) writes the fleet, then its orders, and
+/// then the name if there is one. The test asserts exactly that ordering as
+/// well as the round trip.
+#[test]
+fn a_named_fleet_keeps_its_name() {
+    let mut made = a_game();
+    let named = made
+        .state
+        .fleets
+        .iter()
+        .position(|f| f.owner == 0)
+        .expect("a fleet");
+    let id = made.state.fleets[named].id;
+    made.state.fleets[named].name = Some("Bold Endeavour".into());
+    // A name too long to pack falls back to a literal string; write one of
+    // those too, so both arms of the codec are exercised by a real file.
+    let awkward = made
+        .state
+        .fleets
+        .iter()
+        .position(|f| f.owner == 1)
+        .expect("another player's fleet");
+    let long_name: String = std::iter::repeat_n('#', 21).collect();
+    made.state.fleets[awkward].name = Some(long_name.clone());
+
+    let bytes = save::host_file(&made.state).expect("writes");
+    let file = StarsFile::decode(&bytes).expect("decodes");
+
+    // The name block follows the fleet's waypoints, not the fleet block.
+    let mut seen_fleet = false;
+    let mut seen_waypoint = false;
+    let mut checked = false;
+    for block in &file.blocks {
+        match block.type_id {
+            16 => {
+                seen_fleet = true;
+                seen_waypoint = false;
+            }
+            19 | 20 => seen_waypoint = true,
+            stars_formats::FLEET_NAME_BLOCK => {
+                assert!(seen_fleet && seen_waypoint, "a name follows its waypoints");
+                checked = true;
+            }
+            _ => {}
+        }
+    }
+    assert!(checked, "the names were written");
+
+    let (after, _) = GameState::from_file(&file);
+    assert_eq!(
+        after
+            .fleets
+            .iter()
+            .find(|f| f.owner == 0 && f.id == id)
+            .and_then(|f| f.name.clone()),
+        Some("Bold Endeavour".to_string())
+    );
+    assert_eq!(
+        after
+            .fleets
+            .iter()
+            .filter(|f| f.owner == 1)
+            .find_map(|f| f.name.clone()),
+        Some(long_name),
+        "the literal fallback survives too"
+    );
+    // An unnamed fleet still carries no block at all.
+    assert!(
+        after.fleets.iter().filter(|f| f.name.is_none()).count() > 1,
+        "unnamed fleets stay unnamed"
+    );
+}

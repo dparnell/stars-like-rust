@@ -101,3 +101,33 @@ re-encrypting and comparing against the original bytes.
 - `crates/stars-formats/tests/race_files.rs::default_races_decode_names` —
   decodes the singular/plural names of all six built-in default races from real
   `.rN` files and asserts the exact text.
+
+## User strings: the literal escape
+
+A name the **player typed** — a fleet's name, and the name in a `.xN` rename
+order — is written by `WriteRtString` (`1070:87b4`), which uses the same
+`[length][packed bytes]` field with one escape.
+
+The packed form is given a budget of 31 bytes. When it does not fit, the game
+writes a **length byte of `0`** and then the string itself, NUL-terminated. So
+a reader has to check for that byte before decoding nibbles, and a writer has
+to make the same choice:
+
+```c
+cOut = 0x1f;
+if (FCompressUserString(lpsz, rgb + 1, &cOut) == 0) {
+    strcpy(rgb + 1, lpsz);        // did not fit
+    rgb[0] = 0;
+    cOut = strlen(lpsz) + 1;      // including the NUL
+} else {
+    rgb[0] = (uint8_t)cOut;
+}
+WriteRt(rtString, cOut + 1, rgb);
+```
+
+`decode_user_string` and `encode_user_string` implement exactly that. The buffer
+is 33 bytes, so a literal name holds at most 31 characters.
+
+Nothing in the fixtures uses the escape — no captured game has a renamed fleet —
+so it is recovered from the binary rather than fixture-verified. The packed half
+is the same codec verified on 230 real names; see `fleet.md`.

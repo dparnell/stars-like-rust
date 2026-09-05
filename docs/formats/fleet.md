@@ -10,6 +10,62 @@
   blocks (19/20) and optional fleet-name block (21).
 - **Implemented in:** `stars-formats::fleet`; tests in `tests/fleet_files.rs`
 
+## The fleet's name (`rtString`, type 21)
+
+A fleet the player has renamed carries the name in a block of its own,
+**immediately after that fleet's waypoint blocks**:
+
+```text
+[ fleet (16) ]
+[ waypoint (20/19) ] x cord
+[ name (21) ]          <- only when the fleet has been renamed
+```
+
+No file in this repository's fixtures contains one — nobody renamed a fleet in
+any of the captured games — so this is recovered from the binary rather than
+fixture-verified. `WriteFleet` (`1070:8776`) writes the fleet block, calls
+`WriteOrders`, then tests `FLEET.lpszName` at offset `0x78` and calls
+`WriteRtString` only when it is set. The loader does the mirror image: after a
+fleet's orders it reads one more record and takes it as the name if it is this
+type, leaving the name empty otherwise.
+
+### The payload: a user string
+
+`WriteRtString` (`1070:87b4`) is short enough to give in full, and the
+disassembly matches the reconstructed C line for line:
+
+```c
+if (lpsz != NULL && *lpsz != '\0') {
+    cOut = 0x1f;                                   // 31 bytes of packed budget
+    if (FCompressUserString(lpsz, rgb + 1, &cOut) == 0) {
+        strcpy(rgb + 1, lpsz);                     // the packed form did not fit
+        rgb[0] = 0;                                // the escape
+        cOut = strlen(lpsz) + 1;                   // the NUL is written too
+    } else {
+        rgb[0] = (uint8_t)cOut;                    // packed byte count
+    }
+    WriteRt(rtString, cOut + 1, rgb);              // MOV AX, 0x15 at 1070:884b
+}
+```
+
+So the payload is the ordinary `[length][packed bytes]` field of
+[`strings.md`](strings.md), with one escape: **a length byte of `0` means what
+follows is the string itself, NUL-terminated**, because the packed form would
+have needed more than 31 bytes. The buffer is 33 bytes, so a literal name is at
+most 31 characters.
+
+Implemented as `strings::decode_user_string` / `encode_user_string`, which the
+`.xN` rename order (`RTCHGNAME`, type 44) uses too — it carries the same field.
+
+### Writing one back
+
+`stars_core::save` writes the block after a fleet's waypoints when the fleet has
+a name, and nothing at all when it does not, which is why an ordinary game's
+files contain none. Saving a game that was **loaded** keeps every block it did
+not change, so a rename inserts a name block after the fleet's waypoints, a
+changed name replaces the existing one, and a cleared name removes it.
+
+
 ## Block types
 
 | Type | Name        | Detail | Notes                                        |

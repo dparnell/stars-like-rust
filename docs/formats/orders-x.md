@@ -278,10 +278,10 @@ typedef struct _rtchgname {
 } RTCHGNAME;
 ```
 
-[`FleetName`] decodes `id`, `grobj`, and the trailing name field via the
-packed-string decoder ([`decode_stars_string`]); a leading length byte of `0`
-means the name was written as a literal C string. (Not present in the exodus
-capture, so decoded from the NB09 struct rather than fixture-verified.)
+[`FleetName`] decodes `id`, `grobj`, and the trailing name field as a **user
+string** — the packed field with the literal escape, the same form a fleet's own
+name block carries. See `strings.md`. (Not present in the exodus capture, so
+decoded from the NB09 struct and the binary rather than fixture-verified.)
 
 ### Fleet split (`rtLogFleetSplit`, id 24)
 
@@ -380,7 +380,7 @@ received them. What each operation does:
 | fleet-to-fleet ship transfer (23) | ships move between two of the player's fleets; the destination is **created** if it does not exist, which is the second half of a split, and a fleet left with no ships ceases to exist |
 | fleet split (24) | nothing on its own — the transfer that follows does the work |
 | fleet merge (37) | the first fleet named takes the others' ships and cargo, and they cease to exist |
-| fleet rename (44) | the name is set on the fleet, in memory only (see below) |
+| fleet rename (44) | the name is set on the fleet, and saved with it |
 | waypoint insert / update (4/5) | inserted at or written over that slot of the fleet's order list |
 | waypoint delete (3) | removed; with the high bit, everything from that slot on |
 | production queue (29) | the planet's queue is replaced |
@@ -392,13 +392,9 @@ Everything else — relations, battle plans, and the flag and attribute-nibble
 operations — is classified and named in `ReplayReport::unsupported` rather than
 silently dropped.
 
-**A replayed rename does not survive a save.** The game keeps fleet names in a
-separate type-21 string block, and no file in this repository's fixtures
-contains one — nobody renamed a fleet in any of the captured games — so neither
-the association rule nor the framing has been verified. The rename is applied to
-`Fleet::name` rather than dropped, because a host that ignored it would diverge
-from the client's view of the game; writing it back waits on a fixture that has
-one.
+A replayed rename is written back: the name goes into a type-21 block after the
+fleet's waypoints — see `fleet.md`, which recovers that block from the binary,
+since no captured game has a renamed fleet to check against.
 
 Cargo transfers are the only operation that is *not* applied on the spot. The
 client applied them when the player made them, but their effect belongs at
@@ -439,9 +435,8 @@ every transfer twice.
   (38), `rtLogFleetPlan` (42) and `rtLogPlayerZpq1` (46) are classified but not
   yet field-decoded, and so not replayed either. The replay names them rather
   than dropping them silently.
-- Fleet names have nowhere to be written: the type-21 block that holds them
-  appears in no fixture, so its layout and its association with a fleet are
-  unverified.
+- The type-21 fleet-name block appears in no fixture, so its layout is recovered
+  from the binary rather than fixture-verified. See `fleet.md`.
 - `RTCHGNAME` (44) and `RTLOGTHING` (43) decoders are struct-derived; they need
   an orders fixture that renames a fleet / toggles a minefield to fixture-verify.
 

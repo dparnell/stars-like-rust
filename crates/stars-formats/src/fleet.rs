@@ -126,6 +126,22 @@ pub struct FleetRecord {
     pub trailing: Vec<u8>,
 }
 
+/// Block type of a **user string** (`rtString`): the name a player gave a
+/// fleet.
+///
+/// It is written straight after the fleet's waypoint blocks, and only for a
+/// fleet that has a name — `WriteFleet` at `1070:8776` calls `WriteOrders` and
+/// then tests `FLEET.lpszName` (offset `0x78`) before calling `WriteRtString`,
+/// which emits type `0x15`. The reader (`file.c`) does the same: after a
+/// fleet's orders it reads one more record and takes it as the name if it is
+/// this type.
+///
+/// No file in this repository's fixtures contains one — nobody renamed a fleet
+/// in any of the captured games — so this is recovered from the binary rather
+/// than fixture-verified. The payload is a user string; see
+/// [`crate::strings::decode_user_string`].
+pub const FLEET_NAME_BLOCK: u8 = 21;
+
 /// Orbit-planet field value that marks a fleet in deep space.
 const ORBIT_NONE: u16 = 0xFFFF;
 

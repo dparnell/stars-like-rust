@@ -689,13 +689,26 @@ disagree.
     the type-21 block that holds fleet names appears in no fixture, so its
     layout is unverified.
 
-15. **What is still missing to call it playable.** The waypoint tasks beyond
+15. ~~**The fleet-name block.**~~ **Done**, entirely from the binary: no file in
+    the fixtures contains one, because nobody renamed a fleet in any captured
+    game. `WriteFleet` (`1070:8776`) writes the fleet, its orders, and then —
+    only when `FLEET.lpszName` is set — a type-21 block holding the name;
+    `WriteRtString` (`1070:87b4`) shows the payload is the ordinary packed
+    string field with one escape, a length byte of `0` meaning the packed form
+    did not fit in its 31-byte budget and what follows is the string itself,
+    NUL-terminated. The `.xN` rename order carries the same field.
+
+    Reading, writing and replaying all handle it, including through the
+    edit-preserving save path: a rename inserts the block after the fleet's
+    waypoints, a change replaces it, and clearing the name removes it.
+
+16. **What is still missing to call it playable.** The waypoint tasks beyond
     colonise, transport and remote mining (scrap, lay minefield, patrol, route,
     transfer) can be set but are not simulated; the order operations for
     relations, battle plans and the two flag fields are classified but not
-    replayed; fleet names have nowhere to be written; and neither generation nor
-    the writers carry wormholes, the Mystery Trader, messages, battle recordings
-    or scores, all of which live in structures `GameState` does not model.
+    replayed; and neither generation nor the writers carry wormholes, the
+    Mystery Trader, messages, battle recordings or scores, all of which live in
+    structures `GameState` does not model.
 
 #### Saving is not re-encoding
 

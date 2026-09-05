@@ -146,6 +146,9 @@ pub struct App {
     pub dirty: bool,
     /// Planets whose queue the player has edited. Only these are rewritten.
     edited: std::collections::BTreeSet<i16>,
+    /// Fleets the player has renamed, as `(owner, fleet number)`. Only these
+    /// have their name block rewritten.
+    renamed: std::collections::BTreeSet<(i16, u16)>,
     /// The warp the fleet screen last used, remembered between orders.
     pub warp: u8,
     /// The name the fleet screen's rename box holds.
@@ -268,6 +271,7 @@ impl App {
         self.file = Some(file);
         self.dirty = false;
         self.edited.clear();
+        self.renamed.clear();
         self.orders.clear();
         self.error = None;
         Ok(())
@@ -306,12 +310,48 @@ impl App {
         let (first, last) = (latest.start, latest.end);
         let mut blocks: Vec<Block> = Vec::with_capacity(source.len());
         let mut pending: Option<u16> = None;
+        // The name block of a renamed fleet, waiting for the end of that
+        // fleet's run of waypoints. An empty vector means the name was
+        // cleared, so the block should go rather than be replaced.
+        let mut pending_name: Option<Vec<u8>> = None;
 
         for (index, block) in source.iter().enumerate() {
             if index < first || index >= last {
                 // An earlier turn the file is keeping: leave it alone.
                 blocks.push(block.clone());
                 continue;
+            }
+            // A fleet's name follows its waypoints. When the run ends without
+            // one, this is where a new name is inserted.
+            let in_fleet_run = matches!(block.type_id, 19 | 20 | stars_formats::FLEET_NAME_BLOCK);
+            if !in_fleet_run {
+                if let Some(name) = pending_name.take() {
+                    if !name.is_empty() {
+                        blocks.push(
+                            Block::new(stars_formats::FLEET_NAME_BLOCK, name)
+                                .map_err(|e| format!("cannot write a fleet name: {e}"))?,
+                        );
+                    }
+                }
+            }
+            if block.type_id == stars_formats::FLEET_NAME_BLOCK {
+                match pending_name.take() {
+                    // A renamed fleet's block is replaced, or dropped when the
+                    // name was cleared.
+                    Some(name) => {
+                        if !name.is_empty() {
+                            blocks.push(
+                                Block::new(stars_formats::FLEET_NAME_BLOCK, name)
+                                    .map_err(|e| format!("cannot write a fleet name: {e}"))?,
+                            );
+                        }
+                    }
+                    None => blocks.push(block.clone()),
+                }
+                continue;
+            }
+            if matches!(block.type_id, 16..=18) {
+                pending_name = self.fleet_name_block(game, &block.data, block.type_id);
             }
             match block.block_type() {
                 BlockType::Planet => {
@@ -360,10 +400,40 @@ impl App {
             }
         }
 
+        // A renamed fleet that was the last thing in the file.
+        if let Some(name) = pending_name.take() {
+            if !name.is_empty() {
+                blocks.push(
+                    Block::new(stars_formats::FLEET_NAME_BLOCK, name)
+                        .map_err(|e| format!("cannot write a fleet name: {e}"))?,
+                );
+            }
+        }
+
         let mut out = file.clone();
         out.blocks = blocks;
         out.encode()
             .map_err(|e| format!("cannot write the file: {e}"))
+    }
+
+    /// The name block a fleet block's fleet should carry, if the player renamed
+    /// it this turn.
+    ///
+    /// `Some(empty)` means the name was cleared and the block should go.
+    fn fleet_name_block(&self, game: &GameState, data: &[u8], type_id: u8) -> Option<Vec<u8>> {
+        let record = stars_formats::FleetRecord::decode(data, type_id)?;
+        let owner = i16::from(record.owner);
+        if !self.renamed.contains(&(owner, record.id)) {
+            return None;
+        }
+        let fleet = game
+            .fleets
+            .iter()
+            .find(|f| f.owner == owner && f.id == record.id)?;
+        Some(match fleet.name.as_ref().filter(|n| !n.is_empty()) {
+            Some(name) => stars_formats::encode_user_string(name),
+            None => Vec::new(),
+        })
     }
 
     /// Create a brand-new game and make it the loaded one.
@@ -403,6 +473,7 @@ impl App {
         self.path = None;
         self.dirty = false;
         self.edited.clear();
+        self.renamed.clear();
         self.orders.clear();
         self.error = None;
         self.last_turn = None;
@@ -1066,10 +1137,7 @@ impl App {
 
     /// Rename a fleet. An empty name clears it.
     ///
-    /// Returns whether the rename happened. **The name does not survive a
-    /// save**: the game keeps fleet names in a block type no file in the
-    /// fixtures contains, so its layout is unverified — see
-    /// [`stars_core::fleet::Fleet::name`].
+    /// Returns whether the rename happened.
     pub fn rename_fleet(&mut self, fleet: usize, name: &str) -> bool {
         use stars_formats::{FleetName, LogRecord};
 
@@ -1080,14 +1148,18 @@ impl App {
             return false;
         };
         let owner = u16::try_from(record.owner.max(0)).unwrap_or(0);
-        let Ok(order) = LogRecord::fleet_name(&FleetName {
+        let key = (record.owner, record.id);
+        let order = LogRecord::fleet_name(&FleetName {
             id: (owner << 9) | (record.id & 0x1ff),
             grobj: u16::from(FLEET_CLASS),
             name: name.to_string(),
-        }) else {
-            return false;
-        };
-        self.apply_and_log(vec![order])
+        });
+        if self.apply_and_log(vec![order]) {
+            self.renamed.insert(key);
+            true
+        } else {
+            false
+        }
     }
 
     /// Start playing a battle.

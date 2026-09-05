@@ -1040,27 +1040,21 @@ mod tests {
         let mut orders = TurnOrders::default();
 
         let mut log = OrderLog::new(0, [0; 11]);
-        log.records.push(
-            LogRecord::fleet_name(&FleetName {
-                id: fleet_word(0, 3),
-                grobj: 2,
-                name: "Bold Endeavour".into(),
-            })
-            .expect("encodes"),
-        );
+        log.records.push(LogRecord::fleet_name(&FleetName {
+            id: fleet_word(0, 3),
+            grobj: 2,
+            name: "Bold Endeavour".into(),
+        }));
         let report = replay(&mut state, 0, &log, &mut orders);
         assert_eq!(report.renames, 1);
         assert_eq!(state.fleets[0].name.as_deref(), Some("Bold Endeavour"));
 
         let mut log = OrderLog::new(0, [0; 11]);
-        log.records.push(
-            LogRecord::fleet_name(&FleetName {
-                id: fleet_word(0, 3),
-                grobj: 2,
-                name: String::new(),
-            })
-            .expect("encodes"),
-        );
+        log.records.push(LogRecord::fleet_name(&FleetName {
+            id: fleet_word(0, 3),
+            grobj: 2,
+            name: String::new(),
+        }));
         replay(&mut state, 0, &log, &mut orders);
         assert_eq!(state.fleets[0].name, None, "an empty name is no name");
     }

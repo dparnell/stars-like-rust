@@ -20,7 +20,7 @@ use crate::design::DesignRecord;
 use crate::file::StarsFile;
 use crate::header::FileHeader;
 use crate::production::ProductionQueueRecord;
-use crate::strings::decode_field;
+use crate::strings::{decode_user_string, encode_user_string};
 use crate::{FormatError, Result};
 
 /// The block type id of the order-log header record (`RTLOGHDR`).
@@ -694,25 +694,23 @@ impl FleetName {
         Some(Self {
             id: u16::from_le_bytes([data[0], data[1]]),
             grobj: u16::from_le_bytes([data[2], data[3]]),
-            name: decode_field(&data[4..]),
+            name: decode_user_string(&data[4..]),
         })
     }
 
     /// Re-encode this rename as a `RTCHGNAME` payload (type id 44).
     ///
-    /// The name is written in the packed encoding. Nothing in the fixtures
-    /// renames a fleet, so this is derived from the struct rather than
-    /// fixture-verified.
-    ///
-    /// # Errors
-    /// [`FormatError::Malformed`] if the packed name is longer than a length
-    /// byte can count.
-    pub fn encode(&self) -> Result<Vec<u8>> {
+    /// The name goes through the user-string codec, the same one the fleet's
+    /// own name block uses — see [`crate::strings::encode_user_string`].
+    /// Nothing in the fixtures renames a fleet, so this is derived from the
+    /// struct rather than fixture-verified.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(4 + self.name.len());
         out.extend_from_slice(&self.id.to_le_bytes());
         out.extend_from_slice(&self.grobj.to_le_bytes());
-        out.extend_from_slice(&crate::strings::encode_field(&self.name)?);
-        Ok(out)
+        out.extend_from_slice(&encode_user_string(&self.name));
+        out
     }
 }
 
@@ -999,11 +997,9 @@ impl LogRecord {
     }
 
     /// Rename a fleet.
-    ///
-    /// # Errors
-    /// Propagates the packed-string encoder's error.
-    pub fn fleet_name(rename: &FleetName) -> Result<Self> {
-        Ok(Self::raw(LogRecordType::FleetName, rename.encode()?))
+    #[must_use]
+    pub fn fleet_name(rename: &FleetName) -> Self {
+        Self::raw(LogRecordType::FleetName, rename.encode())
     }
 
     /// Set a byte inside a space object (arm a minefield, say).
