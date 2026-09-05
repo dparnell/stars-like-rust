@@ -266,21 +266,10 @@ impl WaypointRecord {
     /// is short.
     #[must_use]
     pub fn transport(&self) -> Option<TransportTask> {
-        if self.task != TASK_TRANSPORT || self.task_data.len() < 10 {
+        if self.task != TASK_TRANSPORT {
             return None;
         }
-        let mut items = [ItemAction {
-            quantity: 0,
-            action: XferAction::None,
-        }; 5];
-        for (i, slot) in items.iter_mut().enumerate() {
-            let word = u16::from_le_bytes([self.task_data[i * 2], self.task_data[i * 2 + 1]]);
-            *slot = ItemAction {
-                quantity: word & 0x0FFF,
-                action: XferAction::from_raw((word >> 12) as u8),
-            };
-        }
-        Some(TransportTask { items })
+        TransportTask::decode(&self.task_data)
     }
 }
 
@@ -344,8 +333,32 @@ pub fn waypoint_records(file: &StarsFile) -> Vec<WaypointRecord> {
 }
 
 impl TransportTask {
+    /// Decode the ten-byte `ORDER` task union a Transport task carries.
+    ///
+    /// Each of the five entries is a 16-bit word packed `cQuan:12,
+    /// iAction:4` — one per cargo kind, in the canonical order. Returns `None`
+    /// if fewer than ten bytes are given.
+    #[must_use]
+    pub fn decode(data: &[u8]) -> Option<Self> {
+        if data.len() < 10 {
+            return None;
+        }
+        let mut items = [ItemAction {
+            quantity: 0,
+            action: XferAction::None,
+        }; 5];
+        for (i, slot) in items.iter_mut().enumerate() {
+            let word = u16::from_le_bytes([data[i * 2], data[i * 2 + 1]]);
+            *slot = ItemAction {
+                quantity: word & 0x0FFF,
+                action: XferAction::from_raw((word >> 12) as u8),
+            };
+        }
+        Some(Self { items })
+    }
+
     /// Re-encode the per-cargo instructions as the ten-byte `ORDER` task
-    /// union, the inverse of [`WaypointRecord::transport`].
+    /// union, the inverse of [`TransportTask::decode`].
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(10);

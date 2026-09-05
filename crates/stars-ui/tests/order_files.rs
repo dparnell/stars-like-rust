@@ -28,7 +28,7 @@ fn a_saved_game(name: &str) -> (App, std::path::PathBuf) {
     let dir = std::env::temp_dir().join(format!("stars-ui-orders-{name}"));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("temp dir");
-    let host = dir.join("Orders.hst");
+    let host = dir.join(format!("{name}.hst"));
     app.save_new_game(&host).expect("writes the game");
     (app, host)
 }
@@ -83,7 +83,7 @@ fn a_turn_of_orders_is_written_and_reads_back() {
 
     // Save, which writes the state file and the orders beside it.
     app.save(&host).expect("saves");
-    let orders = host.with_file_name("Orders.x1");
+    let orders = host.with_extension("x1");
     assert!(orders.is_file(), "the order file was written");
 
     // And it reads back as an order log.
@@ -175,7 +175,7 @@ fn the_log_covers_one_turn() {
     app.generate_turn();
     app.save(&host).expect("saves");
 
-    let orders = host.with_file_name("Orders.x1");
+    let orders = host.with_extension("x1");
     let bytes = std::fs::read(&orders).expect("reads back");
     let file = StarsFile::decode(&bytes).expect("decodes");
     let log = order_log(&file);
@@ -186,6 +186,154 @@ fn the_log_covers_one_turn() {
         "last turn's events are gone"
     );
     assert_eq!(file.header.turn, 1, "and the file names the new year");
+
+    let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
+}
+
+/// The whole loop: a player submits orders, the host replays them.
+///
+/// This is what an order file is *for*. The game is generated and saved, one
+/// player opens their own turn file and gives orders, and the host then opens
+/// the host file and generates the year — picking their submission up off the
+/// disk, replaying it, and carrying it into the turn.
+#[test]
+fn a_submitted_turn_reaches_the_host() {
+    let (_, host) = a_saved_game("relay");
+    let directory = host.parent().expect("a directory").to_path_buf();
+
+    // Player 2 opens their turn file and gives orders.
+    let queued;
+    let researched = 37;
+    {
+        let mut player = App::new();
+        player
+            .open(&directory.join("relay.m2"))
+            .expect("opens the turn file");
+        assert_eq!(player.local_player(), 1, "the file names its player");
+
+        let home = player
+            .game
+            .as_ref()
+            .expect("game")
+            .planets
+            .iter()
+            .find(|p| p.homeworld)
+            .map(|p| p.id)
+            .expect("their homeworld");
+        player.selection.planet = Some(home);
+        let item = player.buildable_items()[0].0;
+        player.queue_add(item, 4);
+        queued = home;
+        player.set_research(1, researched);
+
+        let fleet = player
+            .game
+            .as_ref()
+            .expect("game")
+            .fleets
+            .iter()
+            .position(|f| f.owner == 1)
+            .expect("a fleet of theirs");
+        player.set_task(fleet, task::COLONIZE);
+
+        player
+            .save(&directory.join("relay.m2"))
+            .expect("saves and submits");
+    }
+    assert!(
+        directory.join("relay.x2").is_file(),
+        "the submission was written"
+    );
+
+    // The host opens the host file and generates the year.
+    let mut host_app = App::new();
+    host_app.open(&host).expect("opens the host file");
+    assert_eq!(host_app.local_player(), 0, "the host plays player 0");
+
+    let submitted = host_app.submitted_orders();
+    assert_eq!(submitted.len(), 1, "one player submitted");
+    assert_eq!(submitted[0].0, 1);
+
+    host_app.generate_turn();
+    let summary = host_app.last_turn.as_ref().expect("a turn report");
+    assert_eq!(summary.year, 2401);
+    assert_eq!(
+        summary.replayed,
+        vec![(1, 3)],
+        "the queue, the research and the fleet order were replayed"
+    );
+
+    // And the host's own state now carries what they ordered.
+    let game = host_app.game.as_ref().expect("game");
+    assert_eq!(
+        game.players[1].research_pct, researched,
+        "their research setting reached the host"
+    );
+    let their_home = game
+        .planets
+        .iter()
+        .find(|p| p.id == queued)
+        .expect("their homeworld");
+    assert!(
+        !their_home.queue.is_empty() || their_home.factories > 10 || their_home.mines > 10,
+        "their queue reached the host and was built from"
+    );
+
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
+/// A log naming another player's things is rejected rather than obeyed.
+#[test]
+fn a_host_does_not_take_a_log_on_trust() {
+    use stars_core::replay::replay_logs;
+    use stars_formats::{LogRecord, OrderLog, ResearchOrder};
+
+    let (mut app, host) = a_saved_game("trust");
+    let game = app.game.as_mut().expect("game");
+
+    // A log claiming to be player 1's, but naming player 0's fleet and
+    // player 0's planet.
+    let victim_fleet = game
+        .fleets
+        .iter()
+        .find(|f| f.owner == 0)
+        .expect("a fleet of player 0's");
+    let fleet_word = victim_fleet.id & 0x1ff; // owner 0 in the high bits
+    let victim_planet = game
+        .planets
+        .iter()
+        .find(|p| p.owner == Some(0))
+        .map(|p| p.id)
+        .expect("a planet of player 0's");
+
+    let mut log = OrderLog::new(0, [0; 11]);
+    log.records.push(LogRecord::delete_waypoint(
+        stars_formats::FleetOrderDelete {
+            fleet_id: fleet_word,
+            order_index: 1,
+            delete_extra: false,
+        },
+    ));
+    log.records.push(LogRecord::production_queue(
+        &stars_formats::ProductionQueueRecord {
+            planet_id: u16::try_from(victim_planet).ok(),
+            items: Vec::new(),
+        },
+    ));
+    // This one is theirs to change.
+    log.records
+        .push(LogRecord::research_settings(ResearchOrder {
+            pct_resources: 11,
+            current_field: 0,
+            next_field: 6,
+        }));
+
+    let (orders, reports) = replay_logs(game, &[(1, log)]);
+    assert!(orders.cargo.is_empty());
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].rejected, 2, "both of player 0's things refused");
+    assert_eq!(reports[0].research, 1, "their own setting went through");
+    assert_eq!(game.players[1].research_pct, 11);
 
     let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
 }

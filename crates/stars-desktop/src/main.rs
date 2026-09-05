@@ -9,7 +9,8 @@
 //! stars                             open the graphical shell
 //! stars <file>                      ... with a game already loaded
 //! stars <file> --summary            print a summary instead
-//! stars <file> --turn               ... and generate one turn
+//! stars <file> --turn               ... and generate one turn, replaying any
+//!                                   submitted .xN order files beside it
 //! stars <file> --vcr [id]           play back a recorded battle as text
 //! stars --new <name> [options]      create a universe and write its .xy
 //! ```
@@ -31,7 +32,7 @@
 use std::process::ExitCode;
 
 use stars_core::rng::Rng;
-use stars_core::{generate_turn, GameState};
+use stars_core::GameState;
 use stars_formats::StarsFile;
 
 mod app;
@@ -97,8 +98,42 @@ fn main() -> ExitCode {
 
     if advance {
         println!();
+        // A host generates a turn from what the players submitted. Every
+        // `.xN` beside the file that names this game and this year is
+        // replayed first; the cargo transfers they carry are handed to the
+        // generator, which applies them at `DoOrders(0)`.
+        let logs = submitted_orders(&path, &state);
+        let (orders, replays) = stars_core::replay::replay_logs(&mut state, &logs);
+        for replay in &replays {
+            println!(
+                "  player {}: replayed {} orders ({} cargo, {} waypoint, {} queue, \
+                 {} research, {} design, {} routing)",
+                replay.player,
+                replay.applied(),
+                replay.cargo,
+                replay.waypoints,
+                replay.queues,
+                replay.research,
+                replay.designs,
+                replay.routing
+            );
+            if replay.rejected > 0 {
+                println!(
+                    "    {} rejected (naming something the player does not own)",
+                    replay.rejected
+                );
+            }
+            if !replay.unsupported.is_empty() {
+                println!("    not replayed: {:?}", replay.unsupported);
+            }
+        }
+        if replays.is_empty() {
+            println!("  no submitted orders found beside this file");
+        }
+        println!();
+
         let mut rng = Rng::randomize(state.seed);
-        let turn = generate_turn(&mut state, &mut rng);
+        let turn = stars_core::generate_turn_with_orders(&mut state, &orders, &mut rng);
         describe_turn(&turn);
     }
 
@@ -462,4 +497,30 @@ fn create_game(args: &[String]) -> ExitCode {
          simulation does not carry them."
     );
     ExitCode::SUCCESS
+}
+
+/// The `.xN` order files sitting beside a game, for every player.
+///
+/// A file only counts as a submission for the turn about to be generated if it
+/// names this game and this year — an order file left over from an earlier turn
+/// would otherwise be replayed a second time.
+fn submitted_orders(path: &str, state: &GameState) -> Vec<(usize, stars_formats::OrderLog)> {
+    let path = std::path::Path::new(path);
+    let directory = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let Some(stem) = path.file_stem().map(|s| s.to_string_lossy().to_string()) else {
+        return Vec::new();
+    };
+
+    (0..state.players.len())
+        .filter_map(|player| {
+            let file = directory.join(format!("{stem}.x{}", player + 1));
+            let bytes = std::fs::read(file).ok()?;
+            let decoded = StarsFile::decode(&bytes).ok()?;
+            let header = &decoded.latest_segment().header;
+            if header.game_id != state.seed || i16::try_from(header.turn).ok() != Some(state.turn) {
+                return None;
+            }
+            Some((player, stars_formats::order_log(&decoded)))
+        })
+        .collect()
 }

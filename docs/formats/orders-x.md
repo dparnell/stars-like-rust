@@ -299,6 +299,52 @@ The delete-then-insert idiom for replacing a leg, and the insert-then-update
 idiom for adding one and then giving it a task, are both what the exodus logs
 do.
 
+## Replaying an order log
+
+`stars_core::replay::replay(state, player, log, orders)` applies one player's
+log to a host's state, and `replay_logs` does several in the order the host
+received them. What each operation does:
+
+| Operation | Replayed as |
+|-----------|-------------|
+| cargo transfer (1/2/23/25) | collected into `TurnOrders` for `DoOrders(0)`, the first step of the year |
+| waypoint insert / update (4/5) | inserted at or written over that slot of the fleet's order list |
+| waypoint delete (3) | removed; with the high bit, everything from that slot on |
+| production queue (29) | the planet's queue is replaced |
+| research (34) | the player's percentage, current field and next-field policy |
+| planet routing (35) | the planet's "no research" flag |
+| ship design (27) | the design is created, replaced, or the slot freed |
+
+Everything else — fleet splits and merges, relations, battle plans, fleet
+renames, the flag and attribute-nibble operations — is classified and named in
+`ReplayReport::unsupported` rather than silently dropped.
+
+Cargo transfers are the only operation that is *not* applied on the spot. The
+client applied them when the player made them, but their effect belongs at
+`DoOrders(0)` so that a transfer feeds the same year's growth — see
+`../formulas/turn-order.md`.
+
+### What a host must not take on trust
+
+A log comes from the player's machine and can say anything. Every operation is
+checked against the player whose file it was: a waypoint must name one of their
+fleets, a production-queue or routing change one of their planets, a design
+change their own design list. A cargo transfer may legitimately involve someone
+else's planet — landing colonists, invading — so only the fleet end is checked.
+Waypoint zero is where a fleet *is* rather than an order, so a delete naming it
+is refused, and a log may extend a fleet's order list by at most one, since
+anything further would mean the host and the client disagree about the fleet.
+Everything refused is counted in `ReplayReport::rejected`.
+
+### Using it
+
+`stars <file.hst> --turn` replays every `.xN` beside the host file that names
+that game and that year, reports what each carried, and then generates the
+year. The graphical shell does the same when it generates a turn, skipping its
+**own** player's log: this session applied those orders as they were made,
+which is exactly what the log it wrote records, so replaying it would apply
+every transfer twice.
+
 ## Open items
 
 - The 11 `rgbConfig` bytes of `RTLOGHDR` are a machine fingerprint (see above);
@@ -310,7 +356,9 @@ do.
   zero.
 - `rtLogFleetSplit` (24), `rtLogFleetMerge` (37), `rtLogFleetFlagBit9` (10),
   `rtLogFleetOrderAttrNib` (11), `rtLogRelations` (38), `rtLogFleetPlan` (42)
-  and `rtLogPlayerZpq1` (46) are classified but not yet field-decoded.
+  and `rtLogPlayerZpq1` (46) are classified but not yet field-decoded, and so
+  not replayed either. The replay names them rather than dropping them
+  silently.
 - `RTCHGNAME` (44) and `RTLOGTHING` (43) decoders are struct-derived; they need
   an orders fixture that renames a fleet / toggles a minefield to fixture-verify.
 

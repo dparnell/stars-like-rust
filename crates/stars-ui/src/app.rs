@@ -179,6 +179,9 @@ pub struct TurnSummary {
     pub breakthroughs: Vec<(usize, usize)>,
     /// Pipeline steps the engine did not perform, named.
     pub skipped: Vec<String>,
+    /// Orders replayed from other players' `.xN` files, as
+    /// `(player, operations)`.
+    pub replayed: Vec<(usize, usize)>,
 }
 
 impl std::fmt::Debug for App {
@@ -489,6 +492,43 @@ impl App {
         std::fs::write(path, bytes).map_err(|e| format!("cannot write {}: {e}", path.display()))
     }
 
+    /// The order files other players have submitted, beside the open game.
+    ///
+    /// Our own player's log is deliberately skipped: this session applied every
+    /// order as it was made, which is exactly what the log it wrote records, so
+    /// replaying it would apply each cargo transfer twice.
+    #[must_use]
+    pub fn submitted_orders(&self) -> Vec<(usize, stars_formats::OrderLog)> {
+        let Some(path) = self.path.as_ref() else {
+            return Vec::new();
+        };
+        let Some(game) = self.game.as_ref() else {
+            return Vec::new();
+        };
+        let directory = path.parent().unwrap_or_else(|| Path::new("."));
+        let Some(stem) = path.file_stem().map(|s| s.to_string_lossy().to_string()) else {
+            return Vec::new();
+        };
+        let local = self.local_player();
+
+        (0..game.players.len())
+            .filter(|player| *player != local)
+            .filter_map(|player| {
+                let file = directory.join(format!("{stem}.x{}", player + 1));
+                let bytes = std::fs::read(file).ok()?;
+                let decoded = StarsFile::decode(&bytes).ok()?;
+                // Only a file for this game and this year is a submission for
+                // the turn about to be generated.
+                let header = &decoded.latest_segment().header;
+                if header.game_id != game.seed || i16::try_from(header.turn).ok() != Some(game.turn)
+                {
+                    return None;
+                }
+                Some((player, stars_formats::order_log(&decoded)))
+            })
+            .collect()
+    }
+
     /// Which player's orders this session is recording.
     ///
     /// A turn file names its player in the header, and that is whose orders a
@@ -665,11 +705,22 @@ impl App {
     /// remainder above all — will therefore differ from what the original
     /// engine would have done with the same save.
     pub fn generate_turn(&mut self) {
+        // Other players' submitted orders, replayed before the year runs. Our
+        // own are not: this session already applied them as they were made,
+        // which is exactly what the log records.
+        let logs = self.submitted_orders();
         let Some(state) = self.game.as_mut() else {
             return;
         };
+        let (orders, replays) = stars_core::replay::replay_logs(state, &logs);
+        let replayed = replays
+            .iter()
+            .map(|r| (r.player, r.applied()))
+            .filter(|(_, count)| *count > 0)
+            .collect();
+
         let mut rng = stars_core::rng::Rng::randomize(state.seed);
-        let report = stars_core::generate_turn(state, &mut rng);
+        let report = stars_core::generate_turn_with_orders(state, &orders, &mut rng);
         // The log covers one turn; the year has moved on.
         self.orders.clear();
         self.research_edited = false;
@@ -686,6 +737,7 @@ impl App {
                 .map(|(player, gained)| (player, gained.len()))
                 .collect(),
             skipped: report.skipped.iter().map(|s| format!("{s:?}")).collect(),
+            replayed,
         });
     }
 

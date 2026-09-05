@@ -66,6 +66,7 @@ pub mod planet;
 pub mod population;
 pub mod production;
 pub mod race;
+pub mod replay;
 pub mod research;
 pub mod resources;
 pub mod rng;

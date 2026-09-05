@@ -647,15 +647,33 @@ disagree.
     be forging a licence key; a serial already sitting in a `.xN` beside the
     save is copied over instead. See `docs/formats/orders-x.md`.
 
-13. **What is still missing to call it playable.** Our own turn generator does
-    not *read* `.x` files — orders reach it directly from the session, so the
-    writer is for interoperating with a real host rather than for our own
-    loop. Beyond that, the waypoint
-    tasks beyond colonise, transport and remote mining (merge, scrap, lay
-    minefield, patrol, route, transfer) can be set but are not simulated; and
-    neither generation nor the writers carry wormholes, the Mystery Trader,
-    messages, battle recordings or scores, all of which live in structures
-    `GameState` does not model.
+13. ~~**Reading `.x` files in the turn generator.**~~ **Done**, which closes the
+    loop: a player can now open their turn file, give orders, submit, and have
+    a host pick the submission up off the disk and generate the year from it.
+    `stars_core::replay` applies a log to the host's state — waypoints,
+    production queues, research, planet routing and ship designs immediately,
+    where the client had already applied them, and cargo transfers into a
+    `TurnOrders` for `DoOrders(0)`, because a transfer applied there feeds the
+    same year's growth.
+
+    A log arrives from the player's machine, so nothing in it is taken on
+    trust: every operation is checked against the player whose file it was, and
+    what fails is counted rather than obeyed. Operations the replay does not
+    implement — fleet splits and merges, relations, battle plans, renames — are
+    named in the report rather than dropped silently.
+
+    `stars <file.hst> --turn` replays every `.xN` beside the host file that
+    names that game and that year. The graphical shell does the same, skipping
+    its own player's log, which this session already applied as the orders were
+    made.
+
+14. **What is still missing to call it playable.** The waypoint tasks beyond
+    colonise, transport and remote mining (merge, scrap, lay minefield, patrol,
+    route, transfer) can be set but are not simulated; the order operations for
+    splitting, merging and renaming fleets are not replayed; and neither
+    generation nor the writers carry wormholes, the Mystery Trader, messages,
+    battle recordings or scores, all of which live in structures `GameState`
+    does not model.
 
 #### Saving is not re-encoding
 

@@ -292,6 +292,9 @@ impl eframe::App for StarsApp {
                         "Year {} — {} planets mined, population {:+}, {} ships built",
                         turn.year, turn.mined, turn.population, turn.ships
                     ));
+                    for (player, orders) in &turn.replayed {
+                        ui.label(format!("· replayed {orders} orders from player {player}"));
+                    }
                     for (player, fields) in &turn.breakthroughs {
                         ui.label(format!("· player {player} gained {fields} levels"));
                     }

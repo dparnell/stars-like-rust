@@ -67,6 +67,27 @@ UpdatePopulations → UpdateResearchStatus → RandomEvents
 - **Fuel is replenished after production**, so a fleet that runs dry does so
   against last year's fuel.
 
+## Before the year: replaying what the players submitted
+
+A host does not start from its own state alone. Each player's client has
+already carried their orders out against its copy of the game and written a
+`.xN` recording what it did; the host replays those logs first, so that its
+state matches every client's before the year runs.
+
+`stars_core::replay` does that. Everything a log carries is applied
+**immediately** — waypoints, production queues, research settings, planet
+routing, ship designs — because that is where the client had already applied
+it. The one exception is cargo transfers, which are collected into a
+`TurnOrders` and handed to the generator, because `DoOrders(0)` is a step *of*
+the year and a transfer applied there feeds the same year's growth.
+
+An order log arrives from the player's machine, so every operation is checked
+against the player it came from: a waypoint must name one of their fleets, a
+queue or routing change one of their planets, a design change their own list.
+A cargo transfer may legitimately touch someone else's planet — that is how
+colonists are landed — so only its fleet end is checked. Anything else is
+counted as rejected and dropped. See `../formats/orders-x.md`.
+
 ## What `generate_turn` currently performs
 
 `crates/stars-core/src/turn.rs` runs the recorded **cargo transfers**
