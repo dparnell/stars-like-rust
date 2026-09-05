@@ -189,9 +189,10 @@
       "Planet 0's surface stock is zeroed once generation finds the planet",
       "unowned, so it is not in the file. It is determined by the homeworlds:",
       "only [337, 337, 306] with 25 and 50 points produces both 399/399/432 and",
-      "462/462/556 under the quarter-shares rule, and 50 is the cap.",
-      "`expect_points` is what CAdvantagePoints must return; `our_points` records",
-      "where our transcription disagrees. See the open question in the spec."
+      "462/462/556 under the quarter-shares rule.",
+      "A person spends min(50, CAdvantagePoints); a computer player spends the",
+      "full fifty whatever its race costs, so the second case is not a claim",
+      "about that race's price. See leftover_points below."
     ],
     "planet_0_surface": [
       337,
@@ -201,6 +202,7 @@
     "cases": [
       {
         "race": "stock Humanoid (JoaT, growth 15, all stats baseline)",
+        "played_by": "a person",
         "points": 25,
         "expect_points": 25,
         "expect_surface": [
@@ -211,14 +213,14 @@
       },
       {
         "race": "Turindrones, Standard (vrgplrComp[1][1])",
+        "played_by": "the computer",
         "points": 50,
-        "our_points": 13,
         "expect_surface": [
           462,
           462,
           556
         ],
-        "why": "the file implies at least 50 (the cap); our CAdvantagePoints returns 13 for this race"
+        "why": "every computer player gets fifty; CAdvantagePoints is not consulted"
       }
     ]
   },
@@ -469,6 +471,73 @@
       450,
       530,
       210
+    ]
+  },
+  "leftover_points": {
+    "source": "GenerateWorld @ 1078:1f48-1078:1fbd and 1078:2290-1078:22ce",
+    "$comment": [
+      "Who gets how many leftover points, and what the difficulty buys on top.",
+      "Verified against every homeworld in the three real turn-0 games: 34",
+      "homeworlds across all six computer personalities at all four",
+      "difficulties, plus two human players.",
+      "The population figures are before the second-planet split that Packet",
+      "Physics and Inner Tech get."
+    ],
+    "points": {
+      "a person": "min(50, CAdvantagePoints(race))",
+      "the computer": 50
+    },
+    "difficulty_bonuses": [
+      {
+        "from_level": 2,
+        "name": "Tough",
+        "effect": "mineral concentrations are raised as well, even when the race would spend on surface minerals"
+      },
+      {
+        "from_level": 3,
+        "name": "Expert",
+        "effect": "the homeworld starts with a tenth more colonists"
+      }
+    ],
+    "cases": [
+      {
+        "race": "Robotoids",
+        "level": 0,
+        "pop": 250,
+        "concentrations_raised": false
+      },
+      {
+        "race": "Robotoids",
+        "level": 1,
+        "pop": 250,
+        "concentrations_raised": false
+      },
+      {
+        "race": "Robotoids",
+        "level": 2,
+        "pop": 250,
+        "concentrations_raised": true
+      },
+      {
+        "race": "Robotoids",
+        "level": 3,
+        "pop": 275,
+        "concentrations_raised": true
+      },
+      {
+        "race": "Automitrons",
+        "level": 3,
+        "pop": 192,
+        "concentrations_raised": true,
+        "why": "Low Starting Population, so 175 before the Expert bonus"
+      },
+      {
+        "race": "Cybertrons",
+        "level": 3,
+        "pop": 153,
+        "concentrations_raised": true,
+        "why": "175, then the Expert bonus to 192, then four fifths for the second planet"
+      }
     ]
   }
 }

@@ -7,6 +7,13 @@
 //! extra surface minerals, richer mineral concentrations, or extra mines,
 //! factories or defences, according to the race's `rsUseLeftover` setting.
 //!
+//! **Only a person's balance is ever asked for.** A computer player's homeworld
+//! is stocked with the full fifty points whatever its race costs, so the
+//! built-in opponents — several of which this function prices well below zero —
+//! never go through it. That leaves the stock Humanoid's 25, confirmed twice
+//! over by the turn-0 fixture, as the one independent check there is; see the
+//! open question in `docs/formulas/new-game.md`.
+//!
 //! Sources: `CAdvantagePoints` (`10e0:444c`) and `LInnateRaceHabitability`
 //! (`10e0:4cb2`), cross-checked against `race.c` in the reconstructed NB09
 //! sources. `MANUAL.PDF` describes the budget in player terms (p. 3-2, "you

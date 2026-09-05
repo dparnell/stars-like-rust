@@ -1,8 +1,7 @@
 # Subsystem: New game creation (universe, homeworlds, starting fleets)
 
-- **Status:** verified (against a real turn-0 game; the exceptions are listed
-  below, and one of them — `CAdvantagePoints` for a race with several lesser
-  traits — is a known discrepancy rather than an untested claim)
+- **Status:** verified against three real turn-0 games; the exceptions are
+  listed below, and none of them is a known discrepancy
 - **Ghidra routine(s):** `GenerateWorld`, `CreateStartupShip`, `CAdvantagePoints`
   (`10e0:444c`), `LInnateRaceHabitability` (`10e0:4cb2`)
 - **Manual reference:** `MANUAL.PDF` pp. 2-1..2-3 (the New Game wizard) and
@@ -182,8 +181,16 @@ bands.
 
 ### Leftover advantage points
 
-`min(50, CAdvantagePoints(race))` points are spent on the homeworld, in whatever
-currency `rsUseLeftover` names:
+A **person** spends what their race did not: `min(50, CAdvantagePoints(race))`.
+A **computer player** spends the full fifty whatever its race costs — which is
+one of the ways the built-in opponents are handed an advantage, and why several
+of them are priced well over the budget a player is held to. Two more advantages
+come with difficulty: from **Tough** (level 2) upward the homeworld's mineral
+concentrations are raised as well, even when the race would have spent on
+surface minerals; from **Expert** (level 3) upward it starts with a tenth more
+colonists.
+
+The points buy whatever `rsUseLeftover` names:
 
 | Setting | What it buys |
 |---------|--------------|
@@ -193,24 +200,60 @@ currency `rsUseLeftover` names:
 | Factories | `points / 5` |
 | Defences | `(points + 5) / 10` |
 
-**The rule is verified; the point values are only half verified.** The
-fixture's homeworlds hold `399/399/432` (player 0) and `462/462/556` (players 1
-and 2). Both come from the same planet-0 stock by the rule above, and the only
-stock and point pair that produces both is `[337, 337, 306]` with 25 and 50 —
-and 50 is the cap, so the second says only "50 or more".
+**Verified against every homeworld in all three real turn-0 games** — 34
+homeworlds covering all six computer personalities at all four difficulties,
+plus two human players. Every population, mineral concentration and surface
+stock is reproduced exactly.
 
-Our `CAdvantagePoints` returns exactly **25** for the Jack of All Trades. For
-the two computer players it returns **13**, not 50 or more. See the open
-question below. `../vectors/new-game.json` records both, and the test drives the
-spending rule from the value the file implies rather than the one we compute, so
-the rule and the pricing are checked separately.
+That is checkable without knowing anything the file does not say, because every
+homeworld in a game is stocked from the same planet 0: a race that spends its
+leftovers on **concentrations** never touches the surface minerals and so shows
+the stock directly, and a player below Tough never touches the concentrations
+and shows those. From those two readings the other twenty-nine homeworlds
+follow.
 
-`CAdvantagePoints` itself is a long sum over habitability, growth rate, economy,
-primary and lesser traits and research costs, divided by three at the end. Its
-largest term is `LInnateRaceHabitability`, which integrates the race's planet
-value over an 11×11×11 grid across its habitable bands at three levels of
-terraforming (0%, 5% and 15% — 8% and 17% with Total Terraforming), weighting
-the three levels 7/5/6.
+#### Where the reconstructed source is wrong
+
+`create.c` renders this as
+
+```c
+iT = min(50, CAdvantagePoints(pplr));
+if ((pplr->fAi != 0) && (pplr->lvlAi > 2)) {
+    iT = 50;
+    plHome->rgwtMin[3] += plHome->rgwtMin[3] / 10;
+}
+```
+
+which makes the full fifty conditional on the difficulty. The disassembly shows
+two **nested** tests, the outer one on `fAi` alone:
+
+```text
+1078:1f48  CALLF CAdvantagePoints        ; iT = min(50, ...)
+1078:1f8b  SHR AX, 9 / AND AX, 1         ; fAi
+1078:1f93  JNZ  1f98 / JMP 2010          ; a person keeps what it computed
+1078:1f98  MOV  [iT], 0x32               ; a computer player gets fifty
+1078:1fb0  SHR AX, 10 / AND AX, 7        ; lvlAi
+1078:1fb5  CMP AX, 3 / JNC 1fbd          ; only then, the population bonus
+1078:1fbd  ...                           ; rgwtMin[3] += rgwtMin[3] / 10
+```
+
+and the same shape at `1078:2290`, where the jump into the concentration branch
+is taken when `fAi` and `lvlAi >= 2`. The difficulty is a **three**-bit field
+(`(word >> 10) & 7`), not two.
+
+This is what the earlier "`CAdvantagePoints` is wrong" note in this spec was
+really about: the function is not consulted for a computer player at all, so its
+value for the built-in races was never the thing being observed.
+
+#### A note on `uPopGuess`
+
+The owner's own population estimate is a quarter of the starting figure and is
+computed **before** the Expert bonus: a Robotoids Expert homeworld reads
+population 275 and guess 62, not 68. Packet Physics and Inner Tech recompute
+both guesses after the second-planet split, so theirs are a quarter of the split
+figure. `GameState` does not model the field, so a written file recomputes it
+from the population it has — a one-field difference on an Expert homeworld, and
+one the game overwrites on the next turn.
 
 ### Starting ships
 
@@ -303,26 +346,25 @@ same lesser traits, including the Cheap Factories checkbox that entry's
 
 ## Open questions
 
-- **`CAdvantagePoints` is wrong for a race with several lesser traits.** The
-  transcription prices the stock Humanoid at exactly 25, which the fixture
-  confirms twice over. It prices `Turindrones, Standard` at **13**, and that
-  game's homeworlds were stocked as a race of **50 or more**. The gap is at
-  least 111 points on the internal scale (the function divides by three at the
-  end), so it is not rounding and not the single Cheap Factories deduction.
-  What the two races differ in is the terms only the second exercises: four
-  lesser traits, an off-centre and lopsided habitable band, a growth rate of 14,
-  and a mine-operation figure below the baseline. One of those coefficients is
-  wrong or missing. Nothing else in this spec depends on it: the homeworld it
-  produces is stocked a little more thinly than the original's.
+- **`CAdvantagePoints` has only one independent check.** It returns exactly 25
+  for the stock Humanoid, which the turn-0 fixture confirms twice over — and
+  that is the only race in the corpus whose price is *observable*, because a
+  computer player never consults the function and the only two human players in
+  a turn-0 game both play the stock Humanoid. Its values for the built-in
+  computer races are large and negative (`Robotoids, Expert` prices at −1161),
+  which is what one would expect of races deliberately built over budget, but
+  nothing in the fixtures confirms or refutes them. A saved game whose human
+  player used a custom race would settle it.
 
-  An earlier revision of this note had it the other way round, and said the
-  fixture proved the built-in opponents do *not* have Cheap Factories. That was
-  wrong, and writing the file formats disproved it: a race record stores that
-  trait and "expensive tech starts at level 3" **outside** the sixteen-bit
-  lesser-trait field, as bits 7 and 5 of the checkbox byte at offset 81 — and
-  the fixture's computer players carry the Cheap Factories checkbox exactly as
-  `vrgplrComp`'s bit 31 says. The reconstructed table is right; the pricing
-  function is what does not add up.
+  Two earlier revisions of this note got this wrong in opposite directions. The
+  first said the fixture proved the built-in opponents do not have Cheap
+  Factories; writing the file formats disproved that — the trait is stored in
+  the checkbox byte at offset 81, and the fixture's computer players carry it
+  exactly as `vrgplrComp`'s bit 31 says. The second concluded that
+  `CAdvantagePoints` must therefore be wrong by at least 111 points; the
+  disassembly disproved that too, by showing the function is not consulted for a
+  computer player at all. The lesson both times was that the observable was not
+  what it looked like.
 - **`mdStartDist`'s base.** Only the values 1 and 3 appear in the fixtures, and
   the formula divides by 3, so 1..3 is assumed (Close, Moderate, Distant). A
   fixture with 2 would confirm it and one with 0 would refute it.

@@ -787,7 +787,12 @@ fn settle_players(
         }
         home.env_orig = Some(home.env);
 
-        spend_leftover_points(home, &race);
+        spend_leftover_points(home, &race, config.players[i].control);
+        // A computer player from Expert upward starts with a tenth more
+        // colonists (`GenerateWorld` at `1078:1fbd`).
+        if ai_level(config.players[i].control) >= POPULATION_BONUS_LEVEL {
+            home.pop += home.pop / 10;
+        }
 
         // Alternate Reality lives on its starbase, so its homeworld has no
         // planetary installations at all.
@@ -880,64 +885,104 @@ fn second_planet(
     Some(index)
 }
 
-/// Spend up to fifty leftover advantage points on the homeworld, in whatever
-/// currency the race's "leftover points go to" setting names.
+/// Spend the leftover advantage points on the homeworld, in whatever currency
+/// the race's "leftover points go to" setting names.
 ///
-/// Public because it is the one stage of generation with a numeric vector to
-/// check it against — see `crates/stars-core/tests/new_game.rs`.
-pub fn spend_leftover_points(home: &mut Planet, race: &Race) {
-    spend_points(home, race, advantage_points(race).min(MAX_LEFTOVER_POINTS));
+/// A **person** spends what their race did not: `min(50, CAdvantagePoints)`.
+/// A **computer player** always spends the full fifty, whatever its race costs
+/// — which is one of the ways the built-in opponents are handed an advantage,
+/// and why several of them are priced well over the budget a player is held to.
+///
+/// Source: `GenerateWorld` at `1078:1f48`-`1078:1f98`. The reconstructed
+/// `create.c` folds the unconditional `iT = 50` into the same test as the
+/// population bonus, giving `if (fAi && lvlAi > 2)`; the disassembly shows two
+/// nested tests, the outer one on `fAi` alone:
+///
+/// ```text
+/// 1078:1f8b  SHR AX, 9 / AND AX, 1     ; fAi
+/// 1078:1f98  MOV [iT], 0x32            ; unconditionally 50
+/// 1078:1fb0  SHR AX, 10 / AND AX, 7    ; lvlAi
+/// 1078:1fb5  CMP AX, 3 / JNC           ; only then, the population bonus
+/// ```
+pub fn spend_leftover_points(home: &mut Planet, race: &Race, control: Control) {
+    let computer = matches!(control, Control::Computer { .. });
+    let points = if computer {
+        MAX_LEFTOVER_POINTS
+    } else {
+        advantage_points(race).min(MAX_LEFTOVER_POINTS)
+    };
+    // A computer player from Tough upward spends on mineral concentrations as
+    // well, even when its race would put the leftovers into surface minerals
+    // (`GenerateWorld`'s jump to `LConcentrations` at `1078:22ce`, taken when
+    // `lvlAi >= 2`).
+    let also_concentrations = ai_level(control) >= CONCENTRATION_BONUS_LEVEL;
+    spend_points(home, race, points, also_concentrations);
 }
 
 /// The largest leftover balance a homeworld is ever stocked with.
 pub const MAX_LEFTOVER_POINTS: i16 = 50;
 
+/// The difficulty from which a computer player's homeworld gets the mineral
+/// concentration bonus as well as whatever its race asked for.
+pub const CONCENTRATION_BONUS_LEVEL: u8 = 2;
+
+/// The difficulty from which a computer player's homeworld starts with a tenth
+/// more colonists.
+pub const POPULATION_BONUS_LEVEL: u8 = 3;
+
+/// A player's difficulty, or `0` for a person.
+fn ai_level(control: Control) -> u8 {
+    match control {
+        Control::Human => 0,
+        Control::Computer { skill_bits, .. } => skill_bits,
+    }
+}
+
 /// Spend a **given** number of leftover points, which is the rule on its own.
 ///
 /// Split out from [`spend_leftover_points`] so the rule can be checked against
-/// the turn-0 fixture's own numbers without depending on
-/// [`crate::advantage_points`] agreeing about what those numbers should be —
-/// for one of that game's two races it does not. See
-/// `docs/formulas/new-game.md`.
-pub fn spend_points(home: &mut Planet, race: &Race, points: i16) {
+/// the turn-0 fixtures' own numbers without depending on how many points the
+/// player was given.
+pub fn spend_points(home: &mut Planet, race: &Race, points: i16, also_concentrations: bool) {
     if points <= 0 {
         return;
     }
-    match race.stat(RaceStat::UseLeftover) {
+    let setting = race.stat(RaceStat::UseLeftover);
+    if setting == 0 {
         // Surface minerals: a quarter of ten times the points to each mineral,
         // and the remainder plus another quarter to whichever is scarcest.
-        0 => {
-            let lowest = if home.surface_min[0] < home.surface_min[1] {
-                usize::from(home.surface_min[0] >= home.surface_min[2]) * 2
-            } else if home.surface_min[1] < home.surface_min[2] {
-                1
-            } else {
-                2
-            };
-            let total = points * 10;
-            let remainder = total & 3;
-            let share = total >> 2;
-            home.surface_min[lowest] += i32::from(share + remainder);
-            for amount in &mut home.surface_min {
-                *amount += i32::from(share);
-            }
+        let lowest = if home.surface_min[0] < home.surface_min[1] {
+            usize::from(home.surface_min[0] >= home.surface_min[2]) * 2
+        } else if home.surface_min[1] < home.surface_min[2] {
+            1
+        } else {
+            2
+        };
+        let total = points * 10;
+        let remainder = total & 3;
+        let share = total >> 2;
+        home.surface_min[lowest] += i32::from(share + remainder);
+        for amount in &mut home.surface_min {
+            *amount += i32::from(share);
         }
+    }
+    if setting == 1 || (setting == 0 && also_concentrations) {
         // Mineral concentrations: half the points to the scarcest, a quarter
         // to all three.
-        1 => {
-            let mut step = if points < 3 { 1 } else { points / 2 };
-            let mut lowest = 0;
-            for j in 1..3 {
-                if home.min_conc[j] < home.min_conc[lowest] {
-                    lowest = j;
-                }
-            }
-            home.min_conc[lowest] = add_conc(home.min_conc[lowest], step);
-            step = (step + 1) / 2;
-            for conc in &mut home.min_conc {
-                *conc = add_conc(*conc, step);
+        let mut step = if points < 3 { 1 } else { points / 2 };
+        let mut lowest = 0;
+        for j in 1..3 {
+            if home.min_conc[j] < home.min_conc[lowest] {
+                lowest = j;
             }
         }
+        home.min_conc[lowest] = add_conc(home.min_conc[lowest], step);
+        step = (step + 1) / 2;
+        for conc in &mut home.min_conc {
+            *conc = add_conc(*conc, step);
+        }
+    }
+    match setting {
         2 => home.mines += points / 2,
         3 => home.factories += points / 5,
         4 => home.defenses += (points + 5) / 10,

@@ -574,10 +574,13 @@ disagree.
 9. ~~**The race wizard's pricing.**~~ **Done**, though not the wizard itself.
    `CAdvantagePoints` (`10e0:444c`) and the habitability integral it rests on,
    `LInnateRaceHabitability` (`10e0:4cb2`), are transcribed in
-   `stars_core::advantage`. The fixture prices its two races at 25 and 72, and
-   both are confirmed independently by the mineral stock their homeworlds were
-   given. What remains is the wizard's own screens: a race can be chosen from
-   the ten primary traits or loaded from a `.rN` file, but not designed.
+   `stars_core::advantage`. It prices the stock Humanoid at exactly 25, which
+   the turn-0 fixture confirms twice over — and that is the only independent
+   check the corpus offers, because **a computer player never consults the
+   function**: its homeworld is stocked with the full fifty leftover points
+   whatever its race costs. What remains is the wizard's own screens: a race can
+   be chosen from the ten primary traits or loaded from a `.rN` file, but not
+   designed.
 
 10. ~~**The `.hst` and `.mN` writers.**~~ **Done.** Every record type a save
     file holds now has an encoder that is an exact inverse of its decoder,
@@ -602,11 +605,31 @@ disagree.
     byte, decoding padding as trailing spaces in 54,185 blocks. It also
     disproved a conclusion in `docs/formulas/new-game.md`: the two racial traits
     that do not fit the sixteen-bit trait field are stored in the checkbox byte,
-    so the built-in opponents really do have Cheap Factories, and it is
-    `CAdvantagePoints` that does not add up for them. See
+    so the built-in opponents really do have Cheap Factories. See
     `docs/formats/writing.md`.
 
-11. **What is still missing to call it playable.** No `.x` order file is
+11. ~~**The `CAdvantagePoints` discrepancy.**~~ **Resolved, and it was not the
+    function.** The turn-0 homeworlds implied that the built-in opponents were
+    stocked as fifty-point races while the transcription priced them well below
+    zero. The disassembly of `GenerateWorld` shows why: `iT = 50` sits under a
+    test on `fAi` **alone**, with the difficulty test nested inside it and
+    gating only the population bonus. The reconstructed `create.c` flattens the
+    two into `if (fAi && lvlAi > 2)`, which is what sent the earlier
+    investigation after the pricing function.
+
+    So a person spends `min(50, CAdvantagePoints)` and a computer player spends
+    fifty; from Tough upward it also gets the mineral-concentration bonus, and
+    from Expert upward a tenth more colonists. Verified against **every
+    homeworld in all three real turn-0 games** — 34 of them, covering all six
+    personalities at all four difficulties: every population, concentration and
+    surface stock is now reproduced exactly. The difficulty field also turned
+    out to be three bits, not two.
+
+    This was the third reading of the same observation, and the second one that
+    a piece of the reconstructed C had misled. The rule that keeps holding is
+    that the observable was wrong, not the model.
+
+12. **What is still missing to call it playable.** No `.x` order file is
     written, so orders reach the turn generator but not a host; the waypoint
     tasks beyond colonise, transport and remote mining (merge, scrap, lay
     minefield, patrol, route, transfer) can be set but are not simulated; and

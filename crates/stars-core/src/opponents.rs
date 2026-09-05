@@ -22,9 +22,12 @@
 //! `Turindrones, Standard` field for field, carry the Cheap Factories checkbox
 //! exactly as this table's bit 31 says they should.
 //!
-//! The whole `grbitAttr` is therefore kept. See `docs/formulas/new-game.md`
-//! for the one thing that does **not** then add up: the leftover advantage
-//! points those players' homeworlds were stocked with.
+//! The whole `grbitAttr` is therefore kept, and several of these races are
+//! frankly over the budget a player is held to — `CAdvantagePoints` prices
+//! `Robotoids, Expert` at −1161. That is not a contradiction: a computer
+//! player's homeworld is stocked with the full fifty leftover points whatever
+//! its race costs, and the function is never consulted for it. See
+//! `docs/formulas/new-game.md`.
 
 use crate::ai::{AiPersonality, Control};
 use crate::newgame::NewPlayer;

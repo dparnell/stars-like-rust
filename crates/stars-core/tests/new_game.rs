@@ -436,7 +436,7 @@ fn leftover_points_stock_the_homeworld() {
         let points = i16::try_from(number(case, "points")).expect("a point value");
         let mut home = Planet::unowned(0);
         home.surface_min = stock;
-        stars_core::newgame::spend_points(&mut home, &race, points);
+        stars_core::newgame::spend_points(&mut home, &race, points, false);
         let expect: Vec<i64> = numbers(case, "expect_surface");
         assert_eq!(
             home.surface_min
@@ -646,4 +646,186 @@ fn starting_fuel_matches_the_vectors() {
         .map(|f| i64::from(f.cargo.fuel))
         .collect();
     assert_eq!(got, expect, "a Jack of All Trades' starting fleets");
+}
+
+/// Who gets how many leftover advantage points, checked against every turn-0
+/// homeworld in the fixtures.
+///
+/// A person spends `min(50, CAdvantagePoints)`; a computer player spends the
+/// full fifty whatever its race costs. From Tough upward it also gets the
+/// mineral-concentration bonus even when its race would have taken surface
+/// minerals, and from Expert upward a tenth more colonists.
+///
+/// The two sixteen-player games make this checkable without knowing anything
+/// the file does not say. Every homeworld in a game is stocked from planet 0,
+/// so a race that spends its leftovers on **concentrations** leaves the surface
+/// minerals untouched and shows the stock directly; a player below Tough leaves
+/// the concentrations untouched and shows those. From those two the other
+/// twenty-nine homeworlds are reconstructed exactly.
+#[test]
+fn turn0_leftover_points_follow_the_rule() {
+    use stars_core::ai::Control;
+    use stars_core::newgame::{spend_points, CONCENTRATION_BONUS_LEVEL, POPULATION_BONUS_LEVEL};
+    use stars_core::race::{lrt, RaceStat};
+
+    let mut checked = 0usize;
+    for game in [
+        "../../fixtures/incoming/turn0/Game.hst",
+        "../../fixtures/games/no-random-events/2400/Game.hst",
+        "../../fixtures/games/all-computer-players/2400/Game.hst",
+    ] {
+        let Some(bytes) = read(game) else {
+            eprintln!("no fixture {game}; skipping");
+            continue;
+        };
+        let Ok(file) = StarsFile::decode(&bytes) else {
+            continue;
+        };
+        let (state, _) = GameState::from_file(&file);
+
+        let level = |control: Control| match control {
+            Control::Human => 0,
+            Control::Computer { skill_bits, .. } => skill_bits,
+        };
+        let points = |player: &stars_core::Player| -> i16 {
+            match player.control {
+                Control::Human => advantage_points(&player.race).min(50),
+                Control::Computer { .. } => 50,
+            }
+        };
+
+        // Every homeworld, with its owner.
+        let homes: Vec<(&stars_core::Player, &Planet)> = state
+            .planets
+            .iter()
+            .filter(|p| p.homeworld)
+            .filter_map(|p| {
+                let owner = usize::try_from(p.owner?).ok()?;
+                Some((state.players.get(owner)?, p))
+            })
+            .collect();
+        assert!(!homes.is_empty(), "{game} has no homeworlds");
+
+        // Population: the starting figure, a tenth more from Expert upward,
+        // then four fifths of it for the two traits that start with a second
+        // planet.
+        for (player, home) in &homes {
+            let mut want = if player.race.has_lrt(lrt::LOW_STARTING_POP) {
+                175
+            } else {
+                250
+            };
+            if level(player.control) >= POPULATION_BONUS_LEVEL {
+                want += want / 10;
+            }
+            if matches!(player.race.prt(), Some(Prt::Pp) | Some(Prt::It)) {
+                want = want * 4 / 5;
+            }
+            assert_eq!(home.pop, want, "{game}: player {:?} population", home.owner);
+            checked += 1;
+        }
+
+        // The concentrations of a player below Tough whose race does not spend
+        // on them are planet 0's, floored at 30.
+        let base_conc = homes
+            .iter()
+            .find(|(player, _)| {
+                player.race.stat(RaceStat::UseLeftover) != 1
+                    && level(player.control) < CONCENTRATION_BONUS_LEVEL
+            })
+            .map(|(_, home)| home.min_conc);
+        // The surface minerals of a race that spends on concentrations are
+        // planet 0's, untouched.
+        let base_surface = homes
+            .iter()
+            .find(|(player, _)| player.race.stat(RaceStat::UseLeftover) != 0)
+            .map(|(_, home)| home.surface_min);
+
+        for (player, home) in &homes {
+            let mut rebuilt = Planet::unowned(home.id);
+            let Some(conc) = base_conc else { continue };
+            rebuilt.min_conc = conc;
+            if let Some(surface) = base_surface {
+                rebuilt.surface_min = surface;
+            } else {
+                rebuilt.surface_min = home.surface_min;
+            }
+            spend_points(
+                &mut rebuilt,
+                &player.race,
+                points(player),
+                level(player.control) >= CONCENTRATION_BONUS_LEVEL,
+            );
+            assert_eq!(
+                rebuilt.min_conc, home.min_conc,
+                "{game}: player {:?} concentrations",
+                home.owner
+            );
+            if base_surface.is_some() {
+                assert_eq!(
+                    rebuilt.surface_min, home.surface_min,
+                    "{game}: player {:?} surface minerals",
+                    home.owner
+                );
+                checked += 1;
+            }
+        }
+    }
+    if checked == 0 {
+        eprintln!("no turn-0 fixtures; skipping");
+    } else {
+        eprintln!("{checked} homeworld figures reproduced");
+    }
+}
+
+/// A generated game hands its computer players the same advantages.
+#[test]
+fn generated_computer_players_get_their_bonuses() {
+    let human = NewPlayer::human(Race::humanoid());
+    let easy = opponents::opponent(0, 0)
+        .expect("Robotoids, Easy")
+        .as_player();
+    let tough = opponents::opponent(0, 2)
+        .expect("Robotoids, Tough")
+        .as_player();
+    let expert = opponents::opponent(0, 3)
+        .expect("Robotoids, Expert")
+        .as_player();
+
+    let config = NewGame {
+        size: Size::Small,
+        players: vec![human, easy, tough, expert],
+        ..NewGame::default()
+    };
+    let mut rng = Rng::randomize(config.id);
+    let made = generate(&config, &mut rng).expect("generates");
+    let home = |player: i16| {
+        made.state
+            .planets
+            .iter()
+            .find(|p| p.homeworld && p.owner == Some(player))
+            .unwrap_or_else(|| panic!("player {player} has no homeworld"))
+    };
+
+    // All four races put their leftovers into surface minerals, and every
+    // computer player gets the full fifty however much its race costs — the
+    // Robotoids at Tough and Expert price well below zero.
+    assert!(advantage_points(&made.state.players[2].race) < 0);
+    assert_eq!(home(1).surface_min, home(2).surface_min);
+    assert_eq!(home(1).surface_min, home(3).surface_min);
+    assert_ne!(
+        home(0).surface_min,
+        home(1).surface_min,
+        "the person spent 25, not 50"
+    );
+
+    // From Tough upward the concentrations are raised too, and from Expert
+    // upward the homeworld starts with a tenth more colonists.
+    assert_eq!(home(0).min_conc, home(1).min_conc, "below Tough: no bonus");
+    assert_ne!(home(1).min_conc, home(2).min_conc, "Tough: concentrations");
+    assert_eq!(home(2).min_conc, home(3).min_conc);
+    assert_eq!(home(0).pop, 250);
+    assert_eq!(home(1).pop, 250);
+    assert_eq!(home(2).pop, 250);
+    assert_eq!(home(3).pop, 275, "Expert: a tenth more colonists");
 }

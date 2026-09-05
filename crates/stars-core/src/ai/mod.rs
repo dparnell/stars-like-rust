@@ -96,10 +96,14 @@ pub enum Control {
     Computer {
         /// Which opponent, if the mode word names one that `DoAiTurn` runs.
         personality: Option<AiPersonality>,
-        /// Bits 2-3 of the flags byte. Believed to be the difficulty the player
-        /// was created at, but *not* confirmed against the binary: every AI in
-        /// the fixtures has the same value, so nothing distinguishes this from
-        /// any other two-bit field. Exposed raw rather than named.
+        /// The difficulty the player was created at, `0..=3` — Easy,
+        /// Standard, Tough, Expert (`vrgszComputerLevel`) — from bits 2-4 of
+        /// the flags byte.
+        ///
+        /// Confirmed against the binary: `GenerateWorld` reads this field as
+        /// `(word >> 10) & 7` at `1078:1fb2` and `1078:22c3` and branches on
+        /// it at 3 and 2 respectively, and the turn-0 fixtures split exactly
+        /// there. See `docs/formulas/new-game.md`.
         skill_bits: u8,
     },
 }
@@ -111,6 +115,10 @@ impl Control {
     /// `DoAiTurn`'s `mode >> 13` is this byte's top three bits. Bit 1 marks a
     /// computer player: the fixtures hold `0x01` for the human and `0x27` for
     /// both AIs.
+    ///
+    /// Bits 2-4 are the **difficulty**, and the field is three bits wide:
+    /// `GenerateWorld` reads it as `(word >> 10) & 7` at `1078:22c3`. Only
+    /// 0..=3 (Easy, Standard, Tough, Expert) occur.
     #[must_use]
     pub fn from_flags(flags: u8) -> Self {
         if flags & 0x02 == 0 {
@@ -118,7 +126,7 @@ impl Control {
         }
         Self::Computer {
             personality: AiPersonality::from_mode(u16::from(flags) << 8),
-            skill_bits: (flags >> 2) & 0x03,
+            skill_bits: (flags >> 2) & 0x07,
         }
     }
 
@@ -126,7 +134,7 @@ impl Control {
     /// [`Control::from_flags`].
     ///
     /// Bit 0 is set on every player block in the fixtures; bit 1 marks a
-    /// computer player; bits 2-3 hold the skill bits and the top three bits the
+    /// computer player; bits 2-4 hold the difficulty and the top three bits the
     /// personality `DoAiTurn` dispatches on. A computer player with no
     /// recognised personality is written as the `Robotoid` slot, because a
     /// value the jump table skips would leave the host running no AI at all.
@@ -139,7 +147,7 @@ impl Control {
                 skill_bits,
             } => {
                 let mode = personality.map_or(0, AiPersonality::mode) & 0x07;
-                0x03 | ((skill_bits & 0x03) << 2) | (mode << 5)
+                0x03 | ((skill_bits & 0x07) << 2) | (mode << 5)
             }
         }
     }
