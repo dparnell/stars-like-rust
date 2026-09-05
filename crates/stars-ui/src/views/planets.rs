@@ -235,7 +235,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
 }
 
 /// The name of a planetary production item.
-fn item_name(item: u16) -> String {
+pub(crate) fn item_name(item: u16) -> String {
     use stars_core::production::item;
     match item {
         item::FACTORY | item::AUTO_FACTORY => "factories".into(),

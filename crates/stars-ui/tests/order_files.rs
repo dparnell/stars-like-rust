@@ -1022,3 +1022,108 @@ fn the_message_pane_goes_to_what_a_message_is_about() {
 
     let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
 }
+
+/// The planet pane says what the original's tiles say, in the original's words.
+#[test]
+fn the_planet_pane_reports_a_planet() {
+    let (mut app, host) = a_saved_game("planet");
+
+    // The home world, which a new game gives a starbase, mines and factories.
+    let home = {
+        let game = app.game.as_ref().expect("game");
+        let home = game
+            .planets
+            .iter()
+            .find(|p| p.homeworld && p.owner == Some(0))
+            .expect("a home world");
+        home.id
+    };
+    app.selection.planet = Some(home);
+
+    // Minerals On Hand: three minerals in kT, then what is dug and built.
+    let minerals = app.planet_minerals_tile();
+    let labels: Vec<&str> = minerals.iter().map(|(l, _)| l.as_str()).collect();
+    assert_eq!(
+        labels,
+        vec!["Ironium", "Boranium", "Germanium", "Mines", "Factories"]
+    );
+    assert!(
+        minerals[0].1.ends_with("kT"),
+        "minerals are kilotons: {}",
+        minerals[0].1
+    );
+    // `%d of %d`: what is built, of what the population can run.
+    assert!(
+        minerals[3].1.contains(" of "),
+        "mines are built of operable: {}",
+        minerals[3].1
+    );
+
+    // Status: the labels are the game's own, in the game's own order.
+    let status = app.planet_status_tile();
+    let labels: Vec<&str> = status.iter().map(|(l, _)| l.as_str()).collect();
+    assert_eq!(
+        labels,
+        vec![
+            "Population",
+            "Resources/Year",
+            "Scanner Type",
+            "Scanner Range",
+            "Defenses",
+            "Defense Type",
+            "Def Coverage",
+        ]
+    );
+    // A home world starts with a million colonists, grouped with commas.
+    assert!(
+        status[0].1.contains(','),
+        "population is grouped: {}",
+        status[0].1
+    );
+    // A home world starts with defences, so the type is the best one the
+    // player can build and the coverage is a pair of percentages — the second,
+    // in brackets, is what survives a smart bomb.
+    assert!(status[4].1.contains(" of "), "{}", status[4].1);
+    assert_ne!(
+        status[5].1, "none",
+        "defences are built, so they have a type"
+    );
+    assert!(
+        status[6].1.contains('%') && status[6].1.contains('('),
+        "coverage is two percentages: {}",
+        status[6].1
+    );
+
+    // A starbase, named for its design.
+    let (title, rows) = app.planet_starbase_tile();
+    assert_ne!(title, "< no starbase >", "the home world has one");
+    let labels: Vec<&str> = rows.iter().map(|(l, _)| l.as_str()).collect();
+    assert_eq!(labels, vec!["Dock Capacity", "Armor", "Shields", "Damage"]);
+
+    // And the title bar is the planet's name.
+    assert!(!app.planet_pane_title().is_empty());
+
+    // A planet with nothing queued says so in the original's words.
+    assert_eq!(
+        app.planet_production_tile(),
+        vec!["--- Queue is Empty ---".to_string()],
+        "a new game queues nothing"
+    );
+
+    let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
+}
+
+/// With no planet selected the pane still has something to say.
+#[test]
+fn the_planet_pane_copes_with_no_selection() {
+    let (mut app, host) = a_saved_game("noplanet");
+    app.selection.planet = None;
+
+    assert_eq!(app.planet_pane_title(), "Planet View");
+    assert!(app.planet_minerals_tile().is_empty());
+    assert!(app.planet_status_tile().is_empty());
+    assert!(app.planet_production_tile().is_empty());
+    assert_eq!(app.planet_starbase_tile().0, "< no starbase >");
+
+    let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
+}

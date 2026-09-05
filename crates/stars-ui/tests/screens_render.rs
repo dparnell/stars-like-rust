@@ -19,8 +19,8 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// Lay out one frame of a screen, as the shell would — with the message pane
-/// below it, which is where the shell puts it.
+/// Lay out one frame of a screen, as the shell would — with the planet and
+/// message panes beside it, which is where the shell puts them.
 fn draw(app: &mut App, screen: Screen) {
     app.screen = screen;
     let ctx = egui::Context::default();
@@ -28,6 +28,7 @@ fn draw(app: &mut App, screen: Screen) {
         if app.game.is_some() {
             egui::TopBottomPanel::bottom("messages")
                 .show(ctx, |ui| stars_ui::views::messages::view(app, ui));
+            egui::SidePanel::left("planet").show(ctx, |ui| stars_ui::views::planet::view(app, ui));
         }
         egui::CentralPanel::default().show(ctx, |ui| {
             stars_ui::views::central(app, ui);

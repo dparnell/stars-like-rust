@@ -314,13 +314,23 @@ impl eframe::App for StarsApp {
             });
         }
 
-        // The message pane, which the original keeps as a pane of the frame
-        // in its own right — below the planet pane, above the production one.
+        // The two panes the original keeps down the left of its frame, in its
+        // own order: the planet above, the messages below it
+        // (`RefitFrameChildren`, `mdi.c`).
         if self.app.game.is_some() {
-            egui::TopBottomPanel::bottom("messages")
+            egui::SidePanel::left("planet")
                 .resizable(true)
-                .default_height(150.0)
-                .show(ctx, |ui| stars_ui::views::messages::view(&mut self.app, ui));
+                .default_width(360.0)
+                .show(ctx, |ui| {
+                    egui::TopBottomPanel::bottom("messages")
+                        .resizable(true)
+                        .default_height(160.0)
+                        .show_inside(ui, |ui| stars_ui::views::messages::view(&mut self.app, ui));
+                    egui::CentralPanel::default().show_inside(ui, |ui| {
+                        egui::ScrollArea::vertical()
+                            .show(ui, |ui| stars_ui::views::planet::view(&mut self.app, ui));
+                    });
+                });
         }
 
         let action = egui::CentralPanel::default()

@@ -1462,6 +1462,302 @@ impl App {
         true
     }
 
+    // --- The planet pane ---------------------------------------------------
+    //
+    // `PlanetWndProc` (`1048:0000`) draws the selected planet as six tiles in
+    // two columns; see `docs/ui/planet-pane.md`. Each tile's rows are built
+    // here, as label/value pairs, so what the pane says can be tested without
+    // drawing it.
+
+    /// The planet the pane is showing, if one is selected.
+    #[must_use]
+    pub fn pane_planet(&self) -> Option<&stars_core::planet::Planet> {
+        let game = self.game.as_ref()?;
+        let id = self.selection.planet?;
+        game.planets
+            .iter()
+            .chain(game.known_planets.iter())
+            .find(|p| p.id == id)
+    }
+
+    /// The pane's title bar: the planet's name (`SetPlanetTitleBar`,
+    /// `1048:3dec`), or "Planet View" when nothing is selected.
+    #[must_use]
+    pub fn planet_pane_title(&self) -> String {
+        let Some(planet) = self.pane_planet() else {
+            return "Planet View".to_string();
+        };
+        self.universe
+            .as_ref()
+            .and_then(|u| {
+                u.planets_resolved()
+                    .into_iter()
+                    .find(|p| i16::try_from(p.id).is_ok_and(|id| id == planet.id))
+                    .and_then(|p| p.name)
+            })
+            .map_or_else(|| format!("Planet #{}", planet.id), ToString::to_string)
+    }
+
+    /// The race whose eyes the pane is looking through.
+    fn pane_race(&self) -> Option<&stars_core::Race> {
+        let game = self.game.as_ref()?;
+        game.players.get(self.local_player()).map(|p| &p.race)
+    }
+
+    /// The **Minerals On Hand** tile: what is on the surface, and what is
+    /// dug and built.
+    #[must_use]
+    pub fn planet_minerals_tile(&self) -> Vec<(String, String)> {
+        let Some(planet) = self.pane_planet() else {
+            return Vec::new();
+        };
+        // The original prints each mineral's name in its own colour, then the
+        // amount as `%ldkT`.
+        let mut rows: Vec<(String, String)> = ["Ironium", "Boranium", "Germanium"]
+            .iter()
+            .zip(planet.surface_min.iter())
+            .map(|(name, amount)| ((*name).to_string(), format!("{amount}kT")))
+            .collect();
+
+        let Some(race) = self.pane_race() else {
+            return rows;
+        };
+        // Alternate Reality has no factories and its mines are not capped by
+        // population, so the original prints a bare count with a star.
+        if race.is_ar() {
+            rows.push((
+                "Mines".to_string(),
+                format!("{}*", stars_core::mining::mines_operating(planet, race)),
+            ));
+            rows.push(("Factories".to_string(), "n/a".to_string()));
+            return rows;
+        }
+        rows.push((
+            "Mines".to_string(),
+            format!(
+                "{} of {}",
+                planet.mines,
+                stars_core::max_operable_mines(planet, race, false)
+            ),
+        ));
+        rows.push((
+            "Factories".to_string(),
+            format!(
+                "{} of {}",
+                planet.factories,
+                stars_core::max_operable_factories(planet, race, false)
+            ),
+        ));
+        rows
+    }
+
+    /// The **Status** tile: population, resources, scanning and defence.
+    #[must_use]
+    pub fn planet_status_tile(&self) -> Vec<(String, String)> {
+        use stars_core::components::best_planetary_scanner;
+
+        let (Some(planet), Some(race)) = (self.pane_planet(), self.pane_race()) else {
+            return Vec::new();
+        };
+        let levels = self
+            .game
+            .as_ref()
+            .and_then(|g| g.players.get(self.local_player()))
+            .map_or([0u8; 6], |p| p.research.levels);
+        let ar = race.is_ar();
+        let none = if ar { "n/a" } else { "none" };
+
+        let mut rows = vec![(
+            "Population".to_string(),
+            comma_format(i64::from(planet.pop) * 100),
+        )];
+        // `%d of %d`: what production may spend, of what the planet makes.
+        // The first figure is the second less the research skim, which is the
+        // share the player has set aside (`1048:1716`).
+        let total = i32::from(
+            stars_core::resources::resources_at_planet(planet, race, i16::from(levels[0]))
+                .unwrap_or(0),
+        );
+        let research_pct = self
+            .game
+            .as_ref()
+            .and_then(|g| g.players.get(self.local_player()))
+            .map_or(0, |p| i32::from(p.research_pct));
+        let available = total - total * research_pct / 100;
+        rows.push((
+            "Resources/Year".to_string(),
+            format!("{available} of {total}"),
+        ));
+
+        // Scanning. A planet scans only if it has been given a scanner, which
+        // for everybody but Alternate Reality means one has been built.
+        let scanner = best_planetary_scanner(&levels);
+        let range = stars_core::scanning::planet_scanner_range_for_tech(
+            planet,
+            race,
+            &levels,
+            scanner.is_some(),
+        );
+        rows.push((
+            "Scanner Type".to_string(),
+            if ar {
+                "Organic".to_string()
+            } else {
+                scanner.map_or_else(|| none.to_string(), |s| s.name.to_string())
+            },
+        ));
+        rows.push((
+            "Scanner Range".to_string(),
+            if range.normal <= 0 {
+                none.to_string()
+            } else if range.penetrating > 0 {
+                format!("{}/{} l.y.", range.penetrating, range.normal)
+            } else if range.normal < 100 {
+                // Under a hundred the original spells it out.
+                format!("{} light years", range.normal)
+            } else {
+                format!("{} l.y.", range.normal)
+            },
+        ));
+
+        // Defence.
+        if ar {
+            rows.push(("Defenses".to_string(), "n/a".to_string()));
+            rows.push(("Defense Type".to_string(), "n/a".to_string()));
+            rows.push(("Def Coverage".to_string(), "n/a".to_string()));
+            return rows;
+        }
+        rows.push((
+            "Defenses".to_string(),
+            format!(
+                "{} of {}",
+                planet.defenses,
+                stars_core::resources::max_operable_defenses(planet, race)
+            ),
+        ));
+        let part = stars_core::bombing::best_defence_part(levels);
+        rows.push((
+            "Defense Type".to_string(),
+            if planet.defenses == 0 {
+                none.to_string()
+            } else {
+                part.map_or_else(|| none.to_string(), |p| p.name.to_string())
+            },
+        ));
+        rows.push((
+            "Def Coverage".to_string(),
+            if planet.defenses == 0 || part.is_none() {
+                none.to_string()
+            } else {
+                let (against_all, against_smart) =
+                    stars_core::bombing::pct_survive(planet, race, levels);
+                format!(
+                    "{:.1}% ({:.1}%)",
+                    (1.0 - against_all) * 100.0,
+                    (1.0 - against_smart) * 100.0
+                )
+            },
+        ));
+        rows
+    }
+
+    /// The **Starbase** tile, or nothing when the planet has none.
+    #[must_use]
+    pub fn planet_starbase_tile(&self) -> (String, Vec<(String, String)>) {
+        let Some(planet) = self.pane_planet() else {
+            return ("< no starbase >".to_string(), Vec::new());
+        };
+        if !planet.starbase {
+            return ("< no starbase >".to_string(), Vec::new());
+        }
+        let design = self
+            .game
+            .as_ref()
+            .and_then(|g| g.designs.get(self.local_player()))
+            .and_then(|d| d.get(usize::from(planet.starbase_design?)))
+            .filter(|d| d.hull_id >= 0);
+        let title = design.map_or_else(
+            || "Starbase".to_string(),
+            |d| {
+                if d.name.is_empty() {
+                    "Starbase".to_string()
+                } else {
+                    d.name.clone()
+                }
+            },
+        );
+        let rows = vec![
+            (
+                "Dock Capacity".to_string(),
+                design.map_or_else(|| "none".to_string(), |_| "Unlimited".to_string()),
+            ),
+            (
+                "Armor".to_string(),
+                design.map_or_else(
+                    || "none".to_string(),
+                    |d| {
+                        d.armor(false)
+                            .map_or_else(|| "none".to_string(), |a| format!("{a}dp"))
+                    },
+                ),
+            ),
+            (
+                "Shields".to_string(),
+                design.map_or_else(|| "none".to_string(), |d| format!("{}dp", d.shields(false))),
+            ),
+            ("Damage".to_string(), "none".to_string()),
+        ];
+        (title, rows)
+    }
+
+    /// The **Production** tile: the queue, in build order.
+    #[must_use]
+    pub fn planet_production_tile(&self) -> Vec<String> {
+        let Some(planet) = self.pane_planet() else {
+            return Vec::new();
+        };
+        if planet.queue.is_empty() {
+            return vec!["--- Queue is Empty ---".to_string()];
+        }
+        planet
+            .queue
+            .iter()
+            .map(|entry| {
+                let name = if entry.ship {
+                    self.game
+                        .as_ref()
+                        .and_then(|g| g.designs.get(self.local_player()))
+                        .and_then(|d| d.get(usize::from(entry.item)))
+                        .filter(|d| d.hull_id >= 0 && !d.name.is_empty())
+                        .map_or_else(|| format!("Design #{}", entry.item), |d| d.name.clone())
+                } else {
+                    crate::views::planets::item_name(entry.item)
+                };
+                format!("{} {}", entry.count, name)
+            })
+            .collect()
+    }
+
+    /// The **fleets in orbit** tile.
+    #[must_use]
+    pub fn planet_fleets_tile(&self) -> Vec<String> {
+        let (Some(game), Some(planet)) = (self.game.as_ref(), self.pane_planet()) else {
+            return Vec::new();
+        };
+        let Some(at) = planet.position else {
+            return Vec::new();
+        };
+        game.fleets
+            .iter()
+            .filter(|f| f.position == at && !f.stacks.is_empty())
+            .map(|f| {
+                let ships: i32 = f.stacks.iter().map(|s| s.count).sum();
+                let name = f.name.clone().unwrap_or_else(|| format!("Fleet #{}", f.id));
+                format!("{name} ({ships})")
+            })
+            .collect()
+    }
+
     // --- The message pane -------------------------------------------------
     //
     // `MessageWndProc` (`1030:5c92`) and `SetMsgTitle` (`1030:7218`): the pane
@@ -2038,6 +2334,24 @@ fn find_universe(path: &Path) -> Option<Universe> {
         }
     }
     None
+}
+
+/// Group a number with commas, as `CommaFormatLong` does for the planet pane's
+/// population figure.
+fn comma_format(value: i64) -> String {
+    let digits = value.abs().to_string();
+    let mut out = String::new();
+    for (i, ch) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    if value < 0 {
+        format!("-{out}")
+    } else {
+        out
+    }
 }
 
 #[cfg(test)]

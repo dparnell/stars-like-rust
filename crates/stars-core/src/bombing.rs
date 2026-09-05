@@ -176,6 +176,14 @@ pub fn pct_survive(planet: &Planet, race: &Race, tech: [u8; 6]) -> (f64, f64) {
 /// technology is met.
 #[must_use]
 pub fn best_defence(tech: [u8; 6]) -> Option<i16> {
+    best_defence_part(tech).map(|p| p.ability)
+}
+
+/// The best planetary defence the player can build, whole.
+///
+/// [`best_defence`] wants only its coverage; the planet pane wants its name.
+#[must_use]
+pub fn best_defence_part(tech: [u8; 6]) -> Option<&'static crate::components::Planetary> {
     PLANETARY
         .iter()
         .skip(FIRST_DEFENCE)
@@ -186,8 +194,7 @@ pub fn best_defence(tech: [u8; 6]) -> Option<i16> {
                 .zip(tech.iter())
                 .all(|(need, have)| i32::from(*need) <= i32::from(*have))
         })
-        .map(|p| p.ability)
-        .max()
+        .max_by_key(|p| p.ability)
 }
 
 /// What one bombing run did.

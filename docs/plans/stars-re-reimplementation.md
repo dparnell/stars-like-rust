@@ -1248,7 +1248,30 @@ disagree.
     other players, and the Goto targets that need windows this project has not
     got — which leave the button dead rather than lying about where it goes.
 
-36. **What is still missing to call it playable.** Every waypoint task is now
+36. ~~**The planet pane.**~~ **Done** — the second screen taken from the
+    original. `docs/ui/planet-pane.md` is the spec.
+
+    The pane is not one panel but **six tiles in two columns**, and the layout
+    is not in the code: it is a table of six 16-byte `TILE` records at
+    `1120:07fc`, each with a column, a height and a pointer to the routine that
+    fills it. Reading that table settles the arrangement outright rather than
+    by eye — the left column is the planet, its minerals and its status; the
+    right is the fleets over it, what it is building, and its starbase.
+
+    Every label and every number format is the original's, including the
+    details that are easy to get backwards: the scanner range **spells out
+    "light years" below a hundred** and abbreviates above it; defence coverage
+    is two percentages, the second in brackets being what survives a *smart*
+    bomb; mines and factories read `%d of %d`, built against what the
+    population can actually run. Alternate Reality gets its own answers
+    throughout — `Organic` for the scanner it does not build, `n/a` down the
+    defence rows, and `%d*` for mines that no population caps.
+
+    Not reproduced, and listed in the spec: the planet picture, collapsing a
+    tile by its title bar, the starbase's mass-driver gauge and destination
+    button, and the production tile's editable list box.
+
+37. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -1263,9 +1286,10 @@ disagree.
       scaling and shield absorption.
     - A loaded state file still cannot carry structural fleet changes back —
       the game does not either; the order log does.
-    - **The rest of the screens.** The message pane is taken from the original;
-      the planet, fleet and scanner panes are this project's own inventions and
-      should go the same way, one spec in `docs/ui/` at a time.
+    - **The rest of the screens.** The message and planet panes are taken from
+      the original; the fleet pane, the scanner and the mine-survey pane are
+      still this project's own inventions and should go the same way, one spec
+      in `docs/ui/` at a time.
 
 #### Saving is not re-encoding
 

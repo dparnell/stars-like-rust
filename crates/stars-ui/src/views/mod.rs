@@ -10,6 +10,7 @@ pub mod fleets;
 pub mod galaxy;
 pub mod messages;
 pub mod newgame;
+pub mod planet;
 pub mod planets;
 pub mod players;
 
