@@ -113,6 +113,37 @@ pub struct Selection {
     pub fleet: Option<usize>,
 }
 
+/// What the survey pane is looking at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SurveySubject {
+    /// Nothing: the pane reads "Deep Space".
+    DeepSpace,
+    /// A planet, by id.
+    Planet(i16),
+    /// A fleet, by index into [`GameState::fleets`].
+    Fleet(usize),
+}
+
+/// One of the survey pane's bars: a label, a reading, and where it sits in a
+/// range.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SurveyBar {
+    /// What is being measured.
+    pub label: String,
+    /// The reading, in the units the game shows.
+    pub value: String,
+    /// Where the marker goes.
+    pub at: i32,
+    /// The bottom of the band that matters — the race's habitable low, or
+    /// zero for a mineral.
+    pub low: i32,
+    /// The top of it: the habitable high, or the mineral's concentration.
+    pub high: i32,
+    /// Whether the race is immune to this variable, in which case the whole
+    /// bar is habitable.
+    pub immune: bool,
+}
+
 /// The whole application, minus the drawing.
 #[derive(Default)]
 pub struct App {
@@ -1758,6 +1789,202 @@ impl App {
             .collect()
     }
 
+    // --- The mine survey pane ---------------------------------------------
+    //
+    // `DrawMineSurvey` (`1028:065a`): whatever is selected, summarised — a
+    // planet's environment and minerals, a fleet's cargo and orders, or one of
+    // the space objects. See `docs/ui/mine-survey-pane.md`.
+
+    /// What the survey pane is summarising.
+    #[must_use]
+    pub fn survey_subject(&self) -> SurveySubject {
+        if self.screen == Screen::Fleets {
+            if let Some(index) = self.selection.fleet {
+                if self.game.as_ref().is_some_and(|g| index < g.fleets.len()) {
+                    return SurveySubject::Fleet(index);
+                }
+            }
+        }
+        match self.pane_planet() {
+            Some(planet) => SurveySubject::Planet(planet.id),
+            None => SurveySubject::DeepSpace,
+        }
+    }
+
+    /// The pane's title: `"<name> Summary"`, or `"Deep Space"` when nothing is
+    /// selected (`SetMineralTitleBar`, `1028:47dc`).
+    #[must_use]
+    pub fn survey_title(&self) -> String {
+        match self.survey_subject() {
+            SurveySubject::DeepSpace => "Deep Space".to_string(),
+            SurveySubject::Planet(_) => format!("{} Summary", self.planet_pane_title()),
+            SurveySubject::Fleet(index) => {
+                let name = self
+                    .game
+                    .as_ref()
+                    .and_then(|g| g.fleets.get(index))
+                    .map_or_else(String::new, |f| {
+                        f.name.clone().unwrap_or_else(|| format!("Fleet #{}", f.id))
+                    });
+                format!("{name} Summary")
+            }
+        }
+    }
+
+    /// The planet's headline rows: how good it is, who lives there, and how
+    /// old the report is.
+    #[must_use]
+    pub fn survey_planet_rows(&self) -> Vec<(String, String)> {
+        let (Some(planet), Some(race)) = (self.pane_planet(), self.pane_race()) else {
+            return Vec::new();
+        };
+        let mut rows = Vec::new();
+        if planet.detail != stars_core::planet::Detail::Minimal {
+            rows.push((
+                "Value:".to_string(),
+                format!(
+                    "{}%",
+                    stars_core::hab::pct_planet_desirability(planet, race)
+                ),
+            ));
+        }
+        rows.push((
+            "Population:".to_string(),
+            match (planet.owner, planet.detail) {
+                (None, _) => "Uninhabited".to_string(),
+                (Some(_), stars_core::planet::Detail::Full) => {
+                    comma_format(i64::from(planet.pop) * 100)
+                }
+                // A planet somebody else holds is only ever an estimate, and
+                // one the game will not even guess at without a report.
+                (Some(_), stars_core::planet::Detail::Scanned) => {
+                    format!("~{}", comma_format(i64::from(planet.pop) * 100))
+                }
+                (Some(_), stars_core::planet::Detail::Minimal) => "???".to_string(),
+            },
+        ));
+        if let Some(owner) = planet.owner {
+            let name = self
+                .game
+                .as_ref()
+                .and_then(|g| usize::try_from(owner).ok().and_then(|o| g.players.get(o)))
+                .map_or_else(
+                    || format!("player {}", owner + 1),
+                    |p| p.plural_name.clone(),
+                );
+            rows.push((String::new(), name));
+        }
+        // How old the report is. The original prints the years since the
+        // planet was last seen, from `PLANET.turn`; this engine does not keep
+        // that stamp, so it can only say so much — a planet the player owns is
+        // always current, and anything else is left unsaid rather than guessed
+        // at.
+        if planet.detail == stars_core::planet::Detail::Full {
+            rows.push((String::new(), "Report is current".to_string()));
+        }
+        rows
+    }
+
+    /// The three environment bars: gravity, temperature and radiation, with
+    /// the planet's value and the race's habitable band.
+    #[must_use]
+    pub fn survey_environment(&self) -> Vec<SurveyBar> {
+        let (Some(planet), Some(race)) = (self.pane_planet(), self.pane_race()) else {
+            return Vec::new();
+        };
+        if planet.detail == stars_core::planet::Detail::Minimal {
+            return Vec::new();
+        }
+        ["Gravity", "Temperature", "Radiation"]
+            .iter()
+            .enumerate()
+            .map(|(index, label)| SurveyBar {
+                label: (*label).to_string(),
+                value: env_text(index, planet.env[index]),
+                at: i32::from(planet.env[index]),
+                low: i32::from(race.env_min[index]),
+                high: i32::from(race.env_max[index]),
+                immune: race.is_immune(index),
+            })
+            .collect()
+    }
+
+    /// The three mineral bars: what is on the surface, and how rich the ground
+    /// underneath is.
+    #[must_use]
+    pub fn survey_minerals(&self) -> Vec<SurveyBar> {
+        let Some(planet) = self.pane_planet() else {
+            return Vec::new();
+        };
+        if planet.detail == stars_core::planet::Detail::Minimal {
+            return Vec::new();
+        }
+        ["Ironium", "Boranium", "Germanium"]
+            .iter()
+            .enumerate()
+            .map(|(index, label)| SurveyBar {
+                label: (*label).to_string(),
+                value: format!("{}kT", planet.surface_min[index]),
+                at: planet.surface_min[index],
+                low: 0,
+                high: i32::from(planet.min_conc[index]),
+                immune: false,
+            })
+            .collect()
+    }
+
+    /// A fleet's summary: what it is, what it carries and where it is going.
+    #[must_use]
+    pub fn survey_fleet_rows(&self) -> Vec<String> {
+        let SurveySubject::Fleet(index) = self.survey_subject() else {
+            return Vec::new();
+        };
+        let Some(game) = self.game.as_ref() else {
+            return Vec::new();
+        };
+        let Some(fleet) = game.fleets.get(index) else {
+            return Vec::new();
+        };
+        let designs = game
+            .designs
+            .get(usize::try_from(fleet.owner).unwrap_or(usize::MAX))
+            .map_or(&[][..], Vec::as_slice);
+
+        let ships: i32 = fleet.stacks.iter().map(|s| s.count).sum();
+        let mut rows = vec![format!("Ship Count: {ships}")];
+        if !designs.is_empty() {
+            rows.push(format!("Fleet Mass: {}kT", fleet.mass(designs)));
+            rows.push(format!(
+                "Fuel: {} of {}",
+                fleet.cargo.fuel,
+                fleet.fuel_capacity(designs)
+            ));
+        }
+        let cargo: i32 = fleet.cargo.minerals.iter().sum::<i32>() + fleet.cargo.colonists;
+        rows.push(format!("Cargo: {cargo}kT"));
+
+        // Where it is going, what it will do there, and how fast.
+        let next = fleet.waypoints.get(1);
+        rows.push(format!(
+            "Next Waypoint: {}",
+            next.map_or_else(
+                || "(none)".to_string(),
+                |w| w.target.map_or_else(
+                    || format!("({}, {})", w.position.x, w.position.y),
+                    |id| format!("#{id}")
+                )
+            )
+        ));
+        if let Some(next) = next {
+            rows.push(format!("Waypoint Task: {}", task_name(next.task)));
+        }
+        rows.push(match fleet.warp {
+            Some(0) | None => "Warp Speed: (stopped)".to_string(),
+            Some(warp) => format!("Warp Speed: {warp}"),
+        });
+        rows
+    }
+
     // --- The message pane -------------------------------------------------
     //
     // `MessageWndProc` (`1030:5c92`) and `SetMsgTitle` (`1030:7218`): the pane
@@ -2351,6 +2578,51 @@ fn comma_format(value: i64) -> String {
         format!("-{out}")
     } else {
         out
+    }
+}
+
+/// An environment reading in the units the game shows (`PszCalcEnvVar`).
+///
+/// Gravity runs from 0.12g to 8g on a curve, temperature from -200°C to 200°C
+/// and radiation from 0 to 100mR, all from a click in `0..=100`.
+fn env_text(variable: usize, clicks: i8) -> String {
+    let clicks = i32::from(clicks);
+    match variable {
+        // `PszCalcGravity` (`planet.c`): the curve is two straight pieces
+        // measured from the middle, and the bottom half is the reciprocal of
+        // the top — which is what makes gravity read 0.12g at one end, 1.00 in
+        // the middle and 8.00 at the other. The original prints no unit; the
+        // row's own label carries it.
+        0 => {
+            let d = (clicks - 50).abs();
+            let mut value = if d < 26 {
+                d * 4 + 100
+            } else {
+                (d - 25) * 24 + 200
+            };
+            if clicks < 50 {
+                value = 10000 / value.max(1);
+            }
+            format!("{}.{:02}", value / 100, (value % 100).abs())
+        }
+        1 => format!("{}\u{b0}C", clicks * 4 - 200),
+        _ => format!("{clicks}mR"),
+    }
+}
+
+/// The name of a waypoint task, as the survey pane spells it.
+fn task_name(task: u8) -> &'static str {
+    match task {
+        stars_formats::task::TRANSPORT => "Transport",
+        stars_formats::task::COLONIZE => "Colonize",
+        stars_formats::task::REMOTE_MINING => "Remote Mining",
+        stars_formats::task::MERGE => "Merge With Fleet",
+        stars_formats::task::SCRAP => "Scrap Fleet",
+        stars_formats::task::LAY_MINES => "Lay Mine Field",
+        stars_formats::task::PATROL => "Patrol",
+        stars_formats::task::ROUTE => "Route",
+        stars_formats::task::TRANSFER => "Transfer Fleet",
+        _ => "(no task here)",
     }
 }
 

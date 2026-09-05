@@ -1271,7 +1271,37 @@ disagree.
     tile by its title bar, the starbase's mass-driver gauge and destination
     button, and the production tile's editable list box.
 
-37. **What is still missing to call it playable.** Every waypoint task is now
+37. ~~**The mine survey pane.**~~ **Done** — the third screen from the
+    original, and the one that answers "what is that?".
+    `docs/ui/mine-survey-pane.md` is the spec.
+
+    Whatever is selected, this pane summarises: a planet's value, population
+    and owner, then the six **bars** it exists for — gravity, temperature and
+    radiation against the race's habitable band, and the three minerals against
+    what is on the surface and what is in the ground. A fleet gets its ships,
+    mass, cargo, waypoint, task and speed. Nothing selected reads `Deep Space`.
+
+    Two things worth recording came out of the reading. The **planet's
+    environment lives here, not in the planet pane** — which is where the last
+    task expected it. And the **wormhole's "stability" is not the stored
+    `iStable` field**: it is one of seven words — Rock Solid, Stable, Mostly
+    Stable, Average, Slightly Volatile, Volatile, Extremely Volatile — indexed
+    by `PctWormholeMoves`, the jump chance derived in
+    `docs/formulas/wanderers.md`. The player is shown the formula's answer, not
+    the field. That is a pleasing cross-check on that formula from a completely
+    different part of the program.
+
+    Not reproduced, and listed: the pictures and emblems, the terraforming
+    extension on the environment bars, the mineral scale's ticks and mining
+    estimate, the fuel and cargo gauges (the figures are text), the space-object
+    summaries — the scanner cannot select one yet — and the detonate checkbox.
+
+    One gap is in the model rather than the pane: the original prints how old a
+    planet's report is from `PLANET.turn`, which this engine does not keep. A
+    planet the player owns is reported as current and everything else leaves the
+    row out rather than guessing.
+
+38. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -1286,10 +1316,12 @@ disagree.
       scaling and shield absorption.
     - A loaded state file still cannot carry structural fleet changes back —
       the game does not either; the order log does.
-    - **The rest of the screens.** The message and planet panes are taken from
-      the original; the fleet pane, the scanner and the mine-survey pane are
-      still this project's own inventions and should go the same way, one spec
-      in `docs/ui/` at a time.
+    - **The rest of the screens.** The message, planet and survey panes are
+      taken from the original; the fleet pane and the scanner are still this
+      project's own inventions and should go the same way, one spec in
+      `docs/ui/` at a time.
+    - **`PLANET.turn`**, the stamp saying when a planet was last seen, which
+      the survey pane wants for its report-age line.
 
 #### Saving is not re-encoding
 

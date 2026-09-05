@@ -1127,3 +1127,112 @@ fn the_planet_pane_copes_with_no_selection() {
 
     let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
 }
+
+/// The survey pane summarises whatever is selected, in the original's words.
+#[test]
+fn the_survey_pane_summarises_a_planet() {
+    use stars_ui::SurveySubject;
+
+    let (mut app, host) = a_saved_game("survey");
+    let home = {
+        let game = app.game.as_ref().expect("game");
+        game.planets
+            .iter()
+            .find(|p| p.homeworld && p.owner == Some(0))
+            .expect("a home world")
+            .id
+    };
+    app.selection.planet = Some(home);
+
+    assert_eq!(app.survey_subject(), SurveySubject::Planet(home));
+    assert!(
+        app.survey_title().ends_with(" Summary"),
+        "{}",
+        app.survey_title()
+    );
+
+    // Value, population, the owner and how old the report is.
+    let rows = app.survey_planet_rows();
+    assert_eq!(rows[0].0, "Value:");
+    assert!(rows[0].1.ends_with('%'), "{}", rows[0].1);
+    assert_eq!(rows[1].0, "Population:");
+    assert!(rows[1].1.contains(','), "grouped: {}", rows[1].1);
+    assert!(
+        rows.iter().any(|(_, v)| v == "Report is current"),
+        "a planet we own is current"
+    );
+
+    // The three environment bars, in the game's order and units.
+    let env = app.survey_environment();
+    let labels: Vec<&str> = env.iter().map(|b| b.label.as_str()).collect();
+    assert_eq!(labels, vec!["Gravity", "Temperature", "Radiation"]);
+    // Gravity is printed as a bare number — the row's label carries the unit,
+    // exactly as `PszCalcGravity` leaves it.
+    assert!(
+        env[0].value.contains('.') && !env[0].value.ends_with('g'),
+        "gravity: {}",
+        env[0].value
+    );
+    assert!(
+        env[1].value.ends_with("\u{b0}C"),
+        "temperature: {}",
+        env[1].value
+    );
+    assert!(env[2].value.ends_with("mR"), "radiation: {}", env[2].value);
+    // A home world sits inside its own race's habitable band.
+    for bar in &env {
+        assert!(
+            bar.immune || (bar.low..=bar.high).contains(&bar.at),
+            "{} {} is outside {}..={}",
+            bar.label,
+            bar.at,
+            bar.low,
+            bar.high
+        );
+    }
+
+    // And the three mineral bars: surface stock against concentration.
+    let minerals = app.survey_minerals();
+    let labels: Vec<&str> = minerals.iter().map(|b| b.label.as_str()).collect();
+    assert_eq!(labels, vec!["Ironium", "Boranium", "Germanium"]);
+    assert!(minerals[0].value.ends_with("kT"), "{}", minerals[0].value);
+
+    let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
+}
+
+/// A fleet, and nothing at all.
+#[test]
+fn the_survey_pane_summarises_a_fleet_and_deep_space() {
+    use stars_ui::{Screen, SurveySubject};
+
+    let (mut app, host) = a_saved_game("survey2");
+
+    app.screen = Screen::Fleets;
+    app.selection.fleet = Some(0);
+    assert_eq!(app.survey_subject(), SurveySubject::Fleet(0));
+    let rows = app.survey_fleet_rows();
+    assert!(rows[0].starts_with("Ship Count: "), "{}", rows[0]);
+    assert!(
+        rows.iter().any(|r| r.starts_with("Fleet Mass: ")),
+        "{rows:?}"
+    );
+    assert!(rows.iter().any(|r| r.starts_with("Cargo: ")), "{rows:?}");
+    // A fleet with no orders is stopped, and its next waypoint is (none).
+    assert!(
+        rows.iter().any(|r| r == "Next Waypoint: (none)"),
+        "{rows:?}"
+    );
+    assert!(
+        rows.iter().any(|r| r == "Warp Speed: (stopped)"),
+        "{rows:?}"
+    );
+
+    // Nothing selected at all.
+    app.screen = Screen::Galaxy;
+    app.selection.planet = None;
+    assert_eq!(app.survey_subject(), SurveySubject::DeepSpace);
+    assert_eq!(app.survey_title(), "Deep Space");
+    assert!(app.survey_planet_rows().is_empty());
+
+    let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
+}

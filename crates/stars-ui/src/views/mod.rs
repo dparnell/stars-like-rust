@@ -13,6 +13,7 @@ pub mod newgame;
 pub mod planet;
 pub mod planets;
 pub mod players;
+pub mod survey;
 
 use crate::{App, Screen};
 

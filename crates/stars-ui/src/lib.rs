@@ -35,4 +35,4 @@ pub mod app;
 pub mod vcr;
 pub mod views;
 
-pub use app::{App, Screen, Selection};
+pub use app::{App, Screen, Selection, SurveyBar, SurveySubject};

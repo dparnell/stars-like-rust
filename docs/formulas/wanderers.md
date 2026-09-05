@@ -25,6 +25,12 @@ So a rickety end (stability 0) has to sit for ten years before it will move at
 all, a rock-solid one (3) is restless from the first, and none of them jumps
 more than six years in a hundred.
 
+**This chance is what the player is shown.** The survey pane names a wormhole's
+stability with one of seven words indexed by this very number — Rock Solid,
+Stable, Mostly Stable, Average, Slightly Volatile, Volatile, Extremely
+Volatile — rather than by the stored `iStable` field. See
+`../ui/mine-survey-pane.md`.
+
 **Where it goes** is chosen by trying up to a hundred positions and scoring each
 with `IValidateWormholePos` (`1110:064c`) — a jump picks anywhere in the galaxy,
 otherwise it drifts within twelve light years — and taking the first that scores

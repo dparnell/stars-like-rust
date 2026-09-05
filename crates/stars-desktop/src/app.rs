@@ -314,18 +314,27 @@ impl eframe::App for StarsApp {
             });
         }
 
-        // The two panes the original keeps down the left of its frame, in its
-        // own order: the planet above, the messages below it
-        // (`RefitFrameChildren`, `mdi.c`).
+        // The three panes the original keeps down the left of its frame, in
+        // its own order: the planet at the top, the messages under it, and the
+        // survey at the bottom (`RefitFrameChildren`, `mdi.c`).
         if self.app.game.is_some() {
             egui::SidePanel::left("planet")
                 .resizable(true)
-                .default_width(360.0)
+                .default_width(380.0)
                 .show(ctx, |ui| {
                     egui::TopBottomPanel::bottom("messages")
                         .resizable(true)
                         .default_height(160.0)
                         .show_inside(ui, |ui| stars_ui::views::messages::view(&mut self.app, ui));
+                    // Below the messages, the survey pane: whatever is
+                    // selected, summarised.
+                    egui::TopBottomPanel::bottom("survey")
+                        .resizable(true)
+                        .default_height(190.0)
+                        .show_inside(ui, |ui| {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| stars_ui::views::survey::view(&mut self.app, ui));
+                        });
                     egui::CentralPanel::default().show_inside(ui, |ui| {
                         egui::ScrollArea::vertical()
                             .show(ui, |ui| stars_ui::views::planet::view(&mut self.app, ui));
