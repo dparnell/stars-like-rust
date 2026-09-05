@@ -125,10 +125,19 @@ pub struct MysteryTrader {
     pub warp: u8,
     /// Whether the trader is included in this player's view (`fInclude`).
     pub include: bool,
-    /// Bitmask of players who have detected the trader (`grbitPlr`).
+    /// Bitmask of players who have detected — and, once they trade, met — the
+    /// trader (`grbitPlr`).
     pub players_seen: u16,
-    /// Bitmask of players who have met/traded with the trader (`grbitTrader`).
-    pub players_met: u16,
+    /// Which single technology this Trader is carrying (`grbitTrader`), as one
+    /// of the thirteen `GrbitTrader` bits, or `0` for a Trader carrying
+    /// nothing in particular.
+    ///
+    /// **Not** a player mask, despite sitting beside one: `DoThingInteractions`
+    /// (`1110:1180`) tests it against the *player's* `grbitTrader` and hands it
+    /// over. Across the 859 trader records in the fixtures it only ever holds
+    /// `0`, `0x004`, `0x010`, `0x020` or `0x200` — single bits, never a
+    /// combination.
+    pub part: u16,
 }
 
 /// The decoded subtype payload of a [`Thing`], selected by its `ith`.
@@ -241,7 +250,7 @@ impl Thing {
                     warp: (w4 & 0x0F) as u8,
                     include: (w4 >> 4) & 1 != 0,
                     players_seen: u16le(u, 6),
-                    players_met: u16le(u, 8),
+                    part: u16le(u, 8),
                 })
             }
             _ => {

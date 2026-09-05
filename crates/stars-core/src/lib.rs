@@ -164,6 +164,20 @@ pub struct Player {
     /// to ask for a password before opening a turn is a question for a
     /// frontend, not for the simulation.
     pub password: u32,
+    /// Which Mystery Trader technologies this player has already been given
+    /// (`PLAYER.grbitTrader`, offset `0x52`), as a mask of
+    /// [`wormhole::part`] bits.
+    ///
+    /// The Trader checks it before handing anything over, and never gives the
+    /// same part twice.
+    pub trader_parts: u16,
+    /// Whether this is a shareware ("crippled") game for this player
+    /// (`PLAYER.fCrippled`, bit 1 of the word at offset `0x54`).
+    ///
+    /// It caps technology at level 10 instead of 26, which the Mystery Trader
+    /// respects: it will not push a shareware player past the ceiling their
+    /// own research could not reach either.
+    pub crippled: bool,
     /// The player's battle plans, in file order, as the type-30 blocks carry
     /// them (`PLAYER.rgbtlplan`).
     ///
@@ -239,6 +253,8 @@ impl Player {
             logo: 0,
             default_queue: stars_formats::DefaultQueue::default(),
             password: 0,
+            trader_parts: 0,
+            crippled: false,
             battle_plans: default_battle_plans(0),
         }
     }

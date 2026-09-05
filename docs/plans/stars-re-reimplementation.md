@@ -1070,8 +1070,8 @@ disagree.
     as uncaught — the planet keeps its ninth), applying the arrival damage to
     colonists and defences, and the Packet Physics terraforming on impact.
 
-30. ~~**Wormholes and the Mystery Trader.**~~ **Both are modelled and moved;
-    what they are *for* is not.** `docs/formulas/wanderers.md` is the spec.
+30. ~~**Wormholes and the Mystery Trader.**~~ **Both are modelled and moved**
+    (what they are *for* is item 31). `docs/formulas/wanderers.md` is the spec.
 
     A wormhole's chance of jumping is `years still / 5 − (2 − stability)` per
     cent, capped at six (`PctWormholeMoves`, `1110:0adc`), and where it lands is
@@ -1093,10 +1093,40 @@ disagree.
     those are new passes rather than the same flight. Its arrival behaviour is
     not modelled.
 
-    Nor is what either is for: a fleet can be sent to a wormhole but does not
-    come out the far end, and nothing trades with the Trader.
+31. ~~**Going through a wormhole, and trading with the Trader.**~~ **Both
+    done** — what the two wanderers are *for*. Same spec file.
 
-31. **What is still missing to call it playable.** Every waypoint task is now
+    A fleet whose waypoint names a wormhole and that actually reaches it comes
+    out of the far end (`MoveFleets`, `10b0:4ce4`), which also marks both ends
+    as travelled and puts the far one in view. That turned up a distinction the
+    format notes had backwards: `grbitPlr` is who can **see** an end now — a
+    scanner sets it and a jump clears it — while `grbitPlrTrav` is who has ever
+    been **through** it, set at both ends and never cleared. In the fixtures 713
+    of the 1,309 travelled ends are in nobody's view, which is what settled it.
+
+    Trading is `DoThingInteractions(1)` (`1110:0b3a`). A fleet resting exactly
+    on the Trader with at least 5,000 kT of minerals is **absorbed**, and the
+    player gets the technology the Trader was carrying, or
+    `(cargo − 5000) / 1200 + 6` levels capped at ten and then cut back hard by
+    how advanced they already are — a hundred and eight levels between the six
+    fields earns exactly one, however much was brought. A level is not written
+    down but *paid for*: the field's research is doubled and the outstanding
+    cost added, so the level lands and part-finished work survives.
+
+    A second misreading fell out of this one. `THTRADER.grbitTrader` was
+    documented as "players who have met the trader" on the strength of one
+    fixture where it read `0x20` and the player index was 5. It is not a player
+    mask at all: it is the **one technology the Trader carries**, and `0x20` is
+    a bomb. All 859 Trader records in the fixtures hold a single `GrbitTrader`
+    bit or nothing.
+
+    Not modelled: the **ship** the Trader gives when every part has already been
+    handed over — it needs the game's own Mystery Trader hulls, and the turn
+    reports `SkippedStep::TraderShip` rather than substituting something — its
+    arrival behaviour, and the AI's shortcut of trading from a planet within a
+    hundred light years without sending anything.
+
+32. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -1105,8 +1135,8 @@ disagree.
     - **Packets, the rest of the way**: launching them from a production
       queue, catching them with a planet's own mass driver, and the damage and
       terraforming when one lands.
-    - **Going through a wormhole**, and **trading with the Mystery Trader**:
-      both wander correctly now, but neither does anything for a player.
+    - The Mystery Trader's **ship gift**, which needs the game's own Mystery
+      Trader hull designs.
     - Inside combat: the minefield damage step's interval merging, engine-count
       scaling and shield absorption.
     - A loaded state file still cannot carry structural fleet changes back —

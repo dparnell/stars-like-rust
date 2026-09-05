@@ -276,6 +276,7 @@ fn player_record(state: &GameState, index: usize, player: &Player) -> Result<Pla
         research: Some(research_state(player)),
         default_queue: Some(player.default_queue.clone()),
         password: Some(player.password),
+        trader_parts: Some(player.trader_parts),
         fixed,
         // A player block whose plural name is empty carries one extra zero
         // byte, and one with a plural name does not. Exact across all 74,903
@@ -806,7 +807,7 @@ fn push_things(state: &GameState, body: &mut Vec<Block>) -> Result<()> {
             warp: trader.warp,
             include: trader.include,
             players_seen: trader.detected_by,
-            players_met: trader.met_by,
+            part: trader.part,
         };
         let mut union = [0u8; 10];
         union[0..2].copy_from_slice(&carried.dest_x.to_le_bytes());
@@ -814,7 +815,7 @@ fn push_things(state: &GameState, body: &mut Vec<Block>) -> Result<()> {
         let w4 = u16::from(carried.warp & 0x0F) | (u16::from(carried.include) << 4);
         union[4..6].copy_from_slice(&w4.to_le_bytes());
         union[6..8].copy_from_slice(&carried.players_seen.to_le_bytes());
-        union[8..10].copy_from_slice(&carried.players_met.to_le_bytes());
+        union[8..10].copy_from_slice(&carried.part.to_le_bytes());
         body.push(block(
             43,
             stars_formats::Thing {

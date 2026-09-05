@@ -34,12 +34,57 @@ pub mod id {
     /// `idmCouldntGiveAwayBecauseThereColonistsBoard`: a fleet with colonists
     /// aboard cannot be given away (`10b0:9436`).
     pub const GIFT_HAS_COLONISTS: u16 = 0x149;
+
+    // The Mystery Trader, all from `DoThingInteractions` (`1110:0b3a`) unless
+    // noted. See [`crate::wormhole`].
+
+    /// `idmMysteryTraderHasRefusedGiveCaptainAudience`: the fleet reached the
+    /// Trader without the five thousand kilotons it wants (`1110:0cad`).
+    pub const TRADER_REFUSED: u16 = 0x108;
+    /// `idmHasAbsorbedMysteryTraderTraderHasGiven`: the Trader took the fleet
+    /// and gave technology for it (`1110:0f57`).
+    pub const TRADER_GAVE_TECH: u16 = 0x109;
+    /// `idmHasAbsorbedMysteryTraderReturnTraderHas`: the same, for a player who
+    /// already holds every one of the Trader's parts (`1110:0f5f`).
+    pub const TRADER_GAVE_TECH_AGAIN: u16 = 0x10a;
+    /// `IdmGiveTraderPart`'s usual message: a part changed hands
+    /// (`1110:1a96`).
+    pub const TRADER_GAVE_PART: u16 = 0x10b;
+    /// The same, worded for a hull.
+    pub const TRADER_GAVE_HULL: u16 = 0x10c;
+    /// The Trader had nothing left to give: everything researched, every part
+    /// already handed over (`1110:0e2a`).
+    pub const TRADER_GAVE_NOTHING: u16 = 0x10e;
+    /// The same, worded for the Genesis Device.
+    pub const TRADER_GAVE_GENESIS: u16 = 0x10f;
+    /// `idmMysteryTraderEyesCaptainSuspiciously...`: this player has already
+    /// traded with this Trader (`1110:0d91`).
+    pub const TRADER_ALREADY_MET: u16 = 0x118;
+    /// The Trader gave a ship (`1110:142e`).
+    pub const TRADER_GAVE_SHIP: u16 = 0x14F;
+    /// The Trader meant to give a ship and could not (`1110:133b`).
+    pub const TRADER_TRIED_SHIP: u16 = 0x150;
 }
 
 /// An object id as a message carries it: a fleet has bit 15 set.
 #[must_use]
 pub fn fleet_object(id: u16) -> i16 {
     (id | 0x8000) as i16
+}
+
+/// How a message names a fleet that no longer exists (`WFromLpfl`,
+/// `1038:2b10`).
+///
+/// A message about a live fleet points at it and lets the player click through;
+/// one about a fleet that has just been destroyed cannot, so the game packs
+/// enough to *name* it into a single word instead: the fleet number in the low
+/// nine bits, its main design in the next four, and bit 13 set when the fleet
+/// held more than one design — which is the difference between reporting
+/// "Long Range Scout #7" and a plain "Fleet #7".
+#[must_use]
+pub fn fleet_name_word(fleet_id: u16, design: u8, mixed: bool) -> i16 {
+    let word = (fleet_id & 0x01FF) | (u16::from(design) << 9) | if mixed { 0x2000 } else { 0 };
+    word as i16
 }
 
 /// One message, for one player.
@@ -94,6 +139,29 @@ impl Message {
                 "Fleet {} could not be given away: your colonists are aboard.",
                 fleet()
             ),
+            id::TRADER_REFUSED => {
+                format!("The Mystery Trader refused fleet {} an audience.", fleet())
+            }
+            id::TRADER_GAVE_TECH | id::TRADER_GAVE_TECH_AGAIN => format!(
+                "The Mystery Trader absorbed a fleet and gave {} technology levels.",
+                self.params.get(1).copied().unwrap_or(0)
+            ),
+            id::TRADER_GAVE_PART | id::TRADER_GAVE_HULL | id::TRADER_GAVE_GENESIS => {
+                format!(
+                    "The Mystery Trader absorbed a fleet and gave item {:#06x}.",
+                    self.object
+                )
+            }
+            id::TRADER_GAVE_NOTHING => {
+                "The Mystery Trader absorbed a fleet and had nothing to give.".to_string()
+            }
+            id::TRADER_ALREADY_MET => format!(
+                "The Mystery Trader has already traded with fleet {}.",
+                fleet()
+            ),
+            id::TRADER_TRIED_SHIP => {
+                "The Mystery Trader meant to give a ship and could not.".to_string()
+            }
             other => format!("Message {other}."),
         }
     }

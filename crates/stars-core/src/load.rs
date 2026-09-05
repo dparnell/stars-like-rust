@@ -361,6 +361,13 @@ impl GameState {
                         .fixed
                         .get(84..86)
                         .is_some_and(|b| u16::from_le_bytes([b[0], b[1]]) & 1 != 0);
+                    // `PLAYER.fCrippled`, bit 1 of the same word: a shareware
+                    // game, which caps technology at level 10.
+                    player.crippled = record
+                        .fixed
+                        .get(84..86)
+                        .is_some_and(|b| u16::from_le_bytes([b[0], b[1]]) & 2 != 0);
+                    player.trader_parts = record.trader_parts.unwrap_or(0);
                     player.relations.clone_from(&record.player_relations);
                     player.research_pct = race.research_percentage;
                     if let Some(research) = record.research {
@@ -453,7 +460,7 @@ impl GameState {
                         warp: trader.warp,
                         include: trader.include,
                         detected_by: trader.players_seen,
-                        met_by: trader.players_met,
+                        part: trader.part,
                         turn: thing.turn,
                     });
                     continue;

@@ -182,3 +182,84 @@ fn the_trader_flies_at_the_square_of_its_warp() {
         "{flew_right} of {followed}"
     );
 }
+
+/// What the Trader carries is one technology, not a list of players.
+///
+/// The field sits beside a player mask in the record and was read as one here
+/// until the fixtures said otherwise: across every Trader in them it holds a
+/// single `GrbitTrader` bit or nothing at all, never a combination.
+#[test]
+fn the_trader_carries_one_thing() {
+    let mut seen = 0;
+    let mut carrying = 0;
+    for (_, path) in saves() {
+        let Some(state) = load(&path) else { continue };
+        let Some(trader) = state.trader.as_ref() else {
+            continue;
+        };
+        seen += 1;
+        let part = trader.part;
+        assert!(
+            part & !stars_core::wormhole::part::ALL == 0,
+            "{}: {part:#06x} is not a GrbitTrader mask",
+            path.display()
+        );
+        assert!(
+            part.count_ones() <= 1,
+            "{}: carrying {part:#06x}, which is more than one thing",
+            path.display()
+        );
+        carrying += usize::from(part != 0);
+    }
+    if seen == 0 {
+        eprintln!("skipping: no trader in the fixtures");
+        return;
+    }
+    eprintln!("{seen} traders, {carrying} carrying something");
+}
+
+/// Going through a wormhole marks **both** ends for the traveller.
+///
+/// `MoveFleets` (`10b0:4d5b`) sets the travelled bit on the end the fleet
+/// entered and on the one it came out of, together, so a player who has been
+/// through one end has been through the other. Note that this is a different
+/// mask from the one the scanners fill in: an end somebody travelled years ago
+/// is routinely no longer in anybody's view, and a jump clears the view mask
+/// and keeps the travel mask, so travelled is *not* a subset of seen.
+#[test]
+fn going_through_marks_both_ends() {
+    let mut travelled = 0;
+    let mut both_in_view = 0;
+    let mut out_of_view = 0;
+    for (_, path) in saves() {
+        let Some(state) = load(&path) else { continue };
+        for hole in &state.wormholes {
+            if hole.traversed_by == 0 {
+                continue;
+            }
+            travelled += 1;
+            // Having been through an end says nothing about seeing it now.
+            out_of_view += usize::from(hole.traversed_by & !hole.detected_by != 0);
+            let partner = hole.partner & 0x01FF;
+            let Some(other) = state.wormholes.iter().find(|w| w.id == partner) else {
+                continue;
+            };
+            both_in_view += 1;
+            assert_eq!(
+                hole.traversed_by & !other.traversed_by,
+                0,
+                "{}: end {} travelled by someone who has not been through end {partner}",
+                path.display(),
+                hole.id
+            );
+        }
+    }
+    if travelled == 0 {
+        eprintln!("skipping: nobody has been through a wormhole in the fixtures");
+        return;
+    }
+    eprintln!(
+        "{travelled} ends somebody has been through, {both_in_view} with both ends in view, \
+         {out_of_view} travelled by somebody who cannot see them now"
+    );
+}

@@ -62,9 +62,26 @@ right routine:
 | `0xc2` | `idmHasSweptMinesMineField` | `SweepForMines`, to the sweeping fleet's owner |
 | `0xc3` | `idmHasDispersedMines` | the lay-mines arm at `10b0:999e` |
 | `0xf4` | `idmStarbaseHasSweptMinesMineField` | `SweepForMines`, for a planet's starbase |
+| `0x108` | `idmMysteryTraderHasRefusedGiveCaptainAudience` | `DoThingInteractions`, `1110:0cad` |
+| `0x109` | `idmHasAbsorbedMysteryTraderTraderHasGiven` | `1110:0f57` — technology for a load of minerals |
+| `0x10a` | `idmHasAbsorbedMysteryTraderReturnTraderHas` | `1110:0f5f` — the same, for a player who holds every part |
+| `0x10b` | a Mystery Trader part | `IdmGiveTraderPart`, `1110:1a96` |
+| `0x10c` | the same, worded for a hull | `IdmGiveTraderPart` |
+| `0x10e` | the Trader had nothing to give | `1110:0e2a` |
+| `0x10f` | the same, worded for the Genesis Device | `IdmGiveTraderPart` |
+| `0x118` | `idmMysteryTraderEyesCaptainSuspiciously…` | `1110:0d91` — this player has already traded |
+| `0x14f` | the Trader gave a ship | `1110:142e` |
+| `0x150` | the Trader meant to and could not | `1110:133b` |
 | `0x149` | `idmCouldntGiveAwayBecauseThereColonistsBoard` | the give arm at `10b0:9436` |
 
-That last one is worth pointing at: the check it reports — a fleet carrying
+A message about a fleet the Mystery Trader has just absorbed cannot point at
+it, because it no longer exists. Those pass `-1` as the object and a packed
+name word from `WFromLpfl` (`1038:2b10`) as the first parameter instead: the
+fleet number in the low nine bits, its main design in the next four, and bit 13
+set when the fleet held more than one design — enough to say "Long Range Scout
+#7" rather than a bare "Fleet #7".
+
+The colonists one is worth pointing at: the check it reports — a fleet carrying
 colonists cannot be given away — was read out of the binary as a comparison
 against `FLEET.rgwtMin[3]`, and the message the same routine sends says exactly
 that in words. Two independent readings of the same rule.

@@ -40,6 +40,8 @@ Layout recovered from the stars-4x `starsapi` project (`PlayerBlock.java`).
 |-------------|-------------------------------------------------------------|
 | 8 .. 0x70   | 0x68-byte race struct (see `race-r.md`; same absolute offsets) |
 | 12 .. 16    | the turn password's **salt** (inside the race struct's span; `0` = none) |
+| 0x52 .. 0x54 | `grbitTrader` — which Mystery Trader technologies this player has been given (see `../formulas/wanderers.md`) |
+| 0x54 .. 0x56 | `wFlags` — bit 0 `fDead`, bit 1 `fCrippled` (a shareware game, tech capped at 10), bit 2 `fCheater`, bit 3 `fLearned`, bit 4 `fHacker` |
 | 0x70        | player-relations length `n`                                 |
 | 0x71 .. +n  | player-relations table (`0` neutral, `1` friend, `2` enemy) |
 | then        | packed singular name field (`[len][packed]`)                |

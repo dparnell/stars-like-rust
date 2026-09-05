@@ -54,6 +54,10 @@ pub enum SkippedStep {
     RandomEvents,
     /// Score calculation.
     Scores,
+    /// The ship the Mystery Trader gives when it has no technology left to
+    /// hand over. It needs the game's own Mystery Trader hull designs, which
+    /// this engine does not carry.
+    TraderShip,
 }
 
 /// What one generated turn did.
@@ -100,6 +104,10 @@ pub struct TurnReport {
     pub packets_landed: Vec<(i16, [i32; 3], i32)>,
     /// Wormholes that jumped this year, by id.
     pub wormholes_moved: Vec<u16>,
+    /// Fleets that went through a wormhole, as `(fleet id, entered, left)`.
+    pub wormhole_trips: Vec<(u16, u16, u16)>,
+    /// Fleets that reached the Mystery Trader, and what came of it.
+    pub trades: Vec<(u16, crate::wormhole::Gift)>,
     /// Interceptions a patrol ordered, as `(patrolling fleet, target fleet)`.
     pub patrols: Vec<(u16, u16)>,
     /// The scoreboard, one entry per player, after the year's events.
@@ -183,12 +191,24 @@ pub fn generate_turn_with_orders(
             .get(owner)
             .is_some_and(|p| p.race.has_lrt(crate::race::lrt::IFE));
         let from = state.fleets[index].position;
+        // A waypoint is consumed when the fleet reaches it, so the list
+        // getting shorter is how this pass knows the fleet arrived.
+        let waypoints = state.fleets[index].waypoints.len();
         if let Some(travelled) = move_fleet(&mut state.fleets[index], &designs, ife) {
             report.moved.push((state.fleets[index].id, travelled));
             // FTravelThroughMineFields: the leg is flown, and somewhere along
             // it the fleet may find somebody else's mines.
             if let Some(hit) = cross_minefields(state, index, from, travelled, rng) {
                 report.mine_hits.push((state.fleets[index].id, hit));
+            }
+            // And a fleet that has arrived may have arrived at a wormhole, in
+            // which case it is not where it thinks it is.
+            if waypoints > state.fleets[index].waypoints.len() {
+                if let Some((entered, left)) = traverse_wormhole(state, index) {
+                    report
+                        .wormhole_trips
+                        .push((state.fleets[index].id, entered, left));
+                }
             }
         }
     }
@@ -325,6 +345,19 @@ pub fn generate_turn_with_orders(
         report.tasks_done = done;
         let settled = crate::orders::resolve_colonist_drops(state, &drops);
         report.colonised.extend(settled);
+    }
+
+    // --- DoOrders(1) -> DoThingInteractions(1): a fleet that has come to rest
+    // on the Mystery Trader trades with it. It happens here, after movement and
+    // before the second pass of orders, which is why a fleet cannot both trade
+    // and carry out a task in the same year: the Trader keeps the fleet.
+    report.trades = trade_with_trader(state, rng);
+    if report
+        .trades
+        .iter()
+        .any(|(_, g)| *g == crate::wormhole::Gift::Ship)
+    {
+        report.skipped.push(SkippedStep::TraderShip);
     }
 
     // --- SatisfyOrders(3): laying mines. A fleet ordered to lay does so where
@@ -1087,6 +1120,257 @@ fn move_trader(state: &mut GameState, rng: &mut Rng) {
     }
 }
 
+/// Take a fleet that has just reached a wormhole out of the far end.
+///
+/// `MoveFleets` (`10b0:4ce4`), immediately after the leg is flown: a fleet
+/// whose waypoint named a wormhole and that actually arrived is moved to the
+/// partner end, and both ends are marked as travelled by that player — the far
+/// one becomes visible to them too, which is how the other end of a wormhole is
+/// discovered. The waypoint follows the fleet, so the next leg starts from
+/// where it came out.
+///
+/// Returns the two ends, near then far.
+fn traverse_wormhole(state: &mut GameState, index: usize) -> Option<(u16, u16)> {
+    /// `grobj` for a waypoint aimed at a `THING`.
+    const GROBJ_THING: u8 = 8;
+
+    let fleet = &state.fleets[index];
+    let owner = usize::try_from(fleet.owner).ok()?;
+    let waypoint = fleet.waypoints.first()?;
+    if waypoint.target_class != GROBJ_THING {
+        return None;
+    }
+    // A waypoint holds a thing's full id; a wormhole's own id is the low nine
+    // bits of it.
+    let id = waypoint.target? & 0x01FF;
+
+    let near = state.wormholes.iter().position(|w| w.id == id)?;
+    let partner = state.wormholes[near].partner & 0x01FF;
+    let far = state.wormholes.iter().position(|w| w.id == partner)?;
+
+    let bit = 1u16 << (owner & 0x0F);
+    state.wormholes[near].traversed_by |= bit;
+    state.wormholes[far].traversed_by |= bit;
+    state.wormholes[far].detected_by |= bit;
+    let out = state.wormholes[far].position;
+
+    let fleet = &mut state.fleets[index];
+    fleet.position = out;
+    if let Some(here) = fleet.waypoints.first_mut() {
+        here.position = out;
+    }
+    Some((state.wormholes[near].id, state.wormholes[far].id))
+}
+
+/// Which design a message should name a fleet by, and whether it is mixed.
+///
+/// `IshdefPrimaryFromLpfl` (`util.c`): the design with the most ships aboard,
+/// later slots winning only outright. The original also counts a fuel
+/// transport as one ship fewer, so that a tanker escorting warships does not
+/// give the fleet its name; that refinement needs the hull table and is not
+/// applied here.
+fn primary_design(fleet: &Fleet) -> (u8, bool) {
+    let mut best = (0u8, 0i32);
+    for stack in &fleet.stacks {
+        if stack.count > best.1 {
+            best = (stack.design, stack.count);
+        }
+    }
+    (
+        best.0,
+        fleet.stacks.iter().filter(|s| s.count > 0).count() > 1,
+    )
+}
+
+/// Trade with the Mystery Trader.
+///
+/// `DoThingInteractions(1)` (`1110:0b3a`). Every fleet that has come to rest on
+/// the Trader is considered in turn. A fleet carrying less than
+/// [`crate::wormhole::TRADE_GOODS`] kilotons of minerals is turned away — and
+/// told so once, on the year it arrives. A fleet carrying enough is **kept**:
+/// the Trader absorbs it, and in exchange gives
+///
+/// * the technology it is carrying, if the player does not already have it;
+/// * otherwise technology levels, [`crate::wormhole::tech_levels`] of them,
+///   granted outright through [`crate::research::grant_level`];
+/// * otherwise, for a player who has already researched everything, a
+///   one-in-five chance of some part they are missing, and nothing at all the
+///   rest of the time.
+///
+/// Each Trader trades once with each player, which is what its `grbitPlr` mask
+/// records.
+fn trade_with_trader(state: &mut GameState, rng: &mut Rng) -> Vec<(u16, crate::wormhole::Gift)> {
+    use crate::message::{fleet_name_word, fleet_object, id, Message};
+    use crate::wormhole::{part, tech_levels, Gift, TRADE_GOODS};
+
+    let Some(trader) = state.trader.as_ref() else {
+        return Vec::new();
+    };
+    let at = trader.position;
+    let carried = trader.part;
+    let mut done = Vec::new();
+
+    for index in 0..state.fleets.len() {
+        let fleet = &state.fleets[index];
+        if fleet.stacks.is_empty() || fleet.position != at {
+            continue;
+        }
+        let Ok(owner) = usize::try_from(fleet.owner) else {
+            continue;
+        };
+        if state.players.len() <= owner {
+            continue;
+        }
+        let fleet_id = fleet.id;
+        let object = fleet_object(fleet_id);
+        let cargo: i32 = fleet.cargo.minerals.iter().sum();
+
+        if cargo < TRADE_GOODS {
+            // `fHereAllTurn`: a fleet that has been sitting here is not told
+            // again. This engine records a fleet that moved by leaving its
+            // warp set, which is the test remote mining and mine laying make.
+            if fleet.warp.is_some() {
+                state.messages.push(Message {
+                    player: owner,
+                    id: id::TRADER_REFUSED,
+                    object,
+                    params: vec![fleet_id as i16, 0],
+                });
+                done.push((fleet_id, Gift::Refused));
+            }
+            continue;
+        }
+
+        let bit = 1u16 << (owner & 0x0F);
+        let met = state
+            .trader
+            .as_ref()
+            .is_some_and(|t| t.detected_by & bit != 0);
+        if met {
+            state.messages.push(Message {
+                player: owner,
+                id: id::TRADER_ALREADY_MET,
+                object,
+                params: vec![fleet_id as i16, 0],
+            });
+            done.push((fleet_id, Gift::AlreadyMet));
+            continue;
+        }
+
+        // From here the trade happens: the Trader marks the player off, and
+        // the fleet is gone. A message about a fleet that no longer exists
+        // names it rather than pointing at it.
+        if let Some(trader) = state.trader.as_mut() {
+            trader.detected_by |= bit;
+        }
+        let (design, mixed) = primary_design(&state.fleets[index]);
+        let named = fleet_name_word(fleet_id, design, mixed);
+        // `FRemovePlayerMessage`: a fleet the Trader has taken did not finish
+        // its orders, whatever the movement pass concluded.
+        state
+            .messages
+            .retain(|m| !(m.player == owner && m.id == id::ORDERS_COMPLETE && m.object == object));
+        let fleet = &mut state.fleets[index];
+        fleet.stacks.clear();
+        fleet.cargo = crate::fleet::Cargo::default();
+        fleet.waypoints.clear();
+
+        let player = &state.players[owner];
+        let held = player.trader_parts;
+        // A shareware game stops at level 10 where a registered one goes to 26.
+        let cap = if player.crippled { 10 } else { 26 };
+        let levels: i16 = player.research.levels.iter().map(|l| i16::from(*l)).sum();
+        let maxed = player.research.levels.iter().all(|l| i16::from(*l) >= cap);
+
+        // The Trader's own cargo first: a part this player has not had.
+        let has_new_part = carried != 0 && carried & held == 0;
+        if !has_new_part && !maxed {
+            // Nothing to hand over, but there is still research to buy.
+            let count = tech_levels(cargo, levels);
+            let message = if held & part::ALL == part::ALL {
+                id::TRADER_GAVE_TECH_AGAIN
+            } else {
+                id::TRADER_GAVE_TECH
+            };
+            state.messages.push(Message {
+                player: owner,
+                id: message,
+                object: -1,
+                params: vec![named, count],
+            });
+            let mut given = 0;
+            for _ in 0..count {
+                let player = &mut state.players[owner];
+                // Three years in four a field at random, otherwise — and
+                // whenever that field is already at the ceiling — the one the
+                // player is furthest behind in.
+                let mut field = usize::from(rng.random(6).unsigned_abs()).min(5);
+                if rng.random(4) >= 3 || i16::from(player.research.levels[field]) >= cap {
+                    field = (0..6)
+                        .min_by_key(|f| player.research.levels[*f])
+                        .unwrap_or(0);
+                    if i16::from(player.research.levels[field]) >= cap {
+                        break;
+                    }
+                }
+                let race = player.race.clone();
+                crate::research::grant_level(&mut player.research, &race, state.slow_tech, field);
+                given += 1;
+            }
+            done.push((fleet_id, Gift::Tech(given)));
+            continue;
+        }
+        if !has_new_part {
+            // Everything researched. One year in five the Trader finds
+            // something in the hold after all.
+            if rng.random(5) != 0 {
+                state.messages.push(Message {
+                    player: owner,
+                    id: id::TRADER_GAVE_NOTHING,
+                    object: -1,
+                    params: vec![named, 0],
+                });
+                done.push((fleet_id, Gift::Nothing));
+                continue;
+            }
+        }
+
+        // Pick a part. The Trader's own, if the player has not had it;
+        // otherwise up to twenty-five draws for one they have not.
+        let mut giving = carried;
+        if giving == 0 {
+            giving = 1 << rng.random(13);
+        }
+        let mut tries = 25;
+        while giving & held != 0 && tries > 0 {
+            tries -= 1;
+            giving = 1 << rng.random(13);
+        }
+        if tries <= 0 {
+            giving = part::LIFEBOAT;
+        }
+
+        if giving == part::LIFEBOAT {
+            // A ship, which this engine cannot build: it needs the game's own
+            // Mystery Trader hulls.
+            done.push((fleet_id, Gift::Ship));
+            continue;
+        }
+
+        state.players[owner].trader_parts |= giving;
+        let (message, item) = crate::wormhole::part_gift(giving);
+        state.messages.push(Message {
+            player: owner,
+            id: message,
+            object: item as i16,
+            params: vec![named, 0],
+        });
+        done.push((fleet_id, Gift::Part(giving)));
+    }
+
+    done
+}
+
 /// Let the wormholes wander.
 ///
 /// `MoveThings` (`10b0:194c`), after production. Each end rolls against
@@ -1176,7 +1460,7 @@ fn move_wormholes(state: &mut GameState, rng: &mut Rng) -> Vec<u16> {
     jumped
 }
 
-/// The lowest fleet number a player is not already using./// The lowest fleet number a player is not already using./// The lowest fleet number a player is not already using.
+/// The lowest fleet number a player is not already using.
 ///
 /// Fleet numbers are per player and are reused once a fleet is gone, which is
 /// why this looks for the first gap rather than counting.
@@ -1326,7 +1610,13 @@ fn move_fleet(fleet: &mut Fleet, designs: &[crate::design::ShipDesign], ife: boo
     if to == target {
         // Arrived: this waypoint is done with, and the fleet is orbiting
         // whatever it named.
-        fleet.orbiting = fleet.waypoints.get(1).and_then(|w| w.target);
+        // A waypoint aimed at a `THING` — a wormhole, say — names no planet,
+        // so arriving at one leaves the fleet in deep space.
+        fleet.orbiting = fleet
+            .waypoints
+            .get(1)
+            .filter(|w| w.target_class != 8)
+            .and_then(|w| w.target);
         if !fleet.waypoints.is_empty() {
             fleet.waypoints.remove(0);
         }

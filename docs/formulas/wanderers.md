@@ -1,7 +1,8 @@
 # Wormholes and the Mystery Trader
 
-Status: **carried, moved and checked as far as the fixtures allow.** Wormhole
-traversal and the Trader's arrival and trading are not modelled.
+Status: **carried, moved, travelled and traded with, as far as the fixtures
+allow.** The Trader's arrival, and the ship it gives when it has nothing else
+left, are not modelled.
 
 Two things in a Stars! galaxy move without anybody ordering them to. Both are
 `THING`s ([`thing.md`](../formats/thing.md)) and both are now in the model:
@@ -36,6 +37,35 @@ stops a pair collapsing into one corner, which would make it useless.
 A jump also **forgets who had seen it**: `grbitPlr` is cleared, so everyone has
 to find it again.
 
+### Going through
+
+A fleet is ordered to a wormhole by naming it as a waypoint target — `grobj` 8,
+a `THING` rather than a planet. When it **arrives**, `MoveFleets`
+(`10b0:4ce4`) takes it out of the far end:
+
+```
+fleet.pt        = partner.pt      the fleet is at the other end of the galaxy
+waypoint.pt     = partner.pt      and its orders follow it there
+near.grbitPlrTrav |= player
+far.grbitPlrTrav  |= player       both ends remember the traveller
+far.grbitPlr      |= player       and the far end is now in view
+```
+
+The two masks are easy to mistake for one another, and the field names invite
+it. What our binary does with them:
+
+| Field | Set by | Cleared by |
+|-------|--------|------------|
+| `grbitPlr` (+2) | a scanner in range (`SetVisPFPlanets`, `1070:abde`), and coming out of this end | a jump |
+| `grbitPlrTrav` (+4) | going through, at **both** ends | never |
+
+So `grbitPlr` is who can see it *now* and `grbitPlrTrav` is who has ever been
+through it. The community reconstruction has the scanner setting `grbitPlrTrav`
+instead; `SetVisPFPlanets` in our binary sets `grbitPlr`, and the fixtures
+agree — of the 1,309 ends that record somebody having been through them, **713
+are not in that traveller's view now**, which could not happen if one mask
+implied the other.
+
 ## The Mystery Trader
 
 The Trader crosses the galaxy at speed, and one year in twenty-five it changes
@@ -43,8 +73,53 @@ its mind (`10b0:1af7`): it always **speeds up** by a warp factor, and one time
 in three it also picks a new destination somewhere on the **edge** of the map.
 Then it covers the square of its warp toward wherever it is going.
 
-Meeting it is the point of it — a fleet that intercepts trades minerals for
-technology (`IdmGiveTraderPart`, `1110:1a96`) — and none of that is modelled.
+### Trading with it
+
+Meeting it is the point of it. `DoThingInteractions(1)` (`1110:0b3a`) runs
+after movement and considers every fleet that has come to rest **exactly** on
+the Trader.
+
+A fleet carrying fewer than **5,000 kT** of ironium, boranium and germanium
+between them is turned away, and told so on the year it arrives (`fHereAllTurn`
+suppresses the repeat). A fleet carrying enough is **kept** — the Trader
+absorbs it, ships and cargo alike — and in exchange the player gets one of:
+
+1. **The technology the Trader is carrying**, if they do not already have it.
+   That is `THTRADER.grbitTrader`: a single one of thirteen `GrbitTrader` bits,
+   *not* a player mask, despite sitting next to one. Across the 859 Trader
+   records in the fixtures it is always `0` or a single bit.
+   `IdmGiveTraderPart` (`1110:1a96`) sets the player's bit and picks the
+   message, with its own wording for a hull and for the Genesis Device.
+2. **Technology levels**, otherwise:
+
+   ```
+   levels = (cargo − 5000) / 1200 + 6            capped at 10
+   then, by the sum of the player's six levels:
+       ≥ 108 → 1     ≥ 96 → 2     ≥ 84 → −3     ≥ 72 → −2     ≥ 60 → −1
+   ```
+
+   Each level goes three times in four to a field picked at random and
+   otherwise — and whenever that field is already at the ceiling — to the field
+   the player is furthest behind in. The ceiling is 26, or **10 in a shareware
+   game** (`PLAYER.fCrippled`).
+
+   A level is not written down but **paid for** (`1110:10e3`): the field's
+   accumulated research is doubled and the outstanding cost of the next level
+   added, which comes to `cost + spent` — so the level always lands and the
+   player's part-finished research survives it.
+3. **Nothing**, for a player who has already researched everything: one year in
+   five the Trader finds a part in the hold after all, and the rest of the time
+   it has nothing to give.
+
+Each Trader trades **once** with each player; `grbitPlr` is what records it, so
+the mask that says who can see it also says who has already been.
+
+When the part drawn is one the player already holds, the Trader draws again, up
+to twenty-five times. If all twenty-five come back held, the result is
+`grbitTraderLifeboat` — which is not a part at all but a **ship**, taken from
+the game's own Mystery Trader hull designs. That is the one branch this engine
+does not carry: it is reported as
+`SkippedStep::TraderShip` rather than quietly turned into something else.
 
 ## What is verified
 
@@ -55,6 +130,12 @@ technology (`IdmGiveTraderPart`, `1110:1a96`) — and none of that is modelled.
   looks like.
 - **527 of 547 Trader-years** flew the modelled distance: the square of its
   warp, before or after the speed-up.
+- **1,309 wormhole ends that somebody has been through**, 728 of them with both
+  halves in the same file, and in every one of those the traveller is recorded
+  at both ends — which is what `MoveFleets` guarantees. 713 of the 1,309 are no
+  longer in the traveller's view, which is how the two masks were told apart.
+- **859 Trader records**, every one carrying a single `GrbitTrader` bit or
+  nothing: the field is a technology, not a player mask.
 
 The twenty that did not are the Trader's own doing. In each, its warp went
 **down** and its destination changed — and the course change only ever speeds it
@@ -66,17 +147,32 @@ Movement itself cannot be checked exactly for wormholes: where one jumps is a
 hundred dice rolls deep, and reproducing it would need the original's random
 stream in the same state.
 
+Neither trading nor traversal can be checked against the fixtures directly:
+both need two consecutive years in which the event happens, and no captured
+game has one. They are checked against the binary, and by construction in
+`crates/stars-core/tests/trading.rs`.
+
 ## Not modelled
 
-- **Going through a wormhole.** A fleet can be sent to one, but it comes out
-  nowhere: the far end is not applied.
-- **The Trader's arrival**, its departure, and trading with it.
-- Wormhole **visibility**: who can see an end is carried through a file and
-  cleared on a jump, but not recomputed from anybody's scanners.
+- **The ship the Trader gives** when every part has already been handed over.
+  It needs the game's own Mystery Trader hull designs and a free design slot;
+  the turn reports `SkippedStep::TraderShip` when the case comes up.
+- **The Trader's arrival** at its destination, and its departure.
+- **The AI's shortcut** (`1110:1631`): an AI player of level 2 or better with a
+  starbase planet within 100 light years of the Trader gets the same goods for
+  free, paid for out of the planet's surface minerals, without sending a fleet.
+- Wormhole **visibility**: who can see an end is carried through a file, set by
+  traversal and cleared on a jump, but not recomputed from anybody's scanners.
+- `NoAutoTrackFleet`: the original stops a fleet auto-tracking the wormhole it
+  has just used. This engine does not model auto-tracking at all.
 
 ## Source
 
 - `MoveThings` `10b0:18f4` — the wormhole arm at `10b0:194c`, the Trader's at
   `10b0:1af7`.
 - `PctWormholeMoves` `1110:0adc`, `IValidateWormholePos` `1110:064c`.
+- `MoveFleets` `10b0:4ce4` — the wormhole traversal check.
+- `DoThingInteractions` `1110:0b3a`, `IdmGiveTraderPart` `1110:1a96`,
+  `WFromLpfl` `1038:2b10`, `CostOfDevelopingItem` (research).
+- `PLAYER.grbitTrader` at offset `0x52`, `PLAYER.fCrippled` at `0x54` bit 1.
 - The records: `docs/formats/thing.md`, `THWORM` and `THTRADER`.

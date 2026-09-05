@@ -127,6 +127,14 @@ pub struct PlayerRecord {
     /// carry one and the same non-zero value — the exodus games were all set up
     /// with one password — and the other 71 carry `0`.
     pub password: Option<u32>,
+    /// Which Mystery Trader technologies this player has already been given
+    /// (`PLAYER.grbitTrader`, offset `0x52`), as a mask of the thirteen
+    /// `GrbitTrader` bits. Present only when [`full_data`](Self::full_data) is
+    /// set.
+    ///
+    /// The Trader will not hand over the same part twice, so this is what it
+    /// checks; see `stars_core::wormhole::part`.
+    pub trader_parts: Option<u16>,
     /// The fixed region of the block exactly as read: the whole 112-byte
     /// player/race struct for a full record, or the 8-byte header for a short
     /// one.
@@ -151,6 +159,9 @@ pub const HOME_PLANET_OFFSET: usize = 8;
 /// Zero for a human player; the computer players in the fixtures all carry
 /// `0x094DABEE`, the constant `GenerateWorld` writes.
 pub const SALT_OFFSET: usize = 12;
+
+/// Offset of the Mystery Trader gift mask (`PLAYER.grbitTrader`), 16 bits.
+pub const TRADER_PARTS_OFFSET: usize = 0x52;
 
 impl PlayerRecord {
     /// Decode a **decrypted** type-6 player block payload.
@@ -214,6 +225,12 @@ impl PlayerRecord {
                     .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
             })
             .flatten();
+        let trader_parts = full_data
+            .then(|| {
+                data.get(TRADER_PARTS_OFFSET..TRADER_PARTS_OFFSET + 2)
+                    .map(|b| u16::from_le_bytes([b[0], b[1]]))
+            })
+            .flatten();
         let default_queue = full_data
             .then(|| {
                 data.get(crate::production::DEFAULT_QUEUE_OFFSET..)
@@ -256,6 +273,7 @@ impl PlayerRecord {
             research,
             default_queue,
             password,
+            trader_parts,
             fixed,
             trailing,
         })
@@ -301,6 +319,12 @@ impl PlayerRecord {
                 let at = crate::password::PASSWORD_OFFSET;
                 if out.len() >= at + 4 {
                     out[at..at + 4].copy_from_slice(&password.to_le_bytes());
+                }
+            }
+            if let Some(parts) = self.trader_parts {
+                let at = TRADER_PARTS_OFFSET;
+                if out.len() >= at + 2 {
+                    out[at..at + 2].copy_from_slice(&parts.to_le_bytes());
                 }
             }
             if let Some(queue) = &self.default_queue {

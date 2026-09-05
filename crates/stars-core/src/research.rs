@@ -230,6 +230,36 @@ fn spend_research(research: &mut Research, race: &Race, slow_tech: bool) -> Vec<
     gained
 }
 
+/// Hand a player a level in one field outright, keeping their progress.
+///
+/// The Mystery Trader gives technology, and `DoThingInteractions`
+/// (`1110:10e3`) does it by paying for it rather than by writing a level down:
+/// it **doubles** what the field has already accumulated and adds what
+/// `CostOfDevelopingItem` (`research.c`) says is still owed — the cost of the
+/// next level less what is already spent. The two together come to exactly
+/// `cost + spent`, so the level always lands and the player's part-finished
+/// research survives it, which is the whole reason for the doubling.
+///
+/// Returns every level the payment bought, which is normally one.
+pub fn grant_level(
+    research: &mut Research,
+    race: &Race,
+    slow_tech: bool,
+    field: usize,
+) -> Vec<Breakthrough> {
+    let field = field.min(TECH_FIELDS - 1);
+    if research.levels[field] >= MAX_TECH_LEVEL {
+        return Vec::new();
+    }
+    let spent = research.points[field];
+    let cost = tech_level_cost(field, research.levels[field] + 1, research, race, slow_tech);
+    // `CostOfDevelopingItem` counts the spending twice over under "slower tech
+    // advances", which is what costs such a game its part-finished level.
+    let already = if slow_tech { spent * 2 } else { spent };
+    research.points[field] = spent * 2 + (cost - already).max(0);
+    spend_research(research, race, slow_tech)
+}
+
 /// The field to move to after completing a level in the current one, or `None`
 /// to stay put.
 fn switch_target(research: &Research) -> Option<usize> {
@@ -272,4 +302,26 @@ pub fn super_stealth_gain(
         }
     }
     gain
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A level the Mystery Trader gives is paid for, not written down — and the
+    /// payment is arranged so that part-finished research survives it.
+    #[test]
+    fn a_granted_level_keeps_what_was_already_spent() {
+        let race = Race::humanoid();
+        let mut research = Research::default();
+        let cost = tech_level_cost(0, 1, &research, &race, false);
+        // Half way to the first level in energy.
+        research.points[0] = cost / 2;
+
+        let gained = grant_level(&mut research, &race, false, 0);
+        assert_eq!(gained.len(), 1);
+        assert_eq!(research.levels[0], 1);
+        // The half-level of progress is still there afterwards.
+        assert_eq!(research.points[0], cost / 2);
+    }
 }

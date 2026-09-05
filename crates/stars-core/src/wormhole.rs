@@ -48,10 +48,16 @@ pub struct MysteryTrader {
     pub warp: u8,
     /// Whether the player's view includes it.
     pub include: bool,
-    /// Who has seen it.
+    /// Who has seen it — and, once they have traded, met it (`grbitPlr`).
+    ///
+    /// One mask serves for both: `DoThingInteractions` marks a player here the
+    /// moment their fleet reaches the Trader, and the same bit is what stops
+    /// them trading twice.
     pub detected_by: u16,
-    /// Who has traded with it.
-    pub met_by: u16,
+    /// Which single technology this Trader carries (`grbitTrader`), one of the
+    /// [`part`] bits, or `0` for one that carries nothing in particular and
+    /// gives research instead.
+    pub part: u16,
     /// The turn stamp the record carries.
     pub turn: u16,
 }
@@ -62,6 +68,121 @@ impl MysteryTrader {
     pub fn range(&self) -> i32 {
         i32::from(self.warp) * i32::from(self.warp)
     }
+}
+
+/// What came of one fleet meeting the Mystery Trader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Gift {
+    /// The fleet was not carrying enough to be worth talking to.
+    Refused,
+    /// This player has already traded with this Trader.
+    AlreadyMet,
+    /// The fleet was absorbed and the player given this many technology
+    /// levels.
+    Tech(i16),
+    /// The fleet was absorbed and the player given this [`part`].
+    Part(u16),
+    /// The fleet was absorbed and there was nothing left to give.
+    Nothing,
+    /// The Trader would have given a ship. **Not modelled** — see
+    /// `docs/formulas/wanderers.md`.
+    Ship,
+}
+
+/// The thirteen things the Mystery Trader has to give (`GrbitTrader`).
+///
+/// A Trader carries at most one of them, in [`MysteryTrader::part`], and a
+/// player's own mask of the ones they have already been given lives in
+/// [`crate::Player::trader_parts`]. The Trader never gives the same one twice.
+pub mod part {
+    /// A cargo pod.
+    pub const CARGO: u16 = 0x0001;
+    /// A special-purpose device.
+    pub const SPECIAL: u16 = 0x0002;
+    /// A shield.
+    pub const SHIELD: u16 = 0x0004;
+    /// Armour.
+    pub const ARMOR: u16 = 0x0008;
+    /// A mining robot.
+    pub const MINER: u16 = 0x0010;
+    /// A bomb.
+    pub const BOMB: u16 = 0x0020;
+    /// A torpedo.
+    pub const TORP: u16 = 0x0040;
+    /// A beam weapon.
+    pub const BEAM: u16 = 0x0080;
+    /// A hull.
+    pub const HULL: u16 = 0x0100;
+    /// An engine.
+    pub const ENGINE: u16 = 0x0200;
+    /// The Genesis Device.
+    pub const GENESIS: u16 = 0x0400;
+    /// A jump gate.
+    pub const JUMPGATE: u16 = 0x0800;
+    /// Not a part at all: the Trader gives a **ship** instead. Reached only
+    /// when every part has already been given away.
+    pub const LIFEBOAT: u16 = 0x1000;
+    /// All thirteen bits, which is what "you have had everything" tests
+    /// against.
+    pub const ALL: u16 = 0x1FFF;
+}
+
+/// What handing over one part amounts to: a message and the item it unlocks.
+///
+/// `IdmGiveTraderPart` (`1110:1a96`) does two things — it sets the player's bit
+/// and it picks the message. The second value is the item word the message
+/// carries so the player can be shown *what* they were given: a category byte
+/// (`0xC0` engine, `0xC2` shield, `0xC3` armour, `0xC4` beam, `0xC5` torpedo,
+/// `0xC6` bomb, `0xC7` mining robot, `0xCB` special, `0xCC` cargo/jump gate,
+/// `0xCE` hull, `0xCF` Genesis) and an index within it.
+#[must_use]
+pub fn part_gift(part: u16) -> (u16, u16) {
+    match part {
+        part::SPECIAL => (crate::message::id::TRADER_GAVE_PART, 0xCB04),
+        part::SHIELD => (crate::message::id::TRADER_GAVE_PART, 0xC206),
+        part::ARMOR => (crate::message::id::TRADER_GAVE_PART, 0xC309),
+        part::MINER => (crate::message::id::TRADER_GAVE_PART, 0xC706),
+        part::BOMB => (crate::message::id::TRADER_GAVE_PART, 0xC608),
+        part::TORP => (crate::message::id::TRADER_GAVE_PART, 0xC507),
+        part::BEAM => (crate::message::id::TRADER_GAVE_PART, 0xC412),
+        part::ENGINE => (crate::message::id::TRADER_GAVE_PART, 0xC008),
+        part::JUMPGATE => (crate::message::id::TRADER_GAVE_PART, 0xCC09),
+        // A hull and the Genesis Device get their own wording.
+        part::HULL => (crate::message::id::TRADER_GAVE_HULL, 0xCE1E),
+        part::GENESIS => (crate::message::id::TRADER_GAVE_GENESIS, 0xCF0E),
+        // Cargo pods, and anything unrecognised, fall through to the same
+        // default the original ends on.
+        _ => (crate::message::id::TRADER_GAVE_PART, 0xCC04),
+    }
+}
+
+/// What a fleet must carry, in kilotons of minerals, to be worth talking to.
+pub const TRADE_GOODS: i32 = 5_000;
+
+/// How many technology levels the Trader gives for a load of minerals.
+///
+/// `DoThingInteractions` (`1110:0e63`): six levels for the five thousand
+/// kilotons that buy an audience at all, and one more for every twelve hundred
+/// on top, up to ten. Then the ladder takes most of it back off again from
+/// anyone who is already advanced — a player with a hundred and eight levels
+/// between the six fields gets exactly one, however much they brought.
+///
+/// `tech_total` is the sum of the player's six levels.
+#[must_use]
+pub fn tech_levels(cargo: i32, tech_total: i16) -> i16 {
+    let mut levels = i16::try_from(((cargo - TRADE_GOODS) / 1_200).clamp(0, 4)).unwrap_or(4) + 6;
+    if tech_total >= 108 {
+        levels = 1;
+    } else if tech_total >= 96 {
+        levels = 2;
+    } else if tech_total >= 84 {
+        levels -= 3;
+    } else if tech_total >= 72 {
+        levels -= 2;
+    } else if tech_total >= 60 {
+        levels -= 1;
+    }
+    levels
 }
 
 /// The chance, in per cent, that a wormhole jumps this year.
@@ -159,6 +280,49 @@ pub fn position_score(
 mod tests {
     use super::*;
 
+    /// The ladder takes most of the Trader's generosity back off anyone who is
+    /// already advanced.
+    #[test]
+    fn technology_is_worth_more_to_a_backward_race() {
+        // Five thousand kilotons buys the audience and six levels with it;
+        // every twelve hundred beyond that buys one more, to ten.
+        assert_eq!(tech_levels(5_000, 0), 6);
+        assert_eq!(tech_levels(6_200, 0), 7);
+        assert_eq!(tech_levels(10_000, 0), 10);
+        assert_eq!(tech_levels(100_000, 0), 10);
+        // And then the ladder. Sixty levels between the six fields costs one,
+        // seventy-two costs two, eighty-four costs three...
+        assert_eq!(tech_levels(5_000, 59), 6);
+        assert_eq!(tech_levels(5_000, 60), 5);
+        assert_eq!(tech_levels(5_000, 72), 4);
+        assert_eq!(tech_levels(5_000, 84), 3);
+        // ...and beyond that the load of minerals stops mattering at all.
+        assert_eq!(tech_levels(100_000, 96), 2);
+        assert_eq!(tech_levels(100_000, 108), 1);
+    }
+
+    /// Each part carries its own message and names its own item.
+    #[test]
+    fn a_hull_and_a_genesis_device_are_announced_differently() {
+        assert_eq!(
+            part_gift(part::BEAM),
+            (crate::message::id::TRADER_GAVE_PART, 0xC412)
+        );
+        assert_eq!(
+            part_gift(part::HULL),
+            (crate::message::id::TRADER_GAVE_HULL, 0xCE1E)
+        );
+        assert_eq!(
+            part_gift(part::GENESIS),
+            (crate::message::id::TRADER_GAVE_GENESIS, 0xCF0E)
+        );
+        // Cargo pods share the fall-through the original ends on.
+        assert_eq!(
+            part_gift(part::CARGO),
+            (crate::message::id::TRADER_GAVE_PART, 0xCC04)
+        );
+    }
+
     /// A wormhole has to sit still for years before it is likely to move, and
     /// even then it is a one-in-sixteen sort of chance at best.
     #[test]
@@ -233,7 +397,7 @@ mod tests {
             warp: 9,
             include: true,
             detected_by: 0,
-            met_by: 0,
+            part: 0,
             turn: 0,
         };
         assert_eq!(trader.range(), 81);
