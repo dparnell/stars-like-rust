@@ -39,6 +39,7 @@ Layout recovered from the stars-4x `starsapi` project (`PlayerBlock.java`).
 | Offset      | Field                                                       |
 |-------------|-------------------------------------------------------------|
 | 8 .. 0x70   | 0x68-byte race struct (see `race-r.md`; same absolute offsets) |
+| 12 .. 16    | the turn password's **salt** (inside the race struct's span; `0` = none) |
 | 0x70        | player-relations length `n`                                 |
 | 0x71 .. +n  | player-relations table (`0` neutral, `1` friend, `2` enemy) |
 | then        | packed singular name field (`[len][packed]`)                |
@@ -62,6 +63,15 @@ header.
   human/AI + submission-state field.
 - The `planets` field reads 128 for the host's player 0 (the full galaxy); its
   exact semantics per player/file-type still need confirming across saves.
+
+## The turn password (offset 12)
+
+Four bytes: a 32-bit fold of the typed password, not the password. Written here
+and carried by the `rtChgPassword` order record, which is the same four bytes —
+see [`orders-x.md`](orders-x.md#turn-password-rtchgpassword-id-36) for the fold,
+the replay arm and what the field is worth. 6,969 of the 7,040 full player
+blocks in the fixtures carry one and the same non-zero salt; the other 71 carry
+`0`.
 
 ## The default production queue (`PLAYER.zpq1`, offsets 86-111)
 

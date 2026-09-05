@@ -68,6 +68,8 @@ pub enum LogRecordType {
     PlanetProdQueue,
     /// Define or delete one of the player's battle plans (`rtBtlPlan`, 30).
     BattlePlan,
+    /// Change the player's turn password (`rtChgPassword`, 36).
+    ChangePassword,
     /// Research settings (`rtLogResearch`, 34).
     Research,
     /// Planet routing / starbase / infrastructure bits (`rtLogPlanetRouting`, 35).
@@ -108,6 +110,7 @@ impl LogRecordType {
             27 => Self::ShipDesign,
             29 => Self::PlanetProdQueue,
             30 => Self::BattlePlan,
+            36 => Self::ChangePassword,
             34 => Self::Research,
             35 => Self::PlanetRouting,
             37 => Self::FleetMerge,
@@ -139,6 +142,7 @@ impl LogRecordType {
             Self::ShipDesign => 27,
             Self::PlanetProdQueue => 29,
             Self::BattlePlan => 30,
+            Self::ChangePassword => 36,
             Self::Research => 34,
             Self::PlanetRouting => 35,
             Self::FleetMerge => 37,
@@ -807,6 +811,45 @@ impl BattlePlanChange {
     }
 }
 
+/// A decoded password change (`rtChgPassword`, type id 36).
+///
+/// `{ int32_t lSalt; }` — four bytes, and nothing else: Stars! stores a
+/// checksum of the typed password rather than the password, and this record
+/// carries the same value the player block holds at
+/// [`PASSWORD_OFFSET`](crate::PASSWORD_OFFSET). `0` means the password was
+/// cleared. See [`crate::password`] for how the value is derived and what it
+/// is worth.
+///
+/// Written by `NewPasswordDlg` (`1040:5ec7`) — but only when a player's game is
+/// open. Asked the same question with no game loaded, the dialog is setting the
+/// **host's** password and stores it in a global instead of logging anything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PasswordChange {
+    /// The salt of the new password; `0` for none.
+    pub salt: u32,
+}
+
+impl PasswordChange {
+    /// Decode a **decrypted** type-36 payload.
+    ///
+    /// Returns `None` if the payload is shorter than 4 bytes.
+    #[must_use]
+    pub fn decode(data: &[u8]) -> Option<Self> {
+        if data.len() < 4 {
+            return None;
+        }
+        Some(Self {
+            salt: u32::from_le_bytes([data[0], data[1], data[2], data[3]]),
+        })
+    }
+
+    /// Re-encode this operation as a type-36 payload.
+    #[must_use]
+    pub fn encode(&self) -> [u8; 4] {
+        self.salt.to_le_bytes()
+    }
+}
+
 /// A decoded player-relations operation (`rtLogRelations`, type id 38).
 ///
 /// One byte per player in the game — `0` neutral, `1` friend, `2` enemy — which
@@ -1182,6 +1225,14 @@ impl LogRecord {
             .flatten()
     }
 
+    /// Decode this record as a password change.
+    #[must_use]
+    pub fn as_password_change(&self) -> Option<PasswordChange> {
+        (self.record_type == LogRecordType::ChangePassword)
+            .then(|| PasswordChange::decode(&self.data))
+            .flatten()
+    }
+
     /// Decode this record as a player-relations change.
     #[must_use]
     pub fn as_relations(&self) -> Option<Relations> {
@@ -1299,6 +1350,12 @@ impl LogRecord {
     /// Propagates [`BattlePlanChange::encode`].
     pub fn battle_plan(change: &BattlePlanChange) -> Result<Self> {
         Ok(Self::raw(LogRecordType::BattlePlan, change.encode()?))
+    }
+
+    /// Change the player's turn password.
+    #[must_use]
+    pub fn change_password(change: PasswordChange) -> Self {
+        Self::raw(LogRecordType::ChangePassword, change.encode().to_vec())
     }
 
     /// Set how the player regards everyone.

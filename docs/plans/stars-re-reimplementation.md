@@ -798,7 +798,29 @@ disagree.
     `rtChgPassword` (36) as the only operation a client can log that this
     project does not model.
 
-20. **What is still missing to call it playable.** The waypoint tasks beyond
+20. ~~**The turn password (`rtChgPassword`, 36).**~~ **Done, and with it every
+    operation a 2.7j client can log.** Stars! stores no password: it stores a
+    32-bit fold of the typed text (`LSaltFromSz`, `1040:59ce`) at offset 12 of
+    the player block — the field `race-r.md` had already named from an
+    independent source — and compares salts when asked for it again. The order
+    record is those same four bytes, `0` meaning cleared.
+
+    `Player` carries the salt, the loader and both writers move it, the replay
+    arm (`1048:c65c`) applies it, and the player screen sets and clears it. The
+    text never leaves the text box: only its salt reaches the game, the file and
+    the log, which is exactly what the original does.
+
+    Two things worth writing down. The corpus pins the *field* but not the
+    *fold*: 6,969 of the 7,040 full player blocks carry one and the same
+    non-zero salt — the exodus games were set up with a single password — and
+    the other 71 carry `0`, so `0` = none is confirmed while the transcription
+    of `LSaltFromSz` rests on the disassembly alone. And the fold is a
+    checksum, not a password hash; it was never more than a way to stop the
+    other players in a play-by-mail game opening each other's turns by accident.
+    This project stores what the game stores and offers no way back the other
+    way, because the game itself only ever compares salts.
+
+21. **What is still missing to call it playable.** The waypoint tasks beyond
     colonise, transport and remote mining (scrap, lay minefield, patrol, route,
     transfer) can be set but are not simulated; a loaded state file cannot carry
     structural fleet changes back (the game does not either — the order log

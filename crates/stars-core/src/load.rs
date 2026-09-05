@@ -326,6 +326,7 @@ impl GameState {
                         player.default_queue = queue;
                     }
                     player.control = crate::ai::Control::from_flags(record.flags_byte);
+                    player.password = record.password.unwrap_or(0);
                     player.relations.clone_from(&record.player_relations);
                     player.research_pct = race.research_percentage;
                     if let Some(research) = record.research {

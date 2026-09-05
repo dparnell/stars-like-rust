@@ -52,7 +52,7 @@ variant.
 | 33 | `rtMsgFilt` | `MessagesFilter` | message filter bitfield |
 | 34 | `rtLogResearch` | `ResearchChange` | order: research settings |
 | 35 | `rtLogPlanetRouting` | `PlanetChange` | order: planet routing/starbase/infra |
-| 36 | `rtChgPassword` | `ChangePassword` | order: change password |
+| 36 | `rtChgPassword` | `ChangePassword` | order: change turn password (4 bytes: the salt) |
 | 37 | `rtLogFleetMerge` | `Other(37)` | order: merge fleets |
 | 38 | `rtLogRelations` | `Other(38)` | order: change player relations |
 | 39 | `rtContinue` | `Other(39)` | battle continuation — **decoded**, see `battle.md` |

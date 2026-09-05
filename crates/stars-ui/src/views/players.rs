@@ -115,6 +115,8 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     let mut default_queue: Option<stars_formats::DefaultQueue> = None;
     let mut plan_edit: Option<(usize, stars_formats::BattlePlanRecord)> = None;
     let mut plan_delete: Option<usize> = None;
+    let mut password: Option<String> = None;
+    let mut password_box = app.password_box.clone();
     let me = app.local_player();
 
     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -212,6 +214,31 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                         });
                         ui.end_row();
 
+                        // The turn password. What is kept is a checksum of
+                        // the typed text, which is all the game ever kept —
+                        // enough to stop another player in a play-by-mail game
+                        // opening this turn by accident, and no more than that.
+                        ui.label("turn password");
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut password_box)
+                                    .password(true)
+                                    .hint_text(if player.password == 0 {
+                                        "none set"
+                                    } else {
+                                        "one is set"
+                                    })
+                                    .desired_width(120.0),
+                            );
+                            if ui.button("set").clicked() {
+                                password = Some(password_box.clone());
+                            }
+                            if player.password != 0 && ui.button("clear").clicked() {
+                                password = Some(String::new());
+                            }
+                        });
+                        ui.end_row();
+
                         // The player whose orders this session records is the
                         // only one whose relations it may change, because the
                         // order carries that player's own table.
@@ -259,6 +286,11 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         }
     });
 
+    if let Some(text) = password {
+        app.set_password(&text);
+        password_box.clear();
+    }
+    app.password_box = password_box;
     if let Some((slot, plan)) = plan_edit {
         app.set_battle_plan_definition(slot, &plan);
     }

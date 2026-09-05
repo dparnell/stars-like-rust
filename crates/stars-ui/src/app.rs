@@ -156,6 +156,9 @@ pub struct App {
     pub warp: u8,
     /// The name the fleet screen's rename box holds.
     pub fleet_name: String,
+    /// What the player screen's password box holds. Never saved anywhere: only
+    /// its salt reaches the game, the file and the order log.
+    pub password_box: String,
     /// The order log for this turn, in the order the player made the moves.
     ///
     /// A Stars! order log is **not** a list of intentions: it records what the
@@ -481,8 +484,8 @@ impl App {
     /// into it, or `None` for anyone else's block.
     ///
     /// Decoded and re-encoded rather than rebuilt, so the whole fixed region —
-    /// the home planet, the salt, the four bytes nothing has identified —
-    /// survives untouched.
+    /// the home planet, the player rank, the four bytes nothing has identified
+    /// — survives untouched.
     fn patched_player(&self, game: &GameState, data: &[u8]) -> Option<Vec<u8>> {
         let mut record = stars_formats::PlayerRecord::from_payload(data).ok()?;
         let index = usize::from(record.player_number);
@@ -495,6 +498,7 @@ impl App {
             research.budget_pct = player.research_pct;
         }
         record.player_relations = player.relations.clone();
+        record.password = Some(player.password);
         record.encode().ok()
     }
 
@@ -1378,6 +1382,45 @@ impl App {
         }
         self.orders
             .push(LogRecord::raw(LogRecordType::PlayerZpq1, queue.encode()));
+        self.player_edited = true;
+        self.dirty = true;
+        true
+    }
+
+    /// Set or clear the local player's turn password.
+    ///
+    /// An empty string clears it. What is stored — here, in the file and in the
+    /// order record — is the salt the game derives from the text, never the
+    /// text: see [`stars_formats::password`]. The salt is a checksum a 1995
+    /// game used to keep the other players in a hot-seat or play-by-mail game
+    /// out of each other's turns; it is not worth anything as protection now,
+    /// and nothing here treats it as though it were.
+    ///
+    /// Returns whether it changed.
+    pub fn set_password(&mut self, text: &str) -> bool {
+        use stars_formats::{LogRecord, LogRecordType, PasswordChange};
+
+        let salt = stars_formats::password_salt(text);
+        let me = self.local_player();
+        let Some(player) = self.game.as_mut().and_then(|g| g.players.get_mut(me)) else {
+            return false;
+        };
+        if player.password == salt {
+            return false;
+        }
+        player.password = salt;
+
+        // Like the relations table, this is state rather than an event: the
+        // last record wins, so an earlier one is dropped instead of stacking.
+        if self
+            .orders
+            .last()
+            .is_some_and(|r| r.record_type == LogRecordType::ChangePassword)
+        {
+            self.orders.pop();
+        }
+        self.orders
+            .push(LogRecord::change_password(PasswordChange { salt }));
         self.player_edited = true;
         self.dirty = true;
         true

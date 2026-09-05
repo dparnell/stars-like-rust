@@ -67,6 +67,8 @@ pub struct ReplayReport {
     pub relations: usize,
     /// Battle plans defined, retuned or deleted.
     pub battle_plans: usize,
+    /// Turn passwords changed.
+    pub passwords: usize,
     /// Default production queues replaced.
     pub default_queues: usize,
     /// Operations dropped because they named something the player does not own,
@@ -92,6 +94,7 @@ impl ReplayReport {
             + self.fleet_settings
             + self.relations
             + self.battle_plans
+            + self.passwords
             + self.default_queues
     }
 }
@@ -305,6 +308,25 @@ fn apply(
                 PlanEdit::Applied => report.battle_plans += 1,
                 PlanEdit::Ignored => {}
                 PlanEdit::Rejected => report.rejected += 1,
+            }
+        }
+        LogRecordType::ChangePassword => {
+            // `1048:c65c`: the salt goes straight into the player's own record,
+            // at `PLAYER + 0x0c`. The original gates the arm on bit 1 of the
+            // runtime mode word `gd` (`DS:0x7ca`), the flag that says a game is
+            // open with its orders live — the same test every `Log*` writer
+            // opens with. This engine has no such word; it is always applying
+            // to a state it holds, so the arm always runs.
+            let Some(change) = record.as_password_change() else {
+                report.rejected += 1;
+                return;
+            };
+            match state.players.get_mut(player) {
+                Some(record) => {
+                    record.password = change.salt;
+                    report.passwords += 1;
+                }
+                None => report.rejected += 1,
             }
         }
         LogRecordType::FleetOrderAttrNib => {
@@ -1444,6 +1466,36 @@ mod tests {
             state.fleets[0].waypoints[1].task,
             stars_formats::task::COLONIZE
         );
+    }
+
+    /// A password change reaches the player's own record, and only theirs.
+    #[test]
+    fn a_password_is_replayed() {
+        use stars_formats::PasswordChange;
+
+        let mut state = a_game();
+        state.players.push(Player::new(Race::humanoid()));
+        let mut orders = TurnOrders::default();
+        let mut log = OrderLog::new(0, [0; 11]);
+        let salt = stars_formats::password_salt("open sesame");
+        assert_ne!(salt, 0);
+        log.records
+            .push(LogRecord::change_password(PasswordChange { salt }));
+
+        let report = replay(&mut state, 0, &log, &mut orders);
+        assert_eq!(report.passwords, 1);
+        assert_eq!(report.rejected, 0);
+        assert_eq!(state.players[0].password, salt);
+        assert_eq!(state.players[1].password, 0, "nobody else's");
+
+        // Clearing it is the same record with a zero salt.
+        let mut log = OrderLog::new(0, [0; 11]);
+        log.records.push(LogRecord::change_password(PasswordChange {
+            salt: stars_formats::password_salt(""),
+        }));
+        let report = replay(&mut state, 0, &log, &mut orders);
+        assert_eq!(report.passwords, 1);
+        assert_eq!(state.players[0].password, 0);
     }
 
     /// A plan is retuned, a new one appended, and one deleted — the three

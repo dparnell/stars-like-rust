@@ -67,7 +67,7 @@ unless noted; multi-byte integers are little-endian.
 | 7      | 1    | AI flags             | bit1 = AI enabled, bits2–3 = AI skill, bits5–7 = AI PRT (player-block field) |
 | 8      | 2    | homeworld            | planet id; player-block field (`0` in a race file)                      |
 | 10     | 2    | player rank          | player-block field (`0` in a race file)                                 |
-| 12     | 4    | password             | player-block field; inverts to `FF FF FF FF` when set human-inactive    |
+| 12     | 4    | password salt        | player-block field; a 32-bit fold of the typed password (`LSaltFromSz`, `1040:59ce`), `0` = none. See `orders-x.md#turn-password-rtchgpassword-id-36`. An earlier note recorded it inverting to `FF FF FF FF` when a human player is set inactive; the fixtures hold only `0` and one non-zero salt, so that is unconfirmed here |
 | 16     | 1    | gravity center       | habitability click 0–100; **`0xFF` = immune** to gravity                |
 | 17     | 1    | temperature center   | click 0–100; `0xFF` = immune to temperature                             |
 | 18     | 1    | radiation center     | click 0–100; `0xFF` = immune to radiation                               |

@@ -769,3 +769,58 @@ fn repeated_edits_to_one_battle_plan_log_once() {
     );
     let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
 }
+
+/// The turn password: set, logged, saved into the player block, and replayed.
+/// What travels is the salt the game derives from the text, never the text.
+#[test]
+fn a_password_is_ordered_and_saved() {
+    let (mut app, host) = a_saved_game("password");
+    assert_eq!(app.game.as_ref().expect("game").players[0].password, 0);
+
+    assert!(app.set_password("open sesame"));
+    let salt = stars_formats::password_salt("open sesame");
+    assert_ne!(salt, 0);
+    assert_eq!(app.game.as_ref().expect("game").players[0].password, salt);
+    // Setting the same one again is not a change.
+    assert!(!app.set_password("open sesame"));
+    // A second change replaces the record rather than adding one.
+    assert!(app.set_password("another one"));
+    assert!(app.set_password("open sesame"));
+    assert_eq!(
+        app.orders
+            .iter()
+            .filter(|r| r.record_type == LogRecordType::ChangePassword)
+            .count(),
+        1
+    );
+
+    app.save(&host).expect("saves");
+
+    // The saved player block carries the salt, and nothing carries the text.
+    let mut fresh = App::new();
+    fresh.open(&host).expect("opens");
+    assert_eq!(fresh.game.as_ref().expect("game").players[0].password, salt);
+    let bytes = std::fs::read(&host).expect("reads");
+    assert!(
+        !bytes.windows(11).any(|w| w == b"open sesame"),
+        "the password itself is never written"
+    );
+
+    // And a host replaying the log reaches the same salt.
+    let log = {
+        let bytes = std::fs::read(host.with_extension("x1")).expect("reads back");
+        let file = StarsFile::decode(&bytes).expect("decodes");
+        order_log(&file)
+    };
+    let original = {
+        let bytes = std::fs::read(host.with_file_name("password.hst")).expect("reads");
+        StarsFile::decode(&bytes).expect("decodes")
+    };
+    let (mut state, _) = stars_core::GameState::from_file(&original);
+    let mut cargo = stars_core::TurnOrders::default();
+    let report = stars_core::replay::replay(&mut state, 0, &log, &mut cargo);
+    assert_eq!(report.passwords, 1);
+    assert_eq!(state.players[0].password, salt);
+
+    let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
+}

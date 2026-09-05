@@ -148,6 +148,15 @@ pub struct Player {
     /// Applied by [`crate::orders::apply_default_queue`] whenever a planet
     /// changes hands, which is where the original applies it.
     pub default_queue: stars_formats::DefaultQueue,
+    /// The salt of the player's turn password, or `0` for none.
+    ///
+    /// Stars! stores a checksum of the password rather than the password —
+    /// [`stars_formats::password`] — and this is that value, at offset 12 of
+    /// the player block. It travels with the player and is what a
+    /// `rtChgPassword` order changes. Nothing in the engine reads it: whether
+    /// to ask for a password before opening a turn is a question for a
+    /// frontend, not for the simulation.
+    pub password: u32,
     /// The player's battle plans, in file order, as the type-30 blocks carry
     /// them (`PLAYER.rgbtlplan`).
     ///
@@ -222,6 +231,7 @@ impl Player {
             plural_name: "Humanoids".to_string(),
             logo: 0,
             default_queue: stars_formats::DefaultQueue::default(),
+            password: 0,
             battle_plans: default_battle_plans(0),
         }
     }

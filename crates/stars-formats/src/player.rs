@@ -119,13 +119,22 @@ pub struct PlayerRecord {
     ///
     /// It occupies the last 26 bytes of the fixed region, offsets 86 to 111.
     pub default_queue: Option<crate::production::DefaultQueue>,
+    /// The salt of the player's turn password, at offset 12; `0` when there is
+    /// none. Present only when [`full_data`](Self::full_data) is set.
+    ///
+    /// See [`crate::password`]: the game stores a checksum of the password, not
+    /// the password. 6,969 of the 7,040 full player blocks in the fixtures
+    /// carry one and the same non-zero value — the exodus games were all set up
+    /// with one password — and the other 71 carry `0`.
+    pub password: Option<u32>,
     /// The fixed region of the block exactly as read: the whole 112-byte
     /// player/race struct for a full record, or the 8-byte header for a short
     /// one.
     ///
     /// Kept because much of it is not modelled — the home-planet id at offset
-    /// 8, the AI salt at 12, and everything from 82 to 111 — and re-encoding
-    /// writes the modelled fields back over it rather than rebuilding it.
+    /// 8, the player rank at 10, and everything from 82 to 111 — and
+    /// re-encoding writes the modelled fields back over it rather than
+    /// rebuilding it.
     pub fixed: Vec<u8>,
     /// Any bytes after the plural name, kept so the block re-encodes exactly.
     pub trailing: Vec<u8>,
@@ -199,6 +208,12 @@ impl PlayerRecord {
             race = Some(RaceRecord::from_payload(data)?);
             research = decode_research(data);
         }
+        let password = full_data
+            .then(|| {
+                data.get(crate::password::PASSWORD_OFFSET..crate::password::PASSWORD_OFFSET + 4)
+                    .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            })
+            .flatten();
         let default_queue = full_data
             .then(|| {
                 data.get(crate::production::DEFAULT_QUEUE_OFFSET..)
@@ -240,6 +255,7 @@ impl PlayerRecord {
             plural_name,
             research,
             default_queue,
+            password,
             fixed,
             trailing,
         })
@@ -280,6 +296,12 @@ impl PlayerRecord {
             }
             if let Some(research) = &self.research {
                 write_research(research, &mut out);
+            }
+            if let Some(password) = self.password {
+                let at = crate::password::PASSWORD_OFFSET;
+                if out.len() >= at + 4 {
+                    out[at..at + 4].copy_from_slice(&password.to_le_bytes());
+                }
             }
             if let Some(queue) = &self.default_queue {
                 let at = crate::production::DEFAULT_QUEUE_OFFSET;

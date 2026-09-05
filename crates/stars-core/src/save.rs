@@ -277,6 +277,7 @@ fn player_record(state: &GameState, index: usize, player: &Player) -> Result<Pla
         plural_name: player.plural_name.clone(),
         research: Some(research_state(player)),
         default_queue: Some(player.default_queue.clone()),
+        password: Some(player.password),
         fixed,
         // A player block whose plural name is empty carries one extra zero
         // byte, and one with a plural name does not. Exact across all 74,903

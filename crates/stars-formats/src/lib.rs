@@ -61,6 +61,7 @@ pub mod header;
 pub mod history;
 pub mod names;
 pub mod orders;
+pub mod password;
 pub mod planet;
 pub mod player;
 pub mod production;
@@ -94,8 +95,11 @@ pub use names::{planet_name, planet_name_count};
 pub use orders::{
     object_owner, order_log, BattlePlanChange, CargoTransfer, FleetMerge, FleetName,
     FleetOrderDelete, FleetOrderTask, FleetPlan, FleetRepeatOrders, FleetSplit, LogHeader,
-    LogRecord, LogRecordType, OrderLog, PlanetRoutingOrder, Relations, ResearchOrder,
-    ShipDesignChange, ThingParam, WaypointOrder, LOG_HEADER_BLOCK,
+    LogRecord, LogRecordType, OrderLog, PasswordChange, PlanetRoutingOrder, Relations,
+    ResearchOrder, ShipDesignChange, ThingParam, WaypointOrder, LOG_HEADER_BLOCK,
+};
+pub use password::{
+    salt as password_salt, salt_bytes as password_salt_bytes, MAX_PASSWORD_LEN, PASSWORD_OFFSET,
 };
 pub use planet::{
     planet_records, planet_records_in, Concentration, Environment, Installations, Minerals,

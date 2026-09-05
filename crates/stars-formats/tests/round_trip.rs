@@ -20,9 +20,9 @@ use std::path::{Path, PathBuf};
 use stars_formats::{
     order_log, BattlePlanChange, BattlePlanRecord, CargoTransfer, DefaultQueue, DesignRecord,
     FleetMerge, FleetOrderDelete, FleetOrderTask, FleetPlan, FleetRecord, FleetRepeatOrders,
-    FleetSplit, LogHeader, LogRecordType, PlanetRecord, PlanetRoutingOrder, PlayerRecord,
-    ProductionQueueRecord, Relations, ResearchOrder, ShipDesignChange, StarsFile, Thing,
-    ThingParam, WaypointOrder, WaypointRecord, THING_SIZE,
+    FleetSplit, LogHeader, LogRecordType, PasswordChange, PlanetRecord, PlanetRoutingOrder,
+    PlayerRecord, ProductionQueueRecord, Relations, ResearchOrder, ShipDesignChange, StarsFile,
+    Thing, ThingParam, WaypointOrder, WaypointRecord, THING_SIZE,
 };
 
 /// Every file under `fixtures/`, in a stable order.
@@ -389,6 +389,16 @@ fn every_order_record_re_encodes() {
                         path.display()
                     );
                     note("battle plan");
+                }
+                LogRecordType::ChangePassword => {
+                    let record = PasswordChange::decode(data).expect("password change");
+                    assert_eq!(
+                        record.encode().as_slice(),
+                        data.as_slice(),
+                        "{}",
+                        path.display()
+                    );
+                    note("password change");
                 }
                 LogRecordType::FleetFlagBit => {
                     let record = FleetRepeatOrders::decode(data).expect("repeat orders");

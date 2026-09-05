@@ -126,10 +126,12 @@ these ids mean the **log** variant, distinct from the same id in a state file
 
 All operation ids seen across the 40 exodus files classify to a known type (no
 `Other(_)`). Three of the ids above appear in **no** fixture: 30 and 36, because
-nobody in the sample redefined a battle plan or changed a password, and 11,
-because nothing writes it at all — see below. Type 30 is decoded and replayed
-all the same: its payload is byte-for-byte a state file's type-30 block, which
-the fixtures do carry 15 of.
+nobody in the sample redefined a battle plan or changed a password mid-game, and
+11, because nothing writes it at all — see below. All three are decoded and
+replayed all the same, and for 30 and 36 the payload is verified from the state
+file instead: a type-30 record is byte-for-byte a battle-plan block, of which
+the fixtures carry 15, and a type-36 record is the four bytes at offset 12 of a
+player block, of which they carry 7,040.
 
 ### Which routine writes each operation
 
@@ -392,6 +394,54 @@ worked examples live in [`docs/vectors/order-attr-nib.json`](../vectors/order-at
 — eight records read out of the arm above, each with the verdict it produces —
 and a test in `replay.rs` runs every one of them.
 
+### Turn password (`rtChgPassword`, id 36)
+
+`{ int32_t lSalt; }` — four bytes, and nothing else. Stars! does not store a
+password: it stores a 32-bit checksum of the typed text, which the game calls a
+*salt*, and compares that against the salt of whatever is typed next time
+(`FCheckPassword`, `1040:58d8`). This record carries the same value the player
+block holds at offset 12, and `0` means the password was cleared. Decoded by
+[`PasswordChange`].
+
+`NewPasswordDlg` writes it at `1040:5ec7` — but only when a player's game is
+open (`iplrMe != -1`). Asked the same question with no game loaded, the dialog
+is setting the **host's** password and stores it in a global instead of logging
+anything, which is why a `.hst` never needs this record.
+
+The replay arm is `1048:c65c`:
+
+```
+if (!((gd >> 1) & 1)) return 1;              // DS:0x7ca, the runtime mode word
+*(int32_t *)(&rgplr[iplrMe] + 0x0c) = *(int32_t *)lpb;
+```
+
+Bit 1 of `gd` is the flag that says a game is open with its orders live — every
+`Log*` writer opens with the same test (`LogSplitFleet` at `1048:8b17`, and so
+on). This engine has no runtime mode word; it is always applying to a state it
+holds, so `replay` runs the arm unconditionally. `PLAYER + 0x0c` is offset 12 of
+the player block, which [`race-r.md`](race-r.md) had already identified as the
+password field from an independent source.
+
+**The salt.** `LSaltFromSz` (`1040:59ce`) folds the string's bytes in pairs —
+the first added, the second multiplied — into a 32-bit accumulator that wraps,
+with each byte sign-extended. An empty password is `0`; a non-empty one that
+happens to fold to `0` is bumped to `1`, so `0` unambiguously means *no
+password*. The dialog reads at most seventeen characters
+(`GetWindowText(..., 0x12)`). Transcribed in [`stars_formats::password`].
+
+This is a checksum, not a password hash, and it was never more than a way to
+stop the other players in a play-by-mail game opening each other's turns by
+accident. This project stores exactly what the game stores — the salt, never the
+text — and offers no way to go back the other way, because the game itself only
+ever compares salts.
+
+The corpus pins the field but not the fold: 6,969 of the 7,040 full player
+blocks in the fixtures carry one and the same non-zero salt (the exodus games
+were set up with a single password) and the other 71 carry `0`. No fixture
+supplies a *password and its salt*, so the transcription of `LSaltFromSz` rests
+on the disassembly alone, and nobody should try to recover the string behind
+that value — it is a real person's, and it is not needed for anything.
+
 ### Battle plan definition (`rtBtlPlan`, id 30)
 
 The operation that **writes a plan**: its name, tactic, target preferences and
@@ -539,6 +589,7 @@ what the client **already did**, not what it intends:
 | splits a fleet | a split naming it, then a ship transfer into the new fleet |
 | changes a fleet's battle plan or repeat-orders flag | one record each |
 | defines, retunes or deletes a battle plan | one type-30 record, with the slot stamped into it; a run of edits to one plan collapses to the last |
+| sets or clears the turn password | one type-36 record carrying its salt, replacing any earlier one |
 | changes how they regard another player | one relations record, replacing any earlier one |
 | changes what new colonies build | one default-queue record, likewise |
 | merges fleets | one merge record, survivor first |
@@ -576,6 +627,7 @@ received them. What each operation does:
 | waypoint task (11) | the task on one of the fleet's waypoints, bounds-checked |
 | battle plan (42) | which battle plan the fleet fights under |
 | battle plan definition (30) | the plan itself is written, appended or deleted; a delete shifts the rest up and moves every fleet index at or past it down |
+| turn password (36) | the salt goes into the player's own record; nothing in the engine reads it back |
 | player relations (38) | the player's whole relations table is replaced |
 | default queue (46) | the queue the player's new colonies start with |
 | waypoint insert / update (4/5) | inserted at or written over that slot of the fleet's order list |
@@ -633,9 +685,11 @@ every transfer twice.
   `1048:c3f0` and pinned by `docs/vectors/order-attr-nib.json`. Whether some
   other build of the client emits it is untested — the host would accept it, so
   this project keeps decoding and replaying it.
-- `rtChgPassword` (36) is written into a log by `NewPasswordDlg`, but no fixture
-  holds one and this project neither writes nor replays it: passwords are not
-  modelled at all.
+- `rtChgPassword` (36) appears in no fixture — nobody in the sample changed a
+  password mid-game — so the record's four bytes are verified through the player
+  block's own field rather than through a log. The fold that turns a password
+  into those four bytes is transcribed from `LSaltFromSz` and is not
+  differentially verified: no fixture pairs a password with its salt.
 - `rtBtlPlan` (30) is decoded, written and replayed, but no fixture carries one
   as an *order*; the payload is verified through the state-file blocks instead.
   What the `tactic` and target values mean is still undecoded — only their
@@ -659,6 +713,7 @@ every transfer twice.
 [`FleetSplit`]: ../../crates/stars-formats/src/orders.rs
 [`FleetRepeatOrders`]: ../../crates/stars-formats/src/orders.rs
 [`BattlePlanChange`]: ../../crates/stars-formats/src/orders.rs
+[`PasswordChange`]: ../../crates/stars-formats/src/orders.rs
 [`FleetOrderTask`]: ../../crates/stars-formats/src/orders.rs
 [`FleetPlan`]: ../../crates/stars-formats/src/orders.rs
 [`Relations`]: ../../crates/stars-formats/src/orders.rs
