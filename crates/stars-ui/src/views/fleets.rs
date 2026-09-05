@@ -225,6 +225,8 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 stars_formats::task::COLONIZE,
                 stars_formats::task::TRANSPORT,
                 stars_formats::task::REMOTE_MINING,
+                stars_formats::task::SCRAP,
+                stars_formats::task::ROUTE,
             ] {
                 if ui
                     .selectable_label(current == id, stars_formats::task::name(id))
@@ -264,8 +266,11 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         }
         ui.label(
             egui::RichText::new(
-                "The engine performs colonise and transport on arrival, and remote \
-                 mining in its own pass. Other tasks can be set but are not simulated.",
+                "Colonise, transport, scrap and route are performed on arrival, and \
+                 remote mining in its own pass. Merging into another fleet is a task \
+                 too, but it needs a fleet to merge into, so it is set from the list \
+                 below rather than here. Laying mines, patrolling and giving a fleet \
+                 away can be set but are not simulated.",
             )
             .weak()
             .small(),

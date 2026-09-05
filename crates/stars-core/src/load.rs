@@ -164,6 +164,13 @@ pub fn planet_from_record(record: &PlanetRecord) -> Option<Planet> {
         starbase_design: record.starbase.map(|s| s.design),
         queue: Vec::new(),
         no_research: installations.no_research,
+        // Stored one-based so that zero can mean "no route"; `AutoRouteFleet`
+        // (`1080:1e52`) subtracts the one before it looks the planet up.
+        route_dest: record
+            .route_dest
+            .filter(|id| *id != 0)
+            .and_then(|id| i16::try_from(id).ok())
+            .map(|id| id - 1),
     })
 }
 
@@ -524,6 +531,7 @@ impl GameState {
                                 i16::try_from(w.y).unwrap_or(0),
                             ),
                             target: w.object_id,
+                            target_class: w.object_class,
                             warp: w.warp,
                             task: w.task,
                             transport: w.transport(),

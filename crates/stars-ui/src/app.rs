@@ -1130,6 +1130,7 @@ impl App {
             stars_core::fleet::Waypoint {
                 position: here,
                 target: None,
+                target_class: 1,
                 warp: 0,
                 task: 0,
                 transport: None,
@@ -1137,6 +1138,7 @@ impl App {
             stars_core::fleet::Waypoint {
                 position: target,
                 target: u16::try_from(planet).ok(),
+                target_class: 1,
                 warp,
                 task: 0,
                 transport: None,

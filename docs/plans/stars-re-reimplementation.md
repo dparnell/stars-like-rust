@@ -820,9 +820,41 @@ disagree.
     This project stores what the game stores and offers no way back the other
     way, because the game itself only ever compares salts.
 
-21. **What is still missing to call it playable.** The waypoint tasks beyond
-    colonise, transport and remote mining (scrap, lay minefield, patrol, route,
-    transfer) can be set but are not simulated; a loaded state file cannot carry
+21. ~~**The waypoint tasks beyond colonise and transport.**~~ **Merge, scrap
+    and route are done; lay mines and patrol are specified but not performed.**
+    `docs/formulas/waypoint-tasks.md` covers all ten tasks, what each one does
+    and where it is in the binary.
+
+    Counting the fixtures first turned out to be the useful move: 6,892 of the
+    unimplemented waypoints lay minefields, 40 patrol, and **merge, scrap,
+    route and give appear zero times**. So the four cheap tasks are the ones
+    nobody in the sample used, and the two that matter need a subsystem. Three
+    of the four are now simulated — give is a long routine that has to carry a
+    fleet's designs across to another player, and nothing in the corpus
+    exercises it.
+
+    Scrap is the one with a real formula: a third of each ship's build cost
+    plus the hold, of which the planet keeps 80% with a starbase and 50%
+    without (`CreateSalvage`, `10f0:7ee8`). Scrapping in deep space drops a
+    salvage object this engine does not model, so those minerals are lost.
+    Merge and route came out of `Merge2Fleets` and `AutoRouteFleet`; route
+    needed `PLANET.idRoute` in the model, which is stored one-based so that
+    zero can mean "no route", and merge needed the waypoint's target **class**,
+    because a bare id cannot tell planet 7 from fleet 7.
+
+    Lay minefields is specified in full — the payload is a countdown of years
+    with `5` meaning *indefinitely* (which is what all 6,836 well-formed
+    examples in the fixtures hold), a fleet must sit still to lay unless the
+    player is Space Demolition, and the count is
+    `10 × Σ ships × Σ slot count × part ability`, the ×10 confirmed against the
+    component table. What stops it being performed is that there is nowhere to
+    put the mines: a minefield object model, the file's object section, and the
+    rules that make a field matter are a subsystem of their own and the obvious
+    next step.
+
+22. **What is still missing to call it playable.** Laying minefields, patrol
+    and giving a fleet away can be set but are not simulated, and minefields
+    are not modelled at all; a loaded state file cannot carry
     structural fleet changes back (the game does not either — the order log
     does); and neither generation nor the writers carry wormholes, the Mystery
     Trader, messages, battle recordings or scores, all of which live in

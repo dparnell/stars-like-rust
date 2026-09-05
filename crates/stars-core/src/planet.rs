@@ -99,6 +99,13 @@ pub struct Planet {
     pub queue: Vec<crate::production::QueueItem>,
     /// Whether this planet is exempt from the research skim (`fNoResearch`).
     pub no_research: bool,
+    /// Where fleets built here, or given the Route task, are sent
+    /// (`PLANET.idRoute`), or `None` when no route is set.
+    ///
+    /// The file stores it **one-based** so that `0` can mean "none"; this is
+    /// the planet id itself. Read by the Route waypoint task — see
+    /// [`crate::orders::execute_arrival_tasks`].
+    pub route_dest: Option<i16>,
     /// Where the planet sits in the universe.
     ///
     /// Planet coordinates live in the `.xy` universe file, not in the per-player
@@ -135,6 +142,7 @@ impl Planet {
             artifact: false,
             queue: Vec::new(),
             no_research: false,
+            route_dest: None,
             position: None,
             name: None,
         }

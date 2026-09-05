@@ -50,6 +50,10 @@ pub struct Waypoint {
     pub position: Point,
     /// The planet or fleet it refers to, if any.
     pub target: Option<u16>,
+    /// What kind of object [`Self::target`] names (`grobj`): 1 a planet, 2 a
+    /// fleet, 4 nothing, 8 a `THING`. The Merge task needs it — a bare id
+    /// cannot say whether it means planet 7 or fleet 7.
+    pub target_class: u8,
     /// Warp factor for the leg **into** this waypoint.
     pub warp: u8,
     /// The task to perform on arrival, as stored. See

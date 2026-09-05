@@ -479,6 +479,7 @@ fn add_ships_to_orbiting_fleet(
         waypoints: vec![crate::fleet::Waypoint {
             position,
             target: orbiting,
+            target_class: 1,
             warp: 0,
             task: 0,
             transport: None,

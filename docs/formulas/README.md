@@ -49,6 +49,7 @@ Still to come in Step 4:
 | Spec | Subsystem | Status |
 |------|-----------|--------|
 | `new-game.md` | Universe generation, homeworlds, starting fleets, advantage points | verified |
+| `waypoint-tasks.md` | What a fleet does when it arrives: colonise, transport, merge, scrap, route, and what the rest still need | in progress |
 
 `new-game.md` is checked against `fixtures/incoming/turn0/`, a real turn-0 game
 as `GenerateWorld` left it, which pins down almost every stage of the algorithm.

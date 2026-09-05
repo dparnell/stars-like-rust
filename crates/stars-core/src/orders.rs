@@ -388,9 +388,10 @@ pub fn apply_default_queue(state: &mut GameState, planet: usize) {
 
 /// Run the waypoint tasks of every fleet that has arrived somewhere.
 ///
-/// Source: `SatisfyOrders` (`turn3.c`), which the turn pipeline runs after
-/// movement. Two tasks are performed here; the rest are recognised, reported
-/// and left alone.
+/// Source: `SatisfyOrders` (`10b0:6798`), which the turn pipeline runs after
+/// movement. Five of the ten tasks are performed here; remote mining runs in
+/// its own pass, and the other four are recognised and left alone — see
+/// `docs/formulas/waypoint-tasks.md` for what each of those still needs.
 ///
 /// **Colonize.** The fleet puts its whole colonist load on the planet it
 /// orbits. The original's own arm does nothing but validate and cancel,
@@ -406,6 +407,27 @@ pub fn apply_default_queue(state: &mut GameState, planet: usize) {
 /// of the routine that could not be read confidently, and none of them appears
 /// in this repository's fixtures.
 ///
+/// **Merge.** The waypoint must name a *fleet* — the class nibble decides, since
+/// a bare id cannot tell planet 7 from fleet 7 — belonging to the same player,
+/// alive, and not this fleet. Its ships and cargo move into that fleet and this
+/// one ceases to exist, which is `Merge2Fleets(dest, this, 1)` in the original:
+/// the fleet **carrying** the order is the one that disappears.
+///
+/// **Scrap.** Each ship gives back a third of each mineral it cost to build,
+/// and everything in the hold is added to that. At a planet the planet keeps
+/// **80%** of the total if it has a starbase and **50%** if it does not; in
+/// deep space the original leaves a salvage object behind, which this engine
+/// does not model, so the minerals are simply lost. Fuel and colonists aboard
+/// are not recovered either way. Transcribed from `CreateSalvage`
+/// (`10f0:7ee8`); the Bleeding Edge Tech recosting it does first is not
+/// modelled.
+///
+/// **Route.** A fleet sitting at one of its owner's planets that has a route
+/// destination set is given a waypoint to that planet, which is
+/// `AutoRouteFleet` (`1080:1e52`). The original picks the speed with
+/// `IFindIdealWarp` and a stargate check; this uses the fleet's own warp
+/// setting, so the leg is right and its speed may not be.
+///
 /// A task is **consumed** once it runs, which is why every waypoint in a saved
 /// game that has already been reached reads `0`.
 ///
@@ -415,6 +437,10 @@ pub fn execute_arrival_tasks(state: &mut GameState) -> (Vec<(u16, u8)>, Vec<Colo
 
     let mut done = Vec::new();
     let mut drops: Vec<ColonistDrop> = Vec::new();
+    // Fleets that merged away or were scrapped. They are emptied as they go and
+    // swept up at the end, because removing one mid-loop would renumber the
+    // rest.
+    let mut scrapped: Vec<usize> = Vec::new();
 
     for index in 0..state.fleets.len() {
         let fleet = &state.fleets[index];
@@ -424,6 +450,32 @@ pub fn execute_arrival_tasks(state: &mut GameState) -> (Vec<(u16, u8)>, Vec<Colo
         let job = waypoint.task;
         if job == task::NONE {
             continue;
+        }
+        // Three tasks do not need a planet under the fleet, so they are settled
+        // before the orbit check the rest share.
+        match job {
+            task::MERGE => {
+                if merge_into_target(state, index) {
+                    done.push((state.fleets[index].id, job));
+                    scrapped.push(index);
+                }
+                state.fleets[index].waypoints[0].task = task::NONE;
+                continue;
+            }
+            task::SCRAP => {
+                scrap_fleet(state, index);
+                done.push((state.fleets[index].id, job));
+                scrapped.push(index);
+                continue;
+            }
+            task::ROUTE => {
+                if route_fleet(state, index) {
+                    done.push((state.fleets[index].id, job));
+                }
+                state.fleets[index].waypoints[0].task = task::NONE;
+                continue;
+            }
+            _ => {}
         }
         let Some(orbiting) = fleet.orbiting else {
             // A task needs somewhere to perform it; in deep space the original
@@ -486,7 +538,165 @@ pub fn execute_arrival_tasks(state: &mut GameState) -> (Vec<(u16, u8)>, Vec<Colo
         state.fleets[index].waypoints[0].task = task::NONE;
     }
 
+    if !scrapped.is_empty() {
+        state
+            .fleets
+            .retain(|f| !f.stacks.iter().all(|s| s.count <= 0));
+    }
     (done, drops)
+}
+
+/// Move a fleet's ships and cargo into the fleet its waypoint names.
+///
+/// `Merge2Fleets(dest, this, 1)` in `SatisfyOrders`: the destination must be a
+/// **fleet** the same player owns, and must not be this fleet. The one carrying
+/// the order is the one that goes.
+///
+/// Returns whether the merge happened; the source is left with no ships for the
+/// caller to sweep up.
+fn merge_into_target(state: &mut GameState, index: usize) -> bool {
+    const GROBJ_FLEET: u8 = 2;
+
+    let Some(waypoint) = state.fleets[index].waypoints.first() else {
+        return false;
+    };
+    if waypoint.target_class != GROBJ_FLEET {
+        return false;
+    }
+    let Some(target) = waypoint.target else {
+        return false;
+    };
+    let owner = state.fleets[index].owner;
+    // The waypoint holds a full object id: the fleet number in the low nine
+    // bits, the owner above it.
+    let wanted = target & 0x1FF;
+    let Some(destination) = state
+        .fleets
+        .iter()
+        .position(|f| f.owner == owner && f.id & 0x1FF == wanted)
+    else {
+        return false;
+    };
+    if destination == index {
+        return false;
+    }
+
+    let taken = state.fleets[index].clone();
+    let into = &mut state.fleets[destination];
+    for stack in taken.stacks {
+        match into.stacks.iter_mut().find(|s| s.design == stack.design) {
+            Some(existing) => existing.count += stack.count,
+            None => into.stacks.push(stack),
+        }
+    }
+    for (kind, amount) in taken.cargo.minerals.iter().enumerate() {
+        into.cargo.minerals[kind] += amount;
+    }
+    into.cargo.colonists += taken.cargo.colonists;
+    into.cargo.fuel += taken.cargo.fuel;
+    state.fleets[index].stacks.clear();
+    true
+}
+
+/// What one scrapped fleet gives back, per mineral.
+///
+/// A third of each ship's build cost, times the ships, plus the hold. From
+/// `CreateSalvage` (`10f0:7ee8`), which truncates the third per design rather
+/// than over the whole sum.
+#[must_use]
+pub fn scrap_value(state: &GameState, index: usize) -> [i32; MINERALS] {
+    let mut recovered = [0i32; MINERALS];
+    let Some(fleet) = state.fleets.get(index) else {
+        return recovered;
+    };
+    let designs = state
+        .designs
+        .get(usize::try_from(fleet.owner).unwrap_or(usize::MAX));
+    for stack in &fleet.stacks {
+        let Some(cost) = designs
+            .and_then(|d| d.get(usize::from(stack.design)))
+            .and_then(crate::design::ShipDesign::cost)
+        else {
+            continue;
+        };
+        for (kind, total) in recovered.iter_mut().enumerate() {
+            *total += stack.count * cost.minerals[kind] / 3;
+        }
+    }
+    for (kind, total) in recovered.iter_mut().enumerate() {
+        *total += fleet.cargo.minerals[kind];
+    }
+    recovered
+}
+
+/// Scrap a fleet where it stands.
+///
+/// The planet it orbits keeps 80% of [`scrap_value`] if it has a starbase and
+/// 50% if it does not (`CreateSalvage`, `10f0:7ee8`). Scrapped in deep space
+/// the original drops a salvage object, which this engine does not model, so
+/// nothing is kept. The fleet is left with no ships for the caller to sweep up.
+fn scrap_fleet(state: &mut GameState, index: usize) {
+    let recovered = scrap_value(state, index);
+    let orbiting = state.fleets[index]
+        .orbiting
+        .and_then(|id| i16::try_from(id).ok());
+    if let Some(planet) = orbiting.and_then(|id| state.planets.iter_mut().find(|p| p.id == id)) {
+        let share = if planet.starbase { 8 } else { 5 };
+        for (kind, amount) in recovered.iter().enumerate() {
+            planet.surface_min[kind] += amount * share / 10;
+        }
+    }
+    state.fleets[index].stacks.clear();
+    state.fleets[index].cargo = crate::fleet::Cargo::default();
+}
+
+/// Send a fleet on to the route its planet sets.
+///
+/// `AutoRouteFleet` (`1080:1e52`): the fleet must be sitting at one of its
+/// owner's planets, that planet must have a route destination, and the
+/// destination must be a planet this state knows where to find. The original
+/// chooses the speed with `IFindIdealWarp`, including a stargate case; this
+/// keeps the fleet's own warp setting.
+///
+/// Returns whether a leg was added.
+fn route_fleet(state: &mut GameState, index: usize) -> bool {
+    let fleet = &state.fleets[index];
+    let owner = fleet.owner;
+    let warp = fleet.warp.unwrap_or(0);
+    let Some(here) = fleet.orbiting.and_then(|id| i16::try_from(id).ok()) else {
+        return false;
+    };
+    let Some(destination) = state
+        .planets
+        .iter()
+        .find(|p| p.id == here && p.owner == Some(owner))
+        .and_then(|p| p.route_dest)
+    else {
+        return false;
+    };
+    if destination == here {
+        return false;
+    }
+    let Some(position) = state
+        .planets
+        .iter()
+        .chain(state.known_planets.iter())
+        .find(|p| p.id == destination)
+        .and_then(|p| p.position)
+    else {
+        return false;
+    };
+    let fleet = &mut state.fleets[index];
+    fleet.waypoints.truncate(1);
+    fleet.waypoints.push(crate::fleet::Waypoint {
+        position,
+        target: u16::try_from(destination).ok(),
+        target_class: 1,
+        warp,
+        task: stars_formats::task::NONE,
+        transport: None,
+    });
+    true
 }
 
 /// What a fleet holds of one cargo kind.
@@ -600,6 +810,7 @@ mod tests {
             waypoints: vec![Waypoint {
                 position: Point::new(0, 0),
                 target: Some(1),
+                target_class: 1,
                 warp: 0,
                 task: 0,
                 transport: None,
@@ -679,6 +890,185 @@ mod tests {
         assert!(drops.is_empty(), "own planet: {drops:?}");
         // The colonists still arrive; they are simply added to the population.
         assert_eq!(state.planets[0].pop, 125);
+    }
+
+    /// A Merge task moves the fleet into the one its waypoint names, and the
+    /// fleet carrying the order is the one that goes.
+    #[test]
+    fn a_merge_task_folds_the_fleet_into_its_target() {
+        use stars_formats::task;
+
+        let mut state = game();
+        state.planets = vec![Planet::unowned(1)];
+        let mut mine = fleet(
+            0,
+            3,
+            Cargo {
+                minerals: [10, 0, 0],
+                colonists: 5,
+                fuel: 20,
+            },
+        );
+        mine.waypoints[0].task = task::MERGE;
+        mine.waypoints[0].target = Some(7);
+        mine.waypoints[0].target_class = 2; // a fleet, not planet 7
+        let other = fleet(0, 7, Cargo::default());
+        state.fleets = vec![mine, other];
+
+        let (done, _) = execute_arrival_tasks(&mut state);
+        assert_eq!(done, vec![(3, task::MERGE)]);
+        assert_eq!(state.fleets.len(), 1, "the merging fleet is gone");
+        let survivor = &state.fleets[0];
+        assert_eq!(survivor.id, 7);
+        assert_eq!(survivor.stacks[0].count, 2);
+        assert_eq!(survivor.cargo.minerals[0], 10);
+        assert_eq!(survivor.cargo.colonists, 5);
+        assert_eq!(survivor.cargo.fuel, 20);
+    }
+
+    /// The same waypoint pointing at a *planet* with that id is not a merge:
+    /// the class nibble is what tells them apart.
+    #[test]
+    fn a_merge_task_needs_a_fleet_target() {
+        use stars_formats::task;
+
+        let mut state = game();
+        state.planets = vec![Planet::unowned(1)];
+        let mut mine = fleet(0, 3, Cargo::default());
+        mine.waypoints[0].task = task::MERGE;
+        mine.waypoints[0].target = Some(7);
+        mine.waypoints[0].target_class = 1; // planet 7
+        state.fleets = vec![mine, fleet(0, 7, Cargo::default())];
+
+        let (done, _) = execute_arrival_tasks(&mut state);
+        assert!(done.is_empty());
+        assert_eq!(state.fleets.len(), 2);
+        assert_eq!(state.fleets[0].waypoints[0].task, task::NONE, "order spent");
+    }
+
+    /// A Scrap task gives the planet a third of what the ships cost, and the
+    /// starbase decides whether it keeps 80% of that or 50%.
+    #[test]
+    fn a_scrap_task_recovers_minerals() {
+        use crate::design::ShipDesign;
+        use stars_formats::task;
+
+        for (starbase, expect) in [(false, 5), (true, 8)] {
+            let mut state = game();
+            // A scout: hull 0, no parts. Its cost is the bare hull's.
+            let design = ShipDesign {
+                name: "Scout".to_string(),
+                picture: 0,
+                stored_armor: 0,
+                hull_id: 0,
+                slots: Vec::new(),
+            };
+            let cost = design.cost().expect("a hull cost");
+            state.designs = vec![vec![design], Vec::new()];
+            let mut planet = Planet::unowned(1);
+            planet.owner = Some(0);
+            planet.starbase = starbase;
+            planet.surface_min = [0; MINERALS];
+            state.planets = vec![planet];
+
+            let mut mine = fleet(
+                0,
+                3,
+                Cargo {
+                    minerals: [30, 0, 0],
+                    colonists: 0,
+                    fuel: 0,
+                },
+            );
+            mine.stacks[0].count = 3;
+            mine.waypoints[0].task = task::SCRAP;
+            state.fleets = vec![mine];
+
+            let value = scrap_value(&state, 0);
+            assert_eq!(
+                value[0],
+                3 * cost.minerals[0] / 3 + 30,
+                "a third of each ship, plus the hold"
+            );
+
+            let (done, _) = execute_arrival_tasks(&mut state);
+            assert_eq!(done, vec![(3, task::SCRAP)]);
+            assert!(state.fleets.is_empty(), "the fleet is gone");
+            for (kind, recovered) in value.iter().enumerate() {
+                assert_eq!(
+                    state.planets[0].surface_min[kind],
+                    recovered * expect / 10,
+                    "starbase {starbase}, mineral {kind}"
+                );
+            }
+        }
+    }
+
+    /// Scrapped in deep space the minerals are lost: the original leaves a
+    /// salvage object, which this engine does not model.
+    #[test]
+    fn scrapping_in_deep_space_keeps_nothing() {
+        use stars_formats::task;
+
+        let mut state = game();
+        state.planets = vec![Planet::unowned(1)];
+        let mut mine = fleet(0, 3, Cargo::default());
+        mine.orbiting = None;
+        mine.waypoints[0].task = task::SCRAP;
+        state.fleets = vec![mine];
+
+        let (done, _) = execute_arrival_tasks(&mut state);
+        assert_eq!(done, vec![(3, task::SCRAP)]);
+        assert!(state.fleets.is_empty());
+        assert_eq!(state.planets[0].surface_min, [0; MINERALS]);
+    }
+
+    /// A Route task sends the fleet on to wherever its planet routes to.
+    #[test]
+    fn a_route_task_follows_the_planet() {
+        use stars_formats::task;
+
+        let mut state = game();
+        let mut home = Planet::unowned(1);
+        home.owner = Some(0);
+        home.position = Some(Point::new(100, 100));
+        home.route_dest = Some(4);
+        let mut away = Planet::unowned(4);
+        away.position = Some(Point::new(300, 400));
+        state.planets = vec![home, away];
+
+        let mut mine = fleet(0, 3, Cargo::default());
+        mine.warp = Some(7);
+        mine.waypoints[0].task = task::ROUTE;
+        state.fleets = vec![mine];
+
+        let (done, _) = execute_arrival_tasks(&mut state);
+        assert_eq!(done, vec![(3, task::ROUTE)]);
+        let leg = &state.fleets[0].waypoints[1];
+        assert_eq!(leg.position, Point::new(300, 400));
+        assert_eq!(leg.target, Some(4));
+        assert_eq!(leg.warp, 7);
+        assert_eq!(state.fleets[0].waypoints[0].task, task::NONE, "order spent");
+    }
+
+    /// A planet with no route set, or someone else's planet, routes nowhere.
+    #[test]
+    fn a_route_task_needs_a_route() {
+        use stars_formats::task;
+
+        let mut state = game();
+        let mut home = Planet::unowned(1);
+        home.owner = Some(1); // not this fleet's owner
+        home.position = Some(Point::new(100, 100));
+        home.route_dest = Some(4);
+        state.planets = vec![home];
+        let mut mine = fleet(0, 3, Cargo::default());
+        mine.waypoints[0].task = task::ROUTE;
+        state.fleets = vec![mine];
+
+        let (done, _) = execute_arrival_tasks(&mut state);
+        assert!(done.is_empty());
+        assert_eq!(state.fleets[0].waypoints.len(), 1);
     }
 
     /// A Colonize task settles the planet the fleet is orbiting.

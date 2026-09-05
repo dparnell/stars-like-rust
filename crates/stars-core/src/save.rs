@@ -82,9 +82,6 @@ const DESIGN_FLAGS0: u8 = 3;
 /// The low bits of a design block's second byte.
 const DESIGN_FLAGS1: u8 = 1;
 
-/// A waypoint that sits on a planet: object class 1 with `fValidTask` set.
-const WAYPOINT_ON_PLANET: u8 = 0x11;
-
 /// Write the host file for a game.
 ///
 /// # Errors
@@ -455,7 +452,8 @@ fn planet_record(planet: &Planet) -> PlanetRecord {
             warp: 0,
             no_heal: false,
         }),
-        route_dest: None,
+        // Stored one-based, zero meaning "no route".
+        route_dest: Some(planet.route_dest.map_or(0, |id| id.unsigned_abs() + 1)),
         trailing: Vec::new(),
     }
 }
@@ -665,8 +663,10 @@ fn waypoint_records(fleet: &Fleet) -> Vec<WaypointRecord> {
                 x: w.position.x.unsigned_abs(),
                 y: w.position.y.unsigned_abs(),
                 object_id: w.target,
-                object_type: WAYPOINT_ON_PLANET,
-                object_class: WAYPOINT_ON_PLANET & 0x0F,
+                // Byte 7 is the class plus `fValidTask`; a generated game's
+                // waypoints all sit on planets, which is the familiar 0x11.
+                object_type: (w.target_class & 0x0F) | 0x10,
+                object_class: w.target_class & 0x0F,
                 valid_task: true,
                 no_auto_track: false,
                 warp: w.warp,

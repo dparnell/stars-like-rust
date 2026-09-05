@@ -1180,6 +1180,7 @@ fn starting_ships(
                     waypoints: vec![Waypoint {
                         position: Point::new(x, y),
                         target: Some(planet_id),
+                        target_class: 1,
                         warp: 0,
                         task: 0,
                         transport: None,

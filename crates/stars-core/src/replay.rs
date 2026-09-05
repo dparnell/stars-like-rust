@@ -666,6 +666,7 @@ fn new_fleet(state: &mut GameState, player: usize, id: u16, beside: usize) -> Op
         waypoints: vec![crate::fleet::Waypoint {
             position: source.position,
             target: source.orbiting,
+            target_class: 1,
             warp: 0,
             task: 0,
             transport: None,
@@ -759,6 +760,7 @@ fn set_waypoint(state: &mut GameState, player: usize, order: &WaypointOrder, ins
     let waypoint = Waypoint {
         position: Point::new(order.x, order.y),
         target: (order.target_id != 0).then(|| order.target_id.unsigned_abs()),
+        target_class: 1,
         warp: order.warp,
         task: order.task,
         transport: (order.task == stars_formats::task::TRANSPORT)
@@ -935,6 +937,7 @@ mod tests {
             waypoints: vec![Waypoint {
                 position: Point::new(1100, 1200),
                 target: Some(7),
+                target_class: 1,
                 warp: 0,
                 task: 0,
                 transport: None,
@@ -1435,6 +1438,7 @@ mod tests {
         state.fleets[0].waypoints.push(Waypoint {
             position: Point::new(1300, 1400),
             target: Some(9),
+            target_class: 1,
             warp: 6,
             task: 0,
             transport: None,
@@ -1686,6 +1690,7 @@ mod tests {
             state.fleets[0].waypoints.push(Waypoint {
                 position: Point::new(1300, 1400),
                 target: Some(9),
+                target_class: 1,
                 warp: 6,
                 task: 0,
                 transport: None,
