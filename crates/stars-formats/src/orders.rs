@@ -18,11 +18,16 @@
 
 use crate::design::DesignRecord;
 use crate::file::StarsFile;
+use crate::header::FileHeader;
 use crate::production::ProductionQueueRecord;
 use crate::strings::decode_field;
+use crate::{FormatError, Result};
 
 /// The block type id of the order-log header record (`RTLOGHDR`).
 pub const LOG_HEADER_BLOCK: u8 = 9;
+
+/// Size in bytes of the order-log header (`cbRTLOGHDR`).
+pub const LOG_HEADER_LEN: usize = 17;
 
 /// The record type of one operation in an order log.
 ///
@@ -188,6 +193,16 @@ impl LogHeader {
             config,
         })
     }
+
+    /// Re-encode this header as a `RTLOGHDR` payload.
+    #[must_use]
+    pub fn encode(&self) -> [u8; LOG_HEADER_LEN] {
+        let mut out = [0u8; LOG_HEADER_LEN];
+        out[0..2].copy_from_slice(&self.log_byte_count.to_le_bytes());
+        out[2..6].copy_from_slice(&self.serial_number.to_le_bytes());
+        out[6..17].copy_from_slice(&self.config);
+        out
+    }
 }
 
 /// A decoded fleet-waypoint order (`RTWAYPT`), the payload of an insert
@@ -213,6 +228,9 @@ pub struct WaypointOrder {
     pub grobj: u8,
     /// Whether the task is valid (`ORDER.fValidTask`).
     pub valid_task: bool,
+    /// Bits 13..=15 of the flags word, which this module does not interpret.
+    /// Bit 13 is `fNoAutoTrack` in the state file's own waypoint record.
+    pub flags_high: u8,
     /// Any trailing task-specific union bytes (`TASKXPORT`/`TASKLAYMINES`/…),
     /// preserved verbatim; empty for tasks that carry no extra data.
     pub task_data: Vec<u8>,
@@ -238,8 +256,28 @@ impl WaypointOrder {
             warp: ((flags >> 4) & 0xF) as u8,
             grobj: ((flags >> 8) & 0xF) as u8,
             valid_task: (flags & 0x1000) != 0,
+            flags_high: ((flags >> 13) & 0x7) as u8,
             task_data: data[12..].to_vec(),
         })
+    }
+
+    /// Re-encode this order as an insert/update payload (`RTWAYPT`).
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let flags = u16::from(self.task & 0xF)
+            | (u16::from(self.warp & 0xF) << 4)
+            | (u16::from(self.grobj & 0xF) << 8)
+            | (u16::from(self.valid_task) << 12)
+            | (u16::from(self.flags_high & 0x7) << 13);
+        let mut out = Vec::with_capacity(12 + self.task_data.len());
+        out.extend_from_slice(&self.fleet_id.to_le_bytes());
+        out.extend_from_slice(&self.waypoint_index.to_le_bytes());
+        out.extend_from_slice(&self.x.to_le_bytes());
+        out.extend_from_slice(&self.y.to_le_bytes());
+        out.extend_from_slice(&self.target_id.to_le_bytes());
+        out.extend_from_slice(&flags.to_le_bytes());
+        out.extend_from_slice(&self.task_data);
+        out
     }
 }
 
@@ -271,6 +309,16 @@ impl FleetOrderDelete {
             delete_extra: (raw & 0x8000) != 0,
         })
     }
+
+    /// Re-encode this operation as a type-3 payload.
+    #[must_use]
+    pub fn encode(&self) -> [u8; 4] {
+        let index = (self.order_index & 0x7FFF) | (u16::from(self.delete_extra) << 15);
+        let mut out = [0u8; 4];
+        out[0..2].copy_from_slice(&self.fleet_id.to_le_bytes());
+        out[2..4].copy_from_slice(&index.to_le_bytes());
+        out
+    }
 }
 
 /// A decoded research-settings operation (type id 34).
@@ -301,6 +349,15 @@ impl ResearchOrder {
             next_field: (data[1] >> 4) & 0xF,
         })
     }
+
+    /// Re-encode this operation as a type-34 payload.
+    #[must_use]
+    pub fn encode(&self) -> [u8; 2] {
+        [
+            self.pct_resources,
+            (self.current_field & 0xF) | (self.next_field << 4),
+        ]
+    }
 }
 
 /// A decoded planet-routing operation (`RTCHGPLANETLONG`, type id 35).
@@ -316,6 +373,9 @@ pub struct PlanetRoutingOrder {
     pub fling_warp: u8,
     /// The fleet-route destination planet id (`idRoute`, 10 bits).
     pub route_target: u16,
+    /// The NB09 `unused:7` bitfield (bits 25..=31), preserved so the record
+    /// re-encodes exactly.
+    pub reserved: u8,
 }
 
 impl PlanetRoutingOrder {
@@ -335,7 +395,22 @@ impl PlanetRoutingOrder {
             fling_target: ((bits >> 1) & 0x3FF) as u16,
             fling_warp: ((bits >> 11) & 0xF) as u8,
             route_target: ((bits >> 15) & 0x3FF) as u16,
+            reserved: ((bits >> 25) & 0x7F) as u8,
         })
+    }
+
+    /// Re-encode this operation as a type-35 payload.
+    #[must_use]
+    pub fn encode(&self) -> [u8; 6] {
+        let bits = u32::from(self.no_research)
+            | ((u32::from(self.fling_target) & 0x3FF) << 1)
+            | ((u32::from(self.fling_warp) & 0xF) << 11)
+            | ((u32::from(self.route_target) & 0x3FF) << 15)
+            | ((u32::from(self.reserved) & 0x7F) << 25);
+        let mut out = [0u8; 6];
+        out[0..2].copy_from_slice(&self.planet_id.to_le_bytes());
+        out[2..6].copy_from_slice(&bits.to_le_bytes());
+        out
     }
 }
 
@@ -427,6 +502,62 @@ impl CargoTransfer {
             quantity_bytes: data[quantity_start..].to_vec(),
         })
     }
+
+    /// Re-encode this transfer as the payload of `record_type`.
+    ///
+    /// The quantities are written at the width the variant calls for; the mask
+    /// decides how many are written, so a quantity list shorter than the mask
+    /// pads with zeros.
+    ///
+    /// Returns `None` if `record_type` is not a cargo-transfer op.
+    #[must_use]
+    pub fn encode(&self, record_type: LogRecordType) -> Option<Vec<u8>> {
+        let (mask_u16, width) = Self::params(record_type)?;
+        let mut out = Vec::with_capacity(8 + self.quantities.len() * width);
+        out.extend_from_slice(&self.id1.to_le_bytes());
+        out.extend_from_slice(&self.id2.to_le_bytes());
+        out.push((self.grobj1 & 0xF) | ((self.grobj2 & 0xF) << 4));
+        if mask_u16 {
+            out.extend_from_slice(&self.items_mask.to_le_bytes());
+        } else {
+            #[allow(clippy::cast_possible_truncation)]
+            out.push(self.items_mask as u8);
+        }
+        for i in 0..self.items_mask.count_ones() as usize {
+            let q = self.quantities.get(i).copied().unwrap_or(0);
+            match width {
+                1 => {
+                    #[allow(clippy::cast_possible_truncation)]
+                    out.push(q as i8 as u8);
+                }
+                2 => {
+                    #[allow(clippy::cast_possible_truncation)]
+                    out.extend_from_slice(&(q as i16).to_le_bytes());
+                }
+                _ => out.extend_from_slice(&q.to_le_bytes()),
+            }
+        }
+        Some(out)
+    }
+
+    /// The smallest cargo-transfer variant that can carry these quantities.
+    ///
+    /// A fleet-to-fleet transfer always uses [`LogRecordType::FleetCargoXfer`],
+    /// whose mask is sixteen bits wide; otherwise the narrowest quantity width
+    /// that holds every value is chosen, which is what keeps the log small.
+    #[must_use]
+    pub fn narrowest(&self, fleet_to_fleet: bool) -> LogRecordType {
+        if fleet_to_fleet {
+            return LogRecordType::FleetCargoXfer;
+        }
+        if self.quantities.iter().all(|q| i8::try_from(*q).is_ok()) {
+            LogRecordType::CargoXfer8
+        } else if self.quantities.iter().all(|q| i16::try_from(*q).is_ok()) {
+            LogRecordType::CargoXfer16
+        } else {
+            LogRecordType::CargoXfer32
+        }
+    }
 }
 
 /// A decoded fleet-rename operation (`RTCHGNAME`, type id 44).
@@ -458,6 +589,23 @@ impl FleetName {
             name: decode_field(&data[4..]),
         })
     }
+
+    /// Re-encode this rename as a `RTCHGNAME` payload (type id 44).
+    ///
+    /// The name is written in the packed encoding. Nothing in the fixtures
+    /// renames a fleet, so this is derived from the struct rather than
+    /// fixture-verified.
+    ///
+    /// # Errors
+    /// [`FormatError::Malformed`] if the packed name is longer than a length
+    /// byte can count.
+    pub fn encode(&self) -> Result<Vec<u8>> {
+        let mut out = Vec::with_capacity(4 + self.name.len());
+        out.extend_from_slice(&self.id.to_le_bytes());
+        out.extend_from_slice(&self.grobj.to_le_bytes());
+        out.extend_from_slice(&crate::strings::encode_field(&self.name)?);
+        Ok(out)
+    }
 }
 
 /// A decoded ship-design-change operation (`RTCHGSHDEF`, type id 27).
@@ -473,6 +621,9 @@ pub struct ShipDesignChange {
     pub player: u8,
     /// The design slot index (`ishdef`, 5 bits at bit 8).
     pub design_index: u8,
+    /// The NB09 `junk:3` field (bits 13..=15 of the header word), preserved so
+    /// the record re-encodes exactly.
+    pub header_high: u8,
     /// The embedded design (`RTSHDEF`); `None` for a delete (header only).
     pub design: Option<DesignRecord>,
 }
@@ -496,8 +647,26 @@ impl ShipDesignChange {
             mode: (hdr & 0xF) as u8,
             player: ((hdr >> 4) & 0xF) as u8,
             design_index: ((hdr >> 8) & 0x1F) as u8,
+            header_high: ((hdr >> 13) & 0x7) as u8,
             design,
         })
+    }
+
+    /// Re-encode this change as a `RTCHGSHDEF` payload (type id 27).
+    ///
+    /// # Errors
+    /// Propagates [`DesignRecord::encode`]'s error when the embedded design
+    /// does not fit its block.
+    pub fn encode(&self) -> Result<Vec<u8>> {
+        let hdr = u16::from(self.mode & 0xF)
+            | (u16::from(self.player & 0xF) << 4)
+            | (u16::from(self.design_index & 0x1F) << 8)
+            | (u16::from(self.header_high & 0x7) << 13);
+        let mut out = hdr.to_le_bytes().to_vec();
+        if let Some(design) = &self.design {
+            out.extend_from_slice(&design.encode()?);
+        }
+        Ok(out)
     }
 }
 
@@ -524,6 +693,15 @@ impl ThingParam {
             id_full: u16::from_le_bytes([data[0], data[1]]),
             param: i16::from_le_bytes([data[2], data[3]]),
         })
+    }
+
+    /// Re-encode this operation as a `RTLOGTHING` payload (type id 43).
+    #[must_use]
+    pub fn encode(&self) -> [u8; 4] {
+        let mut out = [0u8; 4];
+        out[0..2].copy_from_slice(&self.id_full.to_le_bytes());
+        out[2..4].copy_from_slice(&self.param.to_le_bytes());
+        out
     }
 }
 
@@ -614,6 +792,88 @@ impl LogRecord {
     }
 }
 
+impl LogRecord {
+    /// A record holding an already-encoded payload.
+    #[must_use]
+    pub fn raw(record_type: LogRecordType, data: Vec<u8>) -> Self {
+        Self { record_type, data }
+    }
+
+    /// Insert (`insert`) or overwrite a fleet's waypoint order.
+    #[must_use]
+    pub fn waypoint(order: &WaypointOrder, insert: bool) -> Self {
+        Self::raw(
+            if insert {
+                LogRecordType::FleetOrderInsert
+            } else {
+                LogRecordType::FleetOrderUpdate
+            },
+            order.encode(),
+        )
+    }
+
+    /// Delete a fleet's waypoint order.
+    #[must_use]
+    pub fn delete_waypoint(order: FleetOrderDelete) -> Self {
+        Self::raw(LogRecordType::FleetOrderDelete, order.encode().to_vec())
+    }
+
+    /// Change the research settings.
+    #[must_use]
+    pub fn research_settings(order: ResearchOrder) -> Self {
+        Self::raw(LogRecordType::Research, order.encode().to_vec())
+    }
+
+    /// Change a planet's routing, fling and no-research settings.
+    #[must_use]
+    pub fn planet_routing(order: PlanetRoutingOrder) -> Self {
+        Self::raw(LogRecordType::PlanetRouting, order.encode().to_vec())
+    }
+
+    /// Move cargo, in the narrowest variant that carries the quantities.
+    #[must_use]
+    pub fn cargo(transfer: &CargoTransfer, fleet_to_fleet: bool) -> Self {
+        let record_type = transfer.narrowest(fleet_to_fleet);
+        let data = transfer.encode(record_type).unwrap_or_default();
+        Self::raw(record_type, data)
+    }
+
+    /// Replace a planet's production queue.
+    #[must_use]
+    pub fn production_queue(queue: &ProductionQueueRecord) -> Self {
+        Self::raw(LogRecordType::PlanetProdQueue, queue.encode_change())
+    }
+
+    /// Create, change or delete a ship design.
+    ///
+    /// # Errors
+    /// Propagates the design encoder's error.
+    pub fn ship_design(change: &ShipDesignChange) -> Result<Self> {
+        Ok(Self::raw(LogRecordType::ShipDesign, change.encode()?))
+    }
+
+    /// Rename a fleet.
+    ///
+    /// # Errors
+    /// Propagates the packed-string encoder's error.
+    pub fn fleet_name(rename: &FleetName) -> Result<Self> {
+        Ok(Self::raw(LogRecordType::FleetName, rename.encode()?))
+    }
+
+    /// Set a byte inside a space object (arm a minefield, say).
+    #[must_use]
+    pub fn thing_param(param: ThingParam) -> Self {
+        Self::raw(LogRecordType::ThingByteParam, param.encode().to_vec())
+    }
+
+    /// The framed size of this record: its payload plus the two-byte block
+    /// header, which is the unit `RTLOGHDR.cbLog` counts in.
+    #[must_use]
+    pub fn framed_len(&self) -> usize {
+        self.data.len() + 2
+    }
+}
+
 /// A fully-parsed `.xN` order log: the header plus the operation records.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OrderLog {
@@ -623,6 +883,73 @@ pub struct OrderLog {
     /// and the log header (type 9) are excluded; the trailing footer (type 0)
     /// is excluded too.
     pub records: Vec<LogRecord>,
+}
+
+impl OrderLog {
+    /// An empty log, with a header carrying the given identity.
+    ///
+    /// `serial_number` is the **registration serial of the copy of Stars! that
+    /// wrote the file** (`vSerialNumber`), and `config` an eleven-byte
+    /// fingerprint of the machine it was written on (`vrgbEnvCur`). The host
+    /// uses the pair to notice two players submitting from one registration.
+    /// An unregistered copy carries zero, which is what this project writes
+    /// unless a caller passes something it copied from a file the real client
+    /// produced.
+    #[must_use]
+    pub fn new(serial_number: i32, config: [u8; 11]) -> Self {
+        Self {
+            header: Some(LogHeader {
+                log_byte_count: 0,
+                serial_number,
+                config,
+            }),
+            records: Vec::new(),
+        }
+    }
+
+    /// The framed size of every record, which is what `cbLog` counts.
+    #[must_use]
+    pub fn log_byte_count(&self) -> usize {
+        self.records.iter().map(LogRecord::framed_len).sum()
+    }
+
+    /// Assemble this log into a complete `.xN` file.
+    ///
+    /// `cbLog` is recomputed from the records, so a caller need not maintain
+    /// it. The file header must name [`crate::FileType::Orders`] and the player
+    /// whose orders these are.
+    ///
+    /// # Errors
+    /// [`FormatError::Malformed`] if the log is longer than `cbLog` can count,
+    /// or a record does not fit its block.
+    pub fn to_file(&self, header: &FileHeader) -> Result<Vec<u8>> {
+        let count = u16::try_from(self.log_byte_count()).map_err(|_| {
+            FormatError::Malformed(format!(
+                "an order log of {} bytes is longer than cbLog can count",
+                self.log_byte_count()
+            ))
+        })?;
+        let log_header = LogHeader {
+            log_byte_count: count,
+            ..self.header.unwrap_or(LogHeader {
+                log_byte_count: 0,
+                serial_number: 0,
+                config: [0; 11],
+            })
+        };
+
+        let mut body = vec![crate::block::Block::new(
+            LOG_HEADER_BLOCK,
+            log_header.encode().to_vec(),
+        )?];
+        for record in &self.records {
+            body.push(crate::block::Block::new(
+                record.record_type.id(),
+                record.data.clone(),
+            )?);
+        }
+        StarsFile::build(header, &body, Vec::new())
+    }
 }
 
 /// Parse a decoded [`StarsFile`] as an order log.

@@ -55,6 +55,55 @@ impl Screen {
     }
 }
 
+/// A planet's production queue as the file's own items.
+fn queue_items(planet: &Planet) -> Vec<QueueItem> {
+    planet
+        .queue
+        .iter()
+        .map(|entry| QueueItem {
+            count: u16::try_from(entry.count).unwrap_or(0),
+            item: entry.item,
+            class: if entry.ship {
+                QueueClass::Fleet
+            } else {
+                QueueClass::Planet
+            },
+            completion: u16::try_from(entry.completion).unwrap_or(0),
+        })
+        .collect()
+}
+
+/// The registration serial and machine fingerprint of an order file already on
+/// disk, or zeros.
+fn existing_registration(path: &Path) -> (i32, [u8; 11]) {
+    let zero = (0, [0u8; 11]);
+    let Ok(bytes) = std::fs::read(path) else {
+        return zero;
+    };
+    let Ok(file) = StarsFile::decode(&bytes) else {
+        return zero;
+    };
+    stars_formats::order_log(&file)
+        .header
+        .map_or(zero, |h| (h.serial_number, h.config))
+}
+
+/// A deterministic cipher salt for an order file, distinct from the ones the
+/// state files use so the two do not share a keystream.
+fn order_salt(game_id: u32, player: u8, turn: i16) -> u16 {
+    let mixed = game_id.rotate_right(u32::from(player) % 32)
+        ^ (u32::from(turn.unsigned_abs()) << 5)
+        ^ 0x0051_7bd3;
+    ((mixed ^ (mixed >> 13)) & 0x07FF) as u16
+}
+
+/// The object class a waypoint or transfer names for a planet (`grobj`).
+const PLANET_CLASS: u8 = 1;
+/// The object class for a fleet.
+const FLEET_CLASS: u8 = 2;
+/// The object class for "no target at all" — a bare coordinate.
+const NO_TARGET_CLASS: u8 = 4;
+
 /// What the player has picked out of the current game.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Selection {
@@ -99,13 +148,20 @@ pub struct App {
     edited: std::collections::BTreeSet<i16>,
     /// The warp the fleet screen last used, remembered between orders.
     pub warp: u8,
-    /// Cargo transfers performed this turn.
+    /// The order log for this turn, in the order the player made the moves.
     ///
     /// A Stars! order log is **not** a list of intentions: it records what the
     /// player's client already did, so the host can replay it and stay in step.
-    /// So a transfer is applied to the game the moment it is made, and kept
-    /// here as the record a `.x` file would carry. Nothing re-applies them.
-    pub orders: Vec<stars_formats::CargoTransferRecord>,
+    /// Every entry here has already been applied to the loaded game; nothing
+    /// re-applies them. [`App::order_file`] writes them out as a `.xN`.
+    ///
+    /// Cargo transfers and fleet orders are appended as they happen, because
+    /// they are events. The production queues and the research setting are
+    /// **state**, and their log records replace whatever the host has, so they
+    /// are added once at the end from what was actually changed.
+    pub orders: Vec<stars_formats::LogRecord>,
+    /// Whether the research setting was changed this turn.
+    research_edited: bool,
 }
 
 /// A generated turn, reduced to what a player wants to be told.
@@ -399,6 +455,10 @@ impl App {
             written.push(write(format!("{stem}.m{}", player + 1), bytes)?);
         }
 
+        if !self.orders.is_empty() || self.research_edited || !self.edited.is_empty() {
+            written.push(self.save_orders(&host)?);
+        }
+
         self.open(&host)?;
         Ok(written)
     }
@@ -429,6 +489,125 @@ impl App {
         std::fs::write(path, bytes).map_err(|e| format!("cannot write {}: {e}", path.display()))
     }
 
+    /// Which player's orders this session is recording.
+    ///
+    /// A turn file names its player in the header, and that is whose orders a
+    /// `.xN` carries. A host file names none, so the first human player is
+    /// taken — which is the local player of a game this project generated.
+    #[must_use]
+    pub fn local_player(&self) -> usize {
+        if let Some(file) = &self.file {
+            let player = usize::from(file.latest_segment().header.player);
+            if player < stars_core::newgame::MAX_PLAYERS {
+                return player;
+            }
+        }
+        self.game
+            .as_ref()
+            .and_then(|game| {
+                game.players
+                    .iter()
+                    .position(|p| matches!(p.control, stars_core::ai::Control::Human))
+            })
+            .unwrap_or(0)
+    }
+
+    /// The order log for this turn, ready to write.
+    ///
+    /// The events the player caused — cargo transfers and fleet orders — are
+    /// already in [`Self::orders`] in the order they happened. Two things are
+    /// **state** rather than events, and their log records replace whatever the
+    /// host holds, so they go on the end: one production-queue record per
+    /// planet whose queue was edited, and one research record if the setting
+    /// was changed.
+    ///
+    /// `serial` and `config` identify the copy of Stars! that wrote the file.
+    /// This project has no registration, so it writes zeros unless a caller
+    /// passes values it read from a file the real client produced — see
+    /// [`stars_formats::OrderLog::new`].
+    #[must_use]
+    pub fn order_log(&self, serial: i32, config: [u8; 11]) -> stars_formats::OrderLog {
+        use stars_formats::{LogRecord, ProductionQueueRecord, ResearchOrder};
+
+        let mut log = stars_formats::OrderLog::new(serial, config);
+        log.records.clone_from(&self.orders);
+        let Some(game) = self.game.as_ref() else {
+            return log;
+        };
+
+        for id in &self.edited {
+            let Some(planet) = game.planets.iter().find(|p| p.id == *id) else {
+                continue;
+            };
+            let record = ProductionQueueRecord {
+                planet_id: u16::try_from(*id).ok(),
+                items: queue_items(planet),
+            };
+            log.records.push(LogRecord::production_queue(&record));
+        }
+
+        if self.research_edited {
+            if let Some(player) = game.players.get(self.local_player()) {
+                log.records
+                    .push(LogRecord::research_settings(ResearchOrder {
+                        pct_resources: player.research_pct,
+                        current_field: u8::try_from(player.research.current_field).unwrap_or(0),
+                        next_field: match player.research.next_field {
+                            stars_core::research::NextField::Field(f) => {
+                                u8::try_from(f).unwrap_or(0)
+                            }
+                            stars_core::research::NextField::Same => 6,
+                            stars_core::research::NextField::Lowest => 7,
+                        },
+                    }));
+            }
+        }
+        log
+    }
+
+    /// Write this turn's orders as a `.xN` file.
+    ///
+    /// If a `.xN` for the same player already sits beside `path`, its
+    /// registration serial and machine fingerprint are carried over, so a file
+    /// this project writes stays consistent with the ones the real client wrote
+    /// for that player. Otherwise both are zero, which is what an unregistered
+    /// copy carries.
+    ///
+    /// # Errors
+    /// Returns a message suitable for showing to the player.
+    pub fn save_orders(&self, path: &Path) -> Result<PathBuf, String> {
+        let game = self.game.as_ref().ok_or("no game is loaded")?;
+        let player = self.local_player();
+        let number = u8::try_from(player).map_err(|_| "player index out of range".to_string())?;
+
+        let directory = path.parent().unwrap_or_else(|| Path::new("."));
+        let stem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .filter(|s| !s.is_empty())
+            .ok_or("the file name has no stem to build the order file from")?;
+        let target = directory.join(format!("{stem}.x{}", player + 1));
+
+        let (serial, config) = existing_registration(&target);
+        let log = self.order_log(serial, config);
+        let header = stars_formats::FileHeader {
+            flag_done: true,
+            ..stars_formats::FileHeader::new(
+                game.seed,
+                stars_formats::FileType::Orders,
+                number,
+                game.turn.unsigned_abs(),
+                order_salt(game.seed, number, game.turn),
+            )
+        };
+        let bytes = log
+            .to_file(&header)
+            .map_err(|e| format!("cannot build the order file: {e}"))?;
+        std::fs::write(&target, bytes)
+            .map_err(|e| format!("cannot write {}: {e}", target.display()))?;
+        Ok(target)
+    }
+
     /// Write the game back to a file.
     ///
     /// # Errors
@@ -436,6 +615,9 @@ impl App {
     pub fn save(&mut self, path: &Path) -> Result<(), String> {
         let bytes = self.to_bytes()?;
         std::fs::write(path, bytes).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+        // The orders go beside the state file: a host replays them, and a
+        // player file alone does not tell it what was done.
+        self.save_orders(path)?;
         self.path = Some(path.to_path_buf());
         self.dirty = false;
         Ok(())
@@ -488,6 +670,9 @@ impl App {
         };
         let mut rng = stars_core::rng::Rng::randomize(state.seed);
         let report = stars_core::generate_turn(state, &mut rng);
+        // The log covers one turn; the year has moved on.
+        self.orders.clear();
+        self.research_edited = false;
         self.last_turn = Some(TurnSummary {
             year: report.year,
             mined: report.mined.len(),
@@ -515,7 +700,7 @@ impl App {
     /// only what it has.
     pub fn transfer_cargo(&mut self, fleet: usize, kind: usize, amount: i32) -> i32 {
         use stars_core::orders::{apply_cargo_transfer, CARGO_KINDS};
-        use stars_formats::{CargoTransferRecord, GrobjClass};
+        use stars_formats::{CargoTransfer, CargoTransferRecord, GrobjClass, LogRecord};
 
         if amount == 0 || kind >= CARGO_KINDS {
             return 0;
@@ -547,18 +732,76 @@ impl App {
         };
         let moved = apply_cargo_transfer(game, &record)[kind];
         if moved != 0 {
-            let mut done = record;
-            done.quantities[kind] = moved;
-            self.orders.push(done);
+            // The log's own transfer record: the two objects, their classes,
+            // a bitmask of the cargo kinds moved and one quantity per kind.
+            self.orders.push(LogRecord::cargo(
+                &CargoTransfer {
+                    id1: source,
+                    id2: planet,
+                    grobj1: FLEET_CLASS,
+                    grobj2: PLANET_CLASS,
+                    items_mask: 1 << kind,
+                    quantities: vec![moved],
+                    quantity_bytes: Vec::new(),
+                },
+                false,
+            ));
             self.dirty = true;
         }
         moved
+    }
+
+    /// Record the order that puts a fleet's current waypoint on the log.
+    ///
+    /// `insert` writes the operation the client uses for a waypoint that was
+    /// not there before; an update overwrites one that was. The pair is the
+    /// idiom the real logs use: an insert to add the leg, then an update each
+    /// time its task changes.
+    fn log_waypoint(&mut self, fleet: usize, index: usize, insert: bool) {
+        use stars_formats::{LogRecord, WaypointOrder};
+
+        let Some(game) = self.game.as_ref() else {
+            return;
+        };
+        let Some(fleet_record) = game.fleets.get(fleet) else {
+            return;
+        };
+        let Some(waypoint) = fleet_record.waypoints.get(index) else {
+            return;
+        };
+        let owner = u16::try_from(fleet_record.owner.max(0)).unwrap_or(0);
+        let order = WaypointOrder {
+            fleet_id: (owner << 9) | (fleet_record.id & 0x1ff),
+            waypoint_index: u16::try_from(index).unwrap_or(0),
+            x: waypoint.position.x,
+            y: waypoint.position.y,
+            target_id: waypoint
+                .target
+                .and_then(|t| i16::try_from(t).ok())
+                .unwrap_or(0),
+            task: waypoint.task,
+            warp: waypoint.warp,
+            grobj: if waypoint.target.is_some() {
+                PLANET_CLASS
+            } else {
+                NO_TARGET_CLASS
+            },
+            valid_task: waypoint.task != 0,
+            flags_high: 0,
+            task_data: waypoint
+                .transport
+                .as_ref()
+                .map(stars_formats::TransportTask::encode)
+                .unwrap_or_default(),
+        };
+        self.orders.push(LogRecord::waypoint(&order, insert));
     }
 
     /// Set what share of a player's resources goes to research.
     pub fn set_research(&mut self, player: usize, percent: u8) {
         if let Some(p) = self.game.as_mut().and_then(|g| g.players.get_mut(player)) {
             p.research_pct = percent.min(100);
+            self.research_edited = true;
             self.dirty = true;
         }
     }
@@ -569,6 +812,7 @@ impl App {
     /// the game keeps it — it is performed on arrival and consumed then, which
     /// is why a reached waypoint always reads `none`.
     pub fn set_task(&mut self, fleet: usize, task: u8) {
+        let index = fleet;
         let Some(fleet) = self.game.as_mut().and_then(|g| g.fleets.get_mut(fleet)) else {
             return;
         };
@@ -584,6 +828,7 @@ impl App {
                 waypoint.transport = None;
             }
         }
+        self.log_waypoint(index, at, false);
         self.dirty = true;
     }
 
@@ -591,6 +836,7 @@ impl App {
     pub fn set_transport(&mut self, fleet: usize, kind: usize, action: stars_formats::XferAction) {
         use stars_formats::{ItemAction, TransportTask};
 
+        let index = fleet;
         let Some(fleet) = self.game.as_mut().and_then(|g| g.fleets.get_mut(fleet)) else {
             return;
         };
@@ -614,6 +860,7 @@ impl App {
         });
         orders.items[kind].action = action;
         waypoint.transport = Some(orders);
+        self.log_waypoint(index, at, false);
         self.dirty = true;
     }
 
@@ -622,6 +869,7 @@ impl App {
     /// This replaces whatever the fleet was doing: its waypoint list becomes
     /// where it is now, then where it is going.
     pub fn set_destination(&mut self, fleet: usize, planet: i16, warp: u8) {
+        let index = fleet;
         let Some(game) = self.game.as_mut() else {
             return;
         };
@@ -637,6 +885,10 @@ impl App {
         let Some(fleet) = game.fleets.get_mut(fleet) else {
             return;
         };
+        // Replacing an existing leg is a delete followed by an insert, which
+        // is what the client's own log does.
+        let replacing = fleet.waypoints.len() > 1;
+        let fleet_word = (u16::try_from(fleet.owner.max(0)).unwrap_or(0) << 9) | (fleet.id & 0x1ff);
         let here = fleet.position;
         fleet.waypoints = vec![
             stars_core::fleet::Waypoint {
@@ -655,6 +907,16 @@ impl App {
             },
         ];
         fleet.warp = Some(warp);
+        if replacing {
+            self.orders.push(stars_formats::LogRecord::delete_waypoint(
+                stars_formats::FleetOrderDelete {
+                    fleet_id: fleet_word,
+                    order_index: 1,
+                    delete_extra: false,
+                },
+            ));
+        }
+        self.log_waypoint(index, 1, true);
         self.dirty = true;
     }
 
@@ -1116,7 +1378,10 @@ mod tests {
         assert_eq!(after - before, moved, "the hold gained exactly what moved");
         if moved != 0 {
             assert_eq!(app.orders.len(), 1, "and the order was recorded");
-            assert_eq!(app.orders[0].quantities[0], moved, "at what actually moved");
+            let logged = app.orders[0]
+                .as_cargo_transfer()
+                .expect("recorded as a cargo transfer");
+            assert_eq!(logged.quantities, vec![moved], "at what actually moved");
             assert!(app.dirty);
         }
 

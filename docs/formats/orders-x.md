@@ -1,10 +1,14 @@
 # `.xN` player-orders file (the order log)
 
-**Status:** container round-trips byte-for-byte; the log header and the common
-operation records are **decoded & verified**. Implemented in
+**Status:** **decoded, verified and writable.** The log header and the common
+operation records each re-encode byte for byte, and all **58** `.xN` files in
+the fixtures rebuild whole from their parsed logs — 878 records across eight
+record types. Implemented in
 [`stars-formats::orders`](../../crates/stars-formats/src/orders.rs); verified by
-[`tests/orders_files.rs`](../../crates/stars-formats/tests/orders_files.rs)
-against the 40-turn `fixtures/games/exodus/*/EXODUS.X6` sequence.
+[`tests/orders_files.rs`](../../crates/stars-formats/tests/orders_files.rs) and
+[`tests/round_trip.rs`](../../crates/stars-formats/tests/round_trip.rs) against
+the 40-turn `fixtures/games/exodus/*/EXODUS.X6` sequence and the turn-1
+`fixtures/incoming/turn1/Game.x1`.
 
 **Reference:** the NB09 debug symbols of `Stars! 2.7j` (`structs.h`, `enums.h`,
 `log.c`; see [`nb09-structs.md`](nb09-structs.md)), cross-checked field-by-field
@@ -49,12 +53,44 @@ Verified on all 40 exodus files:
 
 - `cbLog` exactly equals the sum of the framed sizes (`2 + payload`) of every
   operation record between this header and the footer — i.e. `filesize − 39`
-  (18-byte file header block + 19-byte log-header block + 2-byte footer).
-- `lSerialNumber` and the 11 `rgbConfig` bytes are **constant across the whole
-  game** (all 40 turns), confirming they are per-game/player identity, not
-  per-turn data.
+  (18-byte file header block + 19-byte log-header block + 2-byte footer). It
+  counts the operation records **only**: `FWriteLogFile` appends any outgoing
+  player messages after the loop that emits them, and `cbLog` is set from
+  `imemLogCur` before that.
 
-Decoded by [`LogHeader`](../../crates/stars-formats/src/orders.rs).
+### What the serial and config bytes actually are
+
+`FWriteLogFile` (`log.c`) fills them from two globals:
+
+```c
+rtlh.lSerialNumber = vSerialNumber;
+memcpy(rtlh.rgbConfig, vrgbEnvCur, 11);
+```
+
+`vSerialNumber` is the **registration serial of the copy of Stars! that wrote
+the file** — the player's licence key, zero in an unregistered copy
+(`globals.c` initialises it to 0, and `mdi.c` sets it from the registration
+dialogue). `vrgbEnvCur[11]` is a **fingerprint of the machine** it was written
+on: `mdi.c` compares it against a stored `vrgbMachineConfig` to notice the
+program moving to a different computer.
+
+The host reads both back out of each submitted `.xN` (`log.c` stores them into
+`vrgts[idPlayer]`) and uses the pair to catch two players submitting from one
+registration: `turn.c` rejects an invalid serial and flags two players that
+share one. That is why the same eleven config bytes appear in two unrelated
+games in the fixtures — the same person's machine wrote both — and why an
+earlier revision of this note read them as per-game identity.
+
+**We write zero.** A file this project produces carries no registration,
+because it has none; inventing a serial would be forging a licence key.
+[`stars_ui::App::save_orders`] does copy the serial and fingerprint out of a
+`.xN` already sitting beside the save, so a file written for a player who has
+real ones stays consistent with theirs.
+
+Decoded by [`LogHeader`](../../crates/stars-formats/src/orders.rs) and written by
+`LogHeader::encode`; `cbLog` is recomputed by
+[`OrderLog::to_file`](../../crates/stars-formats/src/orders.rs) rather than
+carried, so a caller assembling a log never has to maintain it.
 
 ## Operation record types (`rtLog*`)
 
@@ -227,10 +263,51 @@ capture, so decoded from the NB09 struct rather than fixture-verified.)
 (e.g. a minefield arm/detonate flag). Decoded by [`ThingParam`]. (Also absent
 from exodus; decoded from the struct.)
 
+## Writing an order file
+
+`OrderLog::to_file(&FileHeader)` assembles the whole file: the plaintext file
+header, the `RTLOGHDR` with a recomputed `cbLog`, each operation record framed
+and encrypted, and the empty footer. Every typed operation has an `encode` that
+is the exact inverse of its decoder, and `LogRecord` has a constructor per
+operation, so building a log is a matter of pushing records in the order the
+player made the moves.
+
+Every one of the 58 `.xN` files in the fixtures rebuilds byte for byte from its
+parsed log. Record counts checked: 466 waypoint inserts/updates, 143 production
+queues, 106 cargo transfers, 58 log headers, 43 ship-design changes, 29 research
+settings, 25 order deletes, 8 planet routings.
+
+### What the frontend records
+
+`stars_ui::App` keeps the log as the player acts, because an order file records
+what the client **already did**, not what it intends:
+
+| The player… | …is logged as |
+|-------------|---------------|
+| moves cargo between a fleet and the planet it orbits | a cargo transfer, in the narrowest of the four width variants that holds the quantities |
+| sends a fleet somewhere | a delete of the old leg, if there was one, then an insert at waypoint 1 |
+| gives it a task or transport instructions | an update of that waypoint |
+| edits a production queue | one queue record per planet, at the end |
+| dials research | one research record, at the end |
+
+Cargo transfers and fleet orders are **events** and go on as they happen; the
+queue and the research setting are **state**, and their records replace whatever
+the host holds, so one of each is enough. Generating a turn clears the log: it
+covers one year.
+
+The delete-then-insert idiom for replacing a leg, and the insert-then-update
+idiom for adding one and then giving it a task, are both what the exodus logs
+do.
+
 ## Open items
 
-- The 11 `rgbConfig` bytes of `RTLOGHDR` (game-settings snapshot) are preserved
-  but not field-split.
+- The 11 `rgbConfig` bytes of `RTLOGHDR` are a machine fingerprint (see above);
+  what they are a fingerprint *of* is not decoded, and they are preserved
+  verbatim.
+- The flags word of a logged `ORDER` carries bits 13-15 that this decoder does
+  not interpret (bit 13 is `fNoAutoTrack` in the state file's own waypoint
+  record). They are preserved, and a waypoint this project writes leaves them
+  zero.
 - `rtLogFleetSplit` (24), `rtLogFleetMerge` (37), `rtLogFleetFlagBit9` (10),
   `rtLogFleetOrderAttrNib` (11), `rtLogRelations` (38), `rtLogFleetPlan` (42)
   and `rtLogPlayerZpq1` (46) are classified but not yet field-decoded.

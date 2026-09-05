@@ -18,8 +18,10 @@
 use std::path::{Path, PathBuf};
 
 use stars_formats::{
-    BattlePlanRecord, DesignRecord, FleetRecord, PlanetRecord, PlayerRecord, ProductionQueueRecord,
-    StarsFile, Thing, WaypointRecord, THING_SIZE,
+    order_log, BattlePlanRecord, CargoTransfer, DesignRecord, FleetOrderDelete, FleetRecord,
+    LogHeader, LogRecordType, PlanetRecord, PlanetRoutingOrder, PlayerRecord,
+    ProductionQueueRecord, ResearchOrder, ShipDesignChange, StarsFile, Thing, ThingParam,
+    WaypointOrder, WaypointRecord, THING_SIZE,
 };
 
 /// Every file under `fixtures/`, in a stable order.
@@ -262,4 +264,144 @@ fn every_name_round_trips_through_the_string_codec() {
         );
     }
     eprintln!("strings: {} distinct names round-tripped", names.len());
+}
+
+/// Every order-log record re-encodes, and every `.xN` file rebuilds whole.
+///
+/// The order log is the one format whose records are *operations* rather than
+/// state, and the one this project has to be able to write for a game to be
+/// playable against a real host. The per-record check is the same contract as
+/// everywhere else; the whole-file check additionally exercises `cbLog`, which
+/// the writer recomputes rather than copying.
+#[test]
+fn every_order_record_re_encodes() {
+    let mut checked: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    let mut files = 0usize;
+
+    for path in fixtures() {
+        if path
+            .extension()
+            .is_none_or(|e| !e.to_string_lossy().to_lowercase().starts_with('x'))
+            || path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("xy"))
+        {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        let Ok(file) = StarsFile::decode(&bytes) else {
+            continue;
+        };
+        files += 1;
+
+        for block in &file.blocks {
+            let data = &block.data;
+            let mut note = |label: &'static str| *checked.entry(label).or_default() += 1;
+            match LogRecordType::from_id(block.type_id) {
+                LogRecordType::Header => {
+                    let record = LogHeader::decode(data).expect("log header");
+                    assert_eq!(record.encode(), data.as_slice(), "{}", path.display());
+                    note("log header");
+                }
+                LogRecordType::FleetOrderInsert | LogRecordType::FleetOrderUpdate => {
+                    let record = WaypointOrder::decode(data).expect("waypoint order");
+                    assert_eq!(&record.encode(), data, "{}", path.display());
+                    note("waypoint");
+                }
+                LogRecordType::FleetOrderDelete => {
+                    let record = FleetOrderDelete::decode(data).expect("order delete");
+                    assert_eq!(
+                        record.encode().as_slice(),
+                        data.as_slice(),
+                        "{}",
+                        path.display()
+                    );
+                    note("order delete");
+                }
+                LogRecordType::Research => {
+                    let record = ResearchOrder::decode(data).expect("research");
+                    assert_eq!(
+                        record.encode().as_slice(),
+                        data.as_slice(),
+                        "{}",
+                        path.display()
+                    );
+                    note("research");
+                }
+                LogRecordType::PlanetRouting => {
+                    let record = PlanetRoutingOrder::decode(data).expect("planet routing");
+                    assert_eq!(
+                        record.encode().as_slice(),
+                        data.as_slice(),
+                        "{}",
+                        path.display()
+                    );
+                    note("planet routing");
+                }
+                kind @ (LogRecordType::CargoXfer8
+                | LogRecordType::CargoXfer16
+                | LogRecordType::CargoXfer32
+                | LogRecordType::FleetCargoXfer) => {
+                    let record = CargoTransfer::decode(data, kind).expect("cargo transfer");
+                    assert_eq!(
+                        record.encode(kind).expect("a transfer op"),
+                        *data,
+                        "{}",
+                        path.display()
+                    );
+                    note("cargo transfer");
+                }
+                LogRecordType::PlanetProdQueue => {
+                    let record = ProductionQueueRecord::decode_change(data).expect("queue change");
+                    assert_eq!(record.encode_change(), *data, "{}", path.display());
+                    note("production queue");
+                }
+                LogRecordType::ShipDesign => {
+                    let record = ShipDesignChange::decode(data).expect("design change");
+                    assert_eq!(
+                        record.encode().expect("encodes"),
+                        *data,
+                        "{}",
+                        path.display()
+                    );
+                    note("ship design");
+                }
+                LogRecordType::ThingByteParam => {
+                    let record = ThingParam::decode(data).expect("thing param");
+                    assert_eq!(
+                        record.encode().as_slice(),
+                        data.as_slice(),
+                        "{}",
+                        path.display()
+                    );
+                    note("thing param");
+                }
+                _ => {}
+            }
+        }
+
+        // And the whole file, rebuilt from the parsed log.
+        let log = order_log(&file);
+        let rebuilt = log.to_file(&file.header).expect("writes");
+        assert_eq!(
+            rebuilt,
+            bytes,
+            "{} does not rebuild byte for byte",
+            path.display()
+        );
+        assert_eq!(
+            log.log_byte_count(),
+            usize::from(log.header.expect("a log header").log_byte_count),
+            "{}: cbLog disagrees with the records",
+            path.display()
+        );
+    }
+
+    if files == 0 {
+        eprintln!("skipping: no .xN fixtures");
+        return;
+    }
+    eprintln!("order log: {files} files rebuilt byte for byte; records {checked:?}");
 }

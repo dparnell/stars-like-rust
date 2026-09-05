@@ -629,8 +629,28 @@ disagree.
     a piece of the reconstructed C had misled. The rule that keeps holding is
     that the observable was wrong, not the model.
 
-12. **What is still missing to call it playable.** No `.x` order file is
-    written, so orders reach the turn generator but not a host; the waypoint
+12. ~~**The `.x` order file writer.**~~ **Done.** Every operation record has an
+    encoder that is an exact inverse of its decoder, and all **58** `.xN` files
+    in the fixtures rebuild byte for byte from their parsed logs — 878 records
+    over eight types. `stars_ui::App` keeps the log as the player acts, because
+    an order file records what the client already did: cargo transfers and
+    fleet orders go on as events, while the production queues and the research
+    setting are state and get one replacing record each at the end. Saving
+    writes `<base>.xN` beside the state file.
+
+    The log header's `lSerialNumber` and `rgbConfig` turned out not to be
+    per-game identity at all: `FWriteLogFile` fills them from `vSerialNumber`,
+    the **registration serial of the copy of Stars! that wrote the file**, and
+    `vrgbEnvCur`, a **fingerprint of the machine** — the host compares the pair
+    across players to catch two people submitting from one registration. This
+    project writes zero, because it has no registration and inventing one would
+    be forging a licence key; a serial already sitting in a `.xN` beside the
+    save is copied over instead. See `docs/formats/orders-x.md`.
+
+13. **What is still missing to call it playable.** Our own turn generator does
+    not *read* `.x` files — orders reach it directly from the session, so the
+    writer is for interoperating with a real host rather than for our own
+    loop. Beyond that, the waypoint
     tasks beyond colonise, transport and remote mining (merge, scrap, lay
     minefield, patrol, route, transfer) can be set but are not simulated; and
     neither generation nor the writers carry wormholes, the Mystery Trader,

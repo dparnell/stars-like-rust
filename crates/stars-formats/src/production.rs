@@ -174,6 +174,17 @@ impl ProductionQueueRecord {
         }
         out
     }
+
+    /// Pack the queue into the type-29 **order** form, which names its planet.
+    ///
+    /// Exact inverse of [`ProductionQueueRecord::decode_change`]. A record with
+    /// no planet id writes zero, which no real order does.
+    #[must_use]
+    pub fn encode_change(&self) -> Vec<u8> {
+        let mut out = self.planet_id.unwrap_or(0).to_le_bytes().to_vec();
+        out.extend_from_slice(&self.encode());
+        out
+    }
 }
 
 /// Decode every production-queue block (type 28) in a decoded [`StarsFile`], in

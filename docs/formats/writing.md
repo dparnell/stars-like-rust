@@ -27,9 +27,11 @@ opened, and useless for a game this project generated, which has no original.
 | battle plan | 30 | 32,650 |
 | production queue | 28 | 26,942 |
 | space object | 43 | 125,355 |
-| **total** | | **1,576,529** |
+| order-log operations | `.xN` types 1-46 | 878 |
+| **total** | | **1,577,407** |
 
-Plus 230 distinct names through the packed-string encoder.
+Plus 230 distinct names through the packed-string encoder, and all **58** `.xN`
+files rebuilt whole from their parsed logs — see `orders-x.md`.
 
 The point of doing it record by record rather than file by file is that a
 whole-file round trip cannot fail: the payloads are kept. Re-encoding from the
@@ -76,6 +78,9 @@ is invisible. Every packed string in the fixtures re-encodes byte for byte
 under that rule.
 
 ## Assembling a file
+
+An order file is assembled by `OrderLog::to_file`, which recomputes `cbLog`;
+everything else goes through `StarsFile::build`.
 
 `StarsFile::build(header, body, footer)` frames the header as plaintext,
 encrypts each body block with the keystream the header seeds, and appends the
@@ -141,8 +146,9 @@ measured over the corpus rather than assumed:
   count of zero.
 - **Messages, battle recordings and scores**, for the same reason. A fresh game
   has none of them, which is what the turn-0 fixture's own files look like.
-- **The `.hN` history files and the `.xN` order log.** A host writes those; this
-  project does not yet.
+- **The `.hN` history files.** A host writes those; this project does not yet.
+  The `.xN` order log **is** written — see `orders-x.md` — but with a zero
+  registration serial, because this project has none.
 - The player fields nothing has identified: the race emblem is written from
   `Player::logo`, and offsets 82 to 111 are zero.
 
