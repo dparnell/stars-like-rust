@@ -57,6 +57,7 @@ pub mod fleet;
 pub mod ground;
 pub mod hab;
 pub mod load;
+pub mod minefield;
 pub mod mining;
 pub mod movement;
 pub mod newgame;
@@ -267,6 +268,15 @@ pub struct GameState {
     pub designs: Vec<Vec<crate::design::ShipDesign>>,
     /// The game's "slower tech advances" option, which doubles research costs.
     pub slow_tech: bool,
+    /// Every minefield in play. They are `THING`s in the file, and the only
+    /// kind of `THING` this engine models — see [`crate::minefield`].
+    pub minefields: Vec<crate::minefield::Minefield>,
+    /// The other space objects — mineral packets, wormholes, the Mystery
+    /// Trader — exactly as the file held them.
+    ///
+    /// Nothing here simulates them, and that is the point: they are carried
+    /// verbatim so that writing a game back does not quietly delete them.
+    pub other_things: Vec<stars_formats::Thing>,
 }
 
 impl GameState {
@@ -312,6 +322,8 @@ impl GameState {
             fleets: Vec::new(),
             designs: Vec::new(),
             slow_tech: false,
+            minefields: Vec::new(),
+            other_things: Vec::new(),
         }
     }
 

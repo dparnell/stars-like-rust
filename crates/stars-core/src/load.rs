@@ -354,6 +354,28 @@ impl GameState {
             }
         }
 
+        // Minefields, out of the object section. The other kinds of THING —
+        // packets, wormholes, the Mystery Trader — are not modelled, so they
+        // are left where they are rather than half-loaded.
+        for thing in stars_formats::thing_section(file).things {
+            let stars_formats::ThingKind::Minefield(mine) = thing.kind else {
+                // Not modelled, but not thrown away either.
+                state.other_things.push(thing);
+                continue;
+            };
+            state.minefields.push(crate::minefield::Minefield {
+                id: thing.id,
+                owner: i16::from(thing.player),
+                position: Point::new(thing.x, thing.y),
+                mines: mine.mines,
+                kind: mine.kind,
+                detonating: mine.detonate,
+                detected_by: mine.players_seen,
+                visible_to: mine.players_seen_now,
+                turn: thing.turn,
+            });
+        }
+
         // Battle plans. A type-30 block names its owner in its low nibble, and
         // the blocks come in the order the player holds them, so the first one
         // a player owns replaces the defaults and the rest append.
@@ -535,6 +557,7 @@ impl GameState {
                             warp: w.warp,
                             task: w.task,
                             transport: w.transport(),
+                            task_data: w.task_data.clone(),
                         });
                     }
                 }

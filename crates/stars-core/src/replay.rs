@@ -670,6 +670,7 @@ fn new_fleet(state: &mut GameState, player: usize, id: u16, beside: usize) -> Op
             warp: 0,
             task: 0,
             transport: None,
+            task_data: Vec::new(),
         }],
         name: None,
         repeat_orders: false,
@@ -766,6 +767,7 @@ fn set_waypoint(state: &mut GameState, player: usize, order: &WaypointOrder, ins
         transport: (order.task == stars_formats::task::TRANSPORT)
             .then(|| stars_formats::TransportTask::decode(&order.task_data))
             .flatten(),
+        task_data: order.task_data.clone(),
     };
 
     if insert || at == fleet.waypoints.len() {
@@ -941,6 +943,7 @@ mod tests {
                 warp: 0,
                 task: 0,
                 transport: None,
+                task_data: Vec::new(),
             }],
         });
         state
@@ -1442,6 +1445,7 @@ mod tests {
             warp: 6,
             task: 0,
             transport: None,
+            task_data: Vec::new(),
         });
         let mut orders = TurnOrders::default();
         let mut log = OrderLog::new(0, [0; 11]);
@@ -1694,6 +1698,7 @@ mod tests {
                 warp: 6,
                 task: 0,
                 transport: None,
+                task_data: Vec::new(),
             });
             let mut orders = TurnOrders::default();
             let mut log = OrderLog::new(0, [0; 11]);

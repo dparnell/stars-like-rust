@@ -120,9 +120,9 @@ pub fn host_file(state: &GameState) -> Result<Vec<u8>> {
     for (index, designs) in state.designs.iter().enumerate() {
         push_designs(&mut body, state, index, designs, true)?;
     }
-    // The object section: a count record and that many objects. A generated
-    // game has none, so the count is zero.
-    body.push(block(43, 0u16.to_le_bytes().to_vec())?);
+    // The object section: a count record and that many objects. Minefields are
+    // the only kind of object this engine models.
+    push_things(state, &mut body)?;
     for index in 0..state.players.len() {
         push_battle_plans(state, &mut body, index)?;
     }
@@ -654,11 +654,14 @@ fn waypoint_records(fleet: &Fleet) -> Vec<WaypointRecord> {
         .waypoints
         .iter()
         .map(|w| {
+            // A Transport task's instructions are re-encoded from the model;
+            // every other task's payload — the Lay Minefield countdown above
+            // all — is written back exactly as it was read.
             let task_data = w
                 .transport
                 .as_ref()
                 .map(stars_formats::TransportTask::encode)
-                .unwrap_or_default();
+                .unwrap_or_else(|| w.task_data.clone());
             WaypointRecord {
                 x: w.position.x.unsigned_abs(),
                 y: w.position.y.unsigned_abs(),
@@ -675,6 +678,54 @@ fn waypoint_records(fleet: &Fleet) -> Vec<WaypointRecord> {
             }
         })
         .collect()
+}
+
+/// Append the object section: a count, then that many 18-byte `THING`s.
+///
+/// The minefields the engine models, then the objects it does not but is
+/// carrying — packets, wormholes, the Mystery Trader — so that writing a game
+/// back does not delete them. See `docs/formats/thing.md` for the section's
+/// shape.
+fn push_things(state: &GameState, body: &mut Vec<Block>) -> Result<()> {
+    let total = state.minefields.len() + state.other_things.len();
+    let count = u16::try_from(total).unwrap_or(u16::MAX);
+    body.push(block(43, count.to_le_bytes().to_vec())?);
+    for field in &state.minefields {
+        let mine = stars_formats::Minefield {
+            mines: field.mines,
+            players_seen: field.detected_by,
+            kind: field.kind,
+            detonate: field.detonating,
+            players_seen_now: field.visible_to,
+        };
+        let thing = stars_formats::Thing {
+            id: field.id & 0x01FF,
+            player: u8::try_from(field.owner.max(0)).unwrap_or(0) & 0x0F,
+            ith: 0,
+            thing_type: stars_formats::ThingType::Minefield,
+            x: field.position.x,
+            y: field.position.y,
+            kind: stars_formats::ThingKind::Minefield(mine),
+            union: mine_union(&mine),
+            turn: field.turn,
+        };
+        body.push(block(43, thing.encode().to_vec())?);
+    }
+    for thing in &state.other_things {
+        body.push(block(43, thing.encode().to_vec())?);
+    }
+    Ok(())
+}
+
+/// The ten union bytes of a minefield, which is what `Thing::encode` writes.
+fn mine_union(mine: &stars_formats::Minefield) -> [u8; 10] {
+    let mut out = [0u8; 10];
+    out[0..4].copy_from_slice(&mine.mines.to_le_bytes());
+    out[4..6].copy_from_slice(&mine.players_seen.to_le_bytes());
+    out[6] = mine.kind;
+    out[7] = u8::from(mine.detonate);
+    out[8..10].copy_from_slice(&mine.players_seen_now.to_le_bytes());
+    out
 }
 
 /// Append one player's battle plans, in the order they are held.

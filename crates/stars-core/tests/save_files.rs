@@ -369,3 +369,63 @@ fn a_named_fleet_keeps_its_name() {
         "unnamed fleets stay unnamed"
     );
 }
+
+/// Minefields survive the trip from a real game into the model and back out.
+///
+/// The exodus games are full of them: 24,193 minefield objects across the
+/// fixtures, laid by fleets carrying the task 6,892 waypoints are set to.
+#[test]
+fn minefields_load_and_save() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/games/exodus/2450/exodus.m6");
+    let Ok(bytes) = std::fs::read(&path) else {
+        eprintln!("skipping: no exodus fixture");
+        return;
+    };
+    let file = StarsFile::decode(&bytes).expect("decodes");
+    let before = stars_formats::thing_section(&file);
+    let mines: Vec<_> = before
+        .things
+        .iter()
+        .filter(|t| matches!(t.kind, stars_formats::ThingKind::Minefield(_)))
+        .collect();
+    if mines.is_empty() {
+        eprintln!("skipping: that turn holds no minefields");
+        return;
+    }
+
+    let (state, _) = GameState::from_file(&file);
+    assert_eq!(state.minefields.len(), mines.len(), "every field loaded");
+    assert_eq!(
+        state.other_things.len(),
+        before.things.len() - mines.len(),
+        "and everything else is carried rather than dropped"
+    );
+    for (loaded, original) in state.minefields.iter().zip(&mines) {
+        let stars_formats::ThingKind::Minefield(mine) = original.kind else {
+            unreachable!()
+        };
+        assert_eq!(loaded.mines, mine.mines);
+        assert_eq!(loaded.kind, mine.kind);
+        assert_eq!(i16::from(original.player), loaded.owner);
+        assert_eq!(
+            loaded.position,
+            stars_core::movement::Point::new(original.x, original.y)
+        );
+        // The radius the game draws is the square root of the count.
+        let radius = loaded.radius();
+        assert!(radius > 0.0 && radius * radius <= f64::from(mine.mines) + 1.0);
+    }
+
+    // Written back out, the section comes again with the same objects in it.
+    let written = save::host_file(&state).expect("writes");
+    let reread = StarsFile::decode(&written).expect("decodes");
+    let after = stars_formats::thing_section(&reread);
+    assert_eq!(
+        after.count as usize,
+        before.things.len(),
+        "the count record matches the objects written"
+    );
+    let (again, _) = GameState::from_file(&reread);
+    assert_eq!(again.minefields, state.minefields, "field for field");
+}

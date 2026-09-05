@@ -44,7 +44,7 @@ impl Cargo {
 }
 
 /// A point a fleet is ordered to travel to, and how fast.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Waypoint {
     /// Where to go.
     pub position: Point,
@@ -65,6 +65,14 @@ pub struct Waypoint {
     /// A Transport task's per-cargo instructions, when the waypoint carries
     /// one.
     pub transport: Option<stars_formats::TransportTask>,
+    /// The task's payload exactly as the file holds it — the ten bytes after
+    /// the waypoint header, empty when there is no task.
+    ///
+    /// [`Self::transport`] is the decoded view of it for a Transport task. The
+    /// Lay Minefield task uses the first word as a **countdown of years**, so
+    /// the raw bytes have to survive a load and a save; every other task's
+    /// payload is carried for the same reason.
+    pub task_data: Vec<u8>,
 }
 
 /// A fleet.

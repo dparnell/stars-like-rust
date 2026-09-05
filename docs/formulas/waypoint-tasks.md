@@ -1,8 +1,7 @@
 # Waypoint tasks
 
-Status: **in progress** — five of the ten tasks are simulated; three are
-specified here and not yet performed; the last two are Transport and Colonize,
-which have been simulated since Step 3.
+Status: **in progress** — six of the ten tasks are simulated. Patrol and Give
+are not; the other two are "none" and Transport.
 
 A waypoint carries a task in the low nibble of its flags word (`ORDER.grTask`,
 see [`waypoint.md`](../formats/waypoint.md)), performed when the fleet reaches
@@ -18,7 +17,7 @@ pass it belongs to.
 | 3 | Remote Mining | 3 | simulated, in its own pass (`mining.rs`) |
 | 4 | Merge | even | simulated |
 | 5 | Scrap | 1 | simulated |
-| 6 | Lay Minefield | 3 | **specified below, not performed** |
+| 6 | Lay Minefield | 3 | simulated (`minefields.md`) |
 | 7 | Patrol | — | not decoded |
 | 8 | Route | 4 | simulated |
 | 9 | Give | 4 | **not performed** |
@@ -42,7 +41,8 @@ Counting every waypoint block in `fixtures/`:
 
 So the four tasks with no example in the corpus are exactly the four that are
 cheap to model, and the two that people actually use are the two that need a
-subsystem. That is worth knowing before choosing what to build next.
+subsystem. Laying minefields was the bigger of those two, and now has one — see
+[`minefields.md`](minefields.md).
 
 ## Merge (4)
 
@@ -87,9 +87,11 @@ its heaviest ship, the leg is flown at "warp 11", the gate — then walks the
 speed down while the fuel does not stretch. This engine keeps the fleet's own
 warp setting instead, so the leg is right and its speed may not be.
 
-## Lay Minefield (6) — specified, not performed
+## Lay Minefield (6)
 
-The most-used unimplemented task by a wide margin. The arm is at `10b0:999e`:
+The most-used of these tasks by a wide margin, and the one with a subsystem
+behind it: [`minefields.md`](minefields.md) covers laying, growth and what a
+field does to a fleet that flies through it. The arm is at `10b0:999e`:
 
 ```
 if (iPass != 3) skip
@@ -103,35 +105,12 @@ if (this waypoint's task is still 6) {
 ... lay cMines mines ...
 ```
 
-Three things fall out of that, and the corpus agrees with all three:
-
-- **The task's payload is a countdown.** The first word of the `ORDER` union is
-  how many years are left, and `5` means *indefinitely* — it is never
-  decremented and the task is never cleared. All 6,836 well-formed lay-mines
-  waypoints in the fixtures hold `(5, 5)`: everybody chose "indefinitely", and
-  the second word looks like the setting the countdown started from.
-- **A fleet must sit still to lay** — unless the player is Space Demolition
-  (`rsMajorAdv == raMines`), who lay while moving. That is the same race check
-  the "no task, but the next waypoint lays mines" branch makes.
-- **How many mines**, from `CLayMinesFromLpfl` (`1080:2886`):
-
-```
-mines = 10 × Σ over design slots: ships × Σ over ship slots:
-            (part is a mine layer ? slot count × part.ability : 0)
-```
-
-The ×10 is confirmed by the component table: "Mine Dispenser 40" carries
-`ability = 4` and lays 40 mines a year. Two special cases in that routine are
-**not** yet understood — one beam-slot item that also counts, and hulls 27 and
-28, whose per-ship total is *replaced* rather than added to.
-
-What is missing to perform it is not the count but the **minefield**: this
-engine has no object model, so there is nowhere to put the mines. That means a
-`Minefield` in `GameState` (owner, position, mines, type), loading and saving
-the object section of a file rather than writing a count of zero, and then the
-rules that make a minefield matter — growth, decay, sweeping, and the damage a
-fleet takes crossing one (`FTravelThroughMineFields`, `10b0:4f60`). It is a
-subsystem, not a task, and it is the obvious next step.
+The task's payload is a **countdown of years**, and `5` means *indefinitely* —
+it is never decremented and the task is never cleared. All 6,836 well-formed
+lay-mines waypoints in the fixtures hold `(5, 5)`: everybody chose
+"indefinitely", and the second word looks like the setting the countdown started
+from. Keeping that payload through a load and a save is why
+`stars_core::fleet::Waypoint` carries the task's raw bytes.
 
 ## Patrol (7) — not decoded
 

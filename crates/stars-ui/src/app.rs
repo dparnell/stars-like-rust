@@ -1134,6 +1134,7 @@ impl App {
                 warp: 0,
                 task: 0,
                 transport: None,
+                task_data: Vec::new(),
             },
             stars_core::fleet::Waypoint {
                 position: target,
@@ -1142,6 +1143,7 @@ impl App {
                 warp,
                 task: 0,
                 transport: None,
+                task_data: Vec::new(),
             },
         ];
         fleet.warp = Some(warp);

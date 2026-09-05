@@ -1184,6 +1184,7 @@ fn starting_ships(
                         warp: 0,
                         task: 0,
                         transport: None,
+                        task_data: Vec::new(),
                     }],
                 });
                 next_fleet += 1;

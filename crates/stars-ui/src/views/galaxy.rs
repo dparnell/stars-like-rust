@@ -64,6 +64,31 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     let mut clicked: Option<i16> = None;
     let pointer = response.interact_pointer_pos();
 
+    // Minefields first, so they lie under the planets rather than over them. A
+    // field is a circle whose radius is the square root of its mine count,
+    // which is exactly how the game draws one.
+    if let Some(game) = app.game.as_ref() {
+        for field in &game.minefields {
+            let at = to_screen(f32::from(field.position.x), f32::from(field.position.y));
+            #[allow(clippy::cast_possible_truncation)]
+            let radius = field.radius() as f32 * scale;
+            let colour = player_colour(field.owner);
+            painter.circle_filled(
+                at,
+                radius,
+                Color32::from_rgba_unmultiplied(colour.r(), colour.g(), colour.b(), 24),
+            );
+            painter.circle_stroke(
+                at,
+                radius,
+                Stroke::new(
+                    1.0_f32,
+                    Color32::from_rgba_unmultiplied(colour.r(), colour.g(), colour.b(), 90),
+                ),
+            );
+        }
+    }
+
     for (planet, owned) in app.visible_planets() {
         let Some(position) = planet.position else {
             continue;

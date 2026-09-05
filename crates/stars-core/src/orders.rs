@@ -695,6 +695,7 @@ fn route_fleet(state: &mut GameState, index: usize) -> bool {
         warp,
         task: stars_formats::task::NONE,
         transport: None,
+        task_data: Vec::new(),
     });
     true
 }
@@ -814,6 +815,7 @@ mod tests {
                 warp: 0,
                 task: 0,
                 transport: None,
+                task_data: Vec::new(),
             }],
         }
     }

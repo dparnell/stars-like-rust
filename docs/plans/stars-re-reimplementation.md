@@ -852,9 +852,42 @@ disagree.
     rules that make a field matter are a subsystem of their own and the obvious
     next step.
 
-22. **What is still missing to call it playable.** Laying minefields, patrol
-    and giving a fleet away can be set but are not simulated, and minefields
-    are not modelled at all; a loaded state file cannot carry
+22. ~~**The minefield subsystem.**~~ **Done: laying, growth and traversal.**
+    `docs/formulas/minefields.md` is the spec. `GameState` now holds
+    minefields, reads them out of a file's object section and writes them back
+    — and carries the objects it does *not* model, so saving a game no longer
+    quietly deletes its wormholes and packets.
+
+    A field is a circle whose **radius in light years is the square root of its
+    mine count**, which is why the file stores no radius: the laying code tests
+    containment by comparing the squared distance against the count. The three
+    kinds differ by four tables in the executable, all read out rather than
+    recalled: safe warp `4, 6, 5`; hit chance `0.3%, 1%, 3.5%` a light year per
+    warp over that; damage a ship `100, 500, 0`; and a minimum total of `500,
+    2000, 0` for a fleet of four or fewer, which is what makes a lone scout an
+    expensive way to find a minefield.
+
+    Laying: a fleet must have sat still all year unless its player is Space
+    Demolition, who lay while moving at half rate; the count is
+    `10 × Σ ships × slot count × part ability`; each of the three kinds goes
+    into its own field; and the mines join the nearest of the player's own
+    fields that already **reaches** the fleet, moving its centre toward the
+    fleet weighted by the two counts, or start a new field. The order counts
+    down years, with `5` meaning indefinitely.
+
+    Flying through one: the speed that matters is recovered from the distance
+    travelled rather than read from the order, only a non-friend's fields are a
+    hazard, and each light year inside one is its own roll. The first hit stops
+    the fleet where it happened.
+
+    Verified against real data: the 2450 exodus turn's minefields load, keep
+    their counts, kinds, owners and centres, and come back unchanged through a
+    save. Not modelled: decay, sweeping, detonation, and the interval merging
+    and shield absorption inside the damage step.
+
+23. **What is still missing to call it playable.** Patrol and giving a fleet
+    away can be set but are not simulated, and minefields neither decay nor are
+    swept; a loaded state file cannot carry
     structural fleet changes back (the game does not either — the order log
     does); and neither generation nor the writers carry wormholes, the Mystery
     Trader, messages, battle recordings or scores, all of which live in

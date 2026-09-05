@@ -88,6 +88,10 @@ pub struct TurnReport {
     pub tasks_done: Vec<(u16, u8)>,
     /// Planets mined from orbit, as `(planet id, minerals added)`.
     pub remote_mined: Vec<(i16, [i32; 3])>,
+    /// Mines laid this year, as `(fleet id, kind, mines)`.
+    pub mines_laid: Vec<(u16, u8, i32)>,
+    /// Fleets that ran into a minefield, and what it cost them.
+    pub mine_hits: Vec<(u16, crate::minefield::MineHit)>,
     /// Pipeline steps not performed, and therefore not reflected above.
     pub skipped: Vec<SkippedStep>,
 }
@@ -157,8 +161,14 @@ pub fn generate_turn_with_orders(
             .players
             .get(owner)
             .is_some_and(|p| p.race.has_lrt(crate::race::lrt::IFE));
+        let from = state.fleets[index].position;
         if let Some(travelled) = move_fleet(&mut state.fleets[index], &designs, ife) {
             report.moved.push((state.fleets[index].id, travelled));
+            // FTravelThroughMineFields: the leg is flown, and somewhere along
+            // it the fleet may find somebody else's mines.
+            if let Some(hit) = cross_minefields(state, index, from, travelled, rng) {
+                report.mine_hits.push((state.fleets[index].id, hit));
+            }
         }
     }
 
@@ -285,6 +295,16 @@ pub fn generate_turn_with_orders(
         report.tasks_done = done;
         let settled = crate::orders::resolve_colonist_drops(state, &drops);
         report.colonised.extend(settled);
+    }
+
+    // --- SatisfyOrders(3): laying mines. A fleet ordered to lay does so where
+    // it now is, into its own field if one reaches that far.
+    for index in 0..state.fleets.len() {
+        let laid = lay_mines_for_fleet(state, index);
+        let id = state.fleets[index].id;
+        for (kind, mines) in laid {
+            report.mines_laid.push((id, kind, mines));
+        }
     }
 
     // --- SatisfyOrders(3): remote mining. A fleet that stayed put all turn
@@ -483,6 +503,7 @@ fn add_ships_to_orbiting_fleet(
             warp: 0,
             task: 0,
             transport: None,
+            task_data: Vec::new(),
         }],
     });
 }
@@ -543,7 +564,104 @@ fn remote_mine_for_fleet(
     Some((planet_id, mined))
 }
 
-/// The lowest fleet id this player is not already using.
+/// Lay one fleet's mines, if it was ordered to.
+///
+/// `SatisfyOrders` at `10b0:999e`. A fleet must have been **here all turn** to
+/// lay, unless its player is Space Demolition, who lay while moving at half
+/// rate. The task's payload counts the years down: `5` means *indefinitely* and
+/// is never spent, `0` clears the order, and anything else loses a year.
+///
+/// Returns what was laid, as `(kind, mines)`.
+fn lay_mines_for_fleet(state: &mut GameState, index: usize) -> Vec<(u8, i32)> {
+    let fleet = &state.fleets[index];
+    if fleet.waypoints.first().map(|w| w.task) != Some(stars_formats::task::LAY_MINES) {
+        return Vec::new();
+    }
+    let Ok(owner) = usize::try_from(fleet.owner) else {
+        return Vec::new();
+    };
+    // `fHereAllTurn`: this engine records a fleet that moved by leaving its
+    // warp set, which is the same test remote mining makes.
+    let moved = fleet.warp.is_some();
+    let demolition = state
+        .players
+        .get(owner)
+        .is_some_and(|p| p.race.prt() == Some(crate::race::Prt::Sd));
+    if moved && !demolition {
+        return Vec::new();
+    }
+    let Some(designs) = state.designs.get(owner).cloned() else {
+        return Vec::new();
+    };
+
+    let laid = crate::minefield::lay(&mut state.minefields, &state.fleets[index], &designs, moved);
+
+    // The countdown: 5 lays forever, 0 ends the order, anything else counts
+    // down a year.
+    let waypoint = &mut state.fleets[index].waypoints[0];
+    let years = waypoint
+        .task_data
+        .get(0..2)
+        .map(|b| u16::from_le_bytes([b[0], b[1]]));
+    match years {
+        Some(0) => waypoint.task = stars_formats::task::NONE,
+        Some(5) | None => {}
+        Some(left) => {
+            let next = (left - 1).to_le_bytes();
+            waypoint.task_data[0] = next[0];
+            waypoint.task_data[1] = next[1];
+        }
+    }
+    laid
+}
+
+/// Fly one leg past everybody else's minefields.
+///
+/// Wraps [`crate::minefield::traverse`]: it needs the fleet's race for its
+/// mine expertise, the relations table to know whose fields are friendly, and
+/// it moves the fleet back to where it was stopped when it hits one.
+fn cross_minefields(
+    state: &mut GameState,
+    index: usize,
+    from: crate::movement::Point,
+    travelled: i32,
+    rng: &mut Rng,
+) -> Option<crate::minefield::MineHit> {
+    let owner = usize::try_from(state.fleets[index].owner).ok()?;
+    let player = state.players.get(owner)?;
+    let expertise = crate::minefield::mine_expertise(&player.race);
+    let relations = player.relations.clone();
+    let friendly = move |other: i16| -> bool {
+        usize::try_from(other)
+            .ok()
+            .and_then(|i| relations.get(i))
+            .is_some_and(|r| *r == 1)
+    };
+    let to = state.fleets[index].position;
+    let hit = crate::minefield::traverse(
+        &state.minefields,
+        &state.fleets[index],
+        crate::minefield::Leg {
+            from,
+            to,
+            travelled,
+        },
+        expertise,
+        &friendly,
+        rng,
+    )?;
+
+    // The fleet stops where it was hit.
+    let stopped = crate::movement::advance(from, to, hit.travelled);
+    let fleet = &mut state.fleets[index];
+    fleet.position = stopped;
+    if stopped != to {
+        fleet.orbiting = None;
+    }
+    Some(hit)
+}
+
+/// The lowest fleet id this player is not already using./// The lowest fleet id this player is not already using.
 ///
 /// Fleet ids are per player, and the game hands out the first free slot rather
 /// than always counting up, so a disbanded fleet's number comes back.
