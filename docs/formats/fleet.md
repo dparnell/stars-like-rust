@@ -147,3 +147,18 @@ orbit planet, and x/y position of fleets that happen to share a homeworld.
 - Type the waypoint (19/20) and fleet-name (21) blocks in `stars-formats`.
 - Decode the ship-design block (26) — hull, slots, items — per `StarsFleet.pl`
   (see the RTSHDEF layout notes there).
+
+## What the save path writes back
+
+A game **loaded** from a file is written back by replacing only what the player
+changed, so nothing unmodelled is lost. Two fields inside the fleet block can be
+changed — the **battle plan** and the **repeat-orders flag** — and for a fleet
+the player touched, the block is decoded, those two fields are overwritten, and
+it is re-encoded. Everything else in it, including the damage table and the flag
+bits nothing has identified, comes through untouched.
+
+Structural changes — a fleet split off, fleets merged away — are **not** written
+into a loaded state file, and the game does not write them either: a player's
+client submits a `.xN` order log and the host regenerates the state files after
+replaying it. The log is the authoritative record of a turn; see
+`orders-x.md`.

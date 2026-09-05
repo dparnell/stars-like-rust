@@ -702,12 +702,31 @@ disagree.
     edit-preserving save path: a rename inserts the block after the fleet's
     waypoints, a change replaces it, and clearing the name removes it.
 
-16. **What is still missing to call it playable.** The waypoint tasks beyond
+16. ~~**Relations, battle plans and the two flag operations.**~~ **Done**, which
+    leaves one order operation in the format undecoded. `rtLogFleetFlagBit9`
+    (10) is the **repeat-orders** flag — bit 9 of the fleet's flag word, hence
+    the name; `rtLogFleetOrderAttrNib` (11) sets one waypoint's task nibble,
+    bounds-checked against the fleet's order count and the highest task the
+    enumeration defines; `rtLogFleetPlan` (42) picks the fleet's battle plan;
+    and `rtLogRelations` (38) carries the player's whole relations table, one
+    byte per player, which the client rewrites in place rather than appending
+    a second record.
+
+    All four round-trip, replay, and are reachable from the fleet and player
+    screens. `Fleet` gained `repeat_orders`, which the loader and both writers
+    had been dropping, and the edit-preserving save path patches the two fleet
+    fields by decoding the block, overwriting them and re-encoding — so nothing
+    unmodelled in it is lost.
+
+    The one operation still unreplayed is `rtLogPlayerZpq1` (46), the player's
+    saved production-queue templates, which the host only stores.
+
+17. **What is still missing to call it playable.** The waypoint tasks beyond
     colonise, transport and remote mining (scrap, lay minefield, patrol, route,
-    transfer) can be set but are not simulated; the order operations for
-    relations, battle plans and the two flag fields are classified but not
-    replayed; and neither generation nor the writers carry wormholes, the
-    Mystery Trader, messages, battle recordings or scores, all of which live in
+    transfer) can be set but are not simulated; a loaded state file cannot carry
+    structural fleet changes back (the game does not either — the order log
+    does); and neither generation nor the writers carry wormholes, the Mystery
+    Trader, messages, battle recordings or scores, all of which live in
     structures `GameState` does not model.
 
 #### Saving is not re-encoding

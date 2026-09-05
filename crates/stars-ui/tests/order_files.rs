@@ -505,3 +505,74 @@ fn a_cleared_fleet_name_leaves_no_block() {
 
     let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
 }
+
+/// Battle plans, repeat orders and relations: applied, logged, and replayed to
+/// the same result.
+#[test]
+fn fleet_settings_and_relations_are_ordered() {
+    let (mut app, host) = a_saved_game("settings");
+    let fleet = app
+        .game
+        .as_ref()
+        .expect("game")
+        .fleets
+        .iter()
+        .position(|f| f.owner == 0)
+        .expect("a fleet");
+
+    assert!(app.set_battle_plan(fleet, 2));
+    assert!(app.set_repeat_orders(fleet, true));
+    assert!(app.set_relations(1, 2), "player 1 becomes an enemy");
+    // A second relations change replaces the record rather than adding one.
+    assert!(app.set_relations(1, 1), "and then a friend");
+
+    {
+        let game = app.game.as_ref().expect("game");
+        assert_eq!(game.fleets[fleet].battle_plan, 2);
+        assert!(game.fleets[fleet].repeat_orders);
+        assert_eq!(game.players[0].relations.get(1), Some(&1));
+    }
+
+    app.save(&host).expect("saves");
+    let bytes = std::fs::read(host.with_extension("x1")).expect("reads back");
+    let file = StarsFile::decode(&bytes).expect("decodes");
+    let log = order_log(&file);
+    let kinds: Vec<LogRecordType> = log.records.iter().map(|r| r.record_type).collect();
+    assert!(kinds.contains(&LogRecordType::FleetPlan), "{kinds:?}");
+    assert!(kinds.contains(&LogRecordType::FleetFlagBit), "{kinds:?}");
+    assert_eq!(
+        kinds
+            .iter()
+            .filter(|k| **k == LogRecordType::Relations)
+            .count(),
+        1,
+        "the relations record was replaced, not repeated: {kinds:?}"
+    );
+
+    // The repeat-orders flag and the battle plan are in the saved game too.
+    let mut fresh = App::new();
+    fresh.open(&host).expect("opens");
+    let saved = fresh
+        .game
+        .as_ref()
+        .expect("game")
+        .fleets
+        .iter()
+        .find(|f| f.owner == 0 && f.battle_plan == 2)
+        .expect("the fleet kept its plan");
+    assert!(saved.repeat_orders, "and its repeat-orders flag");
+
+    // And a host replaying the log reaches the same settings.
+    let original = {
+        let bytes = std::fs::read(host.with_file_name("settings.hst")).expect("reads");
+        StarsFile::decode(&bytes).expect("decodes")
+    };
+    let (mut state, _) = stars_core::GameState::from_file(&original);
+    let mut cargo = stars_core::TurnOrders::default();
+    let report = stars_core::replay::replay(&mut state, 0, &log, &mut cargo);
+    assert_eq!(report.fleet_settings, 2);
+    assert_eq!(report.relations, 1);
+    assert_eq!(state.players[0].relations.get(1), Some(&1));
+
+    let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
+}

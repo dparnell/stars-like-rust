@@ -575,6 +575,153 @@ impl CargoTransfer {
     }
 }
 
+/// A decoded repeat-orders operation (`rtLogFleetFlagBit9`, type id 10).
+///
+/// `{ int16_t id; int16_t value; }` — the fleet, and whether its waypoint
+/// orders repeat. The replay takes `value & 1` into `FLEET.fRepOrders`, which
+/// is bit 9 of the fleet's flag word and where the operation's name comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FleetRepeatOrders {
+    /// The fleet (raw object id).
+    pub fleet_id: u16,
+    /// Whether its orders repeat once the last waypoint is reached.
+    pub repeat: bool,
+}
+
+impl FleetRepeatOrders {
+    /// Decode a **decrypted** type-10 payload.
+    ///
+    /// Returns `None` if the payload is shorter than 4 bytes.
+    #[must_use]
+    pub fn decode(data: &[u8]) -> Option<Self> {
+        if data.len() < 4 {
+            return None;
+        }
+        Some(Self {
+            fleet_id: u16::from_le_bytes([data[0], data[1]]),
+            repeat: u16::from_le_bytes([data[2], data[3]]) & 1 != 0,
+        })
+    }
+
+    /// Re-encode this operation as a type-10 payload.
+    #[must_use]
+    pub fn encode(&self) -> [u8; 4] {
+        let mut out = [0u8; 4];
+        out[0..2].copy_from_slice(&self.fleet_id.to_le_bytes());
+        out[2..4].copy_from_slice(&u16::from(self.repeat).to_le_bytes());
+        out
+    }
+}
+
+/// A decoded waypoint-task operation (`rtLogFleetOrderAttrNib`, type id 11).
+///
+/// `{ int16_t id; int16_t iOrder; int16_t value; }` — it sets the low nibble of
+/// one waypoint's flag word, which is `ORDER.grTask`. The replay refuses an
+/// order index the fleet does not have and a task above 9, the highest the
+/// enumeration defines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FleetOrderTask {
+    /// The fleet (raw object id).
+    pub fleet_id: u16,
+    /// Which of its waypoints.
+    pub order_index: u16,
+    /// The task id, `0..=9`.
+    pub task: u8,
+}
+
+impl FleetOrderTask {
+    /// Decode a **decrypted** type-11 payload.
+    ///
+    /// Returns `None` if the payload is shorter than 6 bytes.
+    #[must_use]
+    pub fn decode(data: &[u8]) -> Option<Self> {
+        if data.len() < 6 {
+            return None;
+        }
+        Some(Self {
+            fleet_id: u16::from_le_bytes([data[0], data[1]]),
+            order_index: u16::from_le_bytes([data[2], data[3]]),
+            task: (u16::from_le_bytes([data[4], data[5]]) & 0x0F) as u8,
+        })
+    }
+
+    /// Re-encode this operation as a type-11 payload.
+    #[must_use]
+    pub fn encode(&self) -> [u8; 6] {
+        let mut out = [0u8; 6];
+        out[0..2].copy_from_slice(&self.fleet_id.to_le_bytes());
+        out[2..4].copy_from_slice(&self.order_index.to_le_bytes());
+        out[4..6].copy_from_slice(&u16::from(self.task & 0x0F).to_le_bytes());
+        out
+    }
+}
+
+/// A decoded battle-plan operation (`rtLogFleetPlan`, type id 42).
+///
+/// `{ int16_t id; int16_t iplan; }` — which of the player's battle plans the
+/// fleet fights under.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FleetPlan {
+    /// The fleet (raw object id).
+    pub fleet_id: u16,
+    /// The battle-plan slot.
+    pub plan: u8,
+}
+
+impl FleetPlan {
+    /// Decode a **decrypted** type-42 payload.
+    ///
+    /// Returns `None` if the payload is shorter than 4 bytes.
+    #[must_use]
+    pub fn decode(data: &[u8]) -> Option<Self> {
+        if data.len() < 4 {
+            return None;
+        }
+        Some(Self {
+            fleet_id: u16::from_le_bytes([data[0], data[1]]),
+            plan: (u16::from_le_bytes([data[2], data[3]]) & 0xFF) as u8,
+        })
+    }
+
+    /// Re-encode this operation as a type-42 payload.
+    #[must_use]
+    pub fn encode(&self) -> [u8; 4] {
+        let mut out = [0u8; 4];
+        out[0..2].copy_from_slice(&self.fleet_id.to_le_bytes());
+        out[2..4].copy_from_slice(&u16::from(self.plan).to_le_bytes());
+        out
+    }
+}
+
+/// A decoded player-relations operation (`rtLogRelations`, type id 38).
+///
+/// One byte per player in the game — `0` neutral, `1` friend, `2` enemy — which
+/// is why the record is as long as the player count. The whole table is written
+/// each time, and the client **replaces** a relations record it has already
+/// written this turn rather than appending a second, so only the last one in a
+/// log matters.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Relations {
+    /// How the submitting player regards each player, indexed by player number.
+    pub toward: Vec<u8>,
+}
+
+impl Relations {
+    /// Decode a **decrypted** type-38 payload.
+    #[must_use]
+    pub fn decode(data: &[u8]) -> Self {
+        Self {
+            toward: data.to_vec(),
+        }
+    }
+
+    /// Re-encode this operation as a type-38 payload.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        self.toward.clone()
+    }
+}
+
 /// A decoded fleet-split operation (`rtLogFleetSplit`, type id 24).
 ///
 /// Two bytes: the object id of the fleet being split. It says nothing about
@@ -889,6 +1036,36 @@ impl LogRecord {
             .flatten()
     }
 
+    /// Decode this record as a repeat-orders change.
+    #[must_use]
+    pub fn as_repeat_orders(&self) -> Option<FleetRepeatOrders> {
+        (self.record_type == LogRecordType::FleetFlagBit)
+            .then(|| FleetRepeatOrders::decode(&self.data))
+            .flatten()
+    }
+
+    /// Decode this record as a waypoint-task change.
+    #[must_use]
+    pub fn as_order_task(&self) -> Option<FleetOrderTask> {
+        (self.record_type == LogRecordType::FleetOrderAttrNib)
+            .then(|| FleetOrderTask::decode(&self.data))
+            .flatten()
+    }
+
+    /// Decode this record as a battle-plan change.
+    #[must_use]
+    pub fn as_fleet_plan(&self) -> Option<FleetPlan> {
+        (self.record_type == LogRecordType::FleetPlan)
+            .then(|| FleetPlan::decode(&self.data))
+            .flatten()
+    }
+
+    /// Decode this record as a player-relations change.
+    #[must_use]
+    pub fn as_relations(&self) -> Option<Relations> {
+        (self.record_type == LogRecordType::Relations).then(|| Relations::decode(&self.data))
+    }
+
     /// Decode this record as a fleet split.
     #[must_use]
     pub fn as_fleet_split(&self) -> Option<FleetSplit> {
@@ -974,6 +1151,30 @@ impl LogRecord {
     #[must_use]
     pub fn split_fleet(fleet: FleetSplit) -> Self {
         Self::raw(LogRecordType::FleetSplit, fleet.encode().to_vec())
+    }
+
+    /// Set whether a fleet's waypoint orders repeat.
+    #[must_use]
+    pub fn repeat_orders(order: FleetRepeatOrders) -> Self {
+        Self::raw(LogRecordType::FleetFlagBit, order.encode().to_vec())
+    }
+
+    /// Set the task on one of a fleet's waypoints.
+    #[must_use]
+    pub fn order_task(order: FleetOrderTask) -> Self {
+        Self::raw(LogRecordType::FleetOrderAttrNib, order.encode().to_vec())
+    }
+
+    /// Set which battle plan a fleet fights under.
+    #[must_use]
+    pub fn fleet_plan(order: FleetPlan) -> Self {
+        Self::raw(LogRecordType::FleetPlan, order.encode().to_vec())
+    }
+
+    /// Set how the player regards everyone.
+    #[must_use]
+    pub fn relations(order: &Relations) -> Self {
+        Self::raw(LogRecordType::Relations, order.encode())
     }
 
     /// Merge fleets into the first of them.

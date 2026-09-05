@@ -9,6 +9,8 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         return;
     };
     let mut research: Option<(usize, u8)> = None;
+    let mut relations: Option<(usize, u8)> = None;
+    let me = app.local_player();
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         for (index, player) in game.players.iter().enumerate() {
@@ -57,7 +59,27 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                     }
                     ui.end_row();
 
-                    if !player.relations.is_empty() {
+                    if index == me {
+                        // The player whose orders this session records is the
+                        // only one whose relations it may change, because the
+                        // order carries that player's own table.
+                        for other in 0..game.players.len() {
+                            if other == me {
+                                continue;
+                            }
+                            let now = player.relations.get(other).copied().unwrap_or(0);
+                            ui.label(format!("regards player {other}"));
+                            ui.horizontal(|ui| {
+                                for (value, word) in [(0u8, "neutral"), (1, "friend"), (2, "enemy")]
+                                {
+                                    if ui.selectable_label(now == value, word).clicked() {
+                                        relations = Some((other, value));
+                                    }
+                                }
+                            });
+                            ui.end_row();
+                        }
+                    } else if !player.relations.is_empty() {
                         ui.label("relations");
                         let text: Vec<String> = player
                             .relations
@@ -84,5 +106,8 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
 
     if let Some((player, pct)) = research {
         app.set_research(player, pct);
+    }
+    if let Some((other, value)) = relations {
+        app.set_relations(other, value);
     }
 }

@@ -467,6 +467,7 @@ fn add_ships_to_orbiting_fleet(
     let id = next_fleet_id(state, owner);
     state.fleets.push(crate::fleet::Fleet {
         name: None,
+        repeat_orders: false,
         id,
         owner,
         position,

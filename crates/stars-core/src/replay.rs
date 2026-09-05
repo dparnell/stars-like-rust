@@ -24,8 +24,8 @@
 
 use stars_formats::{
     object_owner, CargoTransfer, CargoTransferRecord, FleetMerge, FleetName, FleetOrderDelete,
-    GrobjClass, LogRecord, LogRecordType, OrderLog, PlanetRoutingOrder, ResearchOrder,
-    ShipDesignChange, WaypointOrder,
+    FleetOrderTask, GrobjClass, LogRecord, LogRecordType, OrderLog, PlanetRoutingOrder,
+    ResearchOrder, ShipDesignChange, WaypointOrder,
 };
 
 use crate::fleet::Waypoint;
@@ -60,6 +60,11 @@ pub struct ReplayReport {
     pub merges: usize,
     /// Fleets renamed.
     pub renames: usize,
+    /// Fleet settings changed: the battle plan, the repeat-orders flag, or a
+    /// waypoint's task on its own.
+    pub fleet_settings: usize,
+    /// Player-relations tables replaced.
+    pub relations: usize,
     /// Operations dropped because they named something the player does not own,
     /// or an object this state does not hold.
     pub rejected: usize,
@@ -80,6 +85,8 @@ impl ReplayReport {
             + self.ship_moves
             + self.merges
             + self.renames
+            + self.fleet_settings
+            + self.relations
     }
 }
 
@@ -257,6 +264,56 @@ fn apply(
                 report.rejected += 1;
             }
         }
+        LogRecordType::FleetFlagBit => {
+            let Some(order) = record.as_repeat_orders() else {
+                report.rejected += 1;
+                return;
+            };
+            match find_fleet(state, player, order.fleet_id) {
+                Some(index) => {
+                    state.fleets[index].repeat_orders = order.repeat;
+                    report.fleet_settings += 1;
+                }
+                None => report.rejected += 1,
+            }
+        }
+        LogRecordType::FleetPlan => {
+            let Some(order) = record.as_fleet_plan() else {
+                report.rejected += 1;
+                return;
+            };
+            match find_fleet(state, player, order.fleet_id) {
+                Some(index) => {
+                    state.fleets[index].battle_plan = order.plan;
+                    report.fleet_settings += 1;
+                }
+                None => report.rejected += 1,
+            }
+        }
+        LogRecordType::FleetOrderAttrNib => {
+            let Some(order) = record.as_order_task() else {
+                report.rejected += 1;
+                return;
+            };
+            if set_order_task(state, player, order) {
+                report.fleet_settings += 1;
+            } else {
+                report.rejected += 1;
+            }
+        }
+        LogRecordType::Relations => {
+            let Some(order) = record.as_relations() else {
+                report.rejected += 1;
+                return;
+            };
+            match state.players.get_mut(player) {
+                Some(record) => {
+                    record.relations = order.toward;
+                    report.relations += 1;
+                }
+                None => report.rejected += 1,
+            }
+        }
         kind => {
             if !report.unsupported.contains(&kind) {
                 report.unsupported.push(kind);
@@ -306,6 +363,28 @@ fn cargo_record(player: usize, transfer: &CargoTransfer) -> Option<CargoTransfer
         selector: transfer.items_mask as u8,
         quantities,
     })
+}
+
+/// Set the task on one of the player's fleet waypoints.
+///
+/// The original refuses an order index the fleet does not have and a task
+/// above 9, the highest the enumeration defines; both checks are kept.
+fn set_order_task(state: &mut GameState, player: usize, order: FleetOrderTask) -> bool {
+    if order.task > stars_formats::task::TRANSFER {
+        return false;
+    }
+    let Some(index) = find_fleet(state, player, order.fleet_id) else {
+        return false;
+    };
+    let at = usize::from(order.order_index);
+    let Some(waypoint) = state.fleets[index].waypoints.get_mut(at) else {
+        return false;
+    };
+    waypoint.task = order.task;
+    if order.task != stars_formats::task::TRANSPORT {
+        waypoint.transport = None;
+    }
+    true
 }
 
 /// Move ships between two of the player's fleets, creating the destination if
@@ -425,6 +504,7 @@ fn new_fleet(state: &mut GameState, player: usize, id: u16, beside: usize) -> Op
             transport: None,
         }],
         name: None,
+        repeat_orders: false,
     };
     state.fleets.push(fleet);
     Some(state.fleets.len() - 1)
@@ -671,6 +751,7 @@ mod tests {
         state.planets.push(planet);
         state.fleets.push(Fleet {
             name: None,
+            repeat_orders: false,
             id: 3,
             owner: 0,
             position: Point::new(1100, 1200),
@@ -893,15 +974,17 @@ mod tests {
         let mut state = a_game();
         let mut orders = TurnOrders::default();
         let mut log = OrderLog::new(0, [0; 11]);
+        // The zipped production-queue templates are the one operation left:
+        // they are host-only bookkeeping this project does not model.
         log.records
-            .push(LogRecord::raw(LogRecordType::FleetPlan, vec![0x03, 0x00]));
+            .push(LogRecord::raw(LogRecordType::PlayerZpq1, vec![0x03, 0x00]));
         log.records
-            .push(LogRecord::raw(LogRecordType::FleetPlan, vec![0x03, 0x00]));
+            .push(LogRecord::raw(LogRecordType::PlayerZpq1, vec![0x03, 0x00]));
         let report = replay(&mut state, 0, &log, &mut orders);
         assert_eq!(report.applied(), 0);
         assert_eq!(
             report.unsupported,
-            vec![LogRecordType::FleetPlan],
+            vec![LogRecordType::PlayerZpq1],
             "named once, however often it appears"
         );
     }
@@ -1057,5 +1140,92 @@ mod tests {
         }));
         replay(&mut state, 0, &log, &mut orders);
         assert_eq!(state.fleets[0].name, None, "an empty name is no name");
+    }
+
+    /// The battle plan, the repeat-orders flag and a waypoint's task.
+    #[test]
+    fn fleet_settings_are_replayed() {
+        use stars_formats::{FleetOrderTask, FleetPlan, FleetRepeatOrders};
+
+        let mut state = a_game();
+        state.fleets[0].waypoints.push(Waypoint {
+            position: Point::new(1300, 1400),
+            target: Some(9),
+            warp: 6,
+            task: 0,
+            transport: None,
+        });
+        let mut orders = TurnOrders::default();
+        let mut log = OrderLog::new(0, [0; 11]);
+
+        log.records.push(LogRecord::fleet_plan(FleetPlan {
+            fleet_id: fleet_word(0, 3),
+            plan: 2,
+        }));
+        log.records
+            .push(LogRecord::repeat_orders(FleetRepeatOrders {
+                fleet_id: fleet_word(0, 3),
+                repeat: true,
+            }));
+        log.records.push(LogRecord::order_task(FleetOrderTask {
+            fleet_id: fleet_word(0, 3),
+            order_index: 1,
+            task: stars_formats::task::COLONIZE,
+        }));
+
+        let report = replay(&mut state, 0, &log, &mut orders);
+        assert_eq!(report.fleet_settings, 3);
+        assert_eq!(report.rejected, 0);
+        assert_eq!(state.fleets[0].battle_plan, 2);
+        assert!(state.fleets[0].repeat_orders);
+        assert_eq!(
+            state.fleets[0].waypoints[1].task,
+            stars_formats::task::COLONIZE
+        );
+    }
+
+    /// A waypoint the fleet does not have is refused, and so is a task the
+    /// enumeration does not define.
+    #[test]
+    fn a_waypoint_task_is_bounds_checked() {
+        use stars_formats::{FleetOrderTask, LogRecordType};
+
+        let mut state = a_game();
+        let mut orders = TurnOrders::default();
+        let mut log = OrderLog::new(0, [0; 11]);
+        log.records.push(LogRecord::order_task(FleetOrderTask {
+            fleet_id: fleet_word(0, 3),
+            order_index: 7,
+            task: 1,
+        }));
+        // A task nibble above 9 cannot even be encoded, so build it by hand.
+        log.records.push(LogRecord::raw(
+            LogRecordType::FleetOrderAttrNib,
+            vec![0x03, 0x00, 0x00, 0x00, 0x0f, 0x00],
+        ));
+        let report = replay(&mut state, 0, &log, &mut orders);
+        assert_eq!(report.rejected, 2);
+        assert_eq!(report.fleet_settings, 0);
+    }
+
+    /// The relations table replaces whatever the player had.
+    #[test]
+    fn relations_are_replayed() {
+        use stars_formats::Relations;
+
+        let mut state = a_game();
+        state.players.push(Player::new(Race::humanoid()));
+        state.players.push(Player::new(Race::humanoid()));
+        let mut orders = TurnOrders::default();
+        let mut log = OrderLog::new(0, [0; 11]);
+        log.records.push(LogRecord::relations(&Relations {
+            toward: vec![0, 2, 1],
+        }));
+
+        let report = replay(&mut state, 0, &log, &mut orders);
+        assert_eq!(report.relations, 1);
+        assert_eq!(state.players[0].relations, vec![0, 2, 1]);
+        assert!(state.players[0].regards_as_friend(2));
+        assert!(!state.players[0].regards_as_friend(1));
     }
 }

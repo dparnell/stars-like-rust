@@ -634,7 +634,7 @@ fn fleet_record(fleet: &Fleet, waypoints: usize) -> FleetRecord {
         owner: u8::try_from(fleet.owner).unwrap_or(0),
         detail: 7,
         include: true,
-        repeat_orders: false,
+        repeat_orders: fleet.repeat_orders,
         dead: false,
         byte_counts,
         flags_high: 0,

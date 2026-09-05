@@ -1163,6 +1163,7 @@ fn starting_ships(
             for _ in 0..ships {
                 fleets.push(Fleet {
                     name: None,
+                    repeat_orders: false,
                     id: next_fleet,
                     owner,
                     position: Point::new(x, y),

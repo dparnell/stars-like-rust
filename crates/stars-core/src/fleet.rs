@@ -96,6 +96,14 @@ pub struct Fleet {
     /// recovered from the binary rather than fixture-verified; see that
     /// constant.
     pub name: Option<String>,
+    /// Whether the fleet's waypoint orders repeat (`FLEET.fRepOrders`).
+    ///
+    /// A repeating fleet returns to its first waypoint once it reaches its
+    /// last, which is how a freighter is set to shuttle back and forth
+    /// indefinitely. The turn generator does not act on it yet; it is carried
+    /// so that reading and writing a file, and replaying an order that changes
+    /// it, do not lose it.
+    pub repeat_orders: bool,
 }
 
 impl Fleet {

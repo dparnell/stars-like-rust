@@ -327,6 +327,7 @@ fn fuel_range_reflects_the_engine_table() {
 
     let fleet = Fleet {
         name: None,
+        repeat_orders: false,
         id: 0,
         owner: 0,
         position: Point::new(0, 0),

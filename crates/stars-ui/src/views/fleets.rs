@@ -3,6 +3,17 @@
 use crate::views::{colonists, player_colour};
 use crate::App;
 
+/// The five battle plans every player starts with, in slot order
+/// (`rgbtlplanT`). A player can rename them; this project does not read the
+/// names back, so the defaults are shown.
+const BATTLE_PLANS: [&str; 5] = [
+    "Default",
+    "Kill Starbase",
+    "Max-Defense",
+    "Sniper",
+    "Chicken",
+];
+
 /// Draw the fleet screen.
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
     let Some(game) = app.game.as_ref() else {
@@ -24,6 +35,8 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     let mut split: Option<(usize, u8, i32)> = None;
     let mut merge: Option<(usize, usize)> = None;
     let mut rename: Option<usize> = None;
+    let mut plan: Option<(usize, u8)> = None;
+    let mut repeat: Option<(usize, bool)> = None;
     let mut warp = app.warp;
     let mut name = app.fleet_name.clone();
 
@@ -271,6 +284,33 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
 
         ui.add_space(6.0);
         ui.horizontal(|ui| {
+            ui.label("battle plan:");
+            for id in 0..5u8 {
+                if ui
+                    .selectable_label(fleet.battle_plan == id, BATTLE_PLANS[usize::from(id)])
+                    .clicked()
+                {
+                    plan = Some((index, id));
+                }
+            }
+        });
+        {
+            let mut repeating = fleet.repeat_orders;
+            if ui
+                .checkbox(&mut repeating, "repeat orders")
+                .on_hover_text(
+                    "The fleet returns to its first waypoint once it reaches its last. \
+                     Carried in the file and in the order log; the turn generator does \
+                     not act on it yet.",
+                )
+                .changed()
+            {
+                repeat = Some((index, repeating));
+            }
+        }
+
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
             ui.label("name:");
             ui.add(egui::TextEdit::singleline(&mut name).desired_width(160.0));
             if ui.button("rename").clicked() {
@@ -330,6 +370,12 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     }
     if let Some(fleet) = rename {
         app.rename_fleet(fleet, name.trim());
+    }
+    if let Some((fleet, id)) = plan {
+        app.set_battle_plan(fleet, id);
+    }
+    if let Some((fleet, repeating)) = repeat {
+        app.set_repeat_orders(fleet, repeating);
     }
     app.warp = warp;
     app.fleet_name = name;

@@ -27,8 +27,8 @@ opened, and useless for a game this project generated, which has no original.
 | battle plan | 30 | 32,650 |
 | production queue | 28 | 26,942 |
 | space object | 43 | 125,355 |
-| order-log operations | `.xN` types 1-46 | 931 |
-| **total** | | **1,577,460** |
+| order-log operations | `.xN` types 1-46 | 939 |
+| **total** | | **1,577,468** |
 
 Plus 230 distinct names through the packed-string encoder, and all **58** `.xN`
 files rebuilt whole from their parsed logs — see `orders-x.md`.

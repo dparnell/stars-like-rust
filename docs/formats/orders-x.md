@@ -283,6 +283,36 @@ string** — the packed field with the literal escape, the same form a fleet's o
 name block carries. See `strings.md`. (Not present in the exodus capture, so
 decoded from the NB09 struct and the binary rather than fixture-verified.)
 
+### Repeat orders (`rtLogFleetFlagBit9`, id 10)
+
+`{ int16_t id; int16_t value; }` — the fleet, and `value & 1` into
+`FLEET.fRepOrders`, which is bit 9 of the fleet's flag word and where the
+operation's name comes from. A repeating fleet returns to its first waypoint
+once it reaches its last. Decoded by [`FleetRepeatOrders`]; three records in the
+fixtures.
+
+### Waypoint task (`rtLogFleetOrderAttrNib`, id 11)
+
+`{ int16_t id; int16_t iOrder; int16_t value; }` — it sets the low nibble of one
+waypoint's flag word, which is `ORDER.grTask`. The replay refuses an order index
+the fleet does not have and a task above 9, the highest the enumeration defines;
+both checks are the original's. Decoded by [`FleetOrderTask`]. **No fixture
+contains one**, so it is decoded from the replay arm rather than from data.
+
+### Battle plan (`rtLogFleetPlan`, id 42)
+
+`{ int16_t id; int16_t iplan; }` — which of the player's five battle plans the
+fleet fights under. Decoded by [`FleetPlan`]; four records in the fixtures.
+
+### Player relations (`rtLogRelations`, id 38)
+
+One byte per player in the game — `0` neutral, `1` friend, `2` enemy — so the
+record is as long as the player count; the single record in the fixtures is
+eight bytes, from the eight-player exodus game. The **whole table** is written
+each time, and `LogChangeRelations` rewinds the log when the record it is about
+to write follows another of the same kind, so a log never carries two and only
+the last state matters. Decoded by [`Relations`].
+
 ### Fleet split (`rtLogFleetSplit`, id 24)
 
 Two bytes: the object id of the fleet being split. It says nothing about what
@@ -336,8 +366,9 @@ player made the moves.
 Every one of the 58 `.xN` files in the fixtures rebuilds byte for byte from its
 parsed log. Record counts checked: 466 waypoint inserts/updates, 143 production
 queues, 106 transfers, 58 log headers, 44 fleet splits, 43 ship-design changes,
-29 research settings, 25 order deletes, 9 fleet merges, 8 planet routings —
-931 records in all.
+29 research settings, 25 order deletes, 9 fleet merges, 8 planet routings, 4
+battle plans, 3 repeat-orders flags and 1 relations table — 939 records over
+thirteen types.
 
 ### What the frontend records
 
@@ -350,6 +381,8 @@ what the client **already did**, not what it intends:
 | sends a fleet somewhere | a delete of the old leg, if there was one, then an insert at waypoint 1 |
 | gives it a task or transport instructions | an update of that waypoint |
 | splits a fleet | a split naming it, then a ship transfer into the new fleet |
+| changes a fleet's battle plan or repeat-orders flag | one record each |
+| changes how they regard another player | one relations record, replacing any earlier one |
 | merges fleets | one merge record, survivor first |
 | renames a fleet | a rename record |
 | edits a production queue | one queue record per planet, at the end |
@@ -381,6 +414,10 @@ received them. What each operation does:
 | fleet split (24) | nothing on its own — the transfer that follows does the work |
 | fleet merge (37) | the first fleet named takes the others' ships and cargo, and they cease to exist |
 | fleet rename (44) | the name is set on the fleet, and saved with it |
+| repeat orders (10) | the fleet's repeat-orders flag |
+| waypoint task (11) | the task on one of the fleet's waypoints, bounds-checked |
+| battle plan (42) | which battle plan the fleet fights under |
+| player relations (38) | the player's whole relations table is replaced |
 | waypoint insert / update (4/5) | inserted at or written over that slot of the fleet's order list |
 | waypoint delete (3) | removed; with the high bit, everything from that slot on |
 | production queue (29) | the planet's queue is replaced |
@@ -388,9 +425,9 @@ received them. What each operation does:
 | planet routing (35) | the planet's "no research" flag |
 | ship design (27) | the design is created, replaced, or the slot freed |
 
-Everything else — relations, battle plans, and the flag and attribute-nibble
-operations — is classified and named in `ReplayReport::unsupported` rather than
-silently dropped.
+One operation is left unreplayed: `rtLogPlayerZpq1` (46), the player's saved
+production-queue templates, which the host only stores and `GameState` does not
+model. It is named in `ReplayReport::unsupported` rather than silently dropped.
 
 A replayed rename is written back: the name goes into a type-21 block after the
 fleet's waypoints — see `fleet.md`, which recovers that block from the binary,
@@ -431,10 +468,11 @@ every transfer twice.
   not interpret (bit 13 is `fNoAutoTrack` in the state file's own waypoint
   record). They are preserved, and a waypoint this project writes leaves them
   zero.
-- `rtLogFleetFlagBit9` (10), `rtLogFleetOrderAttrNib` (11), `rtLogRelations`
-  (38), `rtLogFleetPlan` (42) and `rtLogPlayerZpq1` (46) are classified but not
-  yet field-decoded, and so not replayed either. The replay names them rather
-  than dropping them silently.
+- `rtLogPlayerZpq1` (46) carries the player's saved production-queue templates
+  (`PLAYER.zpq1`), which the host stores and nothing else reads. It is
+  classified but not decoded, and not replayed.
+- `rtLogFleetOrderAttrNib` (11) appears in no fixture; its layout comes from the
+  replay arm in `log.c` rather than from data.
 - The type-21 fleet-name block appears in no fixture, so its layout is recovered
   from the binary rather than fixture-verified. See `fleet.md`.
 - `RTCHGNAME` (44) and `RTLOGTHING` (43) decoders are struct-derived; they need
@@ -452,5 +490,9 @@ every transfer twice.
 [`FleetName`]: ../../crates/stars-formats/src/orders.rs
 [`ThingParam`]: ../../crates/stars-formats/src/orders.rs
 [`FleetSplit`]: ../../crates/stars-formats/src/orders.rs
+[`FleetRepeatOrders`]: ../../crates/stars-formats/src/orders.rs
+[`FleetOrderTask`]: ../../crates/stars-formats/src/orders.rs
+[`FleetPlan`]: ../../crates/stars-formats/src/orders.rs
+[`Relations`]: ../../crates/stars-formats/src/orders.rs
 [`FleetMerge`]: ../../crates/stars-formats/src/orders.rs
 [`decode_stars_string`]: ../../crates/stars-formats/src/strings.rs

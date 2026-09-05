@@ -149,6 +149,9 @@ pub struct App {
     /// Fleets the player has renamed, as `(owner, fleet number)`. Only these
     /// have their name block rewritten.
     renamed: std::collections::BTreeSet<(i16, u16)>,
+    /// Fleets whose battle plan or repeat-orders flag the player changed. Both
+    /// live inside the fleet block, so only these have theirs patched.
+    fleet_edits: std::collections::BTreeSet<(i16, u16)>,
     /// The warp the fleet screen last used, remembered between orders.
     pub warp: u8,
     /// The name the fleet screen's rename box holds.
@@ -272,6 +275,7 @@ impl App {
         self.dirty = false;
         self.edited.clear();
         self.renamed.clear();
+        self.fleet_edits.clear();
         self.orders.clear();
         self.error = None;
         Ok(())
@@ -352,6 +356,13 @@ impl App {
             }
             if matches!(block.type_id, 16..=18) {
                 pending_name = self.fleet_name_block(game, &block.data, block.type_id);
+                if let Some(patched) = self.patched_fleet(game, &block.data, block.type_id) {
+                    blocks.push(
+                        Block::new(block.type_id, patched)
+                            .map_err(|e| format!("cannot write a fleet: {e}"))?,
+                    );
+                    continue;
+                }
             }
             match block.block_type() {
                 BlockType::Planet => {
@@ -416,6 +427,28 @@ impl App {
             .map_err(|e| format!("cannot write the file: {e}"))
     }
 
+    /// A fleet block with the two settings the player can change written back
+    /// into it, or `None` if this fleet was not changed.
+    ///
+    /// The block is **decoded and re-encoded** rather than rebuilt from the
+    /// simulation's model, so everything the model does not carry — the damage
+    /// table, the flag bits nothing has identified — survives untouched. Only
+    /// the battle plan and the repeat-orders flag are overwritten.
+    fn patched_fleet(&self, game: &GameState, data: &[u8], type_id: u8) -> Option<Vec<u8>> {
+        let mut record = stars_formats::FleetRecord::decode(data, type_id)?;
+        let owner = i16::from(record.owner);
+        if !self.fleet_edits.contains(&(owner, record.id)) {
+            return None;
+        }
+        let fleet = game
+            .fleets
+            .iter()
+            .find(|f| f.owner == owner && f.id == record.id)?;
+        record.battle_plan = Some(fleet.battle_plan);
+        record.repeat_orders = fleet.repeat_orders;
+        Some(record.encode(type_id))
+    }
+
     /// The name block a fleet block's fleet should carry, if the player renamed
     /// it this turn.
     ///
@@ -474,6 +507,7 @@ impl App {
         self.dirty = false;
         self.edited.clear();
         self.renamed.clear();
+        self.fleet_edits.clear();
         self.orders.clear();
         self.error = None;
         self.last_turn = None;
@@ -1162,6 +1196,95 @@ impl App {
         }
     }
 
+    /// Set which battle plan a fleet fights under.
+    pub fn set_battle_plan(&mut self, fleet: usize, plan: u8) -> bool {
+        use stars_formats::{FleetPlan, LogRecord};
+
+        let Some(id) = self.fleet_word(fleet) else {
+            return false;
+        };
+        let key = self.fleet_key(fleet);
+        if self.apply_and_log(vec![LogRecord::fleet_plan(FleetPlan {
+            fleet_id: id,
+            plan,
+        })]) {
+            self.fleet_edits.extend(key);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Set whether a fleet's waypoint orders repeat once it reaches the last.
+    pub fn set_repeat_orders(&mut self, fleet: usize, repeat: bool) -> bool {
+        use stars_formats::{FleetRepeatOrders, LogRecord};
+
+        let Some(id) = self.fleet_word(fleet) else {
+            return false;
+        };
+        let key = self.fleet_key(fleet);
+        if self.apply_and_log(vec![LogRecord::repeat_orders(FleetRepeatOrders {
+            fleet_id: id,
+            repeat,
+        })]) {
+            self.fleet_edits.extend(key);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Set how the local player regards one other: `0` neutral, `1` friend,
+    /// `2` enemy.
+    ///
+    /// The order carries the **whole** table, so a second change replaces the
+    /// record rather than adding one — which is what the game's own client
+    /// does (`LogChangeRelations` rewinds the log when the previous record is
+    /// already a relations record).
+    pub fn set_relations(&mut self, toward: usize, value: u8) -> bool {
+        use stars_formats::{LogRecord, LogRecordType, Relations};
+
+        let me = self.local_player();
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let players = game.players.len();
+        if toward >= players || toward == me {
+            return false;
+        }
+        let Some(player) = game.players.get_mut(me) else {
+            return false;
+        };
+        player.relations.resize(players, 0);
+        player.relations[toward] = value;
+        let table = player.relations.clone();
+
+        if self
+            .orders
+            .last()
+            .is_some_and(|r| r.record_type == LogRecordType::Relations)
+        {
+            self.orders.pop();
+        }
+        self.orders
+            .push(LogRecord::relations(&Relations { toward: table }));
+        self.dirty = true;
+        true
+    }
+
+    /// A fleet's `(owner, number)`, which is how the save path finds its block.
+    fn fleet_key(&self, fleet: usize) -> Option<(i16, u16)> {
+        let record = self.game.as_ref()?.fleets.get(fleet)?;
+        Some((record.owner, record.id))
+    }
+
+    /// The object id word a log uses for one of the loaded game's fleets.
+    fn fleet_word(&self, fleet: usize) -> Option<u16> {
+        let record = self.game.as_ref()?.fleets.get(fleet)?;
+        let owner = u16::try_from(record.owner.max(0)).ok()?;
+        Some((owner << 9) | (record.id & 0x1ff))
+    }
+
     /// Start playing a battle.
     pub fn open_battle(&mut self, index: usize) {
         self.vcr = self.battles.get(index).map(Vcr::new);
@@ -1644,6 +1767,7 @@ mod tests {
         game.planets.push(planet);
         game.fleets.push(stars_core::fleet::Fleet {
             name: None,
+            repeat_orders: false,
             id: 1,
             owner: 0,
             position: stars_core::movement::Point::new(0, 0),

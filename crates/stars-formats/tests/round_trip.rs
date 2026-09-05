@@ -19,9 +19,10 @@ use std::path::{Path, PathBuf};
 
 use stars_formats::{
     order_log, BattlePlanRecord, CargoTransfer, DesignRecord, FleetMerge, FleetOrderDelete,
-    FleetRecord, FleetSplit, LogHeader, LogRecordType, PlanetRecord, PlanetRoutingOrder,
-    PlayerRecord, ProductionQueueRecord, ResearchOrder, ShipDesignChange, StarsFile, Thing,
-    ThingParam, WaypointOrder, WaypointRecord, THING_SIZE,
+    FleetOrderTask, FleetPlan, FleetRecord, FleetRepeatOrders, FleetSplit, LogHeader,
+    LogRecordType, PlanetRecord, PlanetRoutingOrder, PlayerRecord, ProductionQueueRecord,
+    Relations, ResearchOrder, ShipDesignChange, StarsFile, Thing, ThingParam, WaypointOrder,
+    WaypointRecord, THING_SIZE,
 };
 
 /// Every file under `fixtures/`, in a stable order.
@@ -367,6 +368,46 @@ fn every_order_record_re_encodes() {
                         path.display()
                     );
                     note("ship design");
+                }
+                LogRecordType::FleetFlagBit => {
+                    let record = FleetRepeatOrders::decode(data).expect("repeat orders");
+                    assert_eq!(
+                        record.encode().as_slice(),
+                        data.as_slice(),
+                        "{}",
+                        path.display()
+                    );
+                    note("repeat orders");
+                }
+                LogRecordType::FleetOrderAttrNib => {
+                    let record = FleetOrderTask::decode(data).expect("order task");
+                    assert_eq!(
+                        record.encode().as_slice(),
+                        data.as_slice(),
+                        "{}",
+                        path.display()
+                    );
+                    note("waypoint task");
+                }
+                LogRecordType::FleetPlan => {
+                    let record = FleetPlan::decode(data).expect("battle plan");
+                    assert_eq!(
+                        record.encode().as_slice(),
+                        data.as_slice(),
+                        "{}",
+                        path.display()
+                    );
+                    note("battle plan");
+                }
+                LogRecordType::Relations => {
+                    let record = Relations::decode(data);
+                    assert_eq!(record.encode(), *data, "{}", path.display());
+                    assert!(
+                        !record.toward.is_empty() && record.toward.len() <= 16,
+                        "{}: one byte per player",
+                        path.display()
+                    );
+                    note("relations");
                 }
                 LogRecordType::FleetSplit => {
                     let record = FleetSplit::decode(data).expect("fleet split");
