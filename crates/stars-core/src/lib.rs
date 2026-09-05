@@ -290,6 +290,11 @@ pub struct GameState {
     pub designs: Vec<Vec<crate::design::ShipDesign>>,
     /// The game's "slower tech advances" option, which doubles research costs.
     pub slow_tech: bool,
+    /// The game's "one human player" option (`GAME.fSinglePlr`).
+    ///
+    /// Read by the Mystery Trader, which withholds its late-game bonus of
+    /// extra ships from a single-player game — see [`crate::wormhole`].
+    pub single_player: bool,
     /// How many planets the whole galaxy has (`GAME.cPlanMax`), which the
     /// "owns a percentage of all planets" victory condition is measured
     /// against. Zero when the file did not say.
@@ -336,6 +341,7 @@ impl GameState {
         // A `.hst` or `.mN` carries none of them.
         if let Ok(info) = universe.game() {
             self.slow_tech = info.flags & stars_formats::game_flag::SLOW_TECH != 0;
+            self.single_player = info.flags & stars_formats::game_flag::SINGLE_PLAYER != 0;
             self.galaxy_planets = info.planets;
             self.victory = info.victory_bytes();
         }
@@ -370,6 +376,7 @@ impl GameState {
             fleets: Vec::new(),
             designs: Vec::new(),
             slow_tech: false,
+            single_player: false,
             galaxy_planets: 0,
             victory: [0; stars_formats::victory::COUNT],
             messages: Vec::new(),

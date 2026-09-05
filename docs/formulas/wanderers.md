@@ -1,8 +1,7 @@
 # Wormholes and the Mystery Trader
 
 Status: **carried, moved, travelled and traded with, as far as the fixtures
-allow.** The Trader's arrival, and the ship it gives when it has nothing else
-left, are not modelled.
+allow.** The Trader's arrival behaviour is not modelled.
 
 Two things in a Stars! galaxy move without anybody ordering them to. Both are
 `THING`s ([`thing.md`](../formats/thing.md)) and both are now in the model:
@@ -116,10 +115,42 @@ the mask that says who can see it also says who has already been.
 
 When the part drawn is one the player already holds, the Trader draws again, up
 to twenty-five times. If all twenty-five come back held, the result is
-`grbitTraderLifeboat` — which is not a part at all but a **ship**, taken from
-the game's own Mystery Trader hull designs. That is the one branch this engine
-does not carry: it is reported as
-`SkippedStep::TraderShip` rather than quietly turned into something else.
+`grbitTraderLifeboat` — which is not a part at all but a **ship**.
+
+### The ships
+
+The Trader gives one of three designs of its own: `M.T. Lifeboat`, `M.T. Scout`
+and `M.T. Probe`, entries 19 to 21 of the game's built-in design table
+(`rgshdefT`, already transcribed in `crates/stars-core/src/startup.rs`). Nobody
+can build them — their hulls, 29 and 30, are not for sale — so a fleet of them
+is the only way they exist.
+
+```
+offset = Random(4 − (turn > 100))        0 a quarter of the time: the Lifeboat
+if offset > 0: offset = Random(2) + 1    otherwise the Scout or the Probe
+ships  = Random(3) == 0 ? 2 : 1
+if turn > 100 and not a single-player game: ships += Random(turn / 100 + 1)
+ships  = min(ships, 5)
+if offset > 0: ships += Random(ships + 1)
+```
+
+So the Lifeboat comes alone or in pairs, the other two can come in numbers, and
+a long game gives more of them — except a **single-player** game, which is held
+to the early-game figures (`GAME.fSinglePlr`, bit 2 of `wCrap`).
+
+The ships need one of the player's sixteen design slots. A design they already
+have that is the same ship is reused — `IshFindSimilarDesign` (`1038:7c5e`)
+compares the hull, the number of slots and then each slot's **count**, plus its
+item and category wherever the slot is filled, so the *name* does not matter —
+and failing that the first free slot is taken. With no slot free, or with 512
+fleets already, the Trader is reported as having tried and failed (message
+`0x150`).
+
+The new fleet appears where the Trader is, with **full tanks**, and is marked
+`fHereAllTurn` so that nothing this year treats it as having just arrived.
+
+An **AI player gets nothing at all** and is not told either: the arm returns
+before it reaches any of this.
 
 ## What is verified
 
@@ -149,14 +180,13 @@ stream in the same state.
 
 Neither trading nor traversal can be checked against the fixtures directly:
 both need two consecutive years in which the event happens, and no captured
-game has one. They are checked against the binary, and by construction in
+game has one. The ship gift leaves a permanent trace where the others do not —
+a design on hull 29 or 30 — and there is **none in any fixture**: nobody in the
+captured games ever got one, so even that cannot be confirmed from data. They are checked against the binary, and by construction in
 `crates/stars-core/tests/trading.rs`.
 
 ## Not modelled
 
-- **The ship the Trader gives** when every part has already been handed over.
-  It needs the game's own Mystery Trader hull designs and a free design slot;
-  the turn reports `SkippedStep::TraderShip` when the case comes up.
 - **The Trader's arrival** at its destination, and its departure.
 - **The AI's shortcut** (`1110:1631`): an AI player of level 2 or better with a
   starbase planet within 100 light years of the Trader gets the same goods for

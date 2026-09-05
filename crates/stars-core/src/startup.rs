@@ -98,7 +98,8 @@ pub mod ship {
     pub const CHANGE_OF_HEART: usize = 17;
     /// Speed Turtle.
     pub const SPEED_TURTLE: usize = 18;
-    /// M.T. Lifeboat — a Mystery Trader gift, not a starting ship.
+    /// M.T. Lifeboat — a Mystery Trader gift, not a starting ship. Handed
+    /// out by [`crate::wormhole`], and buildable by nobody.
     pub const MT_LIFEBOAT: usize = 19;
     /// M.T. Scout — a Mystery Trader gift.
     pub const MT_SCOUT: usize = 20;

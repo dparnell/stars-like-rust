@@ -84,9 +84,19 @@ pub enum Gift {
     Part(u16),
     /// The fleet was absorbed and there was nothing left to give.
     Nothing,
-    /// The Trader would have given a ship. **Not modelled** — see
-    /// `docs/formulas/wanderers.md`.
-    Ship,
+    /// The fleet was absorbed and the Trader gave ships of its own: one of
+    /// its three designs ([`crate::startup::ship::MT_LIFEBOAT`] and the two
+    /// after it), and how many.
+    Ship {
+        /// Which of the built-in templates, as an index into
+        /// [`crate::startup::SHIPS`].
+        design: usize,
+        /// How many ships.
+        ships: i32,
+    },
+    /// The Trader meant to give ships and could not: the player had no design
+    /// slot free, or too many fleets already.
+    ShipRefused,
 }
 
 /// The thirteen things the Mystery Trader has to give (`GrbitTrader`).

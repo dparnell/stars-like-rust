@@ -54,10 +54,6 @@ pub enum SkippedStep {
     RandomEvents,
     /// Score calculation.
     Scores,
-    /// The ship the Mystery Trader gives when it has no technology left to
-    /// hand over. It needs the game's own Mystery Trader hull designs, which
-    /// this engine does not carry.
-    TraderShip,
 }
 
 /// What one generated turn did.
@@ -352,13 +348,6 @@ pub fn generate_turn_with_orders(
     // before the second pass of orders, which is why a fleet cannot both trade
     // and carry out a task in the same year: the Trader keeps the fleet.
     report.trades = trade_with_trader(state, rng);
-    if report
-        .trades
-        .iter()
-        .any(|(_, g)| *g == crate::wormhole::Gift::Ship)
-    {
-        report.skipped.push(SkippedStep::TraderShip);
-    }
 
     // --- SatisfyOrders(3): laying mines. A fleet ordered to lay does so where
     // it now is, into its own field if one reaches that far.
@@ -1351,9 +1340,10 @@ fn trade_with_trader(state: &mut GameState, rng: &mut Rng) -> Vec<(u16, crate::w
         }
 
         if giving == part::LIFEBOAT {
-            // A ship, which this engine cannot build: it needs the game's own
-            // Mystery Trader hulls.
-            done.push((fleet_id, Gift::Ship));
+            // Not a part at all: a ship of the Trader's own.
+            if let Some(gift) = give_trader_ship(state, owner, at, named, rng) {
+                done.push((fleet_id, gift));
+            }
             continue;
         }
 
@@ -1369,6 +1359,184 @@ fn trade_with_trader(state: &mut GameState, rng: &mut Rng) -> Vec<(u16, crate::w
     }
 
     done
+}
+
+/// The ships the Mystery Trader gives when it has no technology left.
+///
+/// `DoThingInteractions` (`1110:1180`), the `grbitTraderLifeboat` arm. Twenty-
+/// five draws that all come back as parts the player already holds mean there
+/// is nothing left to hand over, so the Trader gives **ships** instead — one of
+/// its own three designs, which are the last three entries of the game's
+/// built-in template table and are not otherwise buildable by anybody.
+///
+/// Which design, and how many:
+///
+/// ```text
+/// offset = Random(4 − (turn > 100))       0 a quarter of the time
+/// if offset > 0: offset = Random(2) + 1   otherwise the Scout or the Probe
+/// ships  = Random(3) == 0 ? 2 : 1
+/// if turn > 100 and not a single-player game: ships += Random(turn / 100 + 1)
+/// ships = min(ships, 5)
+/// if offset > 0: ships += Random(ships + 1)
+/// ```
+///
+/// So the Lifeboat comes alone or in pairs and the other two can come in
+/// numbers, and a long game gives more of them — except in a single-player
+/// game, which is held to the early-game figures.
+///
+/// The ships need a design slot. An identical design the player already has is
+/// reused (`IshFindSimilarDesign`, `1038:7c5e`: same hull, same slot counts,
+/// and the same item and category in every slot that is filled); failing that
+/// the first free slot is taken. With no slot free, or with 512 fleets already,
+/// the Trader is reported as having tried and failed.
+///
+/// An AI player is given nothing at all, and not told either.
+///
+/// Returns `None` when nothing happened, which is only the AI case.
+fn give_trader_ship(
+    state: &mut GameState,
+    owner: usize,
+    at: crate::movement::Point,
+    named: i16,
+    rng: &mut Rng,
+) -> Option<crate::wormhole::Gift> {
+    use crate::message::{id, Message};
+    use crate::startup::{ship::MT_LIFEBOAT, SHIPS};
+    use crate::wormhole::Gift;
+
+    /// A player may not have more fleets than this.
+    const MAX_FLEETS: usize = 0x200;
+    /// Ship designs occupy slots 0..16; starbases follow them.
+    const SHIP_SLOTS: usize = crate::startup::FIRST_STARBASE_SLOT as usize;
+
+    if matches!(
+        state.players.get(owner).map(|p| &p.control),
+        Some(crate::ai::Control::Computer { .. })
+    ) {
+        return None;
+    }
+
+    let turn = i32::from(state.turn);
+    let late = i16::from(turn > 100);
+    let mut offset = rng.random(4 - late);
+    if offset > 0 {
+        offset = rng.random(2) + 1;
+    }
+    let template = MT_LIFEBOAT + usize::try_from(offset).unwrap_or(0).min(2);
+    let design = SHIPS[template].design();
+
+    // A design of the player's own that is already the same ship, or the first
+    // slot they have not used.
+    let designs = state.designs.get(owner).map_or(&[][..], Vec::as_slice);
+    let slot = designs
+        .iter()
+        .take(SHIP_SLOTS)
+        .position(|d| same_design(d, &design))
+        .or_else(|| (0..SHIP_SLOTS).find(|i| designs.get(*i).is_none_or(|d| d.hull_id < 0)));
+    let fleets = state
+        .fleets
+        .iter()
+        .filter(|f| usize::try_from(f.owner).is_ok_and(|o| o == owner))
+        .count();
+
+    let (Some(slot), true) = (slot, fleets < MAX_FLEETS) else {
+        state.messages.push(Message {
+            player: owner,
+            id: id::TRADER_TRIED_SHIP,
+            object: -1,
+            params: vec![named, 0],
+        });
+        return Some(Gift::ShipRefused);
+    };
+
+    let mut ships = if rng.random(3) == 0 { 2 } else { 1 };
+    if turn > 100 && !state.single_player {
+        ships += rng.random(i16::try_from(turn / 100 + 1).unwrap_or(i16::MAX));
+    }
+    ships = ships.min(5);
+    if offset > 0 {
+        ships += rng.random(ships + 1);
+    }
+    let ships = i32::from(ships);
+
+    // Install the design, unless the slot already held this very ship.
+    if state.designs.len() <= owner {
+        state.designs.resize_with(owner + 1, Vec::new);
+    }
+    let designs = &mut state.designs[owner];
+    if designs.len() <= slot {
+        designs.resize_with(slot + 1, || crate::design::ShipDesign {
+            name: String::new(),
+            picture: 0,
+            stored_armor: 0,
+            hull_id: -1,
+            slots: Vec::new(),
+        });
+    }
+    if !same_design(&designs[slot], &design) {
+        designs[slot] = design;
+    }
+    let designs = designs.clone();
+
+    let owner_id = i16::try_from(owner).unwrap_or(0);
+    let id = next_fleet_id(state, owner_id);
+    let mut fleet = Fleet {
+        name: None,
+        repeat_orders: false,
+        id,
+        owner: owner_id,
+        position: at,
+        orbiting: None,
+        stacks: vec![crate::fleet::ShipStack {
+            design: u8::try_from(slot).unwrap_or(0),
+            count: ships,
+            damaged_pct: 0,
+            damage_pct: 0,
+        }],
+        cargo: crate::fleet::Cargo::default(),
+        battle_plan: 0,
+        // `fHereAllTurn`: it has not moved, so nothing this year treats it as
+        // having just arrived.
+        warp: None,
+        waypoints: vec![crate::fleet::Waypoint {
+            position: at,
+            target: None,
+            target_class: 4,
+            warp: 0,
+            task: stars_formats::task::NONE,
+            transport: None,
+            task_data: Vec::new(),
+        }],
+    };
+    // Full tanks.
+    fleet.cargo.fuel = fleet.fuel_capacity(&designs);
+    state.fleets.push(fleet);
+
+    state.messages.push(Message {
+        player: owner,
+        id: id::TRADER_GAVE_SHIP,
+        object: crate::message::fleet_object(id),
+        params: vec![named, i16::try_from(ships).unwrap_or(i16::MAX)],
+    });
+    Some(Gift::Ship {
+        design: template,
+        ships,
+    })
+}
+
+/// Whether two designs are the same ship, whatever they are called.
+///
+/// `IshFindSimilarDesign` (`1038:7c5e`) compares the hull, the number of slots
+/// and then each slot: the **count** always, and the item and its category
+/// whenever the slot is filled. An empty slot matches any other empty slot, and
+/// the design's name is not part of it.
+fn same_design(design: &crate::design::ShipDesign, other: &crate::design::ShipDesign) -> bool {
+    design.hull_id >= 0
+        && design.hull_id == other.hull_id
+        && design.slots.len() == other.slots.len()
+        && design.slots.iter().zip(&other.slots).all(|(a, b)| {
+            a.count == b.count && (a.count == 0 || (a.item == b.item && a.category == b.category))
+        })
 }
 
 /// Let the wormholes wander.

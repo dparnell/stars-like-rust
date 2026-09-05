@@ -1120,11 +1120,23 @@ disagree.
     a bomb. All 859 Trader records in the fixtures hold a single `GrbitTrader`
     bit or nothing.
 
-    Not modelled: the **ship** the Trader gives when every part has already been
-    handed over — it needs the game's own Mystery Trader hulls, and the turn
-    reports `SkippedStep::TraderShip` rather than substituting something — its
-    arrival behaviour, and the AI's shortcut of trading from a planet within a
-    hundred light years without sending anything.
+    When every part has already been handed over the Trader gives **ships**
+    instead: one of `M.T. Lifeboat`, `M.T. Scout` or `M.T. Probe`, which are
+    entries 19 to 21 of the built-in design table and buildable by nobody. They
+    were already transcribed in `startup.rs` for a different reason, so the
+    branch cost nothing to finish: pick the design, roll the count (more of
+    them after year 100, except in a single-player game), reuse a design slot
+    that already holds the same ship or take a free one, and put the fleet
+    where the Trader is with full tanks. An AI player gets nothing and is not
+    told.
+
+    No fixture contains a design on hull 29 or 30, so nobody in the captured
+    games ever received one and even this, the only branch that leaves a
+    permanent trace, cannot be confirmed from data.
+
+    Still not modelled: the Trader's arrival behaviour, and the AI's shortcut
+    of trading from a planet within a hundred light years without sending
+    anything.
 
 32. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth

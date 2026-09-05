@@ -252,3 +252,107 @@ fn the_trader_trades_once_and_wants_paying() {
         .iter()
         .any(|m| m.id == id::TRADER_REFUSED && m.params.first() == Some(&3)));
 }
+
+/// With nothing left to give, the Trader gives ships of its own.
+#[test]
+fn the_trader_gives_ships_when_it_has_nothing_else() {
+    use stars_core::startup::{ship::MT_LIFEBOAT, SHIPS};
+
+    let mut given = 0;
+    let mut empty_handed = 0;
+    // Whether it finds anything in the hold is a one-in-five roll, so this
+    // walks a spread of seeds rather than hunting for a lucky one.
+    for seed in 1..=25u32 {
+        let mut state = a_galaxy();
+        let at = Point::new(2000, 2000);
+        state.trader = Some(a_trader(at, 0));
+        // A player who has researched everything and been given every part:
+        // the Trader has nothing to sell them.
+        state.players[0].research.levels = [26; 6];
+        state.players[0].trader_parts = part::ALL;
+        let mut fleet = a_fleet(at);
+        fleet.cargo.minerals = [2000, 2000, 1000];
+        state.fleets = vec![fleet];
+
+        // Seeded the way the game seeds itself: two raw seeds a fixed
+        // distance apart stay in step with each other, and a one-in-five roll
+        // then comes out the same every time.
+        let mut rng = Rng::randomize(seed);
+        let report = generate_turn(&mut state, &mut rng);
+
+        match report.trades.as_slice() {
+            [(1, Gift::Nothing)] => empty_handed += 1,
+            [(1, Gift::Ship { design, ships })] => {
+                given += 1;
+                // One of the Trader's own three designs, which nobody can
+                // build.
+                assert!((MT_LIFEBOAT..=MT_LIFEBOAT + 2).contains(design));
+                assert!((1..=10).contains(ships), "{ships} ships");
+
+                let gift = state.fleets.last().expect("a new fleet");
+                assert_eq!(gift.owner, 0);
+                assert_eq!(gift.stacks[0].count, *ships);
+                assert_eq!(gift.position, at);
+                assert!(gift.cargo.fuel > 0, "the Trader fuels what it gives");
+
+                // The design went into a slot of the player's own, leaving the
+                // one they were already using alone.
+                let slot = usize::from(gift.stacks[0].design);
+                assert_eq!(slot, 1);
+                assert_eq!(state.designs[0][slot].name, SHIPS[*design].name);
+                assert_eq!(state.designs[0][0].name, "Scout");
+
+                assert!(state
+                    .messages
+                    .iter()
+                    .any(|m| m.id == id::TRADER_GAVE_SHIP
+                        && m.params.get(1) == Some(&(*ships as i16))));
+            }
+            other => panic!("unexpected trade {other:?}"),
+        }
+    }
+    assert!(given > 0, "no ships in 25 tries");
+    assert!(empty_handed > 0, "the Trader always found something");
+    eprintln!("{given} of 25 meetings ended in ships, {empty_handed} in nothing");
+}
+
+/// A computer player is given nothing, and not told either.
+#[test]
+fn the_trader_does_not_bother_with_the_ai() {
+    let mut state = a_galaxy();
+    let at = Point::new(2000, 2000);
+    state.trader = Some(a_trader(at, 0));
+    state.players[0].research.levels = [26; 6];
+    state.players[0].trader_parts = part::ALL;
+    state.players[0].control = stars_core::ai::Control::Computer {
+        personality: None,
+        skill_bits: 1,
+    };
+    let mut fleet = a_fleet(at);
+    fleet.cargo.minerals = [2000, 2000, 1000];
+    state.fleets = vec![fleet];
+
+    // A seed that gives a human player ships.
+    let ship_seed = (1..=25u32)
+        .find(|seed| {
+            let mut human = a_galaxy();
+            human.trader = Some(a_trader(at, 0));
+            human.players[0].research.levels = [26; 6];
+            human.players[0].trader_parts = part::ALL;
+            let mut fleet = a_fleet(at);
+            fleet.cargo.minerals = [2000, 2000, 1000];
+            human.fleets = vec![fleet];
+            let report = generate_turn(&mut human, &mut Rng::randomize(*seed));
+            matches!(report.trades.as_slice(), [(_, Gift::Ship { .. })])
+        })
+        .expect("some seed gives ships");
+
+    let mut rng = Rng::randomize(ship_seed);
+    generate_turn(&mut state, &mut rng);
+    // The fleet was still taken; the AI simply gets nothing back.
+    assert_eq!(state.fleets.len(), 1);
+    assert!(state
+        .messages
+        .iter()
+        .all(|m| m.id != id::TRADER_GAVE_SHIP && m.id != id::TRADER_TRIED_SHIP));
+}
