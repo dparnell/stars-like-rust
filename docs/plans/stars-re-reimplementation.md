@@ -761,7 +761,44 @@ disagree.
     any fixture either, but unlike 11 they have writers, so a real log could
     carry one.
 
-19. **What is still missing to call it playable.** The waypoint tasks beyond
+19. ~~**Battle plan definitions (`rtBtlPlan`, 30).**~~ **Done.** The previous
+    step turned this up as an operation a client can log that this project did
+    not model: type 42 says which plan a fleet fights under, but nothing wrote
+    the plan itself. Now `Player` carries its battle plans, the loader reads
+    them out of the file's type-30 blocks instead of assuming the five
+    defaults, the writers put back what the player holds, and the plans screen
+    edits them.
+
+    The payload is byte-for-byte a state file's type-30 block — `WriteBattlePlan`
+    (`1070:89b8`) fills one buffer and hands it either to `WriteMemRt` or to the
+    block writer — so the existing, fixture-verified decoder reads both, and the
+    only new format work was the **delete** form: two bytes, flagged by bit 6 of
+    byte 1, which is also how the replay recognises it.
+
+    Reading the host's arm (`1048:c287`) settled three things the block spec had
+    left open. Byte 1 is a tactic **nibble** plus flags, not a whole tactic. The
+    field ranges are tactic `0..=6`, both targets `0..=8`, sixteen plans per
+    player. And a plan is routed by the slot nibble in its first byte, which
+    `ReadBattlePlan` stamps back — worth knowing, because the two default plans
+    *Sniper* and *Chicken* both ship carrying slot 3, so an untouched default's
+    nibble cannot be trusted; this project stamps the slot on everything it
+    writes.
+
+    Deleting is the interesting one. `DeleteBattlePlan` (`10f0:1706`) shifts the
+    following plans up, restamps their ids, and walks the player's fleets moving
+    every plan index at or past the deleted slot down one — including a fleet
+    that was using the deleted plan. That decrement is a plain byte subtract, so
+    deleting slot 0 leaves such a fleet on 255; the engine keeps the wrap,
+    because a host that clamped would part company with the client that wrote
+    the log.
+
+    What the tactic and target *values* mean is still not decoded — the names
+    live in the executable's resource strings, which nothing here reads yet — so
+    the editor shows them as numbers with the ranges enforced. That leaves
+    `rtChgPassword` (36) as the only operation a client can log that this
+    project does not model.
+
+20. **What is still missing to call it playable.** The waypoint tasks beyond
     colonise, transport and remote mining (scrap, lay minefield, patrol, route,
     transfer) can be set but are not simulated; a loaded state file cannot carry
     structural fleet changes back (the game does not either — the order log

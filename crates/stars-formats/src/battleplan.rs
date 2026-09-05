@@ -58,7 +58,30 @@ pub struct BattlePlanRecord {
     pub trailing: Vec<u8>,
 }
 
+/// Bit 6 of byte 1: the plan has been **deleted**.
+///
+/// Byte 1 is not a whole tactic value. The replay arm reads the tactic from its
+/// low nibble (`1048:c31c`, bounded to `0..=6`) and this bit from its high one
+/// (`1048:c2d4`, testing bit 14 of the first *word*). Every plan in the
+/// fixtures has a zero high nibble, so the field decodes the same either way;
+/// it is kept whole here and read through [`BattlePlanRecord::tactic_nibble`]
+/// and [`BattlePlanRecord::deleted`].
+pub const PLAN_DELETED: u8 = 0x40;
+
 impl BattlePlanRecord {
+    /// The tactic proper: the low nibble of [`Self::tactic`]. The original
+    /// refuses a value above 6.
+    #[must_use]
+    pub fn tactic_nibble(&self) -> u8 {
+        self.tactic & 0x0F
+    }
+
+    /// Whether byte 1 marks the plan deleted ([`PLAN_DELETED`]).
+    #[must_use]
+    pub fn deleted(&self) -> bool {
+        self.tactic & PLAN_DELETED != 0
+    }
+
     /// Decode a **decrypted** type-30 battle-plan block payload.
     ///
     /// # Errors

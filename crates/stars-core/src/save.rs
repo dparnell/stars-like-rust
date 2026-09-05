@@ -85,21 +85,6 @@ const DESIGN_FLAGS1: u8 = 1;
 /// A waypoint that sits on a planet: object class 1 with `fValidTask` set.
 const WAYPOINT_ON_PLANET: u8 = 0x11;
 
-/// The five battle plans a new game gives every player.
-///
-/// `(plan id, tactic, primary target, secondary target, attack who, name)`,
-/// transcribed from `rgbtlplanT` and checked byte for byte against the turn-0
-/// fixture. The plan id of the last two is **3 in both**, which is what the
-/// file holds; the field is four bits wide in this crate's decoder but only the
-/// low two of them appear to be the plan number.
-const DEFAULT_BATTLE_PLANS: [(u8, u8, u8, u8, u8, &str); 5] = [
-    (0, 4, 3, 1, 2, "Default"),
-    (1, 4, 2, 3, 2, "Kill Starbase"),
-    (2, 3, 3, 4, 2, "Max-Defense"),
-    (3, 1, 5, 0, 2, "Sniper"),
-    (3, 0, 0, 0, 2, "Chicken"),
-];
-
 /// Write the host file for a game.
 ///
 /// # Errors
@@ -142,7 +127,7 @@ pub fn host_file(state: &GameState) -> Result<Vec<u8>> {
     // game has none, so the count is zero.
     body.push(block(43, 0u16.to_le_bytes().to_vec())?);
     for index in 0..state.players.len() {
-        push_battle_plans(&mut body, index)?;
+        push_battle_plans(state, &mut body, index)?;
     }
 
     StarsFile::build(&header, &body, footer(state))
@@ -190,7 +175,7 @@ pub fn player_file(state: &GameState, player: usize) -> Result<Vec<u8>> {
     if let Some(designs) = state.designs.get(player) {
         push_designs(&mut body, state, player, designs, true)?;
     }
-    push_battle_plans(&mut body, player)?;
+    push_battle_plans(state, &mut body, player)?;
 
     StarsFile::build(&header, &body, footer(state))
 }
@@ -691,20 +676,24 @@ fn waypoint_records(fleet: &Fleet) -> Vec<WaypointRecord> {
         .collect()
 }
 
-/// Append one player's five default battle plans.
-fn push_battle_plans(body: &mut Vec<Block>, player: usize) -> Result<()> {
+/// Append one player's battle plans, in the order they are held.
+///
+/// The owner nibble is stamped from the player index rather than trusted from
+/// the record: a plan belongs to whoever the file says it does. A player whose
+/// plans somehow went missing gets the defaults, so a file never ships a fleet
+/// pointing at a plan that is not there.
+fn push_battle_plans(state: &GameState, body: &mut Vec<Block>, player: usize) -> Result<()> {
     let race_id = u8::try_from(player).unwrap_or(0) & 0x0F;
-    for (plan_id, tactic, primary, secondary, attack, name) in DEFAULT_BATTLE_PLANS {
-        let record = BattlePlanRecord {
-            race_id,
-            plan_id,
-            tactic,
-            primary_target: primary,
-            secondary_target: secondary,
-            attack_who: attack,
-            name: name.to_string(),
-            trailing: Vec::new(),
-        };
+    let fallback = crate::default_battle_plans(player);
+    let plans = state
+        .players
+        .get(player)
+        .map(|p| p.battle_plans.as_slice())
+        .filter(|p| !p.is_empty())
+        .unwrap_or(&fallback);
+    for plan in plans {
+        let mut record: BattlePlanRecord = plan.clone();
+        record.race_id = race_id;
         body.push(block(30, record.encode()?)?);
     }
     Ok(())

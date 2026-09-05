@@ -3,17 +3,6 @@
 use crate::views::{colonists, player_colour};
 use crate::App;
 
-/// The five battle plans every player starts with, in slot order
-/// (`rgbtlplanT`). A player can rename them; this project does not read the
-/// names back, so the defaults are shown.
-const BATTLE_PLANS: [&str; 5] = [
-    "Default",
-    "Kill Starbase",
-    "Max-Defense",
-    "Sniper",
-    "Chicken",
-];
-
 /// Draw the fleet screen.
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
     let Some(game) = app.game.as_ref() else {
@@ -283,13 +272,28 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         );
 
         ui.add_space(6.0);
+        // The plans are the owner's own, names included: a player can rename,
+        // retune and add them, and the file carries what they chose.
+        let plans: Vec<String> = game
+            .players
+            .get(usize::try_from(fleet.owner).unwrap_or(usize::MAX))
+            .map(|p| p.battle_plans.as_slice())
+            .unwrap_or_default()
+            .iter()
+            .enumerate()
+            .map(|(slot, plan)| {
+                if plan.name.is_empty() {
+                    format!("plan {slot}")
+                } else {
+                    plan.name.clone()
+                }
+            })
+            .collect();
         ui.horizontal(|ui| {
             ui.label("battle plan:");
-            for id in 0..5u8 {
-                if ui
-                    .selectable_label(fleet.battle_plan == id, BATTLE_PLANS[usize::from(id)])
-                    .clicked()
-                {
+            for (slot, name) in plans.iter().enumerate() {
+                let Ok(id) = u8::try_from(slot) else { continue };
+                if ui.selectable_label(fleet.battle_plan == id, name).clicked() {
                     plan = Some((index, id));
                 }
             }

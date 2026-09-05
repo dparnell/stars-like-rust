@@ -172,6 +172,9 @@ pub struct App {
     research_edited: bool,
     /// Whether anything in the local player's own block was changed.
     player_edited: bool,
+    /// Whether the local player's battle plans were changed. They live in
+    /// their own blocks, so those are rewritten rather than patched.
+    battle_plans_edited: bool,
 }
 
 /// A generated turn, reduced to what a player wants to be told.
@@ -279,6 +282,7 @@ impl App {
         self.renamed.clear();
         self.fleet_edits.clear();
         self.player_edited = false;
+        self.battle_plans_edited = false;
         self.orders.clear();
         self.error = None;
         Ok(())
@@ -321,6 +325,10 @@ impl App {
         // fleet's run of waypoints. An empty vector means the name was
         // cleared, so the block should go rather than be replaced.
         let mut pending_name: Option<Vec<u8>> = None;
+        // The player's battle plans are written as a run of blocks. Editing
+        // one can change how many there are, so the whole run is replaced at
+        // the first of them rather than patched block by block.
+        let mut wrote_battle_plans = false;
 
         for (index, block) in source.iter().enumerate() {
             if index < first || index >= last {
@@ -356,6 +364,36 @@ impl App {
                     None => blocks.push(block.clone()),
                 }
                 continue;
+            }
+            if block.type_id == 30 && self.battle_plans_edited {
+                let me = u8::try_from(self.local_player()).unwrap_or(0) & 0x0F;
+                let mine = stars_formats::BattlePlanRecord::from_payload(&block.data)
+                    .is_ok_and(|p| p.race_id == me);
+                if mine {
+                    if !wrote_battle_plans {
+                        wrote_battle_plans = true;
+                        for (slot, plan) in game
+                            .players
+                            .get(self.local_player())
+                            .map(|p| p.battle_plans.as_slice())
+                            .unwrap_or_default()
+                            .iter()
+                            .enumerate()
+                        {
+                            let mut plan = plan.clone();
+                            plan.race_id = me;
+                            plan.plan_id = u8::try_from(slot).unwrap_or(0) & 0x0F;
+                            let data = plan
+                                .encode()
+                                .map_err(|e| format!("cannot write a battle plan: {e}"))?;
+                            blocks.push(
+                                Block::new(30, data)
+                                    .map_err(|e| format!("cannot write a battle plan: {e}"))?,
+                            );
+                        }
+                    }
+                    continue;
+                }
             }
             if block.type_id == 6 && self.player_edited {
                 if let Some(patched) = self.patched_player(game, &block.data) {
@@ -542,6 +580,7 @@ impl App {
         self.renamed.clear();
         self.fleet_edits.clear();
         self.player_edited = false;
+        self.battle_plans_edited = false;
         self.orders.clear();
         self.error = None;
         self.last_turn = None;
@@ -866,6 +905,7 @@ impl App {
         self.orders.clear();
         self.research_edited = false;
         self.player_edited = false;
+        self.battle_plans_edited = false;
         self.last_turn = Some(TurnSummary {
             year: report.year,
             mined: report.mined.len(),
@@ -1340,6 +1380,99 @@ impl App {
             .push(LogRecord::raw(LogRecordType::PlayerZpq1, queue.encode()));
         self.player_edited = true;
         self.dirty = true;
+        true
+    }
+
+    /// Define or retune one of the local player's battle plans.
+    ///
+    /// `slot` is the plan's position in the list; passing the position one past
+    /// the end appends a plan, which is how a new one is made. The owner and
+    /// the slot are stamped into the record rather than taken from `plan`: the
+    /// original routes a type-30 record by the nibbles in its first byte, and
+    /// the two default plans that ship sharing a plan id show those nibbles
+    /// cannot be trusted to say where a plan lives.
+    ///
+    /// Returns whether the change was accepted — the host applies the same
+    /// bounds to the record this logs.
+    pub fn set_battle_plan_definition(
+        &mut self,
+        slot: usize,
+        plan: &stars_formats::BattlePlanRecord,
+    ) -> bool {
+        use stars_formats::{BattlePlanChange, LogRecord};
+
+        let me = self.local_player();
+        let mut plan = plan.clone();
+        plan.race_id = u8::try_from(me).unwrap_or(0) & 0x0F;
+        plan.plan_id = u8::try_from(slot).unwrap_or(0) & 0x0F;
+        let change = BattlePlanChange {
+            plan,
+            delete: false,
+        };
+        let Ok(record) = LogRecord::battle_plan(&change) else {
+            return false;
+        };
+        // The editor logs a record per change, where the game's dialog logs one
+        // when it is dismissed. A run of edits to the same plan is collapsed to
+        // the last of them: the host applies whichever survives, and there is
+        // no sense sending a record per keystroke.
+        if self.orders.last().is_some_and(|r| {
+            r.as_battle_plan()
+                .is_some_and(|c| !c.delete && usize::from(c.plan.plan_id) == slot)
+        }) {
+            self.orders.pop();
+        }
+        if !self.apply_and_log(vec![record]) {
+            return false;
+        }
+        self.battle_plans_edited = true;
+        true
+    }
+
+    /// Delete one of the local player's battle plans.
+    ///
+    /// The plans after it move up a slot and every one of the player's fleets
+    /// pointing at or past it has its plan index decremented, which is what
+    /// `DeleteBattlePlan` does; the fleets that changed are marked so their
+    /// blocks are rewritten too.
+    pub fn delete_battle_plan(&mut self, slot: usize) -> bool {
+        use stars_formats::{BattlePlanChange, BattlePlanRecord, LogRecord};
+
+        let me = self.local_player();
+        let owner = i16::try_from(me).unwrap_or(-1);
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        // Every fleet at or past the slot has its index moved, so each one
+        // needs its block rewritten.
+        let touched: Vec<(i16, u16)> = game
+            .fleets
+            .iter()
+            .filter(|f| f.owner == owner && usize::from(f.battle_plan) >= slot)
+            .map(|f| (f.owner, f.id))
+            .collect();
+
+        let change = BattlePlanChange {
+            plan: BattlePlanRecord {
+                race_id: u8::try_from(me).unwrap_or(0) & 0x0F,
+                plan_id: u8::try_from(slot).unwrap_or(0) & 0x0F,
+                tactic: stars_formats::PLAN_DELETED,
+                primary_target: 0,
+                secondary_target: 0,
+                attack_who: 0,
+                name: String::new(),
+                trailing: Vec::new(),
+            },
+            delete: true,
+        };
+        let Ok(record) = LogRecord::battle_plan(&change) else {
+            return false;
+        };
+        if !self.apply_and_log(vec![record]) {
+            return false;
+        }
+        self.fleet_edits.extend(touched);
+        self.battle_plans_edited = true;
         true
     }
 

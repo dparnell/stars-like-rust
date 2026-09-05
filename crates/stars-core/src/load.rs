@@ -346,6 +346,32 @@ impl GameState {
             }
         }
 
+        // Battle plans. A type-30 block names its owner in its low nibble, and
+        // the blocks come in the order the player holds them, so the first one
+        // a player owns replaces the defaults and the rest append.
+        {
+            let mut seen: Vec<bool> = vec![false; state.players.len()];
+            for block in blocks
+                .iter()
+                .filter(|b| b.block_type() == stars_formats::block::BlockType::BattlePlan)
+            {
+                let Ok(plan) = stars_formats::BattlePlanRecord::from_payload(&block.data) else {
+                    continue;
+                };
+                let owner = usize::from(plan.race_id);
+                let Some(player) = state.players.get_mut(owner) else {
+                    continue;
+                };
+                if !seen.get(owner).copied().unwrap_or(false) {
+                    player.battle_plans.clear();
+                    if let Some(flag) = seen.get_mut(owner) {
+                        *flag = true;
+                    }
+                }
+                player.battle_plans.push(plan);
+            }
+        }
+
         // Planets. A production queue block follows the planet it belongs to,
         // so the most recent planet claims it.
         for record in planet_records_in(blocks) {

@@ -46,7 +46,7 @@ variant.
 | 27 | `rtLogShDef` | `Other(27)` | order: design create/update/delete |
 | 28 | `rtProdQ` | `ProductionQueue` | production queue |
 | 29 | `rtLogPlanetProdQ` | `ProductionQueueChange` | order: set/clear planet production queue |
-| 30 | `rtBtlPlan` | `BattlePlan` | battle plan |
+| 30 | `rtBtlPlan` | `BattlePlan` | battle plan; the same bytes are also the order operation that defines one |
 | 31 | `rtBtlData` | `Battle` | battle recording data (VCR) — **decoded**, see `battle.md` |
 | 32 | `rtHistHdr` | `HistoryHeader` | history-file (`.hN`) header |
 | 33 | `rtMsgFilt` | `MessagesFilter` | message filter bitfield |

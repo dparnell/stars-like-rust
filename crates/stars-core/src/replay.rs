@@ -23,9 +23,9 @@
 //! `docs/formats/orders-x.md`.
 
 use stars_formats::{
-    object_owner, CargoTransfer, CargoTransferRecord, FleetMerge, FleetName, FleetOrderDelete,
-    FleetOrderTask, GrobjClass, LogRecord, LogRecordType, OrderLog, PlanetRoutingOrder,
-    ResearchOrder, ShipDesignChange, WaypointOrder,
+    object_owner, BattlePlanChange, CargoTransfer, CargoTransferRecord, FleetMerge, FleetName,
+    FleetOrderDelete, FleetOrderTask, GrobjClass, LogRecord, LogRecordType, OrderLog,
+    PlanetRoutingOrder, ResearchOrder, ShipDesignChange, WaypointOrder,
 };
 
 use crate::fleet::Waypoint;
@@ -65,6 +65,8 @@ pub struct ReplayReport {
     pub fleet_settings: usize,
     /// Player-relations tables replaced.
     pub relations: usize,
+    /// Battle plans defined, retuned or deleted.
+    pub battle_plans: usize,
     /// Default production queues replaced.
     pub default_queues: usize,
     /// Operations dropped because they named something the player does not own,
@@ -89,6 +91,7 @@ impl ReplayReport {
             + self.renames
             + self.fleet_settings
             + self.relations
+            + self.battle_plans
             + self.default_queues
     }
 }
@@ -293,6 +296,17 @@ fn apply(
                 None => report.rejected += 1,
             }
         }
+        LogRecordType::BattlePlan => {
+            let Some(change) = record.as_battle_plan() else {
+                report.rejected += 1;
+                return;
+            };
+            match set_battle_plan(state, player, &change) {
+                PlanEdit::Applied => report.battle_plans += 1,
+                PlanEdit::Ignored => {}
+                PlanEdit::Rejected => report.rejected += 1,
+            }
+        }
         LogRecordType::FleetOrderAttrNib => {
             let Some(order) = record.as_order_task() else {
                 report.rejected += 1;
@@ -382,6 +396,107 @@ fn cargo_record(player: usize, transfer: &CargoTransfer) -> Option<CargoTransfer
         selector: transfer.items_mask as u8,
         quantities,
     })
+}
+
+/// What the replay made of a battle-plan record.
+///
+/// The original's arm is not simply accept/reject: a **delete** that names a
+/// plan the player does not have returns success and does nothing, while a
+/// definition in the same position is refused. Both are modelled so the report
+/// does not call a no-op a rejection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlanEdit {
+    /// The plan list changed.
+    Applied,
+    /// Accepted, but there was nothing to do.
+    Ignored,
+    /// Refused.
+    Rejected,
+}
+
+/// The largest tactic value the original accepts (`1048:c324`).
+const MAX_TACTIC: u8 = 6;
+
+/// The largest primary/secondary target value it accepts (`1048:c336`,
+/// `1048:c350`).
+const MAX_TARGET: u8 = 8;
+
+/// The most battle plans a player can hold (`1048:c36f`).
+const MAX_BATTLE_PLANS: usize = 16;
+
+/// Define, retune or delete one of the player's battle plans.
+///
+/// Transcribed from the replay arm at `1048:c287`. The record names its owner
+/// in the low nibble of byte 0 and the slot in the high one, and the host
+/// accepts it only from the player whose log it is, for a slot the player
+/// already has **or the next one** — appending is how a new plan is made. A
+/// definition is checked field by field: tactic `0..=6`, both targets `0..=8`.
+/// The "attack who" byte is not checked, and is kept as written.
+///
+/// Deleting shifts the rest down (`DeleteBattlePlan`, `10f0:1706`): the plans
+/// after it move up a slot and are restamped with their new index, and every
+/// one of the player's fleets pointing at or past the deleted slot has its
+/// index decremented — including a fleet that was using the deleted plan,
+/// which the original moves to the slot before it. That subtraction is a plain
+/// byte decrement in the original, so deleting slot 0 leaves a fleet that used
+/// it pointing at 255; the wrap is kept rather than papered over, because a
+/// host that clamped would diverge from the client that wrote the log.
+fn set_battle_plan(state: &mut GameState, player: usize, change: &BattlePlanChange) -> PlanEdit {
+    let slot = usize::from(change.plan.plan_id);
+    let Some(record) = state.players.get(player) else {
+        return PlanEdit::Rejected;
+    };
+    if usize::from(change.plan.race_id) != player || slot > record.battle_plans.len() {
+        // Out of range: a delete is shrugged off, a definition refused.
+        return if change.delete {
+            PlanEdit::Ignored
+        } else {
+            PlanEdit::Rejected
+        };
+    }
+
+    if change.delete {
+        if slot >= state.players[player].battle_plans.len() {
+            return PlanEdit::Ignored;
+        }
+        state.players[player].battle_plans.remove(slot);
+        for (index, plan) in state.players[player]
+            .battle_plans
+            .iter_mut()
+            .enumerate()
+            .skip(slot)
+        {
+            plan.plan_id = u8::try_from(index).unwrap_or(0) & 0x0F;
+        }
+        let owner = i16::try_from(player).unwrap_or(-1);
+        let deleted = u8::try_from(slot).unwrap_or(0);
+        for fleet in state.fleets.iter_mut().filter(|f| f.owner == owner) {
+            if fleet.battle_plan >= deleted {
+                fleet.battle_plan = fleet.battle_plan.wrapping_sub(1);
+            }
+        }
+        return PlanEdit::Applied;
+    }
+
+    if change.plan.tactic_nibble() > MAX_TACTIC
+        || change.plan.primary_target > MAX_TARGET
+        || change.plan.secondary_target > MAX_TARGET
+    {
+        return PlanEdit::Rejected;
+    }
+    let mut plan = change.plan.clone();
+    plan.race_id = u8::try_from(player).unwrap_or(0) & 0x0F;
+    plan.plan_id = u8::try_from(slot).unwrap_or(0) & 0x0F;
+    let plans = &mut state.players[player].battle_plans;
+    if slot == plans.len() {
+        if slot >= MAX_BATTLE_PLANS {
+            return PlanEdit::Rejected;
+        }
+        plans.push(plan);
+    } else {
+        plans[slot] = plan;
+    }
+    PlanEdit::Applied
 }
 
 /// Set the task on one of the player's fleet waypoints.
@@ -1329,6 +1444,142 @@ mod tests {
             state.fleets[0].waypoints[1].task,
             stars_formats::task::COLONIZE
         );
+    }
+
+    /// A plan is retuned, a new one appended, and one deleted — the three
+    /// things `BattlePlansDlg` logs.
+    #[test]
+    fn battle_plans_are_defined_and_deleted() {
+        use stars_formats::{BattlePlanChange, BattlePlanRecord};
+
+        let mut state = a_game();
+        let mut orders = TurnOrders::default();
+        let mut log = OrderLog::new(0, [0; 11]);
+        assert_eq!(state.players[0].battle_plans.len(), 5);
+        state.fleets[0].battle_plan = 4;
+
+        // Retune slot 2 and rename it.
+        let mut plan = state.players[0].battle_plans[2].clone();
+        plan.name = "Bombers first".to_string();
+        plan.primary_target = 8;
+        log.records.push(
+            LogRecord::battle_plan(&BattlePlanChange {
+                plan,
+                delete: false,
+            })
+            .expect("encodes"),
+        );
+        // Append a sixth.
+        let mut sixth = BattlePlanRecord {
+            race_id: 0,
+            plan_id: 5,
+            tactic: 6,
+            primary_target: 0,
+            secondary_target: 0,
+            attack_who: 3,
+            name: "Last stand".to_string(),
+            trailing: Vec::new(),
+        };
+        log.records.push(
+            LogRecord::battle_plan(&BattlePlanChange {
+                plan: sixth.clone(),
+                delete: false,
+            })
+            .expect("encodes"),
+        );
+        // Delete slot 1.
+        sixth.plan_id = 1;
+        sixth.tactic = stars_formats::PLAN_DELETED;
+        log.records.push(
+            LogRecord::battle_plan(&BattlePlanChange {
+                plan: sixth,
+                delete: true,
+            })
+            .expect("encodes"),
+        );
+
+        let report = replay(&mut state, 0, &log, &mut orders);
+        assert_eq!(report.battle_plans, 3);
+        assert_eq!(report.rejected, 0);
+
+        let plans = &state.players[0].battle_plans;
+        assert_eq!(plans.len(), 5);
+        assert_eq!(plans[1].name, "Bombers first");
+        assert_eq!(plans[1].primary_target, 8);
+        assert_eq!(plans.last().unwrap().name, "Last stand");
+        // The survivors are restamped with their new slots.
+        for (slot, plan) in plans.iter().enumerate() {
+            assert_eq!(usize::from(plan.plan_id), slot);
+        }
+        // A fleet past the deleted slot follows it down.
+        assert_eq!(state.fleets[0].battle_plan, 3);
+    }
+
+    /// The bounds the original puts on a definition, and the owner check.
+    #[test]
+    fn a_battle_plan_is_bounds_checked() {
+        use stars_formats::{BattlePlanChange, BattlePlanRecord};
+
+        let plan = |plan_id: u8, tactic: u8, primary: u8, secondary: u8, race: u8| {
+            LogRecord::battle_plan(&BattlePlanChange {
+                plan: BattlePlanRecord {
+                    race_id: race,
+                    plan_id,
+                    tactic,
+                    primary_target: primary,
+                    secondary_target: secondary,
+                    attack_who: 1,
+                    name: "x".to_string(),
+                    trailing: Vec::new(),
+                },
+                delete: false,
+            })
+            .expect("encodes")
+        };
+
+        let mut state = a_game();
+        let mut orders = TurnOrders::default();
+        let mut log = OrderLog::new(0, [0; 11]);
+        log.records.push(plan(0, 7, 0, 0, 0)); // tactic above 6
+        log.records.push(plan(0, 0, 9, 0, 0)); // primary above 8
+        log.records.push(plan(0, 0, 0, 9, 0)); // secondary above 8
+        log.records.push(plan(6, 0, 0, 0, 0)); // a slot past the end
+        log.records.push(plan(0, 0, 0, 0, 1)); // someone else's plan
+        let report = replay(&mut state, 0, &log, &mut orders);
+        assert_eq!(report.battle_plans, 0);
+        assert_eq!(report.rejected, 5);
+        assert_eq!(state.players[0].battle_plans.len(), 5);
+    }
+
+    /// Deleting a plan the player does not have is accepted and does nothing,
+    /// which is what the arm at `1048:c2e4` does.
+    #[test]
+    fn deleting_a_plan_that_is_not_there_is_a_no_op() {
+        use stars_formats::{BattlePlanChange, BattlePlanRecord};
+
+        let mut state = a_game();
+        let mut orders = TurnOrders::default();
+        let mut log = OrderLog::new(0, [0; 11]);
+        log.records.push(
+            LogRecord::battle_plan(&BattlePlanChange {
+                plan: BattlePlanRecord {
+                    race_id: 0,
+                    plan_id: 9,
+                    tactic: stars_formats::PLAN_DELETED,
+                    primary_target: 0,
+                    secondary_target: 0,
+                    attack_who: 0,
+                    name: String::new(),
+                    trailing: Vec::new(),
+                },
+                delete: true,
+            })
+            .expect("encodes"),
+        );
+        let report = replay(&mut state, 0, &log, &mut orders);
+        assert_eq!(report.battle_plans, 0);
+        assert_eq!(report.rejected, 0);
+        assert_eq!(state.players[0].battle_plans.len(), 5);
     }
 
     /// Every case in `docs/vectors/order-attr-nib.json` — the substitute for

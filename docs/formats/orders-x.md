@@ -127,7 +127,9 @@ these ids mean the **log** variant, distinct from the same id in a state file
 All operation ids seen across the 40 exodus files classify to a known type (no
 `Other(_)`). Three of the ids above appear in **no** fixture: 30 and 36, because
 nobody in the sample redefined a battle plan or changed a password, and 11,
-because nothing writes it at all — see below.
+because nothing writes it at all — see below. Type 30 is decoded and replayed
+all the same: its payload is byte-for-byte a state file's type-30 block, which
+the fixtures do carry 15 of.
 
 ### Which routine writes each operation
 
@@ -145,7 +147,7 @@ can emit are exactly the record types its **24** call sites push, and those are:
 | 24         | `LogSplitFleet`           | `1048:8b5e`                           |
 | 27         | `LogChangeShDef`          | `1048:8cc1`, `8d1d`                   |
 | 29         | `LogChangePlanet`         | `1048:95c0`, `96fd`                   |
-| 30         | `WriteBattlePlan`         | `1070:8aae`                           |
+| 30         | `WriteBattlePlan`, from `LogChangeBtlplan` | `1070:8aae`          |
 | 34         | `ResearchDlg`, `IroEnsureAi` | `10d8:0808`; `1090:430e`, `448c`, `45b5` |
 | 35         | `LogChangePlanet`         | `1048:98f9`                           |
 | 36         | `NewPasswordDlg`          | `1040:5ec7`                           |
@@ -390,6 +392,69 @@ worked examples live in [`docs/vectors/order-attr-nib.json`](../vectors/order-at
 — eight records read out of the arm above, each with the verdict it produces —
 and a test in `replay.rs` runs every one of them.
 
+### Battle plan definition (`rtBtlPlan`, id 30)
+
+The operation that **writes a plan**: its name, tactic, target preferences and
+who it attacks. The one that says which plan a fleet fights under is
+[`rtLogFleetPlan`](#battle-plan-rtlogfleetplan-id-42) (42) — different record,
+different id, easily confused.
+
+The payload is exactly a state file's type-30 block, documented in
+[`battleplan.md`](battleplan.md): `WriteBattlePlan` (`1070:89b8`) fills one
+buffer and hands it either to `WriteMemRt` for the log or to the block writer
+for the file, so one decoder reads both. `LogChangeBtlplan` (`1048:93d0`) is the
+wrapper that logs it, called from five places in `BattlePlansDlg` (`10f0:0652`)
+— adding, editing and deleting each log one. Unlike the relations record it does
+**not** replace an earlier record of its own kind, so a log can carry several
+and they apply in order.
+
+A **delete** is written short. When byte 1 has bit 6 set (`PLAN_DELETED`, bit 14
+of the first word), `WriteBattlePlan` stops after two bytes — no targets, no
+name — and the replay tests the same bit before reading any further, so the
+short form is not a truncation. Decoded by [`BattlePlanChange`], which keeps the
+two forms apart and refuses to let the flag and the length disagree.
+
+The host's arm is at `1048:c287`:
+
+```
+w0 = *(uint16_t *)lpb;
+iplan = (w0 >> 4) & 0x0f;                      // the slot
+if ((w0 & 0x0f) != iplrMe || iplan > cplan[iplrMe])
+    return (w0 >> 14) & 1;                     // a stray delete is shrugged off,
+                                               // a stray definition refused
+if ((w0 >> 14) & 1) { DeleteBattlePlan(iplan, 0); return 1; }
+if (((w0 >> 8) & 0x0f) > 6) return 0;          // tactic
+w1 = *(uint16_t *)(lpb + 2);
+if ((w1 & 0x0f) > 8) return 0;                 // primary target
+if (((w1 >> 4) & 0x0f) > 8) return 0;          // secondary target
+if (iplan == cplan[iplrMe]) {                  // appending a new plan
+    if (iplan >= 16) return 0;
+    cplan[iplrMe]++;
+}
+ReadBattlePlan(lpb, &rgbtlplan[iplrMe][iplan], iplan);
+```
+
+Four things that matter to a host:
+
+- **A record only ever changes its own author's plans.** The owner nibble must
+  equal the player whose log it is.
+- **Writing one past the end is how a plan is made.** `iplan == cplan` appends,
+  up to sixteen; anything further is refused.
+- **The slot comes from the record, and is stamped back.** `ReadBattlePlan`
+  overwrites the stored plan's id nibble with the slot it was routed to. That
+  matters because the two default plans *Sniper* and *Chicken* both ship with id
+  3 — see `battleplan.md`.
+- **A delete is not just a removal.** It shifts the following plans up, restamps
+  their ids, and walks the player's fleets moving every plan index at or past
+  the deleted slot down one.
+
+Replayed by `set_battle_plan`, which keeps all four and reports an out-of-range
+delete as neither applied nor rejected, because that is what the original makes
+of it. No fixture carries one — nobody in the sample edited a battle plan — but
+the payload is fixture-verified through the 15 type-30 blocks of
+`fixtures/incoming/turn0/Game.hst`, one of which is the worked example in the
+`BattlePlanChange` tests.
+
 ### Battle plan (`rtLogFleetPlan`, id 42)
 
 `{ int16_t id; int16_t iplan; }` — which of the player's five battle plans the
@@ -473,6 +538,7 @@ what the client **already did**, not what it intends:
 | gives it a task or transport instructions | an update of that waypoint |
 | splits a fleet | a split naming it, then a ship transfer into the new fleet |
 | changes a fleet's battle plan or repeat-orders flag | one record each |
+| defines, retunes or deletes a battle plan | one type-30 record, with the slot stamped into it; a run of edits to one plan collapses to the last |
 | changes how they regard another player | one relations record, replacing any earlier one |
 | changes what new colonies build | one default-queue record, likewise |
 | merges fleets | one merge record, survivor first |
@@ -509,6 +575,7 @@ received them. What each operation does:
 | repeat orders (10) | the fleet's repeat-orders flag |
 | waypoint task (11) | the task on one of the fleet's waypoints, bounds-checked |
 | battle plan (42) | which battle plan the fleet fights under |
+| battle plan definition (30) | the plan itself is written, appended or deleted; a delete shifts the rest up and moves every fleet index at or past it down |
 | player relations (38) | the player's whole relations table is replaced |
 | default queue (46) | the queue the player's new colonies start with |
 | waypoint insert / update (4/5) | inserted at or written over that slot of the fleet's order list |
@@ -566,11 +633,13 @@ every transfer twice.
   `1048:c3f0` and pinned by `docs/vectors/order-attr-nib.json`. Whether some
   other build of the client emits it is untested — the host would accept it, so
   this project keeps decoding and replaying it.
-- `rtBtlPlan` (30) and `rtChgPassword` (36) are written into a log by
-  `WriteBattlePlan` and `NewPasswordDlg`, but no fixture holds one, and this
-  project neither writes nor replays them: a battle plan's *definition* (its
-  name and tactics) and a password change are both unmodelled. Only the
-  per-fleet plan **assignment** (42) is carried.
+- `rtChgPassword` (36) is written into a log by `NewPasswordDlg`, but no fixture
+  holds one and this project neither writes nor replays it: passwords are not
+  modelled at all.
+- `rtBtlPlan` (30) is decoded, written and replayed, but no fixture carries one
+  as an *order*; the payload is verified through the state-file blocks instead.
+  What the `tactic` and target values mean is still undecoded — only their
+  ranges are known — so the editor shows them as numbers.
 - The type-21 fleet-name block appears in no fixture, so its layout is recovered
   from the binary rather than fixture-verified. See `fleet.md`.
 - `RTCHGNAME` (44) and `RTLOGTHING` (43) decoders are struct-derived; they need
@@ -589,6 +658,7 @@ every transfer twice.
 [`ThingParam`]: ../../crates/stars-formats/src/orders.rs
 [`FleetSplit`]: ../../crates/stars-formats/src/orders.rs
 [`FleetRepeatOrders`]: ../../crates/stars-formats/src/orders.rs
+[`BattlePlanChange`]: ../../crates/stars-formats/src/orders.rs
 [`FleetOrderTask`]: ../../crates/stars-formats/src/orders.rs
 [`FleetPlan`]: ../../crates/stars-formats/src/orders.rs
 [`Relations`]: ../../crates/stars-formats/src/orders.rs

@@ -16,6 +16,7 @@
 //! Like the other record decoders this is a read-only *interpreted view*;
 //! byte-exact write-back still goes through the container in [`crate::file`].
 
+use crate::battleplan::{BattlePlanRecord, PLAN_DELETED};
 use crate::design::DesignRecord;
 use crate::file::StarsFile;
 use crate::header::FileHeader;
@@ -65,6 +66,8 @@ pub enum LogRecordType {
     ShipDesign,
     /// Set/clear a planet's production queue (`rtLogPlanetProdQ`, 29).
     PlanetProdQueue,
+    /// Define or delete one of the player's battle plans (`rtBtlPlan`, 30).
+    BattlePlan,
     /// Research settings (`rtLogResearch`, 34).
     Research,
     /// Planet routing / starbase / infrastructure bits (`rtLogPlanetRouting`, 35).
@@ -104,6 +107,7 @@ impl LogRecordType {
             25 => Self::CargoXfer32,
             27 => Self::ShipDesign,
             29 => Self::PlanetProdQueue,
+            30 => Self::BattlePlan,
             34 => Self::Research,
             35 => Self::PlanetRouting,
             37 => Self::FleetMerge,
@@ -134,6 +138,7 @@ impl LogRecordType {
             Self::CargoXfer32 => 25,
             Self::ShipDesign => 27,
             Self::PlanetProdQueue => 29,
+            Self::BattlePlan => 30,
             Self::Research => 34,
             Self::PlanetRouting => 35,
             Self::FleetMerge => 37,
@@ -728,6 +733,80 @@ impl FleetPlan {
     }
 }
 
+/// A decoded battle-plan definition (`rtBtlPlan`, type id 30).
+///
+/// This is the operation that **writes a plan**: its name, tactic, target
+/// preferences and who it will attack. The one that says which plan a fleet
+/// fights under is [`FleetPlan`] (42).
+///
+/// The payload is byte-for-byte the type-30 **block** of a state file:
+/// `WriteBattlePlan` (`1070:89b8`) fills one buffer and hands it either to
+/// `WriteMemRt` for the log or to the block writer for the file, so
+/// [`BattlePlanRecord`] decodes both. See `docs/formats/battleplan.md`.
+///
+/// A **delete** is written short: when byte 1 has [`PLAN_DELETED`] set,
+/// `WriteBattlePlan` stops after the first word and the record is two bytes,
+/// with no targets and no name (`1070:89f0`). The replay tests the same bit
+/// before it reads any further, so the short form is not a truncation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BattlePlanChange {
+    /// The plan as written. On a delete only `race_id`, `plan_id` and the
+    /// `tactic` byte carrying the flag are meaningful; the rest is zero.
+    pub plan: BattlePlanRecord,
+    /// Whether this deletes the plan rather than defining it.
+    pub delete: bool,
+}
+
+impl BattlePlanChange {
+    /// Decode a **decrypted** type-30 payload, in either form.
+    ///
+    /// Returns `None` if the payload is shorter than the two bytes a delete
+    /// needs, or if a definition is malformed.
+    #[must_use]
+    pub fn decode(data: &[u8]) -> Option<Self> {
+        if data.len() < 2 {
+            return None;
+        }
+        if data[1] & PLAN_DELETED != 0 {
+            return Some(Self {
+                plan: BattlePlanRecord {
+                    race_id: data[0] & 0x0F,
+                    plan_id: data[0] >> 4,
+                    tactic: data[1],
+                    primary_target: 0,
+                    secondary_target: 0,
+                    attack_who: 0,
+                    name: String::new(),
+                    trailing: Vec::new(),
+                },
+                delete: true,
+            });
+        }
+        Some(Self {
+            plan: BattlePlanRecord::from_payload(data).ok()?,
+            delete: false,
+        })
+    }
+
+    /// Re-encode this operation as a type-30 payload.
+    ///
+    /// The [`PLAN_DELETED`] bit is forced to agree with [`Self::delete`], so a
+    /// record built by hand cannot disagree with itself.
+    ///
+    /// # Errors
+    /// Propagates [`BattlePlanRecord::encode`] on a definition whose name does
+    /// not fit its length byte.
+    pub fn encode(&self) -> Result<Vec<u8>> {
+        let byte0 = (self.plan.race_id & 0x0F) | (self.plan.plan_id << 4);
+        if self.delete {
+            return Ok(vec![byte0, self.plan.tactic | PLAN_DELETED]);
+        }
+        let mut plan = self.plan.clone();
+        plan.tactic &= !PLAN_DELETED;
+        plan.encode()
+    }
+}
+
 /// A decoded player-relations operation (`rtLogRelations`, type id 38).
 ///
 /// One byte per player in the game — `0` neutral, `1` friend, `2` enemy — which
@@ -1095,6 +1174,14 @@ impl LogRecord {
             .flatten()
     }
 
+    /// Decode this record as a battle-plan definition.
+    #[must_use]
+    pub fn as_battle_plan(&self) -> Option<BattlePlanChange> {
+        (self.record_type == LogRecordType::BattlePlan)
+            .then(|| BattlePlanChange::decode(&self.data))
+            .flatten()
+    }
+
     /// Decode this record as a player-relations change.
     #[must_use]
     pub fn as_relations(&self) -> Option<Relations> {
@@ -1204,6 +1291,14 @@ impl LogRecord {
     #[must_use]
     pub fn fleet_plan(order: FleetPlan) -> Self {
         Self::raw(LogRecordType::FleetPlan, order.encode().to_vec())
+    }
+
+    /// Define, overwrite or delete one of the player's battle plans.
+    ///
+    /// # Errors
+    /// Propagates [`BattlePlanChange::encode`].
+    pub fn battle_plan(change: &BattlePlanChange) -> Result<Self> {
+        Ok(Self::raw(LogRecordType::BattlePlan, change.encode()?))
     }
 
     /// Set how the player regards everyone.
@@ -1486,6 +1581,50 @@ mod tests {
         assert_eq!(c.player, 5);
         assert_eq!(c.design_index, 4);
         assert!(c.design.is_none());
+    }
+
+    /// The first type-30 block of `fixtures/incoming/turn0/Game.hst`: player 0's
+    /// "Default" plan. A log record carries exactly these bytes, because
+    /// `WriteBattlePlan` fills one buffer for both sinks.
+    const DEFAULT_PLAN: [u8; 10] = [0x00, 0x04, 0x13, 0x02, 0x05, 0xb3, 0x2d, 0x71, 0xde, 0x5a];
+
+    #[test]
+    fn decodes_a_battle_plan_definition() {
+        let change = BattlePlanChange::decode(&DEFAULT_PLAN).unwrap();
+        assert!(!change.delete);
+        assert_eq!(change.plan.race_id, 0);
+        assert_eq!(change.plan.plan_id, 0);
+        assert_eq!(change.plan.tactic, 4);
+        assert_eq!(change.plan.primary_target, 3);
+        assert_eq!(change.plan.secondary_target, 1);
+        assert_eq!(change.plan.attack_who, 2);
+        assert_eq!(change.plan.name, "Default");
+        assert_eq!(change.encode().unwrap(), DEFAULT_PLAN);
+    }
+
+    #[test]
+    fn a_deleted_battle_plan_is_two_bytes() {
+        // Player 2's plan 3, deleted: the flag is bit 6 of byte 1, which is
+        // bit 14 of the word `WriteBattlePlan` tests before it stops.
+        let d = [0x32, 0x40];
+        let change = BattlePlanChange::decode(&d).unwrap();
+        assert!(change.delete);
+        assert_eq!(change.plan.race_id, 2);
+        assert_eq!(change.plan.plan_id, 3);
+        assert_eq!(change.encode().unwrap(), d);
+    }
+
+    #[test]
+    fn the_delete_flag_and_the_form_cannot_disagree() {
+        // A definition built from a record whose flag bit is set loses the bit
+        // rather than writing a full record the host would read as a delete.
+        let mut change = BattlePlanChange::decode(&DEFAULT_PLAN).unwrap();
+        change.plan.tactic |= PLAN_DELETED;
+        let encoded = change.encode().unwrap();
+        assert_eq!(encoded, DEFAULT_PLAN);
+        // And a delete ignores everything but the first two bytes.
+        change.delete = true;
+        assert_eq!(change.encode().unwrap(), [0x00, 0x44]);
     }
 
     #[test]

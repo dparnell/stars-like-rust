@@ -148,6 +148,49 @@ pub struct Player {
     /// Applied by [`crate::orders::apply_default_queue`] whenever a planet
     /// changes hands, which is where the original applies it.
     pub default_queue: stars_formats::DefaultQueue,
+    /// The player's battle plans, in file order, as the type-30 blocks carry
+    /// them (`PLAYER.rgbtlplan`).
+    ///
+    /// A fleet's `battle_plan` indexes this list. A new game gives everyone
+    /// the five in [`DEFAULT_BATTLE_PLANS`]; the player can rename, retune,
+    /// add and delete them, which is the `rtBtlPlan` (30) order operation.
+    pub battle_plans: Vec<stars_formats::BattlePlanRecord>,
+}
+
+/// The five battle plans a new game gives every player.
+///
+/// `(plan id, tactic, primary target, secondary target, attack who, name)`,
+/// transcribed from `rgbtlplanT` and checked byte for byte against the turn-0
+/// fixture. The plan id of the last two is **3 in both**, which is what the
+/// file holds; the field is four bits wide in the decoder but only the low two
+/// of them appear to be the plan number.
+pub const DEFAULT_BATTLE_PLANS: [(u8, u8, u8, u8, u8, &str); 5] = [
+    (0, 4, 3, 1, 2, "Default"),
+    (1, 4, 2, 3, 2, "Kill Starbase"),
+    (2, 3, 3, 4, 2, "Max-Defense"),
+    (3, 1, 5, 0, 2, "Sniper"),
+    (3, 0, 0, 0, 2, "Chicken"),
+];
+
+/// The battle plans a new game gives player `player`.
+#[must_use]
+pub fn default_battle_plans(player: usize) -> Vec<stars_formats::BattlePlanRecord> {
+    let race_id = u8::try_from(player).unwrap_or(0) & 0x0F;
+    DEFAULT_BATTLE_PLANS
+        .iter()
+        .map(|(plan_id, tactic, primary, secondary, attack, name)| {
+            stars_formats::BattlePlanRecord {
+                race_id,
+                plan_id: *plan_id,
+                tactic: *tactic,
+                primary_target: *primary,
+                secondary_target: *secondary,
+                attack_who: *attack,
+                name: (*name).to_string(),
+                trailing: Vec::new(),
+            }
+        })
+        .collect()
 }
 
 impl Player {
@@ -179,6 +222,7 @@ impl Player {
             plural_name: "Humanoids".to_string(),
             logo: 0,
             default_queue: stars_formats::DefaultQueue::default(),
+            battle_plans: default_battle_plans(0),
         }
     }
 }

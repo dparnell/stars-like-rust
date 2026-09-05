@@ -76,7 +76,7 @@ pub use battle::{
     battle_records, battle_records_in, battle_records_in_with, ActionLayout, BattleAction,
     BattleRecord, BattleToken, Kill, Square,
 };
-pub use battleplan::{battle_plan_records, BattlePlanRecord};
+pub use battleplan::{battle_plan_records, BattlePlanRecord, PLAN_DELETED};
 pub use block::{
     join_blocks, split_blocks, Block, BlockType, BLOCK_SIZE_MASK, BLOCK_TYPE_SHIFT,
     FILE_HEADER_BLOCK, MAX_BLOCK_SIZE, MAX_BLOCK_TYPE,
@@ -92,10 +92,10 @@ pub use header::{FileHeader, FileType};
 pub use history::{history_header, HistoryHeader};
 pub use names::{planet_name, planet_name_count};
 pub use orders::{
-    object_owner, order_log, CargoTransfer, FleetMerge, FleetName, FleetOrderDelete,
-    FleetOrderTask, FleetPlan, FleetRepeatOrders, FleetSplit, LogHeader, LogRecord, LogRecordType,
-    OrderLog, PlanetRoutingOrder, Relations, ResearchOrder, ShipDesignChange, ThingParam,
-    WaypointOrder, LOG_HEADER_BLOCK,
+    object_owner, order_log, BattlePlanChange, CargoTransfer, FleetMerge, FleetName,
+    FleetOrderDelete, FleetOrderTask, FleetPlan, FleetRepeatOrders, FleetSplit, LogHeader,
+    LogRecord, LogRecordType, OrderLog, PlanetRoutingOrder, Relations, ResearchOrder,
+    ShipDesignChange, ThingParam, WaypointOrder, LOG_HEADER_BLOCK,
 };
 pub use planet::{
     planet_records, planet_records_in, Concentration, Environment, Installations, Minerals,

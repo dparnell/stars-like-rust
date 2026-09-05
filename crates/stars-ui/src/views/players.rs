@@ -20,6 +20,91 @@ fn item_name(id: u8) -> &'static str {
         .map_or("something", |(_, name)| *name)
 }
 
+/// Draw the local player's battle plans, and let them be edited.
+///
+/// A plan's tactic and target fields are shown as the numbers the file holds:
+/// the original bounds them (tactic `0..=6`, targets `0..=8`, from the replay
+/// arm at `1048:c287`) but what each value means is not decoded — see
+/// `docs/formats/battleplan.md`. "Attack who" is decoded, so it is named.
+fn battle_plans(
+    app: &crate::App,
+    ui: &mut egui::Ui,
+    player: &stars_core::Player,
+    edit: &mut Option<(usize, stars_formats::BattlePlanRecord)>,
+    delete: &mut Option<usize>,
+) {
+    ui.add_space(4.0);
+    ui.label(egui::RichText::new("battle plans").strong());
+    for (slot, plan) in player.battle_plans.iter().enumerate() {
+        let mut edited = plan.clone();
+        let mut changed = false;
+        ui.horizontal(|ui| {
+            ui.label(format!("{slot}:"));
+            if ui
+                .add(egui::TextEdit::singleline(&mut edited.name).desired_width(120.0))
+                .lost_focus()
+                && ui.input(|i| i.key_pressed(egui::Key::Enter))
+            {
+                changed = true;
+            }
+            ui.label("tactic");
+            changed |= ui
+                .add(egui::DragValue::new(&mut edited.tactic).range(0..=6))
+                .changed();
+            ui.label("targets");
+            changed |= ui
+                .add(egui::DragValue::new(&mut edited.primary_target).range(0..=8))
+                .changed();
+            changed |= ui
+                .add(egui::DragValue::new(&mut edited.secondary_target).range(0..=8))
+                .changed();
+            egui::ComboBox::from_id_source(("attack_who", slot))
+                .selected_text(attack_who(edited.attack_who))
+                .show_ui(ui, |ui| {
+                    for value in 0..=3u8 {
+                        if ui
+                            .selectable_label(edited.attack_who == value, attack_who(value))
+                            .clicked()
+                        {
+                            edited.attack_who = value;
+                            changed = true;
+                        }
+                    }
+                });
+            // The original moves every fleet at or past a deleted plan down a
+            // slot, so deleting is not a free action.
+            if player.battle_plans.len() > 1 && ui.small_button("delete").clicked() {
+                *delete = Some(slot);
+            }
+        });
+        if changed {
+            *edit = Some((slot, edited));
+        }
+    }
+    // A new plan is a definition written one past the end, which is exactly
+    // what the game's dialog logs when the player adds one.
+    if player.battle_plans.len() < 16 && ui.button("add a plan").clicked() {
+        let mut plan = player
+            .battle_plans
+            .last()
+            .cloned()
+            .unwrap_or_else(|| stars_core::default_battle_plans(app.local_player())[0].clone());
+        plan.name = "New plan".to_string();
+        *edit = Some((player.battle_plans.len(), plan));
+    }
+}
+
+/// The name of an "attack who" selector value.
+fn attack_who(value: u8) -> String {
+    match value {
+        0 => "nobody".to_string(),
+        1 => "enemies".to_string(),
+        2 => "neutrals and enemies".to_string(),
+        3 => "everyone".to_string(),
+        race => format!("race {}", race - 4),
+    }
+}
+
 /// Draw the player screen.
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
     let Some(game) = app.game.as_ref() else {
@@ -28,6 +113,8 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     let mut research: Option<(usize, u8)> = None;
     let mut relations: Option<(usize, u8)> = None;
     let mut default_queue: Option<stars_formats::DefaultQueue> = None;
+    let mut plan_edit: Option<(usize, stars_formats::BattlePlanRecord)> = None;
+    let mut plan_delete: Option<usize> = None;
     let me = app.local_player();
 
     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -165,10 +252,19 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                         ui.end_row();
                     }
                 });
+            if index == me {
+                battle_plans(app, ui, player, &mut plan_edit, &mut plan_delete);
+            }
             ui.separator();
         }
     });
 
+    if let Some((slot, plan)) = plan_edit {
+        app.set_battle_plan_definition(slot, &plan);
+    }
+    if let Some(slot) = plan_delete {
+        app.delete_battle_plan(slot);
+    }
     if let Some((player, pct)) = research {
         app.set_research(player, pct);
     }

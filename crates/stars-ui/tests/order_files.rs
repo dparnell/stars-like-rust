@@ -577,6 +577,92 @@ fn fleet_settings_and_relations_are_ordered() {
     let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
 }
 
+/// A battle plan is retuned, one is added and one deleted: the edits reach the
+/// saved game's own type-30 blocks, the order log, and a host replaying it.
+#[test]
+fn battle_plans_are_edited_saved_and_replayed() {
+    let (mut app, host) = a_saved_game("plans");
+    let fleet = app
+        .game
+        .as_ref()
+        .expect("game")
+        .fleets
+        .iter()
+        .position(|f| f.owner == 0)
+        .expect("a fleet");
+    // A fleet on the last plan, so deleting an earlier one has to move it.
+    assert!(app.set_battle_plan(fleet, 4));
+
+    let mut retuned = app.game.as_ref().expect("game").players[0].battle_plans[2].clone();
+    retuned.name = "Bombers first".to_string();
+    retuned.primary_target = 8;
+    assert!(app.set_battle_plan_definition(2, &retuned));
+
+    let mut added = retuned.clone();
+    added.name = "Last stand".to_string();
+    assert!(app.set_battle_plan_definition(5, &added), "appends a sixth");
+    assert!(app.delete_battle_plan(1));
+
+    {
+        let game = app.game.as_ref().expect("game");
+        let plans = &game.players[0].battle_plans;
+        assert_eq!(plans.len(), 5);
+        assert_eq!(plans[1].name, "Bombers first");
+        assert_eq!(plans.last().expect("a plan").name, "Last stand");
+        // The fleet followed the deleted plan down a slot.
+        assert_eq!(game.fleets[fleet].battle_plan, 3);
+    }
+
+    app.save(&host).expect("saves");
+
+    // The saved game holds the edited plans, and the fleet's new index.
+    let mut fresh = App::new();
+    fresh.open(&host).expect("opens");
+    {
+        let game = fresh.game.as_ref().expect("game");
+        let plans = &game.players[0].battle_plans;
+        assert_eq!(plans.len(), 5, "one added, one deleted");
+        assert_eq!(plans[1].name, "Bombers first");
+        assert_eq!(plans[1].primary_target, 8);
+        assert_eq!(plans[4].name, "Last stand");
+        for (slot, plan) in plans.iter().enumerate() {
+            assert_eq!(usize::from(plan.plan_id), slot, "restamped with its slot");
+            assert_eq!(plan.race_id, 0);
+        }
+        assert_eq!(game.fleets[fleet].battle_plan, 3);
+    }
+
+    // And the log carries the three operations, which a host replays to the
+    // same five plans.
+    let bytes = std::fs::read(host.with_extension("x1")).expect("reads back");
+    let file = StarsFile::decode(&bytes).expect("decodes");
+    let log = order_log(&file);
+    assert_eq!(
+        log.records
+            .iter()
+            .filter(|r| r.record_type == LogRecordType::BattlePlan)
+            .count(),
+        3,
+        "two definitions and a delete"
+    );
+
+    let original = {
+        let bytes = std::fs::read(host.with_file_name("plans.hst")).expect("reads");
+        StarsFile::decode(&bytes).expect("decodes")
+    };
+    let (mut state, _) = stars_core::GameState::from_file(&original);
+    let mut cargo = stars_core::TurnOrders::default();
+    let report = stars_core::replay::replay(&mut state, 0, &log, &mut cargo);
+    assert_eq!(report.battle_plans, 3);
+    assert_eq!(report.rejected, 0);
+    let plans = &state.players[0].battle_plans;
+    assert_eq!(plans.len(), 5);
+    assert_eq!(plans[1].name, "Bombers first");
+    assert_eq!(plans[4].name, "Last stand");
+
+    let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
+}
+
 /// The default production queue: ordered, saved, replayed, and handed to a
 /// planet the player settles.
 #[test]
@@ -655,5 +741,31 @@ fn a_default_queue_is_ordered_and_applied() {
         vec![(item::FACTORY, 100), (item::MINE, 100)]
     );
 
+    let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
+}
+
+/// A run of edits to one plan is logged once, the way the game's dialog logs
+/// one record when it is dismissed rather than one per keystroke.
+#[test]
+fn repeated_edits_to_one_battle_plan_log_once() {
+    let (mut app, host) = a_saved_game("collapse");
+    let mut plan = app.game.as_ref().expect("game").players[0].battle_plans[0].clone();
+    for target in 0..=4u8 {
+        plan.primary_target = target;
+        assert!(app.set_battle_plan_definition(0, &plan));
+    }
+    // A different slot is its own record.
+    assert!(app.set_battle_plan_definition(1, &plan));
+
+    let plans = app
+        .orders
+        .iter()
+        .filter(|r| r.record_type == LogRecordType::BattlePlan)
+        .count();
+    assert_eq!(plans, 2, "one per plan touched, not one per edit");
+    assert_eq!(
+        app.game.as_ref().expect("game").players[0].battle_plans[0].primary_target,
+        4
+    );
     let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
 }

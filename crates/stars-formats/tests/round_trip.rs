@@ -18,9 +18,9 @@
 use std::path::{Path, PathBuf};
 
 use stars_formats::{
-    order_log, BattlePlanRecord, CargoTransfer, DefaultQueue, DesignRecord, FleetMerge,
-    FleetOrderDelete, FleetOrderTask, FleetPlan, FleetRecord, FleetRepeatOrders, FleetSplit,
-    LogHeader, LogRecordType, PlanetRecord, PlanetRoutingOrder, PlayerRecord,
+    order_log, BattlePlanChange, BattlePlanRecord, CargoTransfer, DefaultQueue, DesignRecord,
+    FleetMerge, FleetOrderDelete, FleetOrderTask, FleetPlan, FleetRecord, FleetRepeatOrders,
+    FleetSplit, LogHeader, LogRecordType, PlanetRecord, PlanetRoutingOrder, PlayerRecord,
     ProductionQueueRecord, Relations, ResearchOrder, ShipDesignChange, StarsFile, Thing,
     ThingParam, WaypointOrder, WaypointRecord, THING_SIZE,
 };
@@ -379,6 +379,16 @@ fn every_order_record_re_encodes() {
                         path.display()
                     );
                     note("default queue");
+                }
+                LogRecordType::BattlePlan => {
+                    let record = BattlePlanChange::decode(data).expect("battle plan");
+                    assert_eq!(
+                        record.encode().expect("encodes"),
+                        *data,
+                        "{}",
+                        path.display()
+                    );
+                    note("battle plan");
                 }
                 LogRecordType::FleetFlagBit => {
                     let record = FleetRepeatOrders::decode(data).expect("repeat orders");
