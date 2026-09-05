@@ -710,7 +710,7 @@ fn push_messages(state: &GameState, body: &mut Vec<Block>, player: usize) -> Res
 /// back does not delete them. See `docs/formats/thing.md` for the section's
 /// shape.
 fn push_things(state: &GameState, body: &mut Vec<Block>) -> Result<()> {
-    let total = state.minefields.len() + state.other_things.len();
+    let total = state.minefields.len() + state.packets.len() + state.other_things.len();
     let count = u16::try_from(total).unwrap_or(u16::MAX);
     body.push(block(43, count.to_le_bytes().to_vec())?);
     for field in &state.minefields {
@@ -734,10 +734,52 @@ fn push_things(state: &GameState, body: &mut Vec<Block>) -> Result<()> {
         };
         body.push(block(43, thing.encode().to_vec())?);
     }
+    for packet in &state.packets {
+        let carried = stars_formats::MineralPacket {
+            target_planet: packet.target,
+            warp: packet.warp,
+            moved: packet.moved,
+            include: packet.include,
+            minerals: packet.minerals,
+            // `wtMax` is the remaining mass over ten, rounded up, which
+            // `FPacketDecay` recomputes every time it takes a bite.
+            mass_max: u16::try_from((packet.mass() + 9) / 10).unwrap_or(0),
+            decay_rate: packet.decay_rate,
+        };
+        let thing = stars_formats::Thing {
+            id: packet.id & 0x01FF,
+            player: u8::try_from(packet.owner.max(0)).unwrap_or(0) & 0x0F,
+            ith: 1,
+            thing_type: stars_formats::ThingType::MineralPacket,
+            x: packet.position.x,
+            y: packet.position.y,
+            kind: stars_formats::ThingKind::MineralPacket(carried),
+            union: packet_union(&carried),
+            turn: packet.turn,
+        };
+        body.push(block(43, thing.encode().to_vec())?);
+    }
     for thing in &state.other_things {
         body.push(block(43, thing.encode().to_vec())?);
     }
     Ok(())
+}
+
+/// The ten union bytes of a mineral packet.
+fn packet_union(packet: &stars_formats::MineralPacket) -> [u8; 10] {
+    let mut out = [0u8; 10];
+    let w0 = (packet.target_planet & 0x03FF)
+        | (u16::from(packet.warp & 0x0F) << 10)
+        | (u16::from(packet.moved) << 14)
+        | (u16::from(packet.include) << 15);
+    out[0..2].copy_from_slice(&w0.to_le_bytes());
+    for (index, amount) in packet.minerals.iter().enumerate() {
+        let at = 2 + index * 2;
+        out[at..at + 2].copy_from_slice(&amount.to_le_bytes());
+    }
+    let w4 = (packet.mass_max & 0x3FFF) | (u16::from(packet.decay_rate & 0x03) << 14);
+    out[8..10].copy_from_slice(&w4.to_le_bytes());
+    out
 }
 
 /// The ten union bytes of a minefield, which is what `Thing::encode` writes.

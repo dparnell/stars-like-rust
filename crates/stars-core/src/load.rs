@@ -414,9 +414,30 @@ impl GameState {
         // packets, wormholes, the Mystery Trader — are not modelled, so they
         // are left where they are rather than half-loaded.
         for thing in stars_formats::thing_section(file).things {
+            match thing.kind {
+                stars_formats::ThingKind::MineralPacket(packet) => {
+                    state.packets.push(crate::packet::Packet {
+                        id: thing.id,
+                        owner: i16::from(thing.player),
+                        position: Point::new(thing.x, thing.y),
+                        target: packet.target_planet,
+                        warp: packet.warp,
+                        minerals: packet.minerals,
+                        decay_rate: packet.decay_rate,
+                        moved: packet.moved,
+                        include: packet.include,
+                        turn: thing.turn,
+                    });
+                    continue;
+                }
+                stars_formats::ThingKind::Minefield(_) => {}
+                _ => {
+                    // Not modelled, but not thrown away either.
+                    state.other_things.push(thing);
+                    continue;
+                }
+            }
             let stars_formats::ThingKind::Minefield(mine) = thing.kind else {
-                // Not modelled, but not thrown away either.
-                state.other_things.push(thing);
                 continue;
             };
             state.minefields.push(crate::minefield::Minefield {

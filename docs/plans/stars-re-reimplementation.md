@@ -1038,15 +1038,49 @@ disagree.
     original narrates — hundreds of ids — still passes silently, and the
     message filter (type 33) is carried but not obeyed.
 
-29. **What is still missing to call it playable.** Every waypoint task is now
+29. ~~**Mineral packets.**~~ **Flight and decay verified against real games;
+    arrival transcribed; launching not modelled.** They are the most common
+    object in the corpus by a wide margin — 95,798 of them, against 24,193
+    minefields — and `docs/formulas/packets.md` is the spec.
+
+    The stored `iWarp` is four bits and packets fly between warp 5 and 13, so
+    the field holds the warp **less four**; a packet covers the square of its
+    real warp in a year. `MoveThings` runs twice and moves different packets
+    each time: before production every packet flies a full year, and after it
+    only the ones thrown this year, at half.
+
+    Decay is the game's setting — 10%, 25% or 50% a year, halved for Packet
+    Physics — with a floor of ten kilotons of each mineral, five for Packet
+    Physics.
+
+    The verification is the part worth reporting. **53,971** packets survive a
+    load and a save unchanged, and because the turn directories hold
+    consecutive years of one game, 5,716 packets could be **followed from one
+    year into the next**: 5,696 flew exactly the modelled distance, and 5,695
+    decayed by exactly the modelled amount. The decay figure is split — 4,343
+    at the plain rate and 1,352 at the halved one — because a player file
+    carries only its own player's race, so for somebody else's packet there is
+    no way to know whether its owner is Packet Physics. Both readings are
+    checked and one always fits. The twenty-odd that fit neither are packets
+    whose object id was recycled between the two years, which no matching by id
+    can tell apart.
+
+    Left undone and stated in the spec: launching a packet from a production
+    queue, the receiving planet's mass driver (so an arriving packet is treated
+    as uncaught — the planet keeps its ninth), applying the arrival damage to
+    colonists and defences, and the Packet Physics terraforming on impact.
+
+30. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
     - **More messages.** Six ids are sent; the original has hundreds, and the
       message filter (type 33) is carried but not obeyed.
-    - **Mineral packets**, which are the most common object in the fixtures by
-      far (95,798 of them), and **wormholes** and the **Mystery Trader**, which
-      are now carried through a save verbatim but not simulated.
+    - **Packets, the rest of the way**: launching them from a production
+      queue, catching them with a planet's own mass driver, and the damage and
+      terraforming when one lands.
+    - **Wormholes** and the **Mystery Trader**, carried through a save verbatim
+      but not simulated.
     - Inside combat: the minefield damage step's interval merging, engine-count
       scaling and shield absorption.
     - A loaded state file still cannot carry structural fleet changes back —

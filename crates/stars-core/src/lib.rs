@@ -64,6 +64,7 @@ pub mod movement;
 pub mod newgame;
 pub mod opponents;
 pub mod orders;
+pub mod packet;
 pub mod patrol;
 pub mod planet;
 pub mod population;
@@ -287,8 +288,10 @@ pub struct GameState {
     /// Every minefield in play. They are `THING`s in the file, and the only
     /// kind of `THING` this engine models — see [`crate::minefield`].
     pub minefields: Vec<crate::minefield::Minefield>,
-    /// The other space objects — mineral packets, wormholes, the Mystery
-    /// Trader — exactly as the file held them.
+    /// Every mineral packet in flight. See [`crate::packet`].
+    pub packets: Vec<crate::packet::Packet>,
+    /// The other space objects — wormholes and the Mystery Trader — exactly as
+    /// the file held them.
     ///
     /// Nothing here simulates them, and that is the point: they are carried
     /// verbatim so that writing a game back does not quietly delete them.
@@ -350,6 +353,7 @@ impl GameState {
             victory: [0; stars_formats::victory::COUNT],
             messages: Vec::new(),
             minefields: Vec::new(),
+            packets: Vec::new(),
             other_things: Vec::new(),
         }
     }

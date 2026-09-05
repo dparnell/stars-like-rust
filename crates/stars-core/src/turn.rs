@@ -96,6 +96,8 @@ pub struct TurnReport {
     pub mines_decayed: Vec<(u16, i16, i32)>,
     /// Mines swept, as `(field id, owner, mines)`.
     pub mines_swept: Vec<(u16, i16, i32)>,
+    /// Packets that landed, as `(target planet, minerals delivered, damage)`.
+    pub packets_landed: Vec<(i16, [i32; 3], i32)>,
     /// Interceptions a patrol ordered, as `(patrolling fleet, target fleet)`.
     pub patrols: Vec<(u16, u16)>,
     /// The scoreboard, one entry per player, after the year's events.
@@ -164,6 +166,10 @@ pub fn generate_turn_with_orders(
         // planet are weighed against each other rather than one at a time.
         report.colonised = crate::orders::resolve_colonist_drops(state, &drops);
     }
+
+    // --- MoveThings(0): the packets already in flight cross a full year
+    // before anything else happens.
+    report.packets_landed = move_packets(state, false);
 
     // --- MoveFleets, which happens before Produce.
     for index in 0..state.fleets.len() {
@@ -349,6 +355,10 @@ pub fn generate_turn_with_orders(
         };
         report.remote_mined.push(mined);
     }
+
+    // --- MoveThings(1): a packet thrown this year covers half a year, and
+    // decays for it.
+    report.packets_landed.extend(move_packets(state, true));
 
     // --- SweepForMines, which the original runs late, after the second pass
     // of orders: everything armed with beams clears what it is sitting in.
@@ -916,7 +926,118 @@ enum Sweeper {
     Planet(i16),
 }
 
-/// The lowest fleet number a player is not already using.
+/// Move every packet, land the ones that arrive, and decay the rest.
+///
+/// `MoveThings` (`10b0:18f4`) runs twice a year. The first pass, before
+/// production, moves every packet a full year's distance — the square of its
+/// warp — and marks it moved. The second, after production, moves only the
+/// packets that have *not* moved, which are the ones thrown this year, and
+/// gives them **half** a year: launched mid-year, they arrive that much later.
+/// A packet that moves without arriving decays for the part of a year it flew.
+///
+/// Returns what landed, as `(planet, minerals delivered, damage done)`.
+fn move_packets(state: &mut GameState, after_production: bool) -> Vec<(i16, [i32; 3], i32)> {
+    let mut landed = Vec::new();
+    let mut arrived: Vec<usize> = Vec::new();
+
+    for index in 0..state.packets.len() {
+        let packet = &state.packets[index];
+        if packet.warp == 0 || (after_production && packet.moved) {
+            continue;
+        }
+        if packet.mass() == 0 {
+            arrived.push(index);
+            continue;
+        }
+        let Ok(target_id) = i16::try_from(packet.target) else {
+            continue;
+        };
+        let Some(target) = state
+            .planets
+            .iter()
+            .chain(state.known_planets.iter())
+            .find(|p| p.id == target_id)
+            .and_then(|p| p.position)
+        else {
+            continue;
+        };
+
+        let range = if after_production {
+            packet.range() / 2
+        } else {
+            packet.range()
+        };
+        let physics = usize::try_from(packet.owner)
+            .ok()
+            .and_then(|i| state.players.get(i))
+            .is_some_and(|p| p.race.prt() == Some(crate::race::Prt::Pp));
+
+        let distance = crate::movement::distance(state.packets[index].position, target);
+        let packet = &mut state.packets[index];
+        packet.moved = true;
+        if crate::packet::advance(packet, target, range) {
+            // It got there. What is left of it decays for the fraction of the
+            // move it actually used before it lands.
+            #[allow(clippy::cast_possible_truncation)]
+            let part = if range > 0 {
+                ((distance * 100.0 / f64::from(range)) as i32).clamp(0, 100)
+            } else {
+                0
+            };
+            let part = if after_production { part / 2 } else { part };
+            if crate::packet::decay(packet, physics, part) {
+                arrived.push(index);
+                continue;
+            }
+            if let Some(result) = land_packet(state, index) {
+                landed.push(result);
+            }
+            arrived.push(index);
+        } else {
+            let part = if after_production { 50 } else { 100 };
+            if crate::packet::decay(packet, physics, part) {
+                arrived.push(index);
+            }
+        }
+    }
+
+    arrived.sort_unstable();
+    arrived.dedup();
+    for index in arrived.into_iter().rev() {
+        state.packets.remove(index);
+    }
+    landed
+}
+
+/// Land a packet on its target planet.
+///
+/// `10b0:1f03`. The receiving planet catches what its own mass driver can — the
+/// ratio of the squared warps, halved for an **Inner Tech** receiver — keeps
+/// that plus a ninth of the rest, and takes damage for whatever came in too
+/// fast. This engine does not model mass drivers on a planet yet, so nothing is
+/// caught; a packet's whole mass counts as uncaught, which is the worst case
+/// for the receiver and the case the fixtures' unowned targets are in anyway.
+fn land_packet(state: &mut GameState, index: usize) -> Option<(i16, [i32; 3], i32)> {
+    let packet = state.packets[index].clone();
+    let target = i16::try_from(packet.target).ok()?;
+    let planet = state.planets.iter_mut().find(|p| p.id == target)?;
+
+    let driver_warp = 0;
+    let inner_tech = false;
+    let caught = crate::packet::caught_per_mille(packet.speed(), driver_warp, inner_tech);
+    let kept = crate::packet::kept_per_mille(caught);
+
+    let mut delivered = [0i32; 3];
+    for (kind, amount) in packet.minerals.iter().enumerate() {
+        let share = i32::from(*amount) * kept / 1000;
+        delivered[kind] = share;
+        planet.surface_min[kind] += share;
+    }
+    let damage = crate::packet::damage(packet.speed(), driver_warp, inner_tech, packet.mass());
+    Some((target, delivered, damage))
+}
+
+/// The lowest fleet number a player is not already using./// The lowest fleet number a player is not already using.
 ///
 /// Fleet numbers are per player and are reused once a fleet is gone, which is
 /// why this looks for the first gap rather than counting.
