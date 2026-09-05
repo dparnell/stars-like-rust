@@ -576,3 +576,84 @@ fn fleet_settings_and_relations_are_ordered() {
 
     let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
 }
+
+/// The default production queue: ordered, saved, replayed, and handed to a
+/// planet the player settles.
+#[test]
+fn a_default_queue_is_ordered_and_applied() {
+    use stars_core::production::item;
+    use stars_formats::{DefaultQueue, DefaultQueueItem};
+
+    let (mut app, host) = a_saved_game("colonies");
+    let queue = DefaultQueue {
+        no_research: true,
+        items: vec![
+            DefaultQueueItem {
+                item: item::FACTORY as u8,
+                count: 100,
+            },
+            DefaultQueueItem {
+                item: item::MINE as u8,
+                count: 100,
+            },
+        ],
+    };
+    assert!(app.set_default_queue(queue.clone()));
+    // A second change replaces the record rather than adding one.
+    assert!(app.set_default_queue(queue.clone()));
+
+    app.save(&host).expect("saves");
+
+    // It is in the order log, once.
+    let bytes = std::fs::read(host.with_extension("x1")).expect("reads back");
+    let file = StarsFile::decode(&bytes).expect("decodes");
+    let log = order_log(&file);
+    assert_eq!(
+        log.records
+            .iter()
+            .filter(|r| r.record_type == LogRecordType::PlayerZpq1)
+            .count(),
+        1,
+        "the record was replaced, not repeated"
+    );
+
+    // And in the saved game.
+    let mut fresh = App::new();
+    fresh.open(&host).expect("opens");
+    assert_eq!(
+        fresh.game.as_ref().expect("game").players[0].default_queue,
+        queue,
+        "the queue survived the save"
+    );
+
+    // A host replaying the log reaches the same place, and a planet the player
+    // settles starts on it.
+    let original = {
+        let bytes = std::fs::read(host.with_file_name("colonies.hst")).expect("reads");
+        StarsFile::decode(&bytes).expect("decodes")
+    };
+    let (mut state, _) = stars_core::GameState::from_file(&original);
+    let mut cargo = stars_core::TurnOrders::default();
+    let report = stars_core::replay::replay(&mut state, 0, &log, &mut cargo);
+    assert_eq!(report.default_queues, 1);
+
+    let planet = state
+        .planets
+        .iter()
+        .position(|p| p.owner.is_none())
+        .or_else(|| state.known_planets.iter().position(|_| true).map(|_| 0))
+        .expect("a planet");
+    state.planets[planet].owner = Some(0);
+    stars_core::orders::apply_default_queue(&mut state, planet);
+    assert!(state.planets[planet].no_research);
+    assert_eq!(
+        state.planets[planet]
+            .queue
+            .iter()
+            .map(|q| (q.item, q.count))
+            .collect::<Vec<_>>(),
+        vec![(item::FACTORY, 100), (item::MINE, 100)]
+    );
+
+    let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
+}

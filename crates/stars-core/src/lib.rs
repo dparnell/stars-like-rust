@@ -142,6 +142,12 @@ pub struct Player {
     /// drawn with. Cosmetic, and stored in the player block, so it travels
     /// with the player.
     pub logo: u8,
+    /// The production queue a planet this player takes starts with
+    /// (`PLAYER.zpq1`), and whether it starts exempt from the research skim.
+    ///
+    /// Applied by [`crate::orders::apply_default_queue`] whenever a planet
+    /// changes hands, which is where the original applies it.
+    pub default_queue: stars_formats::DefaultQueue,
 }
 
 impl Player {
@@ -172,6 +178,7 @@ impl Player {
             name: "Humanoid".to_string(),
             plural_name: "Humanoids".to_string(),
             logo: 0,
+            default_queue: stars_formats::DefaultQueue::default(),
         }
     }
 }

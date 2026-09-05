@@ -3,6 +3,23 @@
 use crate::views::player_colour;
 use crate::App;
 
+/// The planetary items a default production queue can hold.
+const ITEMS: [(u8, &str); 5] = [
+    (0, "mines"),
+    (1, "factories"),
+    (2, "defences"),
+    (3, "alchemy"),
+    (5, "terraforming"),
+];
+
+/// The name of one planetary item.
+fn item_name(id: u8) -> &'static str {
+    ITEMS
+        .iter()
+        .find(|(item, _)| *item == id)
+        .map_or("something", |(_, name)| *name)
+}
+
 /// Draw the player screen.
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
     let Some(game) = app.game.as_ref() else {
@@ -10,6 +27,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     };
     let mut research: Option<(usize, u8)> = None;
     let mut relations: Option<(usize, u8)> = None;
+    let mut default_queue: Option<stars_formats::DefaultQueue> = None;
     let me = app.local_player();
 
     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -60,6 +78,53 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                     ui.end_row();
 
                     if index == me {
+                        // The queue a planet this player settles starts with.
+                        ui.label("new colonies build");
+                        ui.vertical(|ui| {
+                            let queue = &player.default_queue;
+                            if queue.items.is_empty() {
+                                ui.label(egui::RichText::new("nothing — they start empty").weak());
+                            } else {
+                                for entry in &queue.items {
+                                    ui.label(format!(
+                                        "{} x {}",
+                                        entry.count,
+                                        item_name(entry.item)
+                                    ));
+                                }
+                            }
+                            ui.horizontal(|ui| {
+                                for (id, name) in ITEMS {
+                                    if ui.small_button(format!("+100 {name}")).clicked() {
+                                        let mut next = queue.clone();
+                                        next.items.push(stars_formats::DefaultQueueItem {
+                                            item: id,
+                                            count: 100,
+                                        });
+                                        next.items.truncate(stars_formats::DEFAULT_QUEUE_MAX);
+                                        default_queue = Some(next);
+                                    }
+                                }
+                                if !queue.items.is_empty() && ui.small_button("clear").clicked() {
+                                    default_queue = Some(stars_formats::DefaultQueue {
+                                        no_research: queue.no_research,
+                                        items: Vec::new(),
+                                    });
+                                }
+                            });
+                            let mut exempt = queue.no_research;
+                            if ui
+                                .checkbox(&mut exempt, "and take no research from them")
+                                .changed()
+                            {
+                                default_queue = Some(stars_formats::DefaultQueue {
+                                    no_research: exempt,
+                                    items: queue.items.clone(),
+                                });
+                            }
+                        });
+                        ui.end_row();
+
                         // The player whose orders this session records is the
                         // only one whose relations it may change, because the
                         // order carries that player's own table.
@@ -109,5 +174,8 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     }
     if let Some((other, value)) = relations {
         app.set_relations(other, value);
+    }
+    if let Some(queue) = default_queue {
+        app.set_default_queue(queue);
     }
 }

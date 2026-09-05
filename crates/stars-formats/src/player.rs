@@ -113,6 +113,12 @@ pub struct PlayerRecord {
     /// Research state, present only when [`full_data`](Self::full_data) is set
     /// (it is all zero in a race-only `.rN` block).
     pub research: Option<ResearchState>,
+    /// The production queue a planet this player settles starts with
+    /// (`PLAYER.zpq1`), present only when
+    /// [`full_data`](Self::full_data) is set.
+    ///
+    /// It occupies the last 26 bytes of the fixed region, offsets 86 to 111.
+    pub default_queue: Option<crate::production::DefaultQueue>,
     /// The fixed region of the block exactly as read: the whole 112-byte
     /// player/race struct for a full record, or the 8-byte header for a short
     /// one.
@@ -193,6 +199,12 @@ impl PlayerRecord {
             race = Some(RaceRecord::from_payload(data)?);
             research = decode_research(data);
         }
+        let default_queue = full_data
+            .then(|| {
+                data.get(crate::production::DEFAULT_QUEUE_OFFSET..)
+                    .and_then(crate::production::DefaultQueue::decode)
+            })
+            .flatten();
 
         // Names: reuse the race decoder's result when available (it already
         // handles the fullData player-relations framing); otherwise fall back
@@ -227,6 +239,7 @@ impl PlayerRecord {
             singular_name,
             plural_name,
             research,
+            default_queue,
             fixed,
             trailing,
         })
@@ -267,6 +280,13 @@ impl PlayerRecord {
             }
             if let Some(research) = &self.research {
                 write_research(research, &mut out);
+            }
+            if let Some(queue) = &self.default_queue {
+                let at = crate::production::DEFAULT_QUEUE_OFFSET;
+                let end = at + crate::production::DEFAULT_QUEUE_LEN;
+                if out.len() >= end {
+                    out[at..end].copy_from_slice(&queue.encode_fixed());
+                }
             }
             out.push(u8::try_from(self.player_relations.len()).unwrap_or(u8::MAX));
             out.extend_from_slice(&self.player_relations);

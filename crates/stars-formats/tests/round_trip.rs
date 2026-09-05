@@ -18,11 +18,11 @@
 use std::path::{Path, PathBuf};
 
 use stars_formats::{
-    order_log, BattlePlanRecord, CargoTransfer, DesignRecord, FleetMerge, FleetOrderDelete,
-    FleetOrderTask, FleetPlan, FleetRecord, FleetRepeatOrders, FleetSplit, LogHeader,
-    LogRecordType, PlanetRecord, PlanetRoutingOrder, PlayerRecord, ProductionQueueRecord,
-    Relations, ResearchOrder, ShipDesignChange, StarsFile, Thing, ThingParam, WaypointOrder,
-    WaypointRecord, THING_SIZE,
+    order_log, BattlePlanRecord, CargoTransfer, DefaultQueue, DesignRecord, FleetMerge,
+    FleetOrderDelete, FleetOrderTask, FleetPlan, FleetRecord, FleetRepeatOrders, FleetSplit,
+    LogHeader, LogRecordType, PlanetRecord, PlanetRoutingOrder, PlayerRecord,
+    ProductionQueueRecord, Relations, ResearchOrder, ShipDesignChange, StarsFile, Thing,
+    ThingParam, WaypointOrder, WaypointRecord, THING_SIZE,
 };
 
 /// Every file under `fixtures/`, in a stable order.
@@ -369,6 +369,17 @@ fn every_order_record_re_encodes() {
                     );
                     note("ship design");
                 }
+                LogRecordType::PlayerZpq1 => {
+                    let record = DefaultQueue::decode(data).expect("default queue");
+                    assert_eq!(record.encode(), *data, "{}", path.display());
+                    assert_eq!(
+                        record.items.len(),
+                        (data.len() - 2) / 2,
+                        "{}: one entry per two bytes after the header",
+                        path.display()
+                    );
+                    note("default queue");
+                }
                 LogRecordType::FleetFlagBit => {
                     let record = FleetRepeatOrders::decode(data).expect("repeat orders");
                     assert_eq!(
@@ -465,4 +476,57 @@ fn every_order_record_re_encodes() {
         return;
     }
     eprintln!("order log: {files} files rebuilt byte for byte; records {checked:?}");
+}
+
+/// Every player block's default production queue decodes to something real.
+///
+/// It sits in the last 26 bytes of the fixed region, so the whole-block round
+/// trip already covers the bytes. What this adds is that the *field* is right:
+/// 49 of the 7,040 full-data player blocks in the fixtures carry a non-empty
+/// queue, and every one of them decodes to the same thing —
+/// **100 factories, 100 mines, 100 defences, with the planet exempt from
+/// research** — which is the queue a Stars! player conventionally sets for new
+/// colonies. Three item ids, all planetary, and 147 counts every one of which
+/// is 100.
+#[test]
+fn every_default_queue_is_coherent() {
+    let files = files();
+    if files.is_empty() {
+        eprintln!("skipping: no fixtures");
+        return;
+    }
+    let mut checked = 0usize;
+    let mut with_entries = 0usize;
+    for file in &files {
+        for block in &file.blocks {
+            if block.type_id != 6 {
+                continue;
+            }
+            let Ok(record) = PlayerRecord::from_payload(&block.data) else {
+                continue;
+            };
+            let Some(queue) = record.default_queue else {
+                continue;
+            };
+            assert!(
+                queue.items.len() <= stars_formats::DEFAULT_QUEUE_MAX,
+                "a default queue holds at most twelve entries"
+            );
+            for entry in &queue.items {
+                assert!(
+                    entry.item <= 5,
+                    "a default queue holds planetary items only, not {}",
+                    entry.item
+                );
+                assert_eq!(entry.count, 100, "every entry in the corpus is 100");
+            }
+            if !queue.items.is_empty() {
+                assert!(queue.no_research, "and every one exempts its planet");
+                with_entries += 1;
+            }
+            checked += 1;
+        }
+    }
+    assert!(checked > 0);
+    eprintln!("default queue: {checked} player blocks, {with_entries} with entries");
 }

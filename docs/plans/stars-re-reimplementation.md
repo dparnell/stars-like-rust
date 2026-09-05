@@ -718,10 +718,26 @@ disagree.
     fields by decoding the block, overwriting them and re-encoding — so nothing
     unmodelled in it is lost.
 
-    The one operation still unreplayed is `rtLogPlayerZpq1` (46), the player's
-    saved production-queue templates, which the host only stores.
+17. ~~**The default production queue.**~~ **Done**, which leaves **no operation
+    in the order format undecoded**. `rtLogPlayerZpq1` (46) carries
+    `PLAYER.zpq1`, and the same structure turns out to occupy the last 26 bytes
+    of every player block — offsets 86 to 111, most of the region the writer had
+    been preserving without knowing what it was.
 
-17. **What is still missing to call it playable.** The waypoint tasks beyond
+    It is the queue a planet starts with when it becomes that player's. 49 of
+    the 7,040 full-data player blocks in the fixtures carry a non-empty one, and
+    every single one decodes to the same thing — 100 factories, 100 mines, 100
+    defences, no research — which is the queue a Stars! player conventionally
+    sets for new colonies. That is a corpus verification, not just a reading of
+    the binary.
+
+    `turn2.c` applies it wherever a planet changes hands, with two racial
+    filters that are the ones `ground::template_allows` already knows: an
+    Alternate Reality race queues no planetary installation, a Claim Adjuster no
+    terraforming. `orders::apply_default_queue` does the same, and the player
+    screen edits the queue.
+
+18. **What is still missing to call it playable.** The waypoint tasks beyond
     colonise, transport and remote mining (scrap, lay minefield, patrol, route,
     transfer) can be set but are not simulated; a loaded state file cannot carry
     structural fleet changes back (the game does not either — the order log

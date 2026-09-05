@@ -88,6 +88,14 @@ A cargo transfer may legitimately touch someone else's planet — that is how
 colonists are landed — so only its fleet end is checked. Anything else is
 counted as rejected and dropped. See `../formats/orders-x.md`.
 
+## When a planet changes hands
+
+A planet that becomes a player's — settled or taken — does not start with an
+empty production queue. The player keeps a **default queue** (`PLAYER.zpq1`),
+and the game hands it to the planet along with its "no research" flag, dropping
+the entries the race cannot build: an Alternate Reality race queues no planetary
+installation, a Claim Adjuster no terraforming. See `../formats/player.md`.
+
 ## What `generate_turn` currently performs
 
 `crates/stars-core/src/turn.rs` runs the recorded **cargo transfers**

@@ -170,6 +170,8 @@ pub struct App {
     pub orders: Vec<stars_formats::LogRecord>,
     /// Whether the research setting was changed this turn.
     research_edited: bool,
+    /// Whether anything in the local player's own block was changed.
+    player_edited: bool,
 }
 
 /// A generated turn, reduced to what a player wants to be told.
@@ -276,6 +278,7 @@ impl App {
         self.edited.clear();
         self.renamed.clear();
         self.fleet_edits.clear();
+        self.player_edited = false;
         self.orders.clear();
         self.error = None;
         Ok(())
@@ -354,6 +357,15 @@ impl App {
                 }
                 continue;
             }
+            if block.type_id == 6 && self.player_edited {
+                if let Some(patched) = self.patched_player(game, &block.data) {
+                    blocks.push(
+                        Block::new(6, patched)
+                            .map_err(|e| format!("cannot write a player: {e}"))?,
+                    );
+                    continue;
+                }
+            }
             if matches!(block.type_id, 16..=18) {
                 pending_name = self.fleet_name_block(game, &block.data, block.type_id);
                 if let Some(patched) = self.patched_fleet(game, &block.data, block.type_id) {
@@ -425,6 +437,27 @@ impl App {
         out.blocks = blocks;
         out.encode()
             .map_err(|e| format!("cannot write the file: {e}"))
+    }
+
+    /// The local player's block with the settings they can change written back
+    /// into it, or `None` for anyone else's block.
+    ///
+    /// Decoded and re-encoded rather than rebuilt, so the whole fixed region —
+    /// the home planet, the salt, the four bytes nothing has identified —
+    /// survives untouched.
+    fn patched_player(&self, game: &GameState, data: &[u8]) -> Option<Vec<u8>> {
+        let mut record = stars_formats::PlayerRecord::from_payload(data).ok()?;
+        let index = usize::from(record.player_number);
+        if index != self.local_player() {
+            return None;
+        }
+        let player = game.players.get(index)?;
+        record.default_queue = Some(player.default_queue.clone());
+        if let Some(research) = record.research.as_mut() {
+            research.budget_pct = player.research_pct;
+        }
+        record.player_relations = player.relations.clone();
+        record.encode().ok()
     }
 
     /// A fleet block with the two settings the player can change written back
@@ -508,6 +541,7 @@ impl App {
         self.edited.clear();
         self.renamed.clear();
         self.fleet_edits.clear();
+        self.player_edited = false;
         self.orders.clear();
         self.error = None;
         self.last_turn = None;
@@ -831,6 +865,7 @@ impl App {
         // The log covers one turn; the year has moved on.
         self.orders.clear();
         self.research_edited = false;
+        self.player_edited = false;
         self.last_turn = Some(TurnSummary {
             year: report.year,
             mined: report.mined.len(),
@@ -958,6 +993,7 @@ impl App {
         if let Some(p) = self.game.as_mut().and_then(|g| g.players.get_mut(player)) {
             p.research_pct = percent.min(100);
             self.research_edited = true;
+            self.player_edited = true;
             self.dirty = true;
         }
     }
@@ -1258,6 +1294,7 @@ impl App {
         player.relations.resize(players, 0);
         player.relations[toward] = value;
         let table = player.relations.clone();
+        self.player_edited = true;
 
         if self
             .orders
@@ -1276,6 +1313,34 @@ impl App {
     fn fleet_key(&self, fleet: usize) -> Option<(i16, u16)> {
         let record = self.game.as_ref()?.fleets.get(fleet)?;
         Some((record.owner, record.id))
+    }
+
+    /// Set the production queue the local player's new colonies start with.
+    ///
+    /// The order carries the whole queue, so a second change replaces the
+    /// record rather than adding one — the client's own writer likewise skips
+    /// it when the previous record is already one of these.
+    pub fn set_default_queue(&mut self, queue: stars_formats::DefaultQueue) -> bool {
+        use stars_formats::{LogRecord, LogRecordType};
+
+        let me = self.local_player();
+        let Some(player) = self.game.as_mut().and_then(|g| g.players.get_mut(me)) else {
+            return false;
+        };
+        player.default_queue = queue.clone();
+
+        if self
+            .orders
+            .last()
+            .is_some_and(|r| r.record_type == LogRecordType::PlayerZpq1)
+        {
+            self.orders.pop();
+        }
+        self.orders
+            .push(LogRecord::raw(LogRecordType::PlayerZpq1, queue.encode()));
+        self.player_edited = true;
+        self.dirty = true;
+        true
     }
 
     /// The object id word a log uses for one of the loaded game's fleets.

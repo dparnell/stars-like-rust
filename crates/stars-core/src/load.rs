@@ -322,6 +322,9 @@ impl GameState {
                     player.name.clone_from(&record.singular_name);
                     player.plural_name.clone_from(&record.plural_name);
                     player.logo = record.logo;
+                    if let Some(queue) = record.default_queue.clone() {
+                        player.default_queue = queue;
+                    }
                     player.control = crate::ai::Control::from_flags(record.flags_byte);
                     player.relations.clone_from(&record.player_relations);
                     player.research_pct = race.research_percentage;

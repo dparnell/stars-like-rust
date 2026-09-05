@@ -99,6 +99,109 @@ pub struct ProductionQueueRecord {
     pub items: Vec<QueueItem>,
 }
 
+/// The production queue a newly settled planet starts with (`ZIPPRODQ1`).
+///
+/// A player keeps a **default queue**: when a planet becomes theirs — settled
+/// or taken — the game gives it these items rather than an empty queue, and
+/// sets the planet's "no research" flag from the same record. It lives at
+/// offset [`DEFAULT_QUEUE_OFFSET`] of the player block and is also what the
+/// `.xN` order operation `rtLogPlayerZpq1` (type 46) carries.
+///
+/// ```c
+/// typedef struct _zipprodq1 {
+///     uint8_t fNoResearch;   /* +0x00 */
+///     uint8_t cpq;           /* +0x01 how many entries follow */
+///     PRODQ1  rgpq[12];      /* +0x02 */
+/// } ZIPPRODQ1;               /* size 26 */
+///
+/// typedef struct _prodq1 { uint16_t mdIdle : 6, cQuan : 10; } PRODQ1;
+/// ```
+///
+/// Note the entry packing is **not** the four-byte `PROD` of a planet's own
+/// queue: it is two bytes, six bits of item and ten of quantity, and it can
+/// only hold planetary items.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DefaultQueue {
+    /// Whether a planet that starts with this queue is exempt from the
+    /// research skim (`fNoResearch`).
+    pub no_research: bool,
+    /// The entries, in build order.
+    pub items: Vec<DefaultQueueItem>,
+}
+
+/// One entry of a [`DefaultQueue`] (`PRODQ1`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DefaultQueueItem {
+    /// The planetary item to build (`mdIdle`, six bits).
+    pub item: u8,
+    /// How many (`cQuan`, ten bits).
+    pub count: u16,
+}
+
+/// Offset of the default queue within a player block (`PLAYER.zpq1`).
+pub const DEFAULT_QUEUE_OFFSET: usize = 0x56;
+
+/// Size of the default queue as the player block stores it
+/// (`sizeof(ZIPPRODQ1)`).
+pub const DEFAULT_QUEUE_LEN: usize = 26;
+
+/// How many entries it holds.
+pub const DEFAULT_QUEUE_MAX: usize = 12;
+
+impl DefaultQueue {
+    /// Decode a `ZIPPRODQ1`, from a player block or an order record.
+    ///
+    /// The declared entry count is clamped to what the record and the array
+    /// can hold, so a short or overstated record decodes to what is there
+    /// rather than failing.
+    #[must_use]
+    pub fn decode(data: &[u8]) -> Option<Self> {
+        if data.len() < 2 {
+            return None;
+        }
+        let declared = usize::from(data[1]).min(DEFAULT_QUEUE_MAX);
+        let available = (data.len() - 2) / 2;
+        Some(Self {
+            no_research: data[0] & 1 != 0,
+            items: (0..declared.min(available))
+                .map(|i| {
+                    let word = u16::from_le_bytes([data[2 + i * 2], data[3 + i * 2]]);
+                    DefaultQueueItem {
+                        item: (word & 0x3F) as u8,
+                        count: word >> 6,
+                    }
+                })
+                .collect(),
+        })
+    }
+
+    /// Encode just the header and the entries, which is what the `.xN` order
+    /// record carries: `2 * cpq + 2` bytes.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let items = &self.items[..self.items.len().min(DEFAULT_QUEUE_MAX)];
+        let mut out = Vec::with_capacity(2 + items.len() * 2);
+        out.push(u8::from(self.no_research));
+        #[allow(clippy::cast_possible_truncation)]
+        out.push(items.len() as u8);
+        for entry in items {
+            let word = u16::from(entry.item & 0x3F) | ((entry.count & 0x03FF) << 6);
+            out.extend_from_slice(&word.to_le_bytes());
+        }
+        out
+    }
+
+    /// Encode the full fixed-size form the player block holds, zero-padded.
+    #[must_use]
+    pub fn encode_fixed(&self) -> [u8; DEFAULT_QUEUE_LEN] {
+        let mut out = [0u8; DEFAULT_QUEUE_LEN];
+        let packed = self.encode();
+        let n = packed.len().min(DEFAULT_QUEUE_LEN);
+        out[..n].copy_from_slice(&packed[..n]);
+        out
+    }
+}
+
 fn read16(d: &[u8], o: usize) -> Option<u16> {
     Some(u16::from_le_bytes([*d.get(o)?, *d.get(o + 1)?]))
 }

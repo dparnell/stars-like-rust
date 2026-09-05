@@ -65,6 +65,8 @@ pub struct ReplayReport {
     pub fleet_settings: usize,
     /// Player-relations tables replaced.
     pub relations: usize,
+    /// Default production queues replaced.
+    pub default_queues: usize,
     /// Operations dropped because they named something the player does not own,
     /// or an object this state does not hold.
     pub rejected: usize,
@@ -87,6 +89,7 @@ impl ReplayReport {
             + self.renames
             + self.fleet_settings
             + self.relations
+            + self.default_queues
     }
 }
 
@@ -310,6 +313,22 @@ fn apply(
                 Some(record) => {
                     record.relations = order.toward;
                     report.relations += 1;
+                }
+                None => report.rejected += 1,
+            }
+        }
+        // The default production queue a player's new colonies start with.
+        // The original applies this one only when generating a turn, which is
+        // exactly the context a replay runs in.
+        LogRecordType::PlayerZpq1 => {
+            let Some(queue) = stars_formats::DefaultQueue::decode(&record.data) else {
+                report.rejected += 1;
+                return;
+            };
+            match state.players.get_mut(player) {
+                Some(record) => {
+                    record.default_queue = queue;
+                    report.default_queues += 1;
                 }
                 None => report.rejected += 1,
             }
@@ -969,23 +988,140 @@ mod tests {
 
     /// An operation this replay does not implement is named, not silently
     /// dropped.
+    ///
+    /// Every operation the format **names** is replayed now, so the only thing
+    /// left to be unsupported is a record type the format does not define.
     #[test]
     fn an_unsupported_operation_is_reported() {
         let mut state = a_game();
         let mut orders = TurnOrders::default();
         let mut log = OrderLog::new(0, [0; 11]);
-        // The zipped production-queue templates are the one operation left:
-        // they are host-only bookkeeping this project does not model.
         log.records
-            .push(LogRecord::raw(LogRecordType::PlayerZpq1, vec![0x03, 0x00]));
+            .push(LogRecord::raw(LogRecordType::Other(60), vec![0x03, 0x00]));
         log.records
-            .push(LogRecord::raw(LogRecordType::PlayerZpq1, vec![0x03, 0x00]));
+            .push(LogRecord::raw(LogRecordType::Other(60), vec![0x03, 0x00]));
         let report = replay(&mut state, 0, &log, &mut orders);
         assert_eq!(report.applied(), 0);
         assert_eq!(
             report.unsupported,
-            vec![LogRecordType::PlayerZpq1],
+            vec![LogRecordType::Other(60)],
             "named once, however often it appears"
+        );
+    }
+
+    /// The default production queue: replayed, then handed to a planet the
+    /// player settles.
+    #[test]
+    fn a_default_queue_reaches_a_new_colony() {
+        use crate::production::item;
+        use stars_formats::{DefaultQueue, DefaultQueueItem};
+
+        let mut state = a_game();
+        let mut orders = TurnOrders::default();
+        let mut log = OrderLog::new(0, [0; 11]);
+        let queue = DefaultQueue {
+            no_research: true,
+            items: vec![
+                DefaultQueueItem {
+                    item: item::FACTORY as u8,
+                    count: 12,
+                },
+                DefaultQueueItem {
+                    item: item::MINE as u8,
+                    count: 7,
+                },
+                DefaultQueueItem {
+                    item: item::MAX_TERRAFORM as u8,
+                    count: 1,
+                },
+            ],
+        };
+        log.records
+            .push(LogRecord::raw(LogRecordType::PlayerZpq1, queue.encode()));
+
+        let report = replay(&mut state, 0, &log, &mut orders);
+        assert_eq!(report.default_queues, 1);
+        assert_eq!(state.players[0].default_queue, queue);
+
+        // A planet that becomes theirs gets it.
+        let mut planet = Planet::unowned(11);
+        planet.owner = Some(0);
+        state.planets.push(planet);
+        let index = state.planets.len() - 1;
+        crate::orders::apply_default_queue(&mut state, index);
+        assert!(state.planets[index].no_research);
+        assert_eq!(
+            state.planets[index]
+                .queue
+                .iter()
+                .map(|q| (q.item, q.count))
+                .collect::<Vec<_>>(),
+            vec![
+                (item::FACTORY, 12),
+                (item::MINE, 7),
+                (item::MAX_TERRAFORM, 1)
+            ]
+        );
+    }
+
+    /// The two racial filters drop entries rather than queueing them.
+    #[test]
+    fn a_default_queue_is_filtered_by_the_primary_trait() {
+        use crate::production::item;
+        use crate::race::Prt;
+        use stars_formats::{DefaultQueue, DefaultQueueItem};
+
+        let queue = DefaultQueue {
+            no_research: false,
+            items: [
+                item::MINE,
+                item::FACTORY,
+                item::DEFENSE,
+                item::ALCHEMY,
+                item::MAX_TERRAFORM,
+            ]
+            .into_iter()
+            .map(|item| DefaultQueueItem {
+                item: item as u8,
+                count: 1,
+            })
+            .collect(),
+        };
+
+        // Alternate Reality builds no planetary installation at all.
+        let mut state = a_game();
+        state.players[0].race = crate::newgame::stock_race(Prt::Ar);
+        state.players[0].default_queue = queue.clone();
+        let mut planet = Planet::unowned(11);
+        planet.owner = Some(0);
+        state.planets.push(planet);
+        let index = state.planets.len() - 1;
+        crate::orders::apply_default_queue(&mut state, index);
+        assert_eq!(
+            state.planets[index]
+                .queue
+                .iter()
+                .map(|q| q.item)
+                .collect::<Vec<_>>(),
+            vec![item::ALCHEMY, item::MAX_TERRAFORM]
+        );
+
+        // A Claim Adjuster is never offered terraforming.
+        let mut state = a_game();
+        state.players[0].race = crate::newgame::stock_race(Prt::Ca);
+        state.players[0].default_queue = queue;
+        let mut planet = Planet::unowned(11);
+        planet.owner = Some(0);
+        state.planets.push(planet);
+        let index = state.planets.len() - 1;
+        crate::orders::apply_default_queue(&mut state, index);
+        assert_eq!(
+            state.planets[index]
+                .queue
+                .iter()
+                .map(|q| q.item)
+                .collect::<Vec<_>>(),
+            vec![item::MINE, item::FACTORY, item::DEFENSE, item::ALCHEMY]
         );
     }
 

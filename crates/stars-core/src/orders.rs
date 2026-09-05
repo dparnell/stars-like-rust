@@ -319,12 +319,16 @@ pub fn resolve_colonist_drops(state: &mut GameState, drops: &[ColonistDrop]) -> 
                 let planet = &mut state.planets[index];
                 planet.owner = Some(player);
                 planet.pop = colonists;
+                // A planet that changes hands starts on its new owner's
+                // default queue, not an empty one.
+                apply_default_queue(state, index);
                 changed.push(id);
             }
             crate::ground::Outcome::Taken { player, colonists } => {
                 let planet = &mut state.planets[index];
                 planet.owner = Some(player);
                 planet.pop = colonists;
+                apply_default_queue(state, index);
                 changed.push(id);
             }
             crate::ground::Outcome::Held { colonists } => {
@@ -334,6 +338,52 @@ pub fn resolve_colonist_drops(state: &mut GameState, drops: &[ColonistDrop]) -> 
         }
     }
     changed
+}
+
+/// Give a planet the queue its new owner starts colonies with.
+///
+/// A player keeps a **default production queue** (`PLAYER.zpq1`), and the game
+/// hands it to a planet the moment the planet becomes theirs — settled or taken
+/// — along with its "no research" flag. The two racial filters are the ones
+/// `template_allows` already applies to the build list: an Alternate Reality
+/// race gets no planetary installation, and a Claim Adjuster no terraforming,
+/// so those entries are dropped rather than queued and skipped.
+///
+/// A queue that filters down to nothing leaves the planet with none at all,
+/// which is what the original does when its count reaches zero.
+///
+/// Source: the block after the ground-combat resolution in `turn2.c`, which
+/// reads `zpq1.cpq` entries as `mdIdle:6, cQuan:10`.
+pub fn apply_default_queue(state: &mut GameState, planet: usize) {
+    let Some(owner) = state.planets.get(planet).and_then(|p| p.owner) else {
+        return;
+    };
+    let Some(player) = usize::try_from(owner)
+        .ok()
+        .and_then(|i| state.players.get(i))
+    else {
+        return;
+    };
+    let prt = player.race.prt();
+    let queue: Vec<crate::production::QueueItem> = player
+        .default_queue
+        .items
+        .iter()
+        .filter(|entry| crate::ground::template_allows(prt, u16::from(entry.item)))
+        .map(|entry| crate::production::QueueItem {
+            count: i32::from(entry.count),
+            item: u16::from(entry.item),
+            ship: false,
+            completion: 0,
+        })
+        .collect();
+    let no_research = player.default_queue.no_research;
+
+    let Some(planet) = state.planets.get_mut(planet) else {
+        return;
+    };
+    planet.no_research = no_research;
+    planet.queue = queue;
 }
 
 /// Run the waypoint tasks of every fleet that has arrived somewhere.

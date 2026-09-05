@@ -59,8 +59,9 @@ Smaller things, all now preserved rather than dropped:
 - bits 13-15 of a file header's `dts` word, set on some `.x` order files
   (`EXODUS.X6` carries `0xC101`);
 - the tails on `.hN` partial-planet blocks;
-- the fixed region of a player block from offset 82 to 111, which nothing has
-  identified.
+- the four bytes of a player block from offset 82 to 85, which nothing has
+  identified. The 26 after them are the default production queue; see
+  `player.md`.
 
 Two fields turned out to be **derivable** rather than worth storing, each
 checked across the whole corpus: a fleet block's word at offset 2 is

@@ -283,6 +283,17 @@ string** — the packed field with the literal escape, the same form a fleet's o
 name block carries. See `strings.md`. (Not present in the exodus capture, so
 decoded from the NB09 struct and the binary rather than fixture-verified.)
 
+### Default production queue (`rtLogPlayerZpq1`, id 46)
+
+`ZIPPRODQ1` truncated to the entries it uses — `2 * cpq + 2` bytes — which is
+the queue a planet starts with when it becomes this player's. The single record
+in the fixtures is eight bytes: three entries. See `player.md`, which decodes
+the same structure out of the player block and gives what the game does with it.
+
+The client writes it only when it differs from what the player's file holds and
+when the previous record is not already one of these, so a log carries at most
+one.
+
 ### Repeat orders (`rtLogFleetFlagBit9`, id 10)
 
 `{ int16_t id; int16_t value; }` — the fleet, and `value & 1` into
@@ -383,6 +394,7 @@ what the client **already did**, not what it intends:
 | splits a fleet | a split naming it, then a ship transfer into the new fleet |
 | changes a fleet's battle plan or repeat-orders flag | one record each |
 | changes how they regard another player | one relations record, replacing any earlier one |
+| changes what new colonies build | one default-queue record, likewise |
 | merges fleets | one merge record, survivor first |
 | renames a fleet | a rename record |
 | edits a production queue | one queue record per planet, at the end |
@@ -418,6 +430,7 @@ received them. What each operation does:
 | waypoint task (11) | the task on one of the fleet's waypoints, bounds-checked |
 | battle plan (42) | which battle plan the fleet fights under |
 | player relations (38) | the player's whole relations table is replaced |
+| default queue (46) | the queue the player's new colonies start with |
 | waypoint insert / update (4/5) | inserted at or written over that slot of the fleet's order list |
 | waypoint delete (3) | removed; with the high bit, everything from that slot on |
 | production queue (29) | the planet's queue is replaced |
@@ -425,9 +438,9 @@ received them. What each operation does:
 | planet routing (35) | the planet's "no research" flag |
 | ship design (27) | the design is created, replaced, or the slot freed |
 
-One operation is left unreplayed: `rtLogPlayerZpq1` (46), the player's saved
-production-queue templates, which the host only stores and `GameState` does not
-model. It is named in `ReplayReport::unsupported` rather than silently dropped.
+**Every operation the format names is replayed.** A record type the format does
+not define is named in `ReplayReport::unsupported` rather than silently
+dropped.
 
 A replayed rename is written back: the name goes into a type-21 block after the
 fleet's waypoints — see `fleet.md`, which recovers that block from the binary,
@@ -468,11 +481,9 @@ every transfer twice.
   not interpret (bit 13 is `fNoAutoTrack` in the state file's own waypoint
   record). They are preserved, and a waypoint this project writes leaves them
   zero.
-- `rtLogPlayerZpq1` (46) carries the player's saved production-queue templates
-  (`PLAYER.zpq1`), which the host stores and nothing else reads. It is
-  classified but not decoded, and not replayed.
 - `rtLogFleetOrderAttrNib` (11) appears in no fixture; its layout comes from the
-  replay arm in `log.c` rather than from data.
+  replay arm in `log.c` rather than from data. It is the only operation in the
+  format with no example in the corpus.
 - The type-21 fleet-name block appears in no fixture, so its layout is recovered
   from the binary rather than fixture-verified. See `fleet.md`.
 - `RTCHGNAME` (44) and `RTLOGTHING` (43) decoders are struct-derived; they need
