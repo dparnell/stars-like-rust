@@ -1,7 +1,8 @@
 # Minefields
 
-Status: **in progress** — laying, growth and traversal are simulated; decay,
-sweeping and detonation are not.
+Status: **in progress** — laying, growth, traversal, decay, sweeping and
+detonation are simulated. What is left is inside the damage step: the interval
+merging, the engine-count scaling and shield absorption.
 
 A minefield is a circle in the galaxy and a `THING` in the file
 ([`thing.md`](../formats/thing.md), `ith = 0`). It stores a centre and a mine
@@ -105,15 +106,72 @@ intervals of the same kind so two fields on top of each other are rolled once,
 it scales damage by the engine count, and it lets shields absorb before armour.
 Damage here is applied to the fleet as a total.
 
+A hit costs the **field** as well: `cMines / 20`, or `cMines / 100` once the
+first would pass fifty, with floors of ten and fifty — about 5% of a small field
+and 1% of a large one (`10b0:2097`). The fleet's owner also learns the field is
+there, which is the one piece of minefield visibility this engine maintains.
+
+## Decay
+
+`ThingDecay` (`10b8:70c6`), run straight after movement — step 8 of
+[the turn order](turn-order.md).
+
+```
+pct = 2 + (Space Demolition ? 1 : 4) × planets inside the field
+pct = min(pct, 50)
+if armed to detonate: pct += 25
+lost = max(cMines × pct / 100, pct)
+if kind != speed bump: lost = max(lost, 10)
+```
+
+Two percent a year, in other words, and four more for every planet inside the
+circle — one for a Space Demolition player, whose fields last four times as
+long against the same planets. A field that loses everything is gone.
+
+The floors matter more than they look: a small standard field loses at least ten
+mines a year whatever the percentage says, so a field of a few dozen mines
+evaporates in a couple of years unless it is fed. Speed bumps have no such
+floor.
+
+## Sweeping
+
+`SweepForMines` (`10b8:76a4`), run late — step 14, after the second pass of
+orders. Everything armed with beams clears the fields it is sitting in that
+belong to a player it is not friendly with: first every **fleet**, then every
+**planet with a starbase**.
+
+What one design sweeps a year is `CMineSweepFromLphul` (`1080:2bfa`):
+
+```
+sweep = Σ over beam slots: range² × count × damage
+```
+
+with three adjustments — a **starbase** reaches one square further, a
+**gattling** sweeps as though its range were 4 whatever it really is, and a
+**sapper** sweeps nothing at all. A fleet sweeps that per ship.
+
+A **speed bump** field gives up only a third of what the sweeper could manage,
+and every sweep clears at least two mines. The last rule is the interesting one:
+if the sweep would take the field below the sweeper's own distance from the
+centre, it takes exactly enough to leave the field just short of the sweeper
+instead. A fleet can therefore shrink a field until it is standing outside it,
+but only a fleet at the very centre — or one whose sweep exceeds the whole field
+— clears it away entirely.
+
+## Detonation
+
+A field with `fDetonate` set goes off under everyone standing in it, at the top
+of `ThingDecay`: every fleet inside that does not belong to the field's owner
+takes the damage it would have taken flying into it, with no roll. The field
+then decays 25 percentage points faster for the privilege.
+
 ## Not modelled
 
-- **Decay.** Fields shrink each year, faster near planets; nothing here shrinks
-  them.
-- **Sweeping.** Beam weapons clear mines from a field a fleet sits in
-  (`CMineSweepFromLpfl`, `1080:2b26`).
-- **Detonation.** `fDetonate` is carried through the file but never acted on.
-- **Visibility.** `grbitPlr` and `grbitPlrNow` say who has seen a field; they
-  are preserved, not maintained.
+- **Visibility.** `grbitPlr` and `grbitPlrNow` say who has seen a field. They
+  are preserved, and set for a player who hits or sweeps one, but not otherwise
+  maintained — nothing here recomputes what each player's scanners can see.
+- Inside the damage step: the merging of overlapping intervals of the same
+  kind, the engine-count scaling, and shield absorption.
 
 ## Source
 
@@ -121,5 +179,7 @@ Damage here is applied to the fleet as a total.
 - `CLayMinesFromLpfl` `1080:2886`; the component table in
   `stars_core::components::MINE_LAYERS`.
 - `FTravelThroughMineFields` `10b0:4f60` and the four tables above.
+- `ThingDecay` `10b8:70c6`, `SweepForMines` `10b8:76a4`,
+  `CMineSweepFromLphul` `1080:2bfa`.
 - `docs/formats/thing.md` for the record, and `docs/formulas/waypoint-tasks.md`
   for the task that starts it all.

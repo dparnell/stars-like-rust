@@ -255,6 +255,124 @@ pub struct Leg {
     pub travelled: i32,
 }
 
+/// How many mines a hit costs the field itself.
+///
+/// `FTravelThroughMineFields` (`10b0:2097`): a twentieth of the field, but a
+/// hundredth once that would exceed fifty, with floors of ten and fifty. A
+/// small field loses about 5% of itself, a large one about 1%.
+#[must_use]
+pub fn hit_cost(mines: i32) -> i32 {
+    let twentieth = mines / 20;
+    if twentieth < 51 {
+        twentieth.max(10)
+    } else {
+        (mines / 100).max(50)
+    }
+}
+
+/// What a design sweeps in a year.
+///
+/// `CMineSweepFromLphul` (`1080:2bfa`): every beam slot sweeps `range² ×
+/// damage` mines per weapon. A **starbase** reaches one square further, a
+/// **gattling** sweeps as though its range were 4 whatever it really is, and a
+/// **sapper** sweeps nothing at all.
+#[must_use]
+pub fn sweep_capacity(design: &ShipDesign) -> i32 {
+    let starbase = design.is_starbase();
+    let mut total: i64 = 0;
+    for slot in &design.slots {
+        if slot.category != crate::components::slot::BEAM || slot.count == 0 {
+            continue;
+        }
+        let Some(beam) = crate::components::BEAMS.get(usize::from(slot.item)) else {
+            continue;
+        };
+        if beam.abilities & 1 != 0 {
+            continue; // a sapper sweeps nothing
+        }
+        let mut range = if beam.abilities & 2 != 0 {
+            4
+        } else {
+            i64::from(beam.range_max)
+        };
+        if starbase {
+            range += 1;
+        }
+        total += range * range * i64::from(slot.count) * i64::from(beam.dp);
+    }
+    i32::try_from(total.max(0)).unwrap_or(i32::MAX)
+}
+
+/// What a whole fleet sweeps in a year.
+#[must_use]
+pub fn fleet_sweep(fleet: &Fleet, designs: &[ShipDesign]) -> i32 {
+    let mut total: i64 = 0;
+    for stack in &fleet.stacks {
+        if stack.count <= 0 {
+            continue;
+        }
+        let Some(design) = designs.get(usize::from(stack.design)) else {
+            continue;
+        };
+        total += i64::from(sweep_capacity(design)) * i64::from(stack.count);
+    }
+    i32::try_from(total).unwrap_or(i32::MAX)
+}
+
+/// Take `sweep` mines out of a field somebody is sitting in.
+///
+/// `SweepForMines` (`10b8:76a4`). A **speed bump** field only gives up a third
+/// of what the sweeper can manage, and every sweep clears at least two mines.
+/// The odd-looking last rule is the original's: a field is never left so large
+/// that the sweeper is still inside it, so sweeping from the centre destroys
+/// the field outright.
+///
+/// `distance_squared` is the sweeper's distance from the field's centre.
+/// Returns the mines actually swept.
+#[must_use]
+pub fn swept(field: &Minefield, sweep: i32, distance_squared: i64) -> i32 {
+    let mut take = i64::from(sweep);
+    if field.kind == 2 {
+        take /= 3;
+    }
+    take = take.max(2);
+    if i64::from(field.mines) - take < distance_squared - 1 {
+        take = i64::from(field.mines) - distance_squared + 1;
+    }
+    take = take.min(i64::from(field.mines)).max(0);
+    i32::try_from(take).unwrap_or(i32::MAX)
+}
+
+/// How much of itself a field loses in a year, as a percentage.
+///
+/// `ThingDecay` (`10b8:70c6`): two percent, plus four for every planet inside
+/// the field — one for a Space Demolition player, whose fields last four times
+/// as long — capped at fifty, and twenty-five more if the field is armed to
+/// detonate.
+#[must_use]
+pub fn decay_percent(planets_inside: i32, space_demolition: bool, detonating: bool) -> i32 {
+    let per_planet = if space_demolition { 1 } else { 4 };
+    let mut pct = (per_planet * planets_inside + 2).min(50);
+    if detonating {
+        pct += 25;
+    }
+    pct
+}
+
+/// How many mines a field loses in a year.
+///
+/// The percentage above, but never fewer mines than the percentage itself, and
+/// never fewer than ten unless the field is a speed bump.
+#[must_use]
+pub fn decay_amount(field: &Minefield, planets_inside: i32, space_demolition: bool) -> i32 {
+    let pct = decay_percent(planets_inside, space_demolition, field.detonating);
+    let mut lost = (i64::from(field.mines) * i64::from(pct) / 100).max(i64::from(pct));
+    if field.kind != 2 && lost < 10 {
+        lost = 10;
+    }
+    i32::try_from(lost).unwrap_or(i32::MAX)
+}
+
 /// What a fleet ran into.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MineHit {
@@ -346,7 +464,7 @@ pub fn traverse(
         let chance = over * HIT_PER_MILLE[kind];
         for step in 0..(end - start).max(0) {
             if i32::from(rng.random(1000)) < chance {
-                return Some(hit(fleet, field, start + step));
+                return Some(damage(fleet, field, start + step));
             }
         }
     }
@@ -385,7 +503,12 @@ fn crossing(from: Point, to: Point, field: &Minefield, travelled: i32) -> Option
 }
 
 /// What a hit costs the fleet.
-fn hit(fleet: &Fleet, field: &Minefield, travelled: i32) -> MineHit {
+///
+/// The kind's damage per ship, times the ships — except that a fleet of four
+/// or fewer takes the kind's minimum total instead, which is what makes a lone
+/// scout such an expensive way to find a minefield.
+#[must_use]
+pub fn damage(fleet: &Fleet, field: &Minefield, travelled: i32) -> MineHit {
     let kind = usize::from(field.kind).min(MINE_KINDS - 1);
     let ships: i32 = fleet.stacks.iter().map(|s| s.count).sum();
     let ram_scoop = 0; // Ram scoops are not modelled; the plain column applies.
@@ -658,6 +781,105 @@ mod tests {
         assert!(leg(&fields, &mut rng, &friend).is_none(), "a friend's");
     }
 
+    /// Two percent a year, four more for every planet inside the field, capped
+    /// at fifty — and a Space Demolition player's fields last four times as
+    /// long against the same planets.
+    #[test]
+    fn decay_counts_the_planets_inside() {
+        assert_eq!(decay_percent(0, false, false), 2);
+        assert_eq!(decay_percent(1, false, false), 6);
+        assert_eq!(decay_percent(3, false, false), 14);
+        assert_eq!(decay_percent(1, true, false), 3, "Space Demolition");
+        assert_eq!(decay_percent(20, false, false), 50, "capped");
+        assert_eq!(decay_percent(0, false, true), 27, "armed to detonate");
+    }
+
+    /// A field never loses fewer mines than its decay percentage, nor fewer
+    /// than ten unless it is a speed bump.
+    #[test]
+    fn decay_has_floors() {
+        let field = |mines: i32, kind: u8| Minefield {
+            id: 0,
+            owner: 0,
+            position: Point::new(0, 0),
+            mines,
+            kind,
+            detonating: false,
+            detected_by: 0,
+            visible_to: 0,
+            turn: 0,
+        };
+        // 6% of 100 is 6, but the floor of ten applies.
+        assert_eq!(decay_amount(&field(100, 0), 1, false), 10);
+        // A speed bump has no such floor, so it keeps its 6%.
+        assert_eq!(decay_amount(&field(100, 2), 1, false), 6);
+        // Big enough and the percentage takes over.
+        assert_eq!(decay_amount(&field(10_000, 1), 1, false), 600);
+    }
+
+    /// A beam weapon sweeps `range² × damage` mines a year; a sapper sweeps
+    /// nothing, and a starbase reaches one square further.
+    #[test]
+    fn beams_sweep_by_the_square_of_their_range() {
+        let beam = |item: u8, count: u8| DesignSlot {
+            category: slot::BEAM,
+            item,
+            count,
+        };
+        let laser = &crate::components::BEAMS[0];
+        assert_eq!(laser.name, "Laser");
+        let one = design(vec![beam(0, 1)]);
+        let expected =
+            i32::from(laser.range_max) * i32::from(laser.range_max) * i32::from(laser.dp);
+        assert_eq!(sweep_capacity(&one), expected);
+        // Two of them sweep twice as much.
+        assert_eq!(sweep_capacity(&design(vec![beam(0, 2)])), expected * 2);
+        // And a fleet sweeps per ship.
+        let fleet = fleet(vec![stack(0, 3)]);
+        assert_eq!(fleet_sweep(&fleet, &[one]), expected * 3);
+    }
+
+    /// Sweeping takes what the sweeper can manage, a third of that from a
+    /// speed bump, and never leaves a field the sweeper is still inside.
+    #[test]
+    fn sweeping_shrinks_a_field_past_the_sweeper() {
+        let field = |mines: i32, kind: u8| Minefield {
+            id: 0,
+            owner: 1,
+            position: Point::new(0, 0),
+            mines,
+            kind,
+            detonating: false,
+            detected_by: 0,
+            visible_to: 0,
+            turn: 0,
+        };
+        // Well inside a big field: the sweep is what it is.
+        assert_eq!(swept(&field(10_000, 0), 400, 8_100), 400);
+        // A speed bump gives up a third of it.
+        assert_eq!(swept(&field(10_000, 2), 400, 8_100), 133);
+        // Every sweep clears at least two mines.
+        assert_eq!(swept(&field(10_000, 2), 1, 8_100), 2);
+        // A sweep big enough to wipe the field out instead stops just short:
+        // the field is left at the sweeper's distance less one, so the sweeper
+        // ends up outside it. 200 mines swept by 400 leaves 99, not nothing.
+        assert_eq!(swept(&field(200, 0), 400, 100), 101);
+        // Unless the sweeper is at the centre, where there is no room left to
+        // stop short and the field goes altogether.
+        assert_eq!(swept(&field(200, 0), 400, 0), 200);
+    }
+
+    /// A hit costs the field a twentieth of itself, or a hundredth once that
+    /// would run past fifty.
+    #[test]
+    fn a_hit_costs_the_field() {
+        assert_eq!(hit_cost(100), 10, "the floor of ten");
+        assert_eq!(hit_cost(400), 20);
+        assert_eq!(hit_cost(1_000), 50);
+        assert_eq!(hit_cost(1_020), 50, "the floor of fifty takes over");
+        assert_eq!(hit_cost(10_000), 100);
+    }
+
     /// A fleet of four or fewer takes the minimum instead of the per-ship
     /// figure, which is what makes a lone scout so expensive to lose.
     #[test]
@@ -674,10 +896,10 @@ mod tests {
             turn: 0,
         };
         // One ship: 100 damage per ship, but at least 500 in total.
-        assert_eq!(hit(&fleet(vec![stack(0, 1)]), &field, 0).damage, 500);
+        assert_eq!(damage(&fleet(vec![stack(0, 1)]), &field, 0).damage, 500);
         // Five ships: 500, the per-ship figure, and no top-up.
-        assert_eq!(hit(&fleet(vec![stack(0, 5)]), &field, 0).damage, 500);
+        assert_eq!(damage(&fleet(vec![stack(0, 5)]), &field, 0).damage, 500);
         // Six: 600.
-        assert_eq!(hit(&fleet(vec![stack(0, 6)]), &field, 0).damage, 600);
+        assert_eq!(damage(&fleet(vec![stack(0, 6)]), &field, 0).damage, 600);
     }
 }

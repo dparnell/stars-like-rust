@@ -885,9 +885,38 @@ disagree.
     save. Not modelled: decay, sweeping, detonation, and the interval merging
     and shield absorption inside the damage step.
 
-23. **What is still missing to call it playable.** Patrol and giving a fleet
-    away can be set but are not simulated, and minefields neither decay nor are
-    swept; a loaded state file cannot carry
+23. ~~**Minefield decay and sweeping.**~~ **Done, and detonation with it.**
+    The three rules that make a minefield a balance rather than a ratchet:
+
+    **Decay** (`ThingDecay`, `10b8:70c6`, step 8 of the turn): two percent a
+    year plus four for every planet inside the circle — one for a Space
+    Demolition player, whose fields last four times as long — capped at fifty,
+    and twenty-five more if the field is armed. A standard field never loses
+    fewer than ten mines whatever the percentage says, which is why a small
+    field evaporates in a couple of years unless it is fed; speed bumps have no
+    such floor.
+
+    **Sweeping** (`SweepForMines`, `10b8:76a4`, step 14): every fleet with
+    beams, then every planet with a starbase, clears the fields it sits in that
+    belong to someone it is not friendly with. A design sweeps
+    `Σ range² × count × damage` over its beam slots — a starbase reaching one
+    square further, a gattling sweeping as though its range were 4, and a
+    sapper sweeping nothing. A speed bump gives up a third of that. The rule
+    worth knowing: if the sweep would take the field below the sweeper's own
+    distance from the centre it takes exactly enough to leave the field just
+    short instead, so a fleet can shrink a field until it is standing outside
+    it, but only one at the very centre clears it away.
+
+    **Detonation**: an armed field goes off under everyone standing in it, with
+    no roll, at the top of `ThingDecay`.
+
+    A hit now costs the field too — a twentieth of it, or a hundredth once that
+    passes fifty — and the fleet that found it can see it afterwards. What is
+    left unmodelled is inside the damage step: the interval merging, the
+    engine-count scaling and shield absorption.
+
+24. **What is still missing to call it playable.** Patrol and giving a fleet
+    away can be set but are not simulated; a loaded state file cannot carry
     structural fleet changes back (the game does not either — the order log
     does); and neither generation nor the writers carry wormholes, the Mystery
     Trader, messages, battle recordings or scores, all of which live in

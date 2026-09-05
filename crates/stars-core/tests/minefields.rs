@@ -87,11 +87,14 @@ fn a_fleet_lays_mines_where_it_sits() {
     assert_eq!(state.minefields[0].owner, 0);
     assert_eq!(state.minefields[0].position, Point::new(1000, 1000));
 
-    // A second year adds to the same field rather than starting another.
+    // A second year adds to the same field rather than starting another —
+    // less the decay, which runs first: the fleet's own planet sits inside the
+    // field, so it loses 2% + 4% a year, and never fewer than ten mines.
     let report = generate_turn(&mut state, &mut rng);
     assert_eq!(report.mines_laid, vec![(1, 0, 80)]);
+    assert_eq!(report.mines_decayed, vec![(0, 0, 10)]);
     assert_eq!(state.minefields.len(), 1);
-    assert_eq!(state.minefields[0].mines, 160);
+    assert_eq!(state.minefields[0].mines, 80 - 10 + 80);
     // "Indefinitely" is never spent.
     assert_eq!(
         state.fleets[0].waypoints[0].task,
@@ -112,7 +115,11 @@ fn a_counted_order_runs_out() {
     // The next year finds a zero and gives up the order.
     generate_turn(&mut state, &mut rng);
     assert_eq!(state.fleets[0].waypoints[0].task, stars_formats::task::NONE);
-    assert_eq!(state.minefields[0].mines, 240, "three years of laying");
+    assert_eq!(
+        state.minefields[0].mines,
+        240 - 20,
+        "three years of laying, less two years of decay"
+    );
 }
 
 /// Everybody but Space Demolition has to sit still to lay.
@@ -179,4 +186,112 @@ fn a_field_stops_a_fleet_that_flies_into_it() {
     assert_eq!(hit.1.damage, 2000, "two ships, so the minimum applies");
     // It stopped where the mines caught it, short of its waypoint.
     assert!(state.fleets[0].position.x < 1200);
+}
+
+/// A fleet with beam weapons sitting in somebody else's field clears mines
+/// from it every year, and a field small enough goes altogether.
+#[test]
+fn a_beam_fleet_sweeps_the_field_it_sits_in() {
+    // Four lasers apiece on two ships: range 1, ten damage, so 40 a ship.
+    let sweep = 4 * 10 * 2;
+    for (mines, expect_left) in [(5_000, Some(5_000 - 300 - sweep)), (60, None)] {
+        let mut state = a_layer(5, Prt::Joat);
+        state.fleets[0].waypoints[0].task = stars_formats::task::NONE;
+        state.designs[0][0].slots.push(DesignSlot {
+            category: slot::BEAM,
+            item: 0, // Laser
+            count: 4,
+        });
+        state.players.push(Player::new(Race::humanoid()));
+        state.minefields.push(Minefield {
+            id: 0,
+            owner: 1,
+            position: Point::new(1000, 1000), // right on top of the fleet
+            mines,
+            kind: 0,
+            detonating: false,
+            detected_by: 0,
+            visible_to: 0,
+            turn: 0,
+        });
+
+        let mut rng = Rng::from_seeds(1, 2);
+        let report = generate_turn(&mut state, &mut rng);
+        match expect_left {
+            // Decay takes its 6% first, then the sweep takes its 80.
+            Some(left) => {
+                assert_eq!(state.minefields[0].mines, left);
+                assert_eq!(report.mines_swept, vec![(0, 1, sweep)]);
+                // The sweeper can see what it is standing in.
+                assert_eq!(state.minefields[0].detected_by, 1);
+            }
+            // Sixty mines, less ten to decay, is less than the fleet sweeps.
+            None => assert!(state.minefields.is_empty(), "swept away entirely"),
+        }
+    }
+}
+
+/// Your own fields, and a friend's, are left alone; an enemy's is swept.
+#[test]
+fn sweeping_leaves_friends_alone() {
+    let sweep = 4 * 10 * 2;
+    // A 400-mine field with a planet inside decays 6% before anything else.
+    let decayed = 400 - 400 * 6 / 100;
+    for (owner, relation, expect) in [(0, 0, decayed), (1, 1, decayed), (1, 2, decayed - sweep)] {
+        let mut state = a_layer(5, Prt::Joat);
+        state.fleets[0].waypoints[0].task = stars_formats::task::NONE;
+        state.designs[0][0].slots.push(DesignSlot {
+            category: slot::BEAM,
+            item: 0,
+            count: 4,
+        });
+        state.players.push(Player::new(Race::humanoid()));
+        state.players[0].relations = vec![0, relation];
+        state.minefields.push(Minefield {
+            id: 0,
+            owner,
+            position: Point::new(1000, 1000),
+            mines: 400,
+            kind: 0,
+            detonating: false,
+            detected_by: 0,
+            visible_to: 0,
+            turn: 0,
+        });
+
+        let mut rng = Rng::from_seeds(1, 2);
+        generate_turn(&mut state, &mut rng);
+        assert_eq!(
+            state.minefields[0].mines, expect,
+            "field of player {owner}, regarded as {relation}"
+        );
+    }
+}
+
+/// A field armed to detonate goes off under everyone standing in it, without
+/// anybody having to fly anywhere.
+#[test]
+fn an_armed_field_detonates() {
+    let mut state = a_layer(5, Prt::Joat);
+    state.fleets[0].waypoints[0].task = stars_formats::task::NONE;
+    state.players.push(Player::new(Race::humanoid()));
+    state.minefields.push(Minefield {
+        id: 0,
+        owner: 1,
+        position: Point::new(1000, 1000),
+        mines: 10_000,
+        kind: 0,
+        detonating: true,
+        detected_by: 0,
+        visible_to: 0,
+        turn: 0,
+    });
+
+    let mut rng = Rng::from_seeds(1, 2);
+    let report = generate_turn(&mut state, &mut rng);
+    let hit = report.mine_hits.first().expect("the mines went off");
+    assert_eq!(hit.1.field_owner, 1);
+    assert_eq!(hit.1.damage, 500, "two ships, so the minimum applies");
+    // An armed field decays 25 points faster than an unarmed one.
+    assert_eq!(state.minefields[0].mines, 10_000 - 3_100);
 }

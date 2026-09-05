@@ -92,6 +92,10 @@ pub struct TurnReport {
     pub mines_laid: Vec<(u16, u8, i32)>,
     /// Fleets that ran into a minefield, and what it cost them.
     pub mine_hits: Vec<(u16, crate::minefield::MineHit)>,
+    /// Mines lost to decay, as `(field id, owner, mines)`.
+    pub mines_decayed: Vec<(u16, i16, i32)>,
+    /// Mines swept, as `(field id, owner, mines)`.
+    pub mines_swept: Vec<(u16, i16, i32)>,
     /// Pipeline steps not performed, and therefore not reflected above.
     pub skipped: Vec<SkippedStep>,
 }
@@ -171,6 +175,11 @@ pub fn generate_turn_with_orders(
             }
         }
     }
+
+    // --- ThingDecay: an armed field goes off under everyone inside it, and
+    // then every field loses a slice of itself. A field that runs out is gone.
+    report.mine_hits.extend(detonate_minefields(state));
+    report.mines_decayed = decay_minefields(state);
 
     // --- Produce: mine first, so this year's minerals are on the surface
     // before anything can spend them.
@@ -316,6 +325,10 @@ pub fn generate_turn_with_orders(
         };
         report.remote_mined.push(mined);
     }
+
+    // --- SweepForMines, which the original runs late, after the second pass
+    // of orders: everything armed with beams clears what it is sitting in.
+    report.mines_swept = sweep_minefields(state);
 
     // --- AutoTerraform: the Claim Adjuster's free terraforming, which the
     // pipeline runs after Produce. It is a no-op for every other race.
@@ -658,10 +671,162 @@ fn cross_minefields(
     if stopped != to {
         fleet.orbiting = None;
     }
+
+    // The field pays for it too, and the player who found it can now see it.
+    if let Some(field) = state
+        .minefields
+        .iter_mut()
+        .find(|f| f.id == hit.field && f.owner == hit.field_owner && f.kind == hit.kind)
+    {
+        let cost = crate::minefield::hit_cost(field.mines);
+        field.mines -= cost;
+        if let Ok(bit) = u32::try_from(state.fleets[index].owner) {
+            field.detected_by |= u16::try_from(1u32 << (bit & 15)).unwrap_or(0);
+            field.visible_to |= u16::try_from(1u32 << (bit & 15)).unwrap_or(0);
+        }
+    }
+    state.minefields.retain(|f| f.mines > 0);
     Some(hit)
 }
 
-/// The lowest fleet id this player is not already using./// The lowest fleet id this player is not already using.
+/// Set off every field that is armed to detonate.
+///
+/// `ThingDecay` (`10b8:70c6`) walks the fleets inside an armed field and takes
+/// them through it as though they had been caught, with no roll: the mines are
+/// going off whether or not the fleet was moving.
+fn detonate_minefields(state: &mut GameState) -> Vec<(u16, crate::minefield::MineHit)> {
+    let mut hits = Vec::new();
+    let armed: Vec<crate::minefield::Minefield> = state
+        .minefields
+        .iter()
+        .filter(|f| f.detonating)
+        .cloned()
+        .collect();
+    for field in &armed {
+        for fleet in &state.fleets {
+            if fleet.owner == field.owner || !field.contains(fleet.position) {
+                continue;
+            }
+            hits.push((fleet.id, crate::minefield::damage(fleet, field, 0)));
+        }
+    }
+    hits
+}
+
+/// Decay every minefield, and remove the ones that run out.
+///
+/// `ThingDecay` (`10b8:70c6`). See [`crate::minefield::decay_amount`] for the
+/// rate; the planets that speed it up are the ones inside the field, which is
+/// `CPlanetsInCircle`.
+fn decay_minefields(state: &mut GameState) -> Vec<(u16, i16, i32)> {
+    let mut lost = Vec::new();
+    let positions: Vec<crate::movement::Point> = state
+        .planets
+        .iter()
+        .chain(state.known_planets.iter())
+        .filter_map(|p| p.position)
+        .collect();
+
+    for field in &mut state.minefields {
+        let inside = positions
+            .iter()
+            .filter(|p| field.contains(**p))
+            .count()
+            .min(i32::MAX as usize);
+        let demolition = usize::try_from(field.owner)
+            .ok()
+            .and_then(|i| state.players.get(i))
+            .is_some_and(|p| p.race.prt() == Some(crate::race::Prt::Sd));
+        let amount = crate::minefield::decay_amount(
+            field,
+            i32::try_from(inside).unwrap_or(i32::MAX),
+            demolition,
+        );
+        lost.push((field.id, field.owner, amount.min(field.mines)));
+        field.mines -= amount;
+    }
+    state.minefields.retain(|f| f.mines > 0);
+    lost
+}
+
+/// Sweep every minefield somebody hostile is sitting in.
+///
+/// `SweepForMines` (`10b8:76a4`): first every fleet with beam weapons, then
+/// every planet with a starbase, each clearing the fields it is inside that
+/// belong to a player it is not friendly with.
+fn sweep_minefields(state: &mut GameState) -> Vec<(u16, i16, i32)> {
+    let mut swept = Vec::new();
+
+    // A sweeper is a position, an owner, and how much it can clear.
+    let mut sweepers: Vec<(crate::movement::Point, i16, i32)> = Vec::new();
+    for fleet in &state.fleets {
+        let Ok(owner) = usize::try_from(fleet.owner) else {
+            continue;
+        };
+        let Some(designs) = state.designs.get(owner) else {
+            continue;
+        };
+        let capacity = crate::minefield::fleet_sweep(fleet, designs);
+        if capacity > 0 {
+            sweepers.push((fleet.position, fleet.owner, capacity));
+        }
+    }
+    for planet in &state.planets {
+        let (Some(owner), Some(position), true) = (planet.owner, planet.position, planet.starbase)
+        else {
+            continue;
+        };
+        let capacity = usize::try_from(owner)
+            .ok()
+            .and_then(|i| state.designs.get(i))
+            .and_then(|designs| {
+                let slot = usize::from(planet.starbase_design.unwrap_or(0))
+                    + usize::from(crate::startup::FIRST_STARBASE_SLOT);
+                designs.get(slot)
+            })
+            .map_or(0, crate::minefield::sweep_capacity);
+        if capacity > 0 {
+            sweepers.push((position, owner, capacity));
+        }
+    }
+
+    for (position, owner, capacity) in sweepers {
+        let friend = usize::try_from(owner)
+            .ok()
+            .and_then(|i| state.players.get(i))
+            .map(|p| p.relations.clone())
+            .unwrap_or_default();
+        for field in &mut state.minefields {
+            if field.owner == owner {
+                continue;
+            }
+            let friendly = usize::try_from(field.owner)
+                .ok()
+                .and_then(|i| friend.get(i))
+                .is_some_and(|r| *r == 1);
+            if friendly {
+                continue;
+            }
+            let d2 = field.distance_squared(position);
+            if d2 > i64::from(field.mines) {
+                continue;
+            }
+            let take = crate::minefield::swept(field, capacity, d2);
+            if take <= 0 {
+                continue;
+            }
+            field.mines -= take;
+            if let Ok(bit) = u32::try_from(owner) {
+                field.detected_by |= u16::try_from(1u32 << (bit & 15)).unwrap_or(0);
+            }
+            swept.push((field.id, field.owner, take));
+        }
+        state.minefields.retain(|f| f.mines > 0);
+    }
+    swept
+}
+
+/// The lowest fleet id this player is not already using./// The lowest fleet id this player is not already using./// The lowest fleet id this player is not already using.
 ///
 /// Fleet ids are per player, and the game hands out the first free slot rather
 /// than always counting up, so a disbanded fleet's number comes back.
