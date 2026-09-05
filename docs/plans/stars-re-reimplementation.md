@@ -989,13 +989,35 @@ disagree.
     stopped being counted. Both are the sort of thing a differential test finds
     and a unit test never would.
 
-27. **What is still missing to call it playable.** Every waypoint task is now
+27. ~~**Victory conditions.**~~ **Done.** Ten conditions, each a byte of
+    `GAME.rgvc` in the **universe** file — bit 7 for "the game is playing for
+    it" and seven bits of *slider position* that `GetVCVal` (`1078:b710`) turns
+    into a threshold: `n × 5 + 20` percent of planets, `n + 8` tech in `n + 2`
+    fields, `n × 1000 + 1000` points, and so on.
+
+    Three things worth knowing came out of it. A met condition is **flagged
+    whether or not the game is playing for it** — the original sets the bit and
+    only then asks whether it counts — so a scoreboard can show a condition met
+    in a game nobody can win that way. The two comparative conditions belong to
+    the **sole** leader, never to a tie. And the last player standing wins
+    whatever the game was set up for.
+
+    Along the way the loader learned to read the game's own settings, which
+    nothing did before: a loaded game was on the fast research track whatever
+    its host chose, because `slow_tech` was never read from the universe.
+
+    The fixtures settle less here than they did for the scores, and the spec
+    says so: the five self-contained conditions are checked against 1,787 rows
+    and never claimed falsely, but none of those rows has one set; the
+    comparative two cannot be checked from a player file, and no `.hst` carries
+    a scoreboard; and the exodus turns — the only ones whose scoreboards show
+    conditions met — come with a universe file in which every condition is
+    switched off, so the settings they were played with are not in the corpus.
+
+28. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
-    - **Victory conditions.** The scoreboard is right; who has *won* is not
-      modelled. `UpdatePlayerScores` checks each condition the game is using
-      against a threshold, and a player meeting enough of them wins.
     - **Messages.** The engine decides plenty that the original would tell the
       player about — a fleet stopped by mines, a gift refused, a patrol
       targeted — and says none of it. `FSendPlrMsg` is everywhere in the

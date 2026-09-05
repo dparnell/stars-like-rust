@@ -182,6 +182,38 @@ pub mod game_flag {
     pub const CLUMPING: u16 = 1 << 8;
 }
 
+/// The ten victory conditions, in the order they are stored in `GAME.rgvc`.
+///
+/// Each is one byte: bit 7 says the game is using it, and the low seven bits
+/// are a **setting**, not the threshold — [`GameInfo::victory_value`] turns one
+/// into the other.
+pub mod victory {
+    /// Owns a percentage of all planets.
+    pub const PLANET_CONTROL: usize = 0;
+    /// Attains a tech level, in [`TECH_FIELDS`] fields.
+    pub const TECH_LEVEL: usize = 1;
+    /// How many fields [`TECH_LEVEL`] must be reached in.
+    pub const TECH_FIELDS: usize = 2;
+    /// Exceeds a score.
+    pub const SCORE: usize = 3;
+    /// Exceeds the second player's score by a percentage.
+    pub const SCORE_EXCESS: usize = 4;
+    /// Produces a number of thousands of resources a year.
+    pub const PRODUCTION: usize = 5;
+    /// Owns a number of capital ships.
+    pub const CAPITAL_SHIPS: usize = 6;
+    /// Holds the highest score after a number of years.
+    pub const HIGH_SCORE_AT: usize = 7;
+    /// How many of the others a player must meet to win.
+    pub const MUST_MEET: usize = 8;
+    /// The earliest year a win counts.
+    pub const LEAST_YEARS: usize = 9;
+    /// How many conditions there are room for.
+    pub const COUNT: usize = 12;
+    /// Where they start in the game-info payload.
+    pub const OFFSET: usize = 20;
+}
+
 impl GameInfo {
     /// Size in bytes of the game-info payload.
     pub const LEN: usize = 64;
@@ -214,6 +246,59 @@ impl GameInfo {
             name: String::from_utf8_lossy(&data[32..name_end]).into_owned(),
             raw: data[..Self::LEN].to_vec(),
         })
+    }
+
+    /// The raw victory-condition bytes (`GAME.rgvc`).
+    #[must_use]
+    pub fn victory_bytes(&self) -> [u8; victory::COUNT] {
+        let mut out = [0u8; victory::COUNT];
+        if let Some(bytes) = self
+            .raw
+            .get(victory::OFFSET..victory::OFFSET + victory::COUNT)
+        {
+            out.copy_from_slice(bytes);
+        }
+        out
+    }
+
+    /// Whether the game is using a victory condition (`GetVCCheck`,
+    /// `1078:b60c`): bit 7 of its byte.
+    #[must_use]
+    pub fn victory_active(&self, condition: usize) -> bool {
+        self.victory_bytes()
+            .get(condition)
+            .is_some_and(|b| b & 0x80 != 0)
+    }
+
+    /// The threshold a victory condition is set to (`GetVCVal`, `1078:b710`).
+    ///
+    /// The stored seven bits are a position on the dialog's slider, not the
+    /// number itself; each condition scales its own way, which is why the
+    /// mapping lives here rather than in the caller.
+    #[must_use]
+    pub fn victory_value(&self, condition: usize) -> i32 {
+        let bytes = self.victory_bytes();
+        let raw = i32::from(bytes.get(condition).copied().unwrap_or(0) & 0x7F);
+        match condition {
+            victory::PLANET_CONTROL => raw * 5 + 20,
+            victory::TECH_LEVEL => raw + 8,
+            victory::TECH_FIELDS => raw + 2,
+            victory::SCORE => raw * 1000 + 1000,
+            victory::SCORE_EXCESS => raw * 10 + 20,
+            victory::PRODUCTION | victory::CAPITAL_SHIPS => raw * 10 + 10,
+            victory::HIGH_SCORE_AT | victory::LEAST_YEARS => raw * 10 + 30,
+            // "How many must be met" cannot exceed how many are in use. The
+            // original counts the active conditions, skipping the tech-fields
+            // byte because it belongs to the tech-level one.
+            victory::MUST_MEET => {
+                let active = (0..8)
+                    .filter(|c| *c != victory::TECH_FIELDS)
+                    .filter(|c| bytes.get(*c).is_some_and(|b| b & 0x80 != 0))
+                    .count();
+                raw.min(i32::try_from(active).unwrap_or(raw))
+            }
+            _ => raw,
+        }
     }
 
     /// Re-encode this game info, preserving every byte the struct does not
@@ -498,6 +583,63 @@ fn read_block(bytes: &[u8], offset: usize) -> Result<(u8, &[u8], usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The victory bytes of `fixtures/games/all-computer-players/*.xy`, which
+    /// is a game set up with four conditions and a first-past-the-post rule.
+    const REAL: [u8; 12] = [
+        0x88, 0x8e, 0x82, 0x0a, 0x88, 0x09, 0x09, 0x07, 0x01, 0x04, 0x00, 0x00,
+    ];
+
+    fn game(bytes: [u8; 12]) -> GameInfo {
+        let mut raw = vec![0u8; GameInfo::LEN];
+        raw[victory::OFFSET..victory::OFFSET + 12].copy_from_slice(&bytes);
+        GameInfo::decode(&raw).expect("decodes")
+    }
+
+    #[test]
+    fn victory_sliders_become_thresholds() {
+        let g = game(REAL);
+        // Bit 7 says the game is playing for it.
+        assert!(g.victory_active(victory::PLANET_CONTROL));
+        assert!(g.victory_active(victory::TECH_LEVEL));
+        assert!(g.victory_active(victory::SCORE_EXCESS));
+        assert!(!g.victory_active(victory::SCORE));
+        assert!(!g.victory_active(victory::PRODUCTION));
+
+        // ... and the low seven bits are a slider position, not the number.
+        assert_eq!(g.victory_value(victory::PLANET_CONTROL), 60, "8 * 5 + 20 %");
+        assert_eq!(g.victory_value(victory::TECH_LEVEL), 22, "14 + 8");
+        assert_eq!(g.victory_value(victory::TECH_FIELDS), 4, "2 + 2");
+        assert_eq!(g.victory_value(victory::SCORE), 11_000);
+        assert_eq!(g.victory_value(victory::SCORE_EXCESS), 100, "8 * 10 + 20 %");
+        assert_eq!(g.victory_value(victory::PRODUCTION), 100, "thousands");
+        assert_eq!(g.victory_value(victory::CAPITAL_SHIPS), 100);
+        assert_eq!(g.victory_value(victory::HIGH_SCORE_AT), 100, "years");
+        assert_eq!(g.victory_value(victory::LEAST_YEARS), 70);
+        // Four conditions are switched on, and this game asks for one of them.
+        assert_eq!(g.victory_value(victory::MUST_MEET), 1);
+    }
+
+    /// "How many must be met" can never exceed how many are being played for.
+    #[test]
+    fn must_meet_is_capped_by_what_is_switched_on() {
+        let mut bytes = [0u8; 12];
+        bytes[victory::MUST_MEET] = 5;
+        assert_eq!(game(bytes).victory_value(victory::MUST_MEET), 0);
+        bytes[victory::PLANET_CONTROL] = 0x80;
+        bytes[victory::SCORE] = 0x80;
+        assert_eq!(game(bytes).victory_value(victory::MUST_MEET), 2);
+    }
+
+    /// A slider left at zero still has a threshold: the bottom of its range.
+    #[test]
+    fn a_slider_at_zero_is_the_bottom_of_the_range() {
+        let g = game([0; 12]);
+        assert_eq!(g.victory_value(victory::PLANET_CONTROL), 20);
+        assert_eq!(g.victory_value(victory::TECH_LEVEL), 8);
+        assert_eq!(g.victory_value(victory::TECH_FIELDS), 2);
+        assert_eq!(g.victory_value(victory::HIGH_SCORE_AT), 30);
+    }
 
     #[test]
     fn planet_position_word_round_trips() {

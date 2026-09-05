@@ -2,7 +2,8 @@
 
 Status: **verified** — every one of the 1,826 comparable score rows in the
 fixtures comes out exactly right: the score itself, and the planet, starbase
-and tech-level counts beside it. Implemented in
+and tech-level counts beside it. The victory conditions are implemented too,
+and checked as far as the fixtures allow (below). Implemented in
 [`stars_core::score`](../../crates/stars-core/src/score.rs) and checked by
 `crates/stars-core/tests/scores.rs` against the scoreboards Stars! wrote.
 
@@ -72,11 +73,63 @@ matter; a design that did could be classified one step low.
 
 `rank = 1 + the number of players scoring higher`, so a tie shares a rank.
 
-That routine also decides who has **won**: each victory condition is a
-`GetVCVal` threshold — planets held, tech levels, total score, twice the second
-player's score, production, capital ships, a turn count — and a `GetVCCheck`
-saying whether the game uses it. A player meeting enough of them wins and
-everybody is told. None of that is modelled.
+## Victory
+
+The same routine decides who has **won**, and
+[`stars_core::victory`](../../crates/stars-core/src/victory.rs) follows it.
+
+A game is set up with some of ten conditions switched on. Each is one byte of
+`GAME.rgvc` in the **universe file** — not in the save — where bit 7 says the
+game is playing for it (`GetVCCheck`, `1078:b60c`) and the low seven bits are a
+**slider position**, which `GetVCVal` (`1078:b710`) turns into the threshold:
+
+| # | condition | threshold from slider `n` |
+|--:|-----------|---------------------------|
+| 0 | owns a share of all planets | `n × 5 + 20` percent |
+| 1 | attains a tech level | `n + 8` |
+| 2 | …in that many fields | `n + 2` |
+| 3 | exceeds a score | `n × 1000 + 1000` |
+| 4 | exceeds second place by | `n × 10 + 20` percent |
+| 5 | produces resources a year | `n × 10 + 10` thousand |
+| 6 | owns capital ships | `n × 10 + 10` |
+| 7 | holds the highest score after | `n × 10 + 30` years |
+| 8 | how many must be met | `n`, capped by how many are switched on |
+| 9 | the earliest year a win counts | `n × 10 + 30` |
+
+Three things about how they are applied are worth stating, because none of them
+is obvious:
+
+- **A met condition is flagged whether or not the game is playing for it.** The
+  original sets the scoreboard bit as soon as the threshold is passed and only
+  then asks `GetVCCheck` before counting it, so a scoreboard can show a
+  condition met in a game nobody can win that way.
+- **The two comparative conditions are the sole leader's alone.** "Exceeds
+  second place" and "holds the highest score" are not offered to a tie.
+- **The last player standing wins**, whatever the game was set up for and
+  however early it is.
+
+The capital-ship count is compared after a round trip through the scoreboard's
+[packing](#the-score-calcplayerscore-103858a6), so a large fleet is compared
+roughly rather than exactly.
+
+### What the fixtures could and could not settle
+
+The five conditions a player meets on their own — planets, tech, score,
+production, capital ships — are checked against 1,787 real scoreboard rows, and
+none is ever claimed falsely. None of those rows has one *set*, though, so the
+check is one-sided: the games in the fixtures are young.
+
+Two things stop it going further. The comparative conditions cannot be checked
+from a player file at all, because that file describes one player and everybody
+else's score computes as zero — which would make its owner the runaway leader of
+every game — and **no `.hst` in the fixtures carries a scoreboard**. And the
+exodus turns, the only ones whose scoreboards *do* show conditions met, come
+with a universe file in which every condition is switched off; the settings
+those games were played with are not in the corpus, so their rows are skipped
+rather than explained away.
+
+Who has won is worked out; **telling the players is not**, since messages are
+not modelled.
 
 It is also where a player is **marked dead**: the score is computed first, and a
 player with nothing left is marked afterwards. That ordering shows in the files

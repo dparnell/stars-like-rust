@@ -381,6 +381,19 @@ impl GameState {
             }
         }
 
+        // The game's own settings. Nothing read them before, which quietly
+        // left a loaded game on the fast research track whatever its host
+        // chose, and left the victory conditions unknown.
+        if let Some(info) = blocks
+            .iter()
+            .find(|b| b.type_id == 7)
+            .and_then(|b| stars_formats::GameInfo::decode(&b.data).ok())
+        {
+            state.slow_tech = info.flags & stars_formats::game_flag::SLOW_TECH != 0;
+            state.galaxy_planets = info.planets;
+            state.victory = info.victory_bytes();
+        }
+
         // Minefields, out of the object section. The other kinds of THING —
         // packets, wormholes, the Mystery Trader — are not modelled, so they
         // are left where they are rather than half-loaded.

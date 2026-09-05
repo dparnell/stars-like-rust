@@ -78,6 +78,7 @@ pub mod score;
 pub mod startup;
 pub mod terraform;
 pub mod turn;
+pub mod victory;
 
 // `battle::distance` is board geometry and `movement::distance` is interstellar,
 // so neither is re-exported bare; use the module path.
@@ -270,6 +271,13 @@ pub struct GameState {
     pub designs: Vec<Vec<crate::design::ShipDesign>>,
     /// The game's "slower tech advances" option, which doubles research costs.
     pub slow_tech: bool,
+    /// How many planets the whole galaxy has (`GAME.cPlanMax`), which the
+    /// "owns a percentage of all planets" victory condition is measured
+    /// against. Zero when the file did not say.
+    pub galaxy_planets: i16,
+    /// The game's victory conditions, exactly as `GAME.rgvc` holds them. Read
+    /// through [`stars_formats::GameInfo`]; see [`crate::victory`].
+    pub victory: [u8; stars_formats::victory::COUNT],
     /// Every minefield in play. They are `THING`s in the file, and the only
     /// kind of `THING` this engine models — see [`crate::minefield`].
     pub minefields: Vec<crate::minefield::Minefield>,
@@ -293,6 +301,14 @@ impl GameState {
     /// Planets are matched by id, which is the record's index in both files.
     /// Returns how many planets were placed.
     pub fn apply_universe(&mut self, universe: &stars_formats::Universe) -> usize {
+        // The universe file is also where the game's own settings live: the
+        // research option, the size of the galaxy and the victory conditions.
+        // A `.hst` or `.mN` carries none of them.
+        if let Ok(info) = universe.game() {
+            self.slow_tech = info.flags & stars_formats::game_flag::SLOW_TECH != 0;
+            self.galaxy_planets = info.planets;
+            self.victory = info.victory_bytes();
+        }
         let resolved = universe.planets_resolved();
         let mut placed = 0;
         for planet in self.planets.iter_mut().chain(self.known_planets.iter_mut()) {
@@ -324,6 +340,8 @@ impl GameState {
             fleets: Vec::new(),
             designs: Vec::new(),
             slow_tech: false,
+            galaxy_planets: 0,
+            victory: [0; stars_formats::victory::COUNT],
             minefields: Vec::new(),
             other_things: Vec::new(),
         }

@@ -100,6 +100,10 @@ pub struct TurnReport {
     pub patrols: Vec<(u16, u16)>,
     /// The scoreboard, one entry per player, after the year's events.
     pub scores: Vec<crate::score::PlayerScore>,
+    /// Which victory conditions each player meets.
+    pub victory: Vec<crate::victory::Met>,
+    /// Players who have won, if the game is old enough for anyone to.
+    pub winners: Vec<usize>,
     /// Pipeline steps not performed, and therefore not reflected above.
     pub skipped: Vec<SkippedStep>,
 }
@@ -337,6 +341,9 @@ pub fn generate_turn_with_orders(
     // --- UpdatePlayerScores, which the original runs near the end of the
     // year, once everything that could change a score has happened.
     report.scores = crate::score::scores(state);
+    let (met, winners) = crate::victory::resolve(state, &report.scores);
+    report.victory = met;
+    report.winners = winners;
 
     // --- Patrol: every patrolling fleet looks for something to intercept.
     // The original does this as it writes each player's file, after everything
