@@ -1372,3 +1372,109 @@ fn the_scanner_zooms_the_way_the_original_does() {
         ]
     );
 }
+
+/// Dragging on the map gives a fleet its orders, and the log carries them.
+#[test]
+fn waypoints_are_dragged_onto_the_map() {
+    let (mut app, host) = a_saved_game("dragging");
+    app.selection.fleet = Some(0);
+
+    let (from, owner) = {
+        let fleet = &app.game.as_ref().expect("game").fleets[0];
+        assert_eq!(
+            fleet.waypoints.len(),
+            1,
+            "a new fleet has only its own spot"
+        );
+        (fleet.position, fleet.owner)
+    };
+    assert_eq!(owner, 0, "our own fleet");
+
+    // A leg to a point a hundred light years east.
+    assert!(app.add_waypoint(from.x + 100, from.y));
+    let warp = {
+        let fleet = &app.game.as_ref().expect("game").fleets[0];
+        assert_eq!(fleet.waypoints.len(), 2);
+        assert_eq!(fleet.waypoints[1].position.x, from.x + 100);
+        // The client picks a warp: the fleet's cruising speed, slowed as far as
+        // it can go without arriving later.
+        assert!(fleet.waypoints[1].warp > 0);
+        assert_eq!(fleet.warp, Some(fleet.waypoints[1].warp));
+        fleet.waypoints[1].warp
+    };
+    assert_eq!(
+        warp,
+        app.suggested_warp(0, 100),
+        "the leg takes the suggested warp"
+    );
+
+    // A second leg is appended rather than replacing the first.
+    assert!(app.add_waypoint(from.x + 100, from.y + 100));
+    assert_eq!(
+        app.game.as_ref().expect("game").fleets[0].waypoints.len(),
+        3
+    );
+
+    // Dragging the first leg moves it; waypoint 0 is where the fleet is and
+    // cannot be dragged.
+    assert!(
+        !app.move_waypoint(0, from.x, from.y),
+        "the fleet's own spot"
+    );
+    assert!(app.move_waypoint(1, from.x + 50, from.y));
+    assert_eq!(
+        app.game.as_ref().expect("game").fleets[0].waypoints[1]
+            .position
+            .x,
+        from.x + 50
+    );
+
+    // The pointer finds a waypoint to grab, and misses when it is far off.
+    assert_eq!(app.waypoint_at(from.x + 50, from.y, 4.0), Some(1));
+    assert_eq!(app.waypoint_at(from.x - 400, from.y, 4.0), None);
+
+    // And dropping one takes it off.
+    assert!(app.delete_waypoint(2));
+    assert_eq!(
+        app.game.as_ref().expect("game").fleets[0].waypoints.len(),
+        2
+    );
+
+    // Every one of those is on the order log, and a host replaying it reaches
+    // the same orders.
+    app.save(&host).expect("saves");
+    let log = {
+        let bytes = std::fs::read(host.with_extension("x1")).expect("reads back");
+        let file = StarsFile::decode(&bytes).expect("decodes");
+        order_log(&file)
+    };
+    assert!(
+        log.records
+            .iter()
+            .any(|r| r.record_type == LogRecordType::FleetOrderInsert),
+        "the legs were inserted"
+    );
+    assert!(
+        log.records
+            .iter()
+            .any(|r| r.record_type == LogRecordType::FleetOrderDelete),
+        "and one was deleted"
+    );
+
+    let original = {
+        let bytes = std::fs::read(host.with_file_name("dragging.hst")).expect("reads");
+        StarsFile::decode(&bytes).expect("decodes")
+    };
+    let (mut state, _) = stars_core::GameState::from_file(&original);
+    let mut cargo = stars_core::TurnOrders::default();
+    let report = stars_core::replay::replay(&mut state, 0, &log, &mut cargo);
+    assert!(report.applied() > 0);
+    assert_eq!(
+        state.fleets[0].waypoints.len(),
+        2,
+        "the host ends with the same legs"
+    );
+    assert_eq!(state.fleets[0].waypoints[1].position.x, from.x + 50);
+
+    let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
+}

@@ -146,3 +146,199 @@ pub fn fuel_used(stacks: &[FuelStack], distance: i32, improved_fuel_efficiency: 
     }
     ((total + 9) / 10) as i32
 }
+
+/// The best speed a fleet can cruise at (`IFindIdealWarp`, `1050:a76e`).
+///
+/// The client suggests this warp whenever it sets a leg for you, and it is the
+/// slowest engine's answer to one question: **what is the fastest warp at which
+/// this engine burns less than 121% fuel?** Then two adjustments, in the
+/// original's order:
+///
+/// * if that warp costs anything at all and the engine is not a ram scoop, and
+///   a **free** warp (zero fuel) lies one, two or three steps below it, drop to
+///   that instead — the difference is not worth the fuel;
+/// * warp 10 is only offered by the five engines that can hold it: Interspace-10,
+///   the Enigma Pulsar, Trans-Star 10 and the two Mizer/Galaxy scoops. Every
+///   other engine is capped at 9.
+///
+/// A design with no engine at all answers 0, and the fleet takes the lowest
+/// answer of any design aboard.
+///
+/// `ignore_scoops` skips the free-warp step, which is what the original passes
+/// when it wants the raw figure.
+#[must_use]
+pub fn ideal_warp(
+    stacks: &[crate::fleet::ShipStack],
+    designs: &[crate::design::ShipDesign],
+    ignore_scoops: bool,
+) -> i16 {
+    use crate::components::{slot, ENGINES};
+
+    /// The engines that can hold warp 10, by name — the original tests their
+    /// component ids.
+    const WARP_TEN: [&str; 5] = [
+        "Interspace-10",
+        "Enigma Pulsar",
+        "Trans-Star 10",
+        "Trans-Galactic Mizer Scoop",
+        "Galaxy Scoop",
+    ];
+
+    let mut worst: i16 = 10;
+    for stack in stacks.iter().filter(|s| s.count > 0) {
+        let Some(design) = designs.get(usize::from(stack.design)) else {
+            continue;
+        };
+        let Some(engine) = design
+            .slots
+            .iter()
+            .find(|s| s.category & slot::ENGINE != 0)
+            .and_then(|s| ENGINES.get(usize::from(s.item)))
+        else {
+            // A design with no engine cannot fly at all.
+            return 0;
+        };
+        let scoop = engine.name.contains("Scoop");
+        while worst > 0 {
+            let index = usize::try_from(worst).unwrap_or(0);
+            let burn = engine.fuel_used.get(index).copied().unwrap_or(i16::MAX);
+            if burn >= 121 {
+                worst -= 1;
+                continue;
+            }
+            // Drop to a free warp just below, if there is one.
+            if burn > 0 && !ignore_scoops && !scoop {
+                let free = |w: i16| {
+                    usize::try_from(w)
+                        .ok()
+                        .and_then(|i| engine.fuel_used.get(i))
+                        .is_some_and(|f| *f == 0)
+                };
+                if worst >= 5 && free(worst - 1) {
+                    worst -= 1;
+                } else if worst >= 6 && free(worst - 2) {
+                    worst -= 2;
+                } else if worst > 6 && free(worst - 3) {
+                    worst -= 3;
+                }
+            }
+            if worst == 10 && !WARP_TEN.contains(&engine.name) {
+                worst = 9;
+            }
+            break;
+        }
+    }
+    worst
+}
+
+/// Slow a leg down as far as it can go without arriving any later
+/// (`IWarpBestForWaypoint`, `1058:7f83`).
+///
+/// A leg takes `ceil(distance / warp²)` years. The original walks the warp down
+/// while that figure does not change, so a fleet never burns fuel for speed
+/// that buys it nothing: at 100 light years, warp 9 and warp 8 both arrive in
+/// two years, so the answer is warp 8. It never goes below warp 2.
+#[must_use]
+pub fn settle_warp(warp: i16, distance: i32) -> i16 {
+    if warp < 2 {
+        return warp;
+    }
+    let years = |w: i16| -> i32 {
+        let per_year = i32::from(w) * i32::from(w);
+        (distance + per_year - 1) / per_year
+    };
+    let want = years(warp);
+    let mut warp = warp;
+    while warp > 2 && years(warp - 1) == want {
+        warp -= 1;
+    }
+    warp
+}
+
+#[cfg(test)]
+mod warp_tests {
+    use super::*;
+
+    /// A leg is slowed until slowing it further would cost a year.
+    #[test]
+    fn a_leg_flies_no_faster_than_it_needs_to() {
+        // A hundred light years: warp 9 covers it in two years (81 a year) and
+        // so does warp 8 (64 a year, 128 in two). Warp 7 makes only 98 in two
+        // years and would cost a third, so the answer is warp 8.
+        assert_eq!(settle_warp(9, 100), 8);
+        // At 98 light years warp 7 does reach in two, and that is the answer.
+        assert_eq!(settle_warp(9, 98), 7);
+        // Exactly one year's flight at warp 9 stays at warp 9.
+        assert_eq!(settle_warp(9, 81), 9);
+        // A long haul cannot be slowed at all without costing a year.
+        assert_eq!(settle_warp(9, 810), 9);
+        // It never drops below warp 2.
+        assert_eq!(settle_warp(9, 1), 2);
+        assert_eq!(settle_warp(1, 1), 1, "and leaves warp 1 alone");
+    }
+
+    /// The cruising warp is the fastest one under 121% fuel, backed off to a
+    /// free warp just below it, and capped at 9 for all but five engines.
+    #[test]
+    fn a_fleet_cruises_at_its_engines_best() {
+        use crate::components::{slot, ENGINES};
+        use crate::design::{DesignSlot, ShipDesign};
+        use crate::fleet::ShipStack;
+
+        let design = |engine: u8| ShipDesign {
+            name: "test".to_string(),
+            picture: 0,
+            stored_armor: 0,
+            hull_id: 0,
+            slots: vec![DesignSlot {
+                category: slot::ENGINE,
+                item: engine,
+                count: 1,
+            }],
+        };
+        let one = |n: i32| {
+            vec![ShipStack {
+                design: 0,
+                count: n,
+                damaged_pct: 0,
+                damage_pct: 0,
+            }]
+        };
+
+        // Every engine answers with a warp it can actually hold.
+        for (index, engine) in ENGINES.iter().enumerate() {
+            let Ok(item) = u8::try_from(index) else {
+                continue;
+            };
+            let warp = ideal_warp(&one(1), &[design(item)], false);
+            assert!(
+                (1..=10).contains(&warp),
+                "{} answered warp {warp}",
+                engine.name
+            );
+            // Only the five warp-10 engines are ever offered warp 10.
+            if warp == 10 {
+                assert!(
+                    matches!(
+                        engine.name,
+                        "Interspace-10"
+                            | "Enigma Pulsar"
+                            | "Trans-Star 10"
+                            | "Trans-Galactic Mizer Scoop"
+                            | "Galaxy Scoop"
+                    ),
+                    "{} should be capped at 9",
+                    engine.name
+                );
+            }
+            // And the warp it names is one it can hold under 121% fuel.
+            let burn = engine.fuel_used[usize::try_from(warp).unwrap_or(0)];
+            assert!(burn < 121, "{} burns {burn}% at warp {warp}", engine.name);
+        }
+
+        // A design with no engine cannot fly.
+        let mut stranded = design(0);
+        stranded.slots.clear();
+        assert_eq!(ideal_warp(&one(1), &[stranded], false), 0);
+    }
+}

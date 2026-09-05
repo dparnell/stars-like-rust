@@ -48,7 +48,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     ui.separator();
 
     let available = ui.available_size();
-    let (response, painter) = ui.allocate_painter(available, Sense::click());
+    let (response, painter) = ui.allocate_painter(available, Sense::click_and_drag());
     let rect = response.rect;
     painter.rect_filled(rect, 0.0, Color32::from_rgb(8, 10, 18));
 
@@ -275,7 +275,43 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         }
     }
 
-    if let Some(id) = clicked {
+    // Add Way Points Mode: the map gives orders instead of selecting. A drag
+    // that starts on one of the selected fleet's waypoints moves it; anything
+    // else appends a leg (`FHandleWayPointDrag`, `1058:8176`).
+    if app.add_waypoints && app.selection.fleet.is_some() {
+        let to_galaxy = |p: Pos2| -> (i16, i16) {
+            #[allow(clippy::cast_possible_truncation)]
+            let x = (min_x + (p.x - rect.left() - margin) / scale) as i16;
+            #[allow(clippy::cast_possible_truncation)]
+            let y = (max_y - (p.y - rect.top() - margin) / scale) as i16;
+            (x, y)
+        };
+        // A waypoint under the pointer, in galaxy units — the tolerance is the
+        // grab radius in pixels converted back.
+        if response.drag_started() {
+            app.dragging_waypoint = response
+                .interact_pointer_pos()
+                .map(to_galaxy)
+                .and_then(|(x, y)| app.waypoint_at(x, y, f64::from(8.0 / scale)));
+        }
+        if response.dragged() {
+            if let (Some(waypoint), Some(p)) =
+                (app.dragging_waypoint, response.interact_pointer_pos())
+            {
+                let (x, y) = to_galaxy(p);
+                app.move_waypoint(waypoint, x, y);
+            }
+        }
+        if response.drag_stopped() {
+            app.dragging_waypoint = None;
+        }
+        if response.clicked() {
+            if let Some(p) = response.interact_pointer_pos() {
+                let (x, y) = to_galaxy(p);
+                app.add_waypoint(x, y);
+            }
+        }
+    } else if let Some(id) = clicked {
         app.selection.planet = Some(id);
     }
 
@@ -332,6 +368,9 @@ fn toolbar(app: &mut App, ui: &mut egui::Ui) {
             .on_hover_text("Ship Counts Overlay");
         ui.toggle_value(&mut overlays.idle_fleets, "idle")
             .on_hover_text("Idle Fleets Filter");
+        ui.separator();
+        ui.toggle_value(&mut app.add_waypoints, "add wp")
+            .on_hover_text("Add Way Points Mode: click the map to give the selected fleet a leg");
         ui.separator();
         // Nine steps, from a quarter size to four times.
         if ui.small_button("−").on_hover_text("Zoom Menu").clicked() {

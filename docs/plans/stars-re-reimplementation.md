@@ -1349,7 +1349,38 @@ disagree.
     dialog, the scale bar, and clicking one spot repeatedly to cycle through
     what is on it.
 
-40. **What is still missing to call it playable.** Every waypoint task is now
+40. ~~**Waypoint dragging.**~~ **Done** — how a player actually gives orders in
+    Stars!, and the last big piece of the scanner. Same spec.
+
+    `Add Way Points Mode` turns the map from something you look at into
+    something you give orders with: a click appends a leg to the selected
+    fleet, and a drag that starts on one of its waypoints moves it. Every edit
+    writes the order record the real client writes, so a host replaying the log
+    reaches the same orders — the test drags three legs, moves one, deletes
+    one, saves, and replays the log into a fresh host state to check it lands
+    the same.
+
+    **The client picks the warp**, and that rule is the recovery worth having.
+    `IFindIdealWarp` gives the fleet's cruising speed: the fastest warp under
+    **121% fuel**, backed off to a **free** warp if one lies one to three steps
+    below — the difference is not worth the fuel — and capped at 9 for every
+    engine but the five that can hold warp 10. Then `IWarpBestForWaypoint`
+    finishes with the rule that decides most legs:
+
+        years = ceil(distance / warp²)
+        while warp > 2 and ceil(distance / (warp-1)²) == years: warp -= 1
+
+    **Never fly faster than you need to arrive in the same year.** At a hundred
+    light years warp 9 and warp 8 both arrive in two, and warp 7 does not, so
+    the answer is 8; at ninety-eight it is 7. Writing the test taught me my own
+    arithmetic was wrong before it taught me anything about the game — I had
+    expected 7 at a hundred, and 7 × 7 × 2 is 98.
+
+    Not reproduced in the warp rule, and said so: the push *up* for a
+    comfortable leg to somebody else's planet, the ram-scoop and stargate
+    special cases, and the AI's own ceiling.
+
+41. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -1364,10 +1395,10 @@ disagree.
       scaling and shield absorption.
     - A loaded state file still cannot carry structural fleet changes back —
       the game does not either; the order log does.
-    - **The scanner's own tools**: waypoint dragging, the measuring tape, the
-      Find dialog, and the design and enemy-class filters — the map's controls
-      and geometry are the original's now, but these are the things you *do*
-      with it.
+    - **The scanner's remaining tools**: the measuring tape, the Find dialog,
+      and the design and enemy-class filters.
+    - **Waypoint tasks from the map**: a leg can be dragged out, but the task
+      it carries is still set from the Fleets screen.
     - **`PLANET.turn`**, the stamp saying when a planet was last seen, which
       the survey pane wants for its report-age line.
 

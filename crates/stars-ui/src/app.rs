@@ -227,6 +227,11 @@ pub struct App {
     pub scan_view: ScanView,
     /// The scanner's overlays and filters.
     pub scan_overlays: ScanOverlays,
+    /// `Add Way Points Mode`: whether clicking the map gives the selected
+    /// fleet orders instead of selecting what is under the pointer.
+    pub add_waypoints: bool,
+    /// Which waypoint a drag is moving, while one is under way.
+    pub dragging_waypoint: Option<usize>,
     /// Which message the pane is showing — the original's `iMsgCur`.
     ///
     /// `-1` means the pane is at the start of the list and showing nothing,
@@ -1854,6 +1859,214 @@ impl App {
                 format!("{name} ({ships})")
             })
             .collect()
+    }
+
+    // --- Waypoint dragging -------------------------------------------------
+    //
+    // `FAddWayPoint` (`1058:7504`) and `FHandleWayPointDrag` (`1058:8176`):
+    // giving a fleet its orders by dragging on the map. See
+    // `docs/ui/scanner.md`.
+
+    /// The warp the client suggests for a leg of this length.
+    ///
+    /// The fleet's cruising speed ([`stars_core::movement::ideal_warp`]),
+    /// slowed as far as it can go without arriving any later
+    /// ([`stars_core::movement::settle_warp`]).
+    #[must_use]
+    pub fn suggested_warp(&self, fleet: usize, distance: i32) -> u8 {
+        let Some(game) = self.game.as_ref() else {
+            return 5;
+        };
+        let Some(record) = game.fleets.get(fleet) else {
+            return 5;
+        };
+        let designs = usize::try_from(record.owner)
+            .ok()
+            .and_then(|owner| game.designs.get(owner))
+            .map_or(&[][..], Vec::as_slice);
+        let ideal = stars_core::movement::ideal_warp(&record.stacks, designs, false);
+        if ideal <= 0 {
+            return 0;
+        }
+        u8::try_from(stars_core::movement::settle_warp(ideal, distance).clamp(0, 15)).unwrap_or(5)
+    }
+
+    /// Add a waypoint to the selected fleet, at a point on the map.
+    ///
+    /// This is what dragging from a fleet does: the leg is appended to whatever
+    /// orders it already has, at the warp the client suggests, and the order
+    /// log gets the insert the real client writes.
+    ///
+    /// Returns whether a waypoint was added.
+    pub fn add_waypoint(&mut self, x: i16, y: i16) -> bool {
+        let Some(index) = self.selection.fleet else {
+            return false;
+        };
+        let me = self.local_player();
+        let at = stars_core::movement::Point::new(x, y);
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        let Some(fleet) = game.fleets.get(index) else {
+            return false;
+        };
+        // Only your own fleets take orders.
+        if usize::try_from(fleet.owner).is_ok_and(|owner| owner != me) {
+            return false;
+        }
+        let from = fleet
+            .waypoints
+            .last()
+            .map_or(fleet.position, |w| w.position);
+        #[allow(clippy::cast_possible_truncation)]
+        let distance = stars_core::movement::distance(from, at) as i32;
+        if distance <= 0 {
+            return false;
+        }
+        let warp = self.suggested_warp(index, distance);
+        // A waypoint on a planet names it, which is what makes a task there
+        // possible at all.
+        let target = game
+            .planets
+            .iter()
+            .chain(game.known_planets.iter())
+            .find(|p| p.position == Some(at))
+            .map(|p| p.id);
+
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let Some(fleet) = game.fleets.get_mut(index) else {
+            return false;
+        };
+        fleet.waypoints.push(stars_core::fleet::Waypoint {
+            position: at,
+            target: target.and_then(|id| u16::try_from(id).ok()),
+            target_class: if target.is_some() { 1 } else { 4 },
+            warp,
+            task: stars_formats::task::NONE,
+            transport: None,
+            task_data: Vec::new(),
+        });
+        let last = fleet.waypoints.len() - 1;
+        if fleet.waypoints.len() == 2 {
+            fleet.warp = Some(warp);
+        }
+        self.log_waypoint(index, last, true);
+        self.dirty = true;
+        true
+    }
+
+    /// Move one of the selected fleet's waypoints, as dragging it does.
+    ///
+    /// Waypoint 0 is where the fleet is and cannot be dragged. Returns whether
+    /// anything moved.
+    pub fn move_waypoint(&mut self, waypoint: usize, x: i16, y: i16) -> bool {
+        let Some(index) = self.selection.fleet else {
+            return false;
+        };
+        if waypoint == 0 {
+            return false;
+        }
+        let me = self.local_player();
+        let at = stars_core::movement::Point::new(x, y);
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        let Some(fleet) = game.fleets.get(index) else {
+            return false;
+        };
+        if usize::try_from(fleet.owner).is_ok_and(|owner| owner != me)
+            || waypoint >= fleet.waypoints.len()
+        {
+            return false;
+        }
+        let from = fleet.waypoints[waypoint - 1].position;
+        #[allow(clippy::cast_possible_truncation)]
+        let distance = stars_core::movement::distance(from, at) as i32;
+        let warp = self.suggested_warp(index, distance.max(1));
+        let target = game
+            .planets
+            .iter()
+            .chain(game.known_planets.iter())
+            .find(|p| p.position == Some(at))
+            .map(|p| p.id);
+
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let Some(fleet) = game.fleets.get_mut(index) else {
+            return false;
+        };
+        let leg = &mut fleet.waypoints[waypoint];
+        leg.position = at;
+        leg.target = target.and_then(|id| u16::try_from(id).ok());
+        leg.target_class = if target.is_some() { 1 } else { 4 };
+        leg.warp = warp;
+        if waypoint == 1 {
+            fleet.warp = Some(warp);
+        }
+        self.log_waypoint(index, waypoint, false);
+        self.dirty = true;
+        true
+    }
+
+    /// Drop one of the selected fleet's waypoints.
+    ///
+    /// Returns whether one went.
+    pub fn delete_waypoint(&mut self, waypoint: usize) -> bool {
+        let Some(index) = self.selection.fleet else {
+            return false;
+        };
+        if waypoint == 0 {
+            return false;
+        }
+        let me = self.local_player();
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let Some(fleet) = game.fleets.get_mut(index) else {
+            return false;
+        };
+        if usize::try_from(fleet.owner).is_ok_and(|owner| owner != me)
+            || waypoint >= fleet.waypoints.len()
+        {
+            return false;
+        }
+        let fleet_word = (u16::try_from(fleet.owner.max(0)).unwrap_or(0) << 9) | (fleet.id & 0x1ff);
+        fleet.waypoints.remove(waypoint);
+        if fleet.waypoints.len() < 2 {
+            fleet.warp = None;
+        }
+        self.orders.push(stars_formats::LogRecord::delete_waypoint(
+            stars_formats::FleetOrderDelete {
+                fleet_id: fleet_word,
+                order_index: u16::try_from(waypoint).unwrap_or(1),
+                delete_extra: false,
+            },
+        ));
+        self.dirty = true;
+        true
+    }
+
+    /// Which of the selected fleet's waypoints is at a point, if any
+    /// (`FNearAWayPoint`, `1058:8074`).
+    ///
+    /// `tolerance` is in galaxy units; the original works in screen pixels and
+    /// converts, which comes to the same thing.
+    #[must_use]
+    pub fn waypoint_at(&self, x: i16, y: i16, tolerance: f64) -> Option<usize> {
+        let fleet = self.selection.fleet?;
+        let game = self.game.as_ref()?;
+        let record = game.fleets.get(fleet)?;
+        let at = stars_core::movement::Point::new(x, y);
+        record
+            .waypoints
+            .iter()
+            .enumerate()
+            .skip(1)
+            .find(|(_, w)| stars_core::movement::distance(w.position, at) <= tolerance)
+            .map(|(index, _)| index)
     }
 
     // --- The scanner -------------------------------------------------------

@@ -71,13 +71,47 @@ planet stored near `y = 0` appears at the *bottom* of the scanner.
 There is also a `Scanner Effective %` slider (`vpctRadarView`) and a
 `Zoom Menu`.
 
+## Giving orders by dragging
+
+`Add Way Points Mode` turns the map from something you look at into something
+you give orders with: a click appends a leg to the selected fleet
+(`FAddWayPoint`, `1058:7504`), and a drag that starts on one of that fleet's
+existing waypoints moves it instead (`FHandleWayPointDrag`, `1058:8176`,
+finding the waypoint with `FNearAWayPoint`, `1058:8074`). Waypoint 0 is where
+the fleet *is* and cannot be dragged.
+
+**The client picks the warp for you**, and the rule is worth having in full.
+
+`IFindIdealWarp` (`1050:a76e`) gives the fleet's cruising speed: the fastest
+warp at which the engine burns **less than 121%** fuel, backed off to a **free**
+warp (zero fuel) if one lies one, two or three steps below — the difference is
+not worth the fuel — and capped at warp 9 for every engine but the five that can
+hold warp 10 (Interspace-10, the Enigma Pulsar, Trans-Star 10, and the
+Trans-Galactic Mizer and Galaxy scoops). A design with no engine answers 0, and
+the fleet takes the lowest answer aboard.
+
+`IWarpBestForWaypoint` (`1058:7a18`) then works from that. It will push the
+speed *up* when the leg is going somewhere that is not the player's own planet
+and the fuel is comfortable, and it walks it back *down* while the fuel does not
+fit. Last of all comes the rule that decides most legs:
+
+```
+years = ceil(distance / warp²)
+while warp > 2 and ceil(distance / (warp − 1)²) == years:
+    warp -= 1
+```
+
+— **never fly faster than you need to arrive in the same year.** At a hundred
+light years, warp 9 and warp 8 both arrive in two years and warp 7 does not, so
+the answer is warp 8; at ninety-eight it is warp 7. A leg the fleet can take
+through a stargate is warp 11, the pseudo-warp that means "use the gate".
+
 ## What else the window does
 
 Named here because they are the scanner's, and are not reproduced:
-`FAddWayPoint` and `FHandleWayPointDrag` (building a fleet's orders by dragging
-on the map), `FHandleMeasuringTape` (measuring a distance), `FGetNextObjHere`
-(clicking the same spot again to cycle through everything on it), `FindDlg`
-(the Find dialog), `DrawScannerSBar` (the scale bar), `DrawLockLight`, and
+`FHandleMeasuringTape` (measuring a distance), `FGetNextObjHere` (clicking the
+same spot again to cycle through everything on it), `FindDlg` (the Find dialog),
+`DrawScannerSBar` (the scale bar), `DrawLockLight`, and
 `GetScanFleetOrientation` (which way a fleet's arrow points).
 
 ## What this project does
@@ -86,12 +120,18 @@ on the map), `FHandleMeasuringTape` (measuring a distance), `FGetNextObjHere`
 
 Reproduced: the nine zoom steps with the original's shift arithmetic; the y
 flip; all six views and their names; the names, scanner coverage, mine fields,
-fleet paths, ship counts and idle-fleets overlays; and click-to-select.
+fleet paths, ship counts and idle-fleets overlays; click-to-select; and
+**waypoint dragging** — adding a leg, moving one, dropping one, and the warp the
+client suggests, both halves of it. Every edit writes the order record the real
+client writes, so a host replaying the log reaches the same orders.
+
+Not reproduced in the warp rule: the push *up* for a comfortable leg to
+somebody else's planet, which needs the fuel model applied leg by leg; the
+ram-scoop and stargate special cases; and the AI's own ceiling.
 
 Not reproduced: the artwork — the original draws planets, fleets and objects as
 bitmaps where this draws dots and marks, and the mineral views as small wedges
 where this colours the dot by whichever mineral reads highest; scrolling with
 `xScanTop`/`yScanTop` (the map is fitted to the panel and zoomed about its
-centre); the design and enemy-class filters; the waypoint dragging; the
-measuring tape; the Find dialog; the scale bar; and cycling through objects at
-one point.
+centre); the design and enemy-class filters; the measuring tape; the Find
+dialog; the scale bar; and cycling through objects at one point.
