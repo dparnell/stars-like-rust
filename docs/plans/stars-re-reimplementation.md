@@ -915,8 +915,35 @@ disagree.
     left unmodelled is inside the damage step: the interval merging, the
     engine-count scaling and shield absorption.
 
-24. **What is still missing to call it playable.** Patrol and giving a fleet
-    away can be set but are not simulated; a loaded state file cannot carry
+24. ~~**The patrol task.**~~ **Done.** The forty patrol waypoints in the
+    corpus all carry an **all-zero payload**, which turned out to be the answer
+    rather than a dead end: the payload is the patrol's warp and range, and
+    zero means the defaults — fifty light years.
+
+    Patrol is not run by `SatisfyOrders` at all. It runs while each player's
+    turn file is **written**, because what a patrol does is decided from that
+    player's own view; this engine runs it at the end of a generated year.
+    `FCheckPatrolWP` (`10f8:71ac`), a tutorial checker rather than the
+    implementation, is what gives away where the range lives: `ORDER + 0x0a`.
+
+    The search takes the nearest enemy fleet the battle plan will attack and
+    that matches its primary target class, preferring one no other patroller
+    has claimed this pass, within `iDist × 50 + 50` light years — the tenth
+    setting meaning *as far as it takes*.
+
+    Two rules came out of it that combat will want as well: **who a fleet will
+    attack** (`FAttackPlayer`, `10f0:ae06`) reads the "attack who" byte of its
+    battle plan against its owner's relations, and **what counts as a target**
+    (`FMatchTarget`, `1038:6612`) classifies by the **hull's** category rather
+    than by what is fitted to it.
+
+    Fixed while in there: the arrival-task pass was cancelling any task on a
+    fleet that was not orbiting a planet, which would have quietly killed a
+    patrol or a minefield order in deep space. Only colonise and transport
+    need a planet.
+
+25. **What is still missing to call it playable.** Giving a fleet away can be
+    set but is not simulated; a loaded state file cannot carry
     structural fleet changes back (the game does not either — the order log
     does); and neither generation nor the writers carry wormholes, the Mystery
     Trader, messages, battle recordings or scores, all of which live in

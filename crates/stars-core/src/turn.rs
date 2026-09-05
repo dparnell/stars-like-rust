@@ -96,6 +96,8 @@ pub struct TurnReport {
     pub mines_decayed: Vec<(u16, i16, i32)>,
     /// Mines swept, as `(field id, owner, mines)`.
     pub mines_swept: Vec<(u16, i16, i32)>,
+    /// Interceptions a patrol ordered, as `(patrolling fleet, target fleet)`.
+    pub patrols: Vec<(u16, u16)>,
     /// Pipeline steps not performed, and therefore not reflected above.
     pub skipped: Vec<SkippedStep>,
 }
@@ -329,6 +331,11 @@ pub fn generate_turn_with_orders(
     // --- SweepForMines, which the original runs late, after the second pass
     // of orders: everything armed with beams clears what it is sitting in.
     report.mines_swept = sweep_minefields(state);
+
+    // --- Patrol: every patrolling fleet looks for something to intercept.
+    // The original does this as it writes each player's file, after everything
+    // else has happened, because a patrol is decided from that player's view.
+    report.patrols = crate::patrol::patrol(state);
 
     // --- AutoTerraform: the Claim Adjuster's free terraforming, which the
     // pipeline runs after Produce. It is a no-op for every other race.

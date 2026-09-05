@@ -1,7 +1,7 @@
 # Waypoint tasks
 
-Status: **in progress** — six of the ten tasks are simulated. Patrol and Give
-are not; the other two are "none" and Transport.
+Status: **in progress** — seven of the ten tasks are simulated. Only Give is
+not.
 
 A waypoint carries a task in the low nibble of its flags word (`ORDER.grTask`,
 see [`waypoint.md`](../formats/waypoint.md)), performed when the fleet reaches
@@ -18,7 +18,7 @@ pass it belongs to.
 | 4 | Merge | even | simulated |
 | 5 | Scrap | 1 | simulated |
 | 6 | Lay Minefield | 3 | simulated (`minefields.md`) |
-| 7 | Patrol | — | not decoded |
+| 7 | Patrol | end of turn | simulated |
 | 8 | Route | 4 | simulated |
 | 9 | Give | 4 | **not performed** |
 
@@ -112,15 +112,49 @@ lay-mines waypoints in the fixtures hold `(5, 5)`: everybody chose
 from. Keeping that payload through a load and a save is why
 `stars_core::fleet::Waypoint` carries the task's raw bytes.
 
-## Patrol (7) — not decoded
+## Patrol (7)
 
-Forty waypoints in the corpus, and their payload is **all zeros** in every one,
-so the patrol range is not in the `ORDER` union where the transport
-instructions live. `FCheckPatrolWP` (`10f8:71ac`) takes `(ifl, iord, id, iWarp,
-iPlan, iDist)`, so a range does exist somewhere; the waypoint's own warp is set
-(7 in most of the fixtures) and the target class varies between planet, fleet
-and none. Performing it needs both that parameter and the interception search
-that picks a target, neither of which is recovered yet.
+Forty waypoints in the corpus, every one of them with an **all-zero payload**,
+which turns out to be the answer rather than a dead end: the payload is the
+patrol's warp and range, and zero means the defaults.
+
+The task is not run by `SatisfyOrders` at all. It is run while each player's
+turn file is **written**, because what a patrol does is decided from that
+player's own view of the galaxy; this engine runs it at the end of a generated
+year, which is the same moment.
+
+`FCheckPatrolWP` (`10f8:71ac`) — a tutorial check, not the implementation —
+gives away where the range lives: `ORDER + 0x0a`, the second word of the task
+union. The first word is the patrol's warp. The rules are in `save.c`:
+
+- **A fleet inherits the patrol.** If the first waypoint has no task but the
+  second patrols, the first takes the task and both its settings.
+- **A fleet already chasing a fleet is left alone.**
+- **The search.** Every other player's fleet is considered from where the
+  patroller is — or, for a fleet in deep space with repeat orders, from where
+  it is *going*. A candidate must be one the fleet's battle plan will attack
+  (`FAttackPlayer`, `10f0:ae06`) and must match the plan's **primary target
+  class** (`FMatchTarget`, `1038:6612`).
+- **One patroller per target.** A target nobody has claimed this pass beats a
+  nearer one that somebody has, and the chosen target is claimed.
+- **The range** is `iDist × 50 + 50` light years, except that the tenth
+  setting, which would be 550, means *as far as it takes*. Every patrol in the
+  fixtures is set to `0`, so fifty light years.
+- If the best target is inside the range, a waypoint naming that **fleet** is
+  inserted after the first, and the player is told.
+
+Two rules worth having on their own, because combat wants them too:
+
+**Who a fleet will attack** (`FAttackPlayer`): the "attack who" byte of its
+battle plan decides — `0` nobody, `1` enemies, `2` anyone who is not a friend,
+`3` everyone, `4 + n` only player `n` — against the fleet owner's own relations
+table.
+
+**What counts as a target** (`FMatchTarget`): the **hull's** category, not what
+is fitted to it. `1` is a freighter, `2..=4` the armed hulls, `5` a bomber and
+`7` a fuel transport; "unarmed ships" means a fleet with no armed hull in it.
+The original also takes an "exact" flag, and with it clear — which is how the
+patrol search calls it — anything matches None, Any or Starbase.
 
 ## Give (9) — not performed
 

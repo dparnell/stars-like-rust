@@ -227,6 +227,8 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 stars_formats::task::REMOTE_MINING,
                 stars_formats::task::SCRAP,
                 stars_formats::task::ROUTE,
+                stars_formats::task::LAY_MINES,
+                stars_formats::task::PATROL,
             ] {
                 if ui
                     .selectable_label(current == id, stars_formats::task::name(id))
@@ -266,11 +268,12 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         }
         ui.label(
             egui::RichText::new(
-                "Colonise, transport, scrap and route are performed on arrival, and \
-                 remote mining in its own pass. Merging into another fleet is a task \
-                 too, but it needs a fleet to merge into, so it is set from the list \
-                 below rather than here. Laying mines, patrolling and giving a fleet \
-                 away can be set but are not simulated.",
+                "Colonise, transport, scrap and route are performed on arrival; \
+                 remote mining and laying mines in their own passes; patrol at the \
+                 end of the year. Merging into another fleet is a task too, but it \
+                 needs a fleet to merge into, so it is set from the list below \
+                 rather than here. Giving a fleet away can be set but is not \
+                 simulated.",
             )
             .weak()
             .small(),

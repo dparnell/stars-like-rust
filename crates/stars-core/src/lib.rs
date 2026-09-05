@@ -63,6 +63,7 @@ pub mod movement;
 pub mod newgame;
 pub mod opponents;
 pub mod orders;
+pub mod patrol;
 pub mod planet;
 pub mod population;
 pub mod production;

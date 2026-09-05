@@ -475,11 +475,16 @@ pub fn execute_arrival_tasks(state: &mut GameState) -> (Vec<(u16, u8)>, Vec<Colo
                 state.fleets[index].waypoints[0].task = task::NONE;
                 continue;
             }
-            _ => {}
+            // Everything else is somebody else's pass: remote mining and
+            // laying mines run later in the year, patrol at the end of it, and
+            // giving a fleet away is not modelled. None of them is cancelled
+            // here, and none of them needs a planet.
+            task::COLONIZE | task::TRANSPORT => {}
+            _ => continue,
         }
         let Some(orbiting) = fleet.orbiting else {
-            // A task needs somewhere to perform it; in deep space the original
-            // reports the mistake and cancels the order.
+            // Colonising and transporting need somewhere to do it; in deep
+            // space the original reports the mistake and cancels the order.
             state.fleets[index].waypoints[0].task = task::NONE;
             continue;
         };
@@ -531,8 +536,7 @@ pub fn execute_arrival_tasks(state: &mut GameState) -> (Vec<(u16, u8)>, Vec<Colo
                     }
                 }
             }
-            // Recognised but not performed here: remote mining runs in its own
-            // pass, and the rest are not modelled.
+            // The match above only lets these two through.
             _ => continue,
         }
         state.fleets[index].waypoints[0].task = task::NONE;
@@ -892,6 +896,29 @@ mod tests {
         assert!(drops.is_empty(), "own planet: {drops:?}");
         // The colonists still arrive; they are simply added to the population.
         assert_eq!(state.planets[0].pop, 125);
+    }
+
+    /// A task that has nothing to do with a planet is not cancelled for want of
+    /// one: laying mines and patrolling both happen in deep space.
+    #[test]
+    fn a_deep_space_task_survives_the_arrival_pass() {
+        use stars_formats::task;
+
+        for job in [task::LAY_MINES, task::PATROL, task::REMOTE_MINING] {
+            let mut state = game();
+            state.planets = vec![Planet::unowned(1)];
+            let mut mine = fleet(0, 3, Cargo::default());
+            mine.orbiting = None;
+            mine.waypoints[0].task = job;
+            state.fleets = vec![mine];
+
+            let (done, _) = execute_arrival_tasks(&mut state);
+            assert!(done.is_empty(), "task {job} is settled elsewhere");
+            assert_eq!(
+                state.fleets[0].waypoints[0].task, job,
+                "task {job} is still there"
+            );
+        }
     }
 
     /// A Merge task moves the fleet into the one its waypoint names, and the
