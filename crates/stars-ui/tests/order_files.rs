@@ -1318,3 +1318,57 @@ fn the_fleet_pane_reports_a_fleet() {
 
     let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
 }
+
+/// The scanner's zoom is the original's nine steps, applied as its own integer
+/// arithmetic rather than as a percentage.
+#[test]
+fn the_scanner_zooms_the_way_the_original_does() {
+    use stars_ui::{App, ScanView};
+
+    let mut app = App::new();
+    assert_eq!(app.scan_zoom, 0);
+    assert_eq!(app.scan_zoom_percent(), 100);
+    assert_eq!(app.scan_scale(1000), 1000);
+
+    // Out to the smallest, one step at a time.
+    let mut percents = vec![app.scan_zoom_percent()];
+    for _ in 0..8 {
+        app.scan_zoom_by(-1);
+        percents.push(app.scan_zoom_percent());
+    }
+    assert_eq!(percents, vec![100, 75, 50, 38, 25, 25, 25, 25, 25]);
+    assert_eq!(app.scan_zoom, -4, "it stops at the end");
+    // A quarter, by a shift.
+    assert_eq!(app.scan_scale(1000), 250);
+
+    // And in to the largest.
+    app.scan_zoom_by(8);
+    assert_eq!(app.scan_zoom, 4);
+    assert_eq!(app.scan_zoom_percent(), 400);
+    assert_eq!(app.scan_scale(1000), 4000);
+
+    // The table and the arithmetic disagree at 38%, which is really three
+    // eighths — the original shifts rather than multiplying by the percentage.
+    app.scan_zoom = -3;
+    assert_eq!(app.scan_zoom_percent(), 38);
+    assert_eq!(app.scan_scale(1000), 375, "three eighths, not 38%");
+
+    // The map is drawn upside down: `LogicalToScan` mirrors y.
+    app.scan_zoom = 0;
+    assert_eq!(app.logical_to_scan(100, 0, 1000), (100, 1000));
+    assert_eq!(app.logical_to_scan(100, 1000, 1000), (100, 0));
+
+    // And the six views are the original's six.
+    let names: Vec<&str> = ScanView::ALL.iter().map(|v| v.name()).collect();
+    assert_eq!(
+        names,
+        vec![
+            "Normal View",
+            "Surface Mineral View",
+            "Mineral Concentration View",
+            "Planet Value View",
+            "Population View",
+            "No Player Info View",
+        ]
+    );
+}

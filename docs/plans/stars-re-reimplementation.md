@@ -1323,7 +1323,33 @@ disagree.
     the fuel and cargo gauges, and the Battle Plans, Jettison and Xfer buttons,
     whose dialogs do not exist here yet.
 
-39. **What is still missing to call it playable.** Every waypoint task is now
+39. ~~**The scanner.**~~ **Controls and geometry taken from the original.**
+    `docs/ui/scanner.md` is the spec.
+
+    Two pieces of geometry came out of the binary and neither was guessable.
+    **Zoom** has nine steps, and `vrgpctZoom` labels them 25, 38, 50, 75, 100,
+    125, 150, 200 and 400 per cent — but `PtToScan` does not multiply by those
+    numbers, it *shifts*: `(d * 3) >> 3` for the one the menu calls 38%, which
+    is really three eighths. The percentages are labels; the shifts are the
+    geometry, and they truncate.
+
+    And **the map is drawn upside down**: `LogicalToScan` mirrors the galaxy's
+    y about the universe's height before scaling, so a planet stored near y=0
+    appears at the bottom of the scanner. This project had been drawing it the
+    other way up.
+
+    The toolbar is recovered whole: six exclusive views — Normal, Surface
+    Mineral, Mineral Concentration, Planet Value, Population, No Player Info —
+    and the overlays and filters beside them, all named as the original names
+    them. Six of those overlays are implemented.
+
+    Not reproduced, and listed in the spec: the artwork (dots and marks where
+    the original has bitmaps), scrolling by `xScanTop`/`yScanTop`, the design
+    and enemy-class filters, waypoint dragging, the measuring tape, the Find
+    dialog, the scale bar, and clicking one spot repeatedly to cycle through
+    what is on it.
+
+40. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -1338,9 +1364,10 @@ disagree.
       scaling and shield absorption.
     - A loaded state file still cannot carry structural fleet changes back —
       the game does not either; the order log does.
-    - **The scanner.** The four panes down the left are taken from the
-      original now; the map itself is still this project's own, and is the
-      biggest screen left to do that way.
+    - **The scanner's own tools**: waypoint dragging, the measuring tape, the
+      Find dialog, and the design and enemy-class filters — the map's controls
+      and geometry are the original's now, but these are the things you *do*
+      with it.
     - **`PLANET.turn`**, the stamp saying when a planet was last seen, which
       the survey pane wants for its report-age line.
 

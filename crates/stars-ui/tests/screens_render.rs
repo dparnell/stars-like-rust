@@ -38,6 +38,69 @@ fn draw(app: &mut App, screen: Screen) {
     });
 }
 
+/// Every scanner view and overlay lays out, on a real universe.
+#[test]
+fn every_scanner_view_draws() {
+    let root = workspace_root().join("fixtures/games");
+    if !root.is_dir() {
+        eprintln!("skipping: no fixtures");
+        return;
+    }
+    let Some(save) = first_save(&root) else {
+        eprintln!("skipping: no save files");
+        return;
+    };
+    let mut app = App::new();
+    if app.open(&save).is_err() {
+        eprintln!("skipping: {} did not open", save.display());
+        return;
+    }
+
+    for view in stars_ui::ScanView::ALL {
+        app.scan_view = view;
+        for zoom in -4..=4 {
+            app.scan_zoom = zoom;
+            draw(&mut app, Screen::Galaxy);
+        }
+    }
+    // And every overlay at once, which is the busiest the map ever is.
+    app.scan_overlays = stars_ui::ScanOverlays {
+        names: true,
+        scanner_coverage: true,
+        minefields: true,
+        fleet_paths: true,
+        ship_counts: true,
+        idle_fleets: true,
+    };
+    draw(&mut app, Screen::Galaxy);
+}
+
+/// The first save file under a directory, for the tests that need only one.
+fn first_save(root: &Path) -> Option<PathBuf> {
+    let mut stack = vec![root.to_path_buf()];
+    let mut found: Vec<PathBuf> = Vec::new();
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().is_some_and(|x| {
+                let x = x.to_string_lossy().to_lowercase();
+                x.starts_with('m') && x.len() == 2
+            }) {
+                found.push(path);
+            }
+        }
+    }
+    found.sort();
+    found.into_iter().next()
+}
+
 /// With nothing loaded, every screen still lays out.
 #[test]
 fn the_title_screen_draws_with_no_game() {

@@ -113,6 +113,67 @@ pub struct Selection {
     pub fleet: Option<usize>,
 }
 
+/// The scanner's six views, named as the original's toolbar names them
+/// (`idsNormalView` and the five after it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScanView {
+    /// Planets by who holds them.
+    #[default]
+    Normal,
+    /// What is on each planet's surface.
+    SurfaceMineral,
+    /// What is in the ground.
+    MineralConcentration,
+    /// How good each planet is for this race.
+    PlanetValue,
+    /// How many people live there.
+    Population,
+    /// The map with everybody's colours taken off.
+    NoPlayerInfo,
+}
+
+impl ScanView {
+    /// Every view, in the order the toolbar has them.
+    pub const ALL: [Self; 6] = [
+        Self::Normal,
+        Self::SurfaceMineral,
+        Self::MineralConcentration,
+        Self::PlanetValue,
+        Self::Population,
+        Self::NoPlayerInfo,
+    ];
+
+    /// The toolbar's own name for the view.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Normal => "Normal View",
+            Self::SurfaceMineral => "Surface Mineral View",
+            Self::MineralConcentration => "Mineral Concentration View",
+            Self::PlanetValue => "Planet Value View",
+            Self::Population => "Population View",
+            Self::NoPlayerInfo => "No Player Info View",
+        }
+    }
+}
+
+/// The scanner's overlays and filters, each a toolbar toggle of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ScanOverlays {
+    /// `Planet Names Overlay`.
+    pub names: bool,
+    /// `Scanner Coverage Overlay`.
+    pub scanner_coverage: bool,
+    /// `Mine Fields Overlay`.
+    pub minefields: bool,
+    /// `Fleet Paths Overlay`.
+    pub fleet_paths: bool,
+    /// `Ship Counts Overlay`.
+    pub ship_counts: bool,
+    /// `Idle Fleets Filter`: show only the fleets with nothing to do.
+    pub idle_fleets: bool,
+}
+
 /// What the survey pane is looking at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SurveySubject {
@@ -160,6 +221,12 @@ pub struct App {
     pub screen: Screen,
     /// What is selected.
     pub selection: Selection,
+    /// The scanner's zoom, `-4..=4` (`iScanZoom`). Zero is life size.
+    pub scan_zoom: i8,
+    /// Which of the scanner's six views is showing.
+    pub scan_view: ScanView,
+    /// The scanner's overlays and filters.
+    pub scan_overlays: ScanOverlays,
     /// Which message the pane is showing — the original's `iMsgCur`.
     ///
     /// `-1` means the pane is at the start of the list and showing nothing,
@@ -1787,6 +1854,59 @@ impl App {
                 format!("{name} ({ships})")
             })
             .collect()
+    }
+
+    // --- The scanner -------------------------------------------------------
+    //
+    // `ScannerWndProc` (`1058:0032`) and `DrawScanner` (`1058:108a`). The map
+    // itself; see `docs/ui/scanner.md`.
+
+    /// The zoom percentages, `vrgpctZoom` (`1068:0da4`) verbatim: nine levels
+    /// from a quarter size to four times.
+    pub const ZOOM_PERCENT: [i16; 9] = [25, 38, 50, 75, 100, 125, 150, 200, 400];
+
+    /// What the current zoom shows, in per cent.
+    #[must_use]
+    pub fn scan_zoom_percent(&self) -> i16 {
+        let index = usize::try_from(i32::from(self.scan_zoom) + 4).unwrap_or(4);
+        Self::ZOOM_PERCENT[index.min(8)]
+    }
+
+    /// Scale a distance from galaxy units to screen units (`PtToScan`,
+    /// `1058:0efc`).
+    ///
+    /// The original works in integers and shifts rather than multiplying by the
+    /// percentage, so the two disagree by a fraction at some zooms — 38% is
+    /// really three eighths. This is the shift arithmetic, not the table.
+    #[must_use]
+    pub fn scan_scale(&self, d: i32) -> i32 {
+        match self.scan_zoom {
+            1 => (d * 5) >> 2,
+            2 => (d * 3) >> 1,
+            3 => d << 1,
+            4 => d << 2,
+            -1 => (d * 3) >> 2,
+            -2 => d >> 1,
+            -3 => (d * 3) >> 3,
+            -4 => d >> 2,
+            _ => d,
+        }
+    }
+
+    /// Zoom in or out one step, stopping at the ends.
+    pub fn scan_zoom_by(&mut self, steps: i8) {
+        self.scan_zoom = (self.scan_zoom + steps).clamp(-4, 4);
+    }
+
+    /// Turn a galaxy position into a scanner one (`LogicalToScan`,
+    /// `1058:744e`).
+    ///
+    /// Note the **y flip**: the scanner mirrors the galaxy's y about the
+    /// universe's height, so a planet stored at the top of the file is drawn at
+    /// the bottom of the map.
+    #[must_use]
+    pub fn logical_to_scan(&self, x: i32, y: i32, height: i32) -> (i32, i32) {
+        (self.scan_scale(x), self.scan_scale(height - y))
     }
 
     // --- The fleet pane ----------------------------------------------------
