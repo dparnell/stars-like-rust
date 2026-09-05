@@ -1,0 +1,91 @@
+{
+  "$comment": [
+    "Golden vectors for rtLogFleetOrderAttrNib (.x record type 11), the one",
+    "order operation with no example anywhere in the fixture corpus: nothing in",
+    "stars.2.7j.exe writes it (all 24 WriteMemRt call sites push another type),",
+    "so these cases are read out of the replay arm the host runs for it, at",
+    "1048:c3f0, rather than out of a file. See docs/formats/orders-x.md.",
+    "Consumed by the vector test in crates/stars-core/src/replay.rs."
+  ],
+  "setup": {
+    "$comment": [
+      "One player, one fleet: object id 3, owner 0, two waypoints, both with no",
+      "task. Every case starts from that state and replays a log holding just",
+      "its own record."
+    ],
+    "fleet_id": 3,
+    "waypoints": 2
+  },
+  "replay": {
+    "source": "FRunLogRecord case rtLogFleetOrderAttrNib, 1048:c3f0-1048:c508; payload { int16_t id; int16_t iOrder; int16_t value; }",
+    "cases": [
+      {
+        "bytes": "030001000200",
+        "fleet_id": 3,
+        "order_index": 1,
+        "value": 2,
+        "accepted": true,
+        "task": 2,
+        "why": "the ordinary case: waypoint 1 is told to colonize on arrival"
+      },
+      {
+        "bytes": "030000000100",
+        "fleet_id": 3,
+        "order_index": 0,
+        "value": 1,
+        "accepted": true,
+        "task": 1,
+        "why": "Transport, the task whose payload the waypoint also carries"
+      },
+      {
+        "bytes": "030000000900",
+        "fleet_id": 3,
+        "order_index": 0,
+        "value": 9,
+        "accepted": true,
+        "task": 9,
+        "why": "Transfer (9) is the largest value the arm accepts: 1048:c46e tests value >= 10"
+      },
+      {
+        "bytes": "030000000a00",
+        "fleet_id": 3,
+        "order_index": 0,
+        "value": 10,
+        "accepted": false,
+        "why": "the first refused value, one past the end of the task enumeration"
+      },
+      {
+        "bytes": "030000000f00",
+        "fleet_id": 3,
+        "order_index": 0,
+        "value": 15,
+        "accepted": false,
+        "why": "a full nibble is still not a task"
+      },
+      {
+        "bytes": "030000001000",
+        "fleet_id": 3,
+        "order_index": 0,
+        "value": 16,
+        "accepted": false,
+        "why": "the bound is tested against the whole value word, before the & 0x0F, so a value whose nibble alone would read as 'no task' is refused"
+      },
+      {
+        "bytes": "030007000100",
+        "fleet_id": 3,
+        "order_index": 7,
+        "value": 1,
+        "accepted": false,
+        "why": "the fleet has no waypoint 7: 1048:c462 tests FLEET.cord <= iOrder"
+      },
+      {
+        "bytes": "050000000100",
+        "fleet_id": 5,
+        "order_index": 0,
+        "value": 1,
+        "accepted": false,
+        "why": "no such fleet: LpflFromId returns NULL and the arm gives up"
+      }
+    ]
+  }
+}

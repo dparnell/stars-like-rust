@@ -737,7 +737,31 @@ disagree.
     terraforming. `orders::apply_default_queue` does the same, and the player
     screen edits the queue.
 
-18. **What is still missing to call it playable.** The waypoint tasks beyond
+18. ~~**The `rtLogFleetOrderAttrNib` fixture gap.**~~ **Closed — by showing
+    there was no gap to fill.** Type 11 was the one order operation with no
+    example anywhere in the corpus, and its layout rested on the reconstructed
+    `log.c` alone. It is absent because **nothing in `stars.2.7j.exe` writes
+    it**: `WriteMemRt` (`1048:a130`) is the only routine that appends to the log
+    buffer, and all 24 of its call sites were read — 23 push a constant record
+    type, and the one computed type is picked from the three cargo-transfer
+    widths. No fixture can ever contain a type-11 record, so the operation was
+    re-derived from the host's replay arm at `1048:c3f0` instead, and pinned by
+    eight worked examples in `docs/vectors/order-attr-nib.json`.
+
+    Reading the arm rather than the reconstruction changed the decoder: the
+    original tests the value word against 10 **before** masking it, so `0x10` is
+    refused even though its nibble is a legal task. `FleetOrderTask` now keeps
+    the raw word — which also makes it round-trip bytes it did not write — and
+    the replay bound is the original's.
+
+    The same sweep of the call sites named a writer for every other operation
+    (the table in `docs/formats/orders-x.md`) and turned up two more record
+    types a client can log that this project does not model: `rtBtlPlan` (30),
+    a battle plan's own definition, and `rtChgPassword` (36). Neither appears in
+    any fixture either, but unlike 11 they have writers, so a real log could
+    carry one.
+
+19. **What is still missing to call it playable.** The waypoint tasks beyond
     colonise, transport and remote mining (scrap, lay minefield, patrol, route,
     transfer) can be set but are not simulated; a loaded state file cannot carry
     structural fleet changes back (the game does not either — the order log

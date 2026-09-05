@@ -113,8 +113,10 @@ these ids mean the **log** variant, distinct from the same id in a state file
 | 25 | `rtLogCargoXfer32`      | cargo transfer, int32 quantities             |
 | 27 | `rtLogShDef`            | create/update/delete a ship design           |
 | 29 | `rtLogPlanetProdQ`      | set/clear a planet's production queue         |
+| 30 | `rtBtlPlan`             | define one of the player's five battle plans |
 | 34 | `rtLogResearch`         | research settings                            |
 | 35 | `rtLogPlanetRouting`    | planet routing / starbase / infra bits       |
+| 36 | `rtChgPassword`         | change the player's password                 |
 | 37 | `rtLogFleetMerge`       | merge fleets                                 |
 | 38 | `rtLogRelations`        | player-relations table                       |
 | 42 | `rtLogFleetPlan`        | set a fleet's battle plan                    |
@@ -123,7 +125,43 @@ these ids mean the **log** variant, distinct from the same id in a state file
 | 46 | `rtLogPlayerZpq1`       | host-only opaque blob                        |
 
 All operation ids seen across the 40 exodus files classify to a known type (no
-`Other(_)`).
+`Other(_)`). Three of the ids above appear in **no** fixture: 30 and 36, because
+nobody in the sample redefined a battle plan or changed a password, and 11,
+because nothing writes it at all — see below.
+
+### Which routine writes each operation
+
+`WriteMemRt` (`1048:a130`) is the only routine that appends to the log buffer:
+it is what formats the two-byte `(rt << 10) | cb` header, copies the payload
+after it and advances the length at `[0x9a4]`. So the operations a 2.7j client
+can emit are exactly the record types its **24** call sites push, and those are:
+
+| id(s)      | written by                | call site(s)                          |
+|------------|---------------------------|---------------------------------------|
+| 1 / 2 / 25 | `LogMakeValidXfer`        | `1048:9f98`, width picked at `9e21` / `9ea1` / `9f16` |
+| 3, 4, 5    | `LogChangeFleet`          | `1048:91d3`, `9260`, `932f`           |
+| 10, 42     | `LogChangeFleet`          | `1048:90dc`, `908b`                   |
+| 23         | `LogMakeValidXferf`       | `1048:a0f9`                           |
+| 24         | `LogSplitFleet`           | `1048:8b5e`                           |
+| 27         | `LogChangeShDef`          | `1048:8cc1`, `8d1d`                   |
+| 29         | `LogChangePlanet`         | `1048:95c0`, `96fd`                   |
+| 30         | `WriteBattlePlan`         | `1070:8aae`                           |
+| 34         | `ResearchDlg`, `IroEnsureAi` | `10d8:0808`; `1090:430e`, `448c`, `45b5` |
+| 35         | `LogChangePlanet`         | `1048:98f9`                           |
+| 36         | `NewPasswordDlg`          | `1040:5ec7`                           |
+| 37         | `LogMergeFleet`           | `1048:8c0e`                           |
+| 38         | `LogChangeRelations`      | `1048:9394`                           |
+| 43         | `MineWndProc`             | `1028:0368`                           |
+| 44         | `LogChangeName`           | `1048:8e98`                           |
+| 46         | `FWriteLogFile`           | `1048:ce89`                           |
+
+Twenty-three sites push a constant type; the one computed type, in
+`LogMakeValidXfer`, is chosen from `{1, 2, 25}` — the three cargo-transfer
+widths — so the table is the whole of it. The `rtBOF` header (id 8) is not in it
+because `FWriteLogFile` lays that out itself rather than through `WriteMemRt`.
+
+`IroEnsureAi` is the only writer that is not driven by a person: an AI player's
+turn is logged the same way a human's is, and all it ever writes is research.
 
 ### Object ids encode the owner
 
@@ -304,11 +342,53 @@ fixtures.
 
 ### Waypoint task (`rtLogFleetOrderAttrNib`, id 11)
 
-`{ int16_t id; int16_t iOrder; int16_t value; }` — it sets the low nibble of one
-waypoint's flag word, which is `ORDER.grTask`. The replay refuses an order index
-the fleet does not have and a task above 9, the highest the enumeration defines;
-both checks are the original's. Decoded by [`FleetOrderTask`]. **No fixture
-contains one**, so it is decoded from the replay arm rather than from data.
+`{ int16_t id; int16_t iOrder; int16_t value; }` — the fleet, one of its
+waypoints, and a value whose low nibble becomes `ORDER.grTask`. The rest of the
+waypoint's flag word is left alone, which is what the name says: the operation
+writes a nibble, not a record.
+
+**No fixture contains one, and no fixture ever will: nothing in
+`stars.2.7j.exe` writes this operation.** Every one of the 24 `WriteMemRt` call
+sites pushes some other type (see the writer table above), so the client cannot
+produce a type-11 record however it is driven — a waypoint's task reaches the
+host inside a whole `rtLogFleetOrderUpdate` (5) instead, the same path that
+carries every other waypoint edit. The absence is a property of the format, not
+a hole in the sample; the earlier note that this was "the only operation with no
+example in the corpus" understated it.
+
+What survives is the **replay** side, which the host still runs, and which is
+where the layout comes from. The arm is at `1048:c3f0`, shared with
+`rtLogFleetFlagBit9` (10) — the two ids are adjacent entries in the dispatch
+table at `1048:c738` pointing at the same code:
+
+```
+lpfl = LpflFromId(*(int16_t *)lpb);          // 1038:2078
+if (lpfl == NULL) return 0;                  // 1048:c406
+ifl = *(int16_t *)(lpb + 2);
+if (lpfl->cord <= ifl) return 0;             // 1048:c462, signed
+if (*(int16_t *)(lpb + 4) >= 10) return 0;   // 1048:c46e, the whole word
+ord = lpfl->lpplord->rgord[ifl];             // base + 4, stride 0x12
+ord.grTask = (ord.grTask & 0xfff0)           // 1048:c4c4, the word at ord+6
+           | (*(uint16_t *)(lpb + 4) & 0x0f);
+```
+
+The `+ 6` the arm masks is `ORDER.grTask` at `ORDER+0x06` in the `RTWAYPT`
+layout above, and the `0x12` stride is the in-memory `ORD` — the eight-byte
+header plus its ten-byte task union — so the arm is unambiguously writing a
+waypoint's task and nothing else.
+
+Two details the bound checks give away. The value is tested **before** it is
+masked, so `0x10` is refused even though its nibble is a legal task — which is
+why [`FleetOrderTask`] keeps the raw `value` word and offers `task()` and
+`value_in_range()` over it, rather than storing a masked nibble that could not
+reproduce the bytes it came from. And `cord <= ifl` is a signed comparison with
+no lower bound, so the original accepts a negative index and writes in front of
+the order array; this project cannot express that and refuses it.
+
+Replayed by `set_order_task`. Because the corpus cannot supply a case, the
+worked examples live in [`docs/vectors/order-attr-nib.json`](../vectors/order-attr-nib.json)
+— eight records read out of the arm above, each with the verdict it produces —
+and a test in `replay.rs` runs every one of them.
 
 ### Battle plan (`rtLogFleetPlan`, id 42)
 
@@ -481,9 +561,16 @@ every transfer twice.
   not interpret (bit 13 is `fNoAutoTrack` in the state file's own waypoint
   record). They are preserved, and a waypoint this project writes leaves them
   zero.
-- `rtLogFleetOrderAttrNib` (11) appears in no fixture; its layout comes from the
-  replay arm in `log.c` rather than from data. It is the only operation in the
-  format with no example in the corpus.
+- `rtLogFleetOrderAttrNib` (11) has no writer in `stars.2.7j.exe` at all, so no
+  fixture can contain one; its layout is read from the replay arm at
+  `1048:c3f0` and pinned by `docs/vectors/order-attr-nib.json`. Whether some
+  other build of the client emits it is untested — the host would accept it, so
+  this project keeps decoding and replaying it.
+- `rtBtlPlan` (30) and `rtChgPassword` (36) are written into a log by
+  `WriteBattlePlan` and `NewPasswordDlg`, but no fixture holds one, and this
+  project neither writes nor replays them: a battle plan's *definition* (its
+  name and tactics) and a password change are both unmodelled. Only the
+  per-fleet plan **assignment** (42) is carried.
 - The type-21 fleet-name block appears in no fixture, so its layout is recovered
   from the binary rather than fixture-verified. See `fleet.md`.
 - `RTCHGNAME` (44) and `RTLOGTHING` (43) decoders are struct-derived; they need

@@ -386,10 +386,21 @@ fn cargo_record(player: usize, transfer: &CargoTransfer) -> Option<CargoTransfer
 
 /// Set the task on one of the player's fleet waypoints.
 ///
-/// The original refuses an order index the fleet does not have and a task
-/// above 9, the highest the enumeration defines; both checks are kept.
+/// The replay arm is at `1048:c3f0`, shared with `rtLogFleetFlagBit9`. It
+/// refuses a fleet it cannot find, an order index the fleet does not have
+/// (`FLEET.cord <= iOrder`) and a value word of 10 or more — the whole word,
+/// not its low nibble, so `0x10` is refused even though its nibble is 0. All
+/// three checks are kept.
+///
+/// Two deliberate differences. The original compares `cord > iOrder` signed and
+/// so accepts a negative index, writing before the order array; `usize::from`
+/// on a `u16` cannot express that, and an index past the end is refused here as
+/// it is there. And the original leaves the rest of the flag word and the
+/// order's payload bytes untouched, letting a Transport payload be reread as
+/// the new task's — this model holds a decoded `transport` instead of raw
+/// bytes, so it drops it when the task is no longer Transport.
 fn set_order_task(state: &mut GameState, player: usize, order: FleetOrderTask) -> bool {
-    if order.task > stars_formats::task::TRANSFER {
+    if !order.value_in_range() {
         return false;
     }
     let Some(index) = find_fleet(state, player, order.fleet_id) else {
@@ -399,8 +410,8 @@ fn set_order_task(state: &mut GameState, player: usize, order: FleetOrderTask) -
     let Some(waypoint) = state.fleets[index].waypoints.get_mut(at) else {
         return false;
     };
-    waypoint.task = order.task;
-    if order.task != stars_formats::task::TRANSPORT {
+    waypoint.task = order.task();
+    if waypoint.task != stars_formats::task::TRANSPORT {
         waypoint.transport = None;
     }
     true
@@ -1303,11 +1314,11 @@ mod tests {
                 fleet_id: fleet_word(0, 3),
                 repeat: true,
             }));
-        log.records.push(LogRecord::order_task(FleetOrderTask {
-            fleet_id: fleet_word(0, 3),
-            order_index: 1,
-            task: stars_formats::task::COLONIZE,
-        }));
+        log.records.push(LogRecord::order_task(FleetOrderTask::new(
+            fleet_word(0, 3),
+            1,
+            stars_formats::task::COLONIZE,
+        )));
 
         let report = replay(&mut state, 0, &log, &mut orders);
         assert_eq!(report.fleet_settings, 3);
@@ -1320,27 +1331,116 @@ mod tests {
         );
     }
 
+    /// Every case in `docs/vectors/order-attr-nib.json` — the substitute for
+    /// the fixture the corpus cannot supply, because nothing in the shipped
+    /// client writes a type-11 record. The cases come from the replay arm at
+    /// `1048:c3f0`.
+    #[test]
+    fn the_waypoint_task_vectors_replay() {
+        use stars_formats::FleetOrderTask;
+
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/vectors/order-attr-nib.json"
+        );
+        let text = std::fs::read_to_string(path).expect("vectors are versioned with the specs");
+        let vectors: serde_json::Value = serde_json::from_str(&text).expect("vectors parse");
+        let cases = vectors["replay"]["cases"]
+            .as_array()
+            .expect("cases")
+            .clone();
+        assert!(!cases.is_empty());
+
+        for case in cases {
+            let why = case["why"].as_str().unwrap_or_default();
+            let data: Vec<u8> = (0..6)
+                .map(|i| {
+                    let hex = &case["bytes"].as_str().expect("bytes")[i * 2..i * 2 + 2];
+                    u8::from_str_radix(hex, 16).expect("hex")
+                })
+                .collect();
+
+            // The decoder reads the payload the arm reads.
+            let decoded = FleetOrderTask::decode(&data).expect("six bytes decode");
+            assert_eq!(
+                u64::from(decoded.fleet_id),
+                case["fleet_id"].as_u64().unwrap(),
+                "{why}"
+            );
+            assert_eq!(
+                u64::from(decoded.order_index),
+                case["order_index"].as_u64().unwrap(),
+                "{why}"
+            );
+            assert_eq!(
+                u64::from(decoded.value),
+                case["value"].as_u64().unwrap(),
+                "{why}"
+            );
+            assert_eq!(decoded.encode().as_slice(), data.as_slice(), "{why}");
+
+            let mut state = a_game();
+            state.fleets[0].waypoints.push(Waypoint {
+                position: Point::new(1300, 1400),
+                target: Some(9),
+                warp: 6,
+                task: 0,
+                transport: None,
+            });
+            let mut orders = TurnOrders::default();
+            let mut log = OrderLog::new(0, [0; 11]);
+            log.records.push(LogRecord::order_task(decoded));
+            let report = replay(&mut state, 0, &log, &mut orders);
+
+            if case["accepted"].as_bool().unwrap() {
+                assert_eq!(report.fleet_settings, 1, "{why}");
+                assert_eq!(report.rejected, 0, "{why}");
+                let at = usize::from(decoded.order_index);
+                assert_eq!(
+                    u64::from(state.fleets[0].waypoints[at].task),
+                    case["task"].as_u64().unwrap(),
+                    "{why}"
+                );
+            } else {
+                assert_eq!(report.fleet_settings, 0, "{why}");
+                assert_eq!(report.rejected, 1, "{why}");
+                assert!(
+                    state.fleets[0].waypoints.iter().all(|w| w.task == 0),
+                    "a refused record must leave every waypoint alone: {why}"
+                );
+            }
+        }
+    }
+
     /// A waypoint the fleet does not have is refused, and so is a task the
     /// enumeration does not define.
     #[test]
     fn a_waypoint_task_is_bounds_checked() {
-        use stars_formats::{FleetOrderTask, LogRecordType};
+        use stars_formats::FleetOrderTask;
 
         let mut state = a_game();
         let mut orders = TurnOrders::default();
         let mut log = OrderLog::new(0, [0; 11]);
+        log.records.push(LogRecord::order_task(FleetOrderTask::new(
+            fleet_word(0, 3),
+            7,
+            1,
+        )));
+        // A value of 15: its nibble is not a task the enumeration defines.
         log.records.push(LogRecord::order_task(FleetOrderTask {
             fleet_id: fleet_word(0, 3),
-            order_index: 7,
-            task: 1,
+            order_index: 0,
+            value: 0x0f,
         }));
-        // A task nibble above 9 cannot even be encoded, so build it by hand.
-        log.records.push(LogRecord::raw(
-            LogRecordType::FleetOrderAttrNib,
-            vec![0x03, 0x00, 0x00, 0x00, 0x0f, 0x00],
-        ));
+        // A value of 0x10: the nibble alone would read as "no task", but the
+        // original compares the whole word, so this is refused too.
+        log.records.push(LogRecord::order_task(FleetOrderTask {
+            fleet_id: fleet_word(0, 3),
+            order_index: 0,
+            value: 0x10,
+        }));
         let report = replay(&mut state, 0, &log, &mut orders);
-        assert_eq!(report.rejected, 2);
+        assert_eq!(report.rejected, 3);
         assert_eq!(report.fleet_settings, 0);
     }
 

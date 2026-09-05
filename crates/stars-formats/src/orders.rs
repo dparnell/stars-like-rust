@@ -616,20 +616,55 @@ impl FleetRepeatOrders {
 /// A decoded waypoint-task operation (`rtLogFleetOrderAttrNib`, type id 11).
 ///
 /// `{ int16_t id; int16_t iOrder; int16_t value; }` — it sets the low nibble of
-/// one waypoint's flag word, which is `ORDER.grTask`. The replay refuses an
-/// order index the fleet does not have and a task above 9, the highest the
-/// enumeration defines.
+/// one waypoint's flag word, which is `ORDER.grTask`, and leaves the other
+/// twelve bits alone.
+///
+/// The layout is read from the replay arm at `1048:c3f0`, which types 10 and 11
+/// share: it looks the fleet up by the id at `+0`, takes the order index from
+/// `+2`, rejects an index the fleet does not have (`FLEET.cord <= iOrder`) and a
+/// **raw** `value` of 10 or more, then merges `value & 0x0F` into the waypoint's
+/// flag word. Nothing in `stars.2.7j.exe` writes this record — see
+/// `docs/formats/orders-x.md` — so `value` is kept whole rather than masked:
+/// that keeps a record written by some other producer byte-exact through a
+/// round trip, and lets the bound be tested the way the original tests it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FleetOrderTask {
     /// The fleet (raw object id).
     pub fleet_id: u16,
     /// Which of its waypoints.
     pub order_index: u16,
-    /// The task id, `0..=9`.
-    pub task: u8,
+    /// The value word, raw. Only its low nibble reaches the waypoint, and the
+    /// original refuses the record outright when the whole word is 10 or more.
+    pub value: u16,
 }
 
 impl FleetOrderTask {
+    /// Build one that sets `task`.
+    #[must_use]
+    pub fn new(fleet_id: u16, order_index: u16, task: u8) -> Self {
+        Self {
+            fleet_id,
+            order_index,
+            value: u16::from(task),
+        }
+    }
+
+    /// The task id this record would apply — the low nibble of [`Self::value`].
+    #[must_use]
+    pub fn task(&self) -> u8 {
+        (self.value & 0x0F) as u8
+    }
+
+    /// Whether the original's replay would accept the value at all.
+    ///
+    /// `1048:c46e`: `if (value >= 10) return 0`, against the whole word, so a
+    /// value whose low nibble is a legal task is still refused when any higher
+    /// bit is set.
+    #[must_use]
+    pub fn value_in_range(&self) -> bool {
+        self.value < 10
+    }
+
     /// Decode a **decrypted** type-11 payload.
     ///
     /// Returns `None` if the payload is shorter than 6 bytes.
@@ -641,7 +676,7 @@ impl FleetOrderTask {
         Some(Self {
             fleet_id: u16::from_le_bytes([data[0], data[1]]),
             order_index: u16::from_le_bytes([data[2], data[3]]),
-            task: (u16::from_le_bytes([data[4], data[5]]) & 0x0F) as u8,
+            value: u16::from_le_bytes([data[4], data[5]]),
         })
     }
 
@@ -651,7 +686,7 @@ impl FleetOrderTask {
         let mut out = [0u8; 6];
         out[0..2].copy_from_slice(&self.fleet_id.to_le_bytes());
         out[2..4].copy_from_slice(&self.order_index.to_le_bytes());
-        out[4..6].copy_from_slice(&u16::from(self.task & 0x0F).to_le_bytes());
+        out[4..6].copy_from_slice(&self.value.to_le_bytes());
         out
     }
 }
