@@ -473,3 +473,170 @@ fn a_second_trader_is_never_needed() {
         assert_eq!(state.traders[0].id, 2);
     }
 }
+
+/// A computer player with a starbase near the Trader trades without sending
+/// anything, and pays out of the planet's surface stockpile.
+#[test]
+fn a_computer_player_trades_from_its_planet() {
+    use stars_core::planet::Planet;
+
+    // The Trader's part, the skill, the minerals on the planet, and what the
+    // planet should have left afterwards.
+    let cases = [
+        // A part it has not had: the planet is stripped bare for it.
+        (part::SHIELD, 2u8, 4_000, Some(0)),
+        // Skill 3 pays more for the same thing, and 4,000 is not enough.
+        (part::SHIELD, 3, 4_000, None),
+        (part::SHIELD, 3, 6_000, Some(0)),
+        // Nothing carried: six technology levels, and only the threshold is
+        // paid.
+        (0, 2, 4_000, Some(500)),
+    ];
+
+    for (carried, skill, minerals, left) in cases {
+        let mut state = a_galaxy();
+        let trader = a_trader(Point::new(2000, 2000), carried);
+        let at = meeting_point(&trader);
+        state.traders = vec![trader];
+        state.players[0].control = stars_core::ai::Control::Computer {
+            personality: None,
+            skill_bits: skill,
+        };
+
+        let mut planet = Planet::unowned(1);
+        planet.owner = Some(0);
+        planet.starbase = true;
+        // Fifty light years from where the Trader ends the year: well inside
+        // the hundred it reaches.
+        planet.position = Some(Point::new(at.x + 50, at.y));
+        // Empty, so that the year's own research does not muddle what the
+        // Trader gave.
+        planet.pop = 0;
+        planet.surface_min = [minerals / 2, minerals / 4, minerals / 4];
+        state.planets = vec![planet];
+
+        let mut rng = Rng::randomize(7);
+        let report = generate_turn(&mut state, &mut rng);
+
+        let Some(left) = left else {
+            assert!(
+                report.ai_trades.is_empty(),
+                "{minerals} kT should not buy a skill-{skill} trade"
+            );
+            assert_eq!(state.traders[0].detected_by, 0);
+            continue;
+        };
+        assert_eq!(report.ai_trades.len(), 1, "carrying {carried:#06x}");
+        let (planet_id, gift) = report.ai_trades[0];
+        assert_eq!(planet_id, 1);
+        if carried == 0 {
+            assert_eq!(gift, Gift::Tech(6));
+            let levels: i16 = state.players[0]
+                .research
+                .levels
+                .iter()
+                .map(|l| i16::from(*l))
+                .sum();
+            assert_eq!(levels, 6);
+        } else {
+            assert_eq!(gift, Gift::Part(carried));
+            assert_eq!(state.players[0].trader_parts, carried);
+        }
+        assert_eq!(
+            state.planets[0].surface_min.iter().sum::<i32>(),
+            left,
+            "what the planet paid, carrying {carried:#06x}"
+        );
+        // And this Trader is done with that player.
+        assert_eq!(state.traders[0].detected_by, 1);
+    }
+}
+
+/// The shortcut is for capable computer players only: not for people, not for
+/// the easy opponents, and not for a planet without a starbase.
+#[test]
+fn the_shortcut_is_not_for_everyone() {
+    use stars_core::ai::Control;
+    use stars_core::planet::Planet;
+
+    let cases = [
+        (Control::Human, true, false),
+        (
+            Control::Computer {
+                personality: None,
+                skill_bits: 1,
+            },
+            true,
+            false,
+        ),
+        (
+            Control::Computer {
+                personality: None,
+                skill_bits: 2,
+            },
+            false,
+            false,
+        ),
+        (
+            Control::Computer {
+                personality: None,
+                skill_bits: 2,
+            },
+            true,
+            true,
+        ),
+    ];
+
+    for (control, starbase, expect) in cases {
+        let mut state = a_galaxy();
+        let trader = a_trader(Point::new(2000, 2000), part::SHIELD);
+        let at = meeting_point(&trader);
+        state.traders = vec![trader];
+        state.players[0].control = control;
+
+        let mut planet = Planet::unowned(1);
+        planet.owner = Some(0);
+        planet.starbase = starbase;
+        planet.position = Some(Point::new(at.x + 50, at.y));
+        planet.pop = 25_000;
+        planet.surface_min = [4_000, 0, 0];
+        state.planets = vec![planet];
+
+        let mut rng = Rng::randomize(7);
+        let report = generate_turn(&mut state, &mut rng);
+        assert_eq!(
+            !report.ai_trades.is_empty(),
+            expect,
+            "{control:?}, starbase {starbase}"
+        );
+    }
+}
+
+/// A hundred light years is the reach, and no further.
+#[test]
+fn the_trader_only_reaches_a_hundred_light_years() {
+    use stars_core::planet::Planet;
+
+    for (away, expect) in [(100, true), (101, false)] {
+        let mut state = a_galaxy();
+        let trader = a_trader(Point::new(2000, 2000), part::SHIELD);
+        let at = meeting_point(&trader);
+        state.traders = vec![trader];
+        state.players[0].control = stars_core::ai::Control::Computer {
+            personality: None,
+            skill_bits: 2,
+        };
+
+        let mut planet = Planet::unowned(1);
+        planet.owner = Some(0);
+        planet.starbase = true;
+        planet.position = Some(Point::new(at.x + away, at.y));
+        planet.pop = 25_000;
+        planet.surface_min = [4_000, 0, 0];
+        state.planets = vec![planet];
+
+        let mut rng = Rng::randomize(7);
+        let report = generate_turn(&mut state, &mut rng);
+        assert_eq!(!report.ai_trades.is_empty(), expect, "{away} light years");
+    }
+}

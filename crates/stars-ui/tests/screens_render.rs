@@ -184,7 +184,8 @@ fn the_new_game_wizard_draws_and_creates_a_game() {
     }
 
     // Its universe is a real .xy.
-    let dir = std::env::temp_dir().join("stars-ui-new-game-test");
+    // Per process: concurrent test runs must not share it.
+    let dir = std::env::temp_dir().join(format!("stars-ui-new-game-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
     let path = dir.join("rendered.xy");
     app.save_universe(&path).expect("writes the universe");
@@ -255,7 +256,10 @@ fn a_new_game_can_be_saved_and_reopened() {
     let planets = app.game.as_ref().expect("game").planets.len();
     let fleets = app.game.as_ref().expect("game").fleets.len();
 
-    let dir = std::env::temp_dir().join("stars-ui-save-new-game-test");
+    let dir = std::env::temp_dir().join(format!(
+        "stars-ui-save-new-game-test-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("temp dir");
     let written = app

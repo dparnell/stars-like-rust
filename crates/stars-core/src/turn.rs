@@ -130,6 +130,9 @@ pub struct TurnReport {
     pub wormhole_trips: Vec<(u16, u16, u16)>,
     /// Fleets that reached the Mystery Trader, and what came of it.
     pub trades: Vec<(u16, crate::wormhole::Gift)>,
+    /// Trades a computer player made from a planet rather than a fleet, as
+    /// `(planet id, gift)`. See [`crate::wormhole`].
+    pub ai_trades: Vec<(i16, crate::wormhole::Gift)>,
     /// Interceptions a patrol ordered, as `(patrolling fleet, target fleet)`.
     pub patrols: Vec<(u16, u16)>,
     /// The scoreboard, one entry per player, after the year's events.
@@ -372,10 +375,14 @@ pub fn generate_turn_with_orders(
     }
 
     // --- DoOrders(1) -> DoThingInteractions(1): a fleet that has come to rest
-    // on the Mystery Trader trades with it. It happens here, after movement and
-    // before the second pass of orders, which is why a fleet cannot both trade
-    // and carry out a task in the same year: the Trader keeps the fleet.
-    report.trades = trade_with_trader(state, rng);
+    // on the Mystery Trader trades with it, and a computer player with a
+    // starbase planet near one trades without sending anything. It happens
+    // here, after movement and before the second pass of orders, which is why
+    // a fleet cannot both trade and carry out a task in the same year: the
+    // Trader keeps the fleet.
+    let (trades, ai_trades) = trade_with_trader(state, rng);
+    report.trades = trades;
+    report.ai_trades = ai_trades;
 
     // --- SatisfyOrders(3): laying mines. A fleet ordered to lay does so where
     // it now is, into its own field if one reaches that far.
@@ -1325,12 +1332,150 @@ fn primary_design(fleet: &Fleet) -> (u8, bool) {
 ///
 /// Each Trader trades once with each player, which is what its `grbitPlr` mask
 /// records.
-fn trade_with_trader(state: &mut GameState, rng: &mut Rng) -> Vec<(u16, crate::wormhole::Gift)> {
-    let mut done = Vec::new();
+#[allow(clippy::type_complexity)]
+fn trade_with_trader(
+    state: &mut GameState,
+    rng: &mut Rng,
+) -> (
+    Vec<(u16, crate::wormhole::Gift)>,
+    Vec<(i16, crate::wormhole::Gift)>,
+) {
+    let mut fleets = Vec::new();
+    let mut planets = Vec::new();
+    // One Trader at a time, fleets and then planets, which is the order the
+    // original visits them in and so the order they draw from the generator.
     for trader in 0..state.traders.len() {
         let at = state.traders[trader].position;
         let carried = state.traders[trader].part;
-        done.extend(trade_with_one(state, trader, at, carried, rng));
+        fleets.extend(trade_with_one(state, trader, at, carried, rng));
+        planets.extend(ai_trades_from_a_planet(state, trader, rng));
+    }
+    (fleets, planets)
+}
+
+/// What a computer player gets for having a planet near the Mystery Trader.
+///
+/// `DoThingInteractions` (`1110:1631`) runs a second loop, over **planets**,
+/// after the one over fleets. A computer player of skill 2 or better with a
+/// starbase planet within a hundred light years of the Trader trades with it
+/// where it stands — no fleet, no journey, nothing for anybody else to see.
+/// It is the AI's substitute for the errand a person has to run.
+///
+/// The terms are the same shape as a fleet's and the prices are different:
+///
+/// * the planet must hold **3,500 kT** of minerals for a skill-2 player, or
+///   **5,000** for a skill-3 one;
+/// * a part the player has not had costs the planet **everything on its
+///   surface**;
+/// * failing that — no part carried, or fifty draws all held — six technology
+///   levels, one at a time into whichever field is furthest behind, and the
+///   planet pays only the threshold. This is refused outright to a player
+///   within six levels of the ceiling.
+///
+/// Either way the Trader marks the player off, so this and a fleet meeting are
+/// the same one chance.
+///
+/// Returns `(planet id, gift)` for each trade made.
+fn ai_trades_from_a_planet(
+    state: &mut GameState,
+    trader: usize,
+    rng: &mut Rng,
+) -> Vec<(i16, crate::wormhole::Gift)> {
+    use crate::wormhole::Gift;
+
+    /// How near the Trader a planet has to be, squared.
+    const REACH2: i64 = 10_000;
+    /// The six technology levels a trade is worth.
+    const LEVELS: i16 = 6;
+
+    let at = state.traders[trader].position;
+    let carried = state.traders[trader].part;
+    let mut done = Vec::new();
+
+    for index in 0..state.planets.len() {
+        let planet = &state.planets[index];
+        let (Some(owner), Some(position)) = (planet.owner, planet.position) else {
+            continue;
+        };
+        let Ok(owner) = usize::try_from(owner) else {
+            continue;
+        };
+        if !planet.starbase {
+            continue;
+        }
+        // Only a computer player, and only a capable one.
+        let Some(crate::ai::Control::Computer { skill_bits, .. }) =
+            state.players.get(owner).map(|p| p.control)
+        else {
+            continue;
+        };
+        if skill_bits <= 1 {
+            continue;
+        }
+        let bit = 1u16 << (owner & 0x0F);
+        if state.traders[trader].detected_by & bit != 0 {
+            continue;
+        }
+        // The original stops the scan at the first planet more than a hundred
+        // light years east of the Trader, which it can do because the `.xy`
+        // stores each planet's x as an offset from the one before and so holds
+        // them in ascending order. Testing every planet comes to the same
+        // thing.
+        let dx = i64::from(position.x) - i64::from(at.x);
+        let dy = i64::from(position.y) - i64::from(at.y);
+        if dx * dx + dy * dy > REACH2 {
+            continue;
+        }
+
+        let held = state.planets[index].surface_min.iter().sum::<i32>();
+        let price = if skill_bits == 2 { 3_500 } else { 5_000 };
+        if held < price {
+            continue;
+        }
+
+        // A part the player has not had, or fifty draws looking for one.
+        let mut giving = carried;
+        let mut tries = 50;
+        while giving != 0 && giving & state.players[owner].trader_parts != 0 && tries > 0 {
+            tries -= 1;
+            giving = 1 << rng.random(13);
+        }
+        let gift = if giving != 0 && tries > 0 {
+            state.players[owner].trader_parts |= giving;
+            Some((Gift::Part(giving), held))
+        } else {
+            // Technology instead, unless there is barely any left to give.
+            let player = &mut state.players[owner];
+            let cap: i16 = if player.crippled { 10 } else { 26 };
+            let total: i16 = player.research.levels.iter().map(|l| i16::from(*l)).sum();
+            if total >= cap * 6 - LEVELS {
+                None
+            } else {
+                for _ in 0..LEVELS {
+                    let field = (0..crate::research::TECH_FIELDS)
+                        .min_by_key(|f| player.research.levels[*f])
+                        .unwrap_or(0);
+                    player.research.levels[field] += 1;
+                }
+                Some((Gift::Tech(LEVELS), price))
+            }
+        };
+        let Some((gift, mut owed)) = gift else {
+            continue;
+        };
+
+        state.traders[trader].detected_by |= bit;
+        // Paid out of the surface stockpile, germanium first.
+        let planet = &mut state.planets[index];
+        for kind in (0..3).rev() {
+            if owed <= 0 {
+                break;
+            }
+            let take = planet.surface_min[kind].min(owed);
+            planet.surface_min[kind] -= take;
+            owed -= take;
+        }
+        done.push((planet.id, gift));
     }
     done
 }

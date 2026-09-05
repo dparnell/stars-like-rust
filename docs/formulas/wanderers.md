@@ -161,6 +161,48 @@ When the part drawn is one the player already holds, the Trader draws again, up
 to twenty-five times. If all twenty-five come back held, the result is
 `grbitTraderLifeboat` — which is not a part at all but a **ship**.
 
+### The computer players' shortcut
+
+`DoThingInteractions` runs a **second loop, over planets** (`1110:1631`), after
+the one over fleets. A computer player of skill 2 or better with a **starbase**
+planet within a hundred light years of the Trader trades with it where it
+stands: no fleet, no journey, and nothing for anybody else to see. It is the
+AI's substitute for the errand a person has to run.
+
+The terms are the same shape as a fleet's, and the prices are not:
+
+| | fleet | planet |
+|---|---|---|
+| who may | anybody | a computer player of skill 2 or 3, with a starbase |
+| what it costs to be heard | 5,000 kT aboard | 3,500 kT on the surface at skill 2, 5,000 at skill 3 |
+| a part | the fleet | **every kiloton on the planet** |
+| technology | the fleet | the threshold only |
+| how many levels | 1 to 10, by cargo and by how advanced | always 6 |
+| draws for a part not yet held | 25 | 50 |
+| told about it | yes | no |
+
+The part path taking the planet's whole stockpile is not a rounding of the
+threshold: `wtNext` still holds the sum of all three minerals when the payment
+loop runs, and only the technology path resets it to the price
+(`1110:1a5c`). The six levels go one at a time into whichever field is furthest
+behind, and are refused outright to a player within six levels of the ceiling
+(`maxTech × 6 − 6`).
+
+Either way the Trader marks the player off in `grbitPlr`, so the shortcut and a
+fleet meeting are the same one chance.
+
+Two details of the original are worth recording rather than copying:
+
+* The planet scan **stops** at the first planet more than a hundred light years
+  east of the Trader. That is safe because the `.xy` stores each planet's x as
+  an offset from the one before, so the array is in ascending x order by
+  construction. Testing every planet, as here, comes to the same thing.
+* The shareware tech cap is read as `rgplr[lpfl->iPlayer].fCrippled` — off the
+  **fleet pointer left over from the loop above**, not the planet's owner. It is
+  harmless because `fCrippled` describes the game file rather than the player
+  and is the same for everybody in a game, but it is a stale variable, and this
+  engine reads the planet owner's flag instead.
+
 ### The ships
 
 The Trader gives one of three designs of its own: `M.T. Lifeboat`, `M.T. Scout`
@@ -225,7 +267,8 @@ Movement itself cannot be checked exactly for wormholes: where one jumps is a
 hundred dice rolls deep, and reproducing it would need the original's random
 stream in the same state.
 
-Neither trading nor traversal can be checked against the fixtures directly:
+Neither trading, in either of its forms, nor traversal can be checked against
+the fixtures directly:
 both need two consecutive years in which the event happens, and no captured
 game has one. The ship gift leaves a permanent trace where the others do not —
 a design on hull 29 or 30 — and there is **none in any fixture**: nobody in the
@@ -239,9 +282,6 @@ are checked against the binary, and by construction in
   range is left alone, where the original would cut it loose when it writes
   that player's file. The same goes for a wormhole or a minefield, which the
   original cuts loose the same way, with their own messages (`0x111`, `0x112`).
-- **The AI's shortcut** (`1110:1631`): an AI player of level 2 or better with a
-  starbase planet within 100 light years of the Trader gets the same goods for
-  free, paid for out of the planet's surface minerals, without sending a fleet.
 - Wormhole **visibility**: who can see an end is carried through a file, set by
   traversal and cleared on a jump, but not recomputed from anybody's scanners.
 - `NoAutoTrackFleet`: the original stops a fleet auto-tracking the wormhole it
@@ -253,7 +293,9 @@ are checked against the binary, and by construction in
   `10b0:1af7`.
 - `PctWormholeMoves` `1110:0adc`, `IValidateWormholePos` `1110:064c`.
 - `MoveFleets` `10b0:4ce4` — the wormhole traversal check.
-- `DoThingInteractions` `1110:0b3a`, `IdmGiveTraderPart` `1110:1a96`,
-  `WFromLpfl` `1038:2b10`, `CostOfDevelopingItem` (research).
+- `DoThingInteractions` `1110:0b3a` — the fleet arm, the part arm at
+  `1110:1180`, and the computer players' planet arm at `1110:1631`.
+- `IdmGiveTraderPart` `1110:1a96`, `WFromLpfl` `1038:2b10`,
+  `IshFindSimilarDesign` `1038:7c5e`, `CostOfDevelopingItem` (research).
 - `PLAYER.grbitTrader` at offset `0x52`, `PLAYER.fCrippled` at `0x54` bit 1.
 - The records: `docs/formats/thing.md`, `THWORM` and `THTRADER`.

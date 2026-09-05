@@ -1932,7 +1932,10 @@ mod tests {
         let written = app.to_bytes().expect("saves");
 
         // Read the written bytes back as a fresh game.
-        let temp = std::env::temp_dir().join("stars-ui-queue-roundtrip.m6");
+        let temp = std::env::temp_dir().join(format!(
+            "stars-ui-queue-roundtrip-{}.m6",
+            std::process::id()
+        ));
         std::fs::write(&temp, &written).expect("writable temp dir");
         let mut reloaded = App::new();
         reloaded.open(&temp).expect("the written file loads");

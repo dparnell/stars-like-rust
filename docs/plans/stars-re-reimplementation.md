@@ -1134,8 +1134,7 @@ disagree.
     games ever received one and even this, the only branch that leaves a
     permanent trace, cannot be confirmed from data.
 
-    Still not modelled: the AI's shortcut of trading from a planet within a
-    hundred light years without sending anything.
+    Still not modelled at that point: the AI's shortcut (item 33).
 
 32. ~~**The Trader's arrival and departure.**~~ **Done**, and it closed the
     last gap in the Trader's flight. Reaching its destination ends the pass
@@ -1174,7 +1173,32 @@ disagree.
     fixtures carry their kind — 3,346 name a mineral packet and 340 a
     wormhole.
 
-33. **What is still missing to call it playable.** Every waypoint task is now
+33. ~~**The computer players' trading shortcut.**~~ **Done.**
+    `DoThingInteractions` runs a second loop over **planets** (`1110:1631`): a
+    computer player of skill 2 or better with a starbase planet within a
+    hundred light years of the Trader trades with it where it stands. No fleet,
+    no journey, nothing for anybody else to see — the AI's substitute for the
+    errand a person has to run.
+
+    The terms are the same shape and the prices are not. A skill-2 player needs
+    3,500 kT on the surface and a skill-3 one 5,000. A part costs the planet
+    **every kiloton it holds**, where technology costs only the threshold — and
+    the technology is a flat six levels, one at a time into whichever field is
+    furthest behind, refused to anyone within six levels of the ceiling. Either
+    way the Trader marks the player off, so this and a fleet meeting are the
+    same one chance.
+
+    Two details of the original are recorded in the spec rather than copied.
+    The planet scan **stops** at the first planet more than a hundred light
+    years east of the Trader, which is safe only because the `.xy` stores each
+    planet's x as an offset from the one before and so holds them in ascending
+    order; testing every planet comes to the same thing. And the shareware tech
+    cap is read off the **fleet pointer left over from the loop above** rather
+    than the planet's owner — harmless, because `fCrippled` describes the game
+    file and is the same for everybody in a game, but a stale variable all the
+    same.
+
+34. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

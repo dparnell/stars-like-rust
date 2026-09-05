@@ -25,7 +25,10 @@ fn a_saved_game(name: &str) -> (App, std::path::PathBuf) {
     };
     app.new_game(&config).expect("creates the game");
 
-    let dir = std::env::temp_dir().join(format!("stars-ui-orders-{name}"));
+    // Named for the process as well as the test: two `cargo test` runs at
+    // once would otherwise share this directory, and each would delete the
+    // other's game out from under it.
+    let dir = std::env::temp_dir().join(format!("stars-ui-orders-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("temp dir");
     let host = dir.join(format!("{name}.hst"));
