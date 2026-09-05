@@ -833,10 +833,6 @@ fn sweep_minefields(state: &mut GameState) -> Vec<(u16, i16, i32)> {
     swept
 }
 
-/// The lowest fleet id this player is not already using./// The lowest fleet id this player is not already using./// The lowest fleet id this player is not already using.
-///
-/// Fleet ids are per player, and the game hands out the first free slot rather
-/// than always counting up, so a disbanded fleet's number comes back.
 /// The lowest fleet number a player is not already using.
 ///
 /// Fleet numbers are per player and are reused once a fleet is gone, which is

@@ -272,8 +272,8 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                  remote mining and laying mines in their own passes; patrol at the \
                  end of the year. Merging into another fleet is a task too, but it \
                  needs a fleet to merge into, so it is set from the list below \
-                 rather than here. Giving a fleet away can be set but is not \
-                 simulated.",
+                 rather than here, and giving a fleet away needs a player to give \
+                 it to.",
             )
             .weak()
             .small(),

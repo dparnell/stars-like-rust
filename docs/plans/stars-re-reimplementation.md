@@ -942,8 +942,24 @@ disagree.
     patrol or a minefield order in deep space. Only colonise and transport
     need a planet.
 
-25. **What is still missing to call it playable.** Giving a fleet away can be
-    set but is not simulated; a loaded state file cannot carry
+25. ~~**Giving a fleet away.**~~ **Done, and with it every waypoint task.** The
+    arm at `10b0:932b` is long enough that the community reconstruction gives
+    up on it, but it comes apart into four rules.
+
+    **Who gets it** is the waypoint's `id` counted among the *other* players:
+    an index at or above the giver's own is shifted up by one, so the stored
+    number is a position in the list of everybody else. **A fleet carrying
+    colonists cannot be given** — `FLEET.rgwtMin[3]` at `10b0:9436`; people are
+    not a gift. **The recipient must have room for the designs**: an identical
+    design they already hold is reused, the rest need free slots, and if any
+    design has nowhere to go the whole gift is refused. Then the fleet changes
+    hands, its stacks remapped onto the recipient's design slots.
+
+    No fixture contains one, so this rests on the binary alone; the messages
+    are not modelled.
+
+26. **What is still missing to call it playable.** Every waypoint task is now
+    simulated; a loaded state file cannot carry
     structural fleet changes back (the game does not either — the order log
     does); and neither generation nor the writers carry wormholes, the Mystery
     Trader, messages, battle recordings or scores, all of which live in

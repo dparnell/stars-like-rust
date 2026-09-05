@@ -475,6 +475,16 @@ pub fn execute_arrival_tasks(state: &mut GameState) -> (Vec<(u16, u8)>, Vec<Colo
                 state.fleets[index].waypoints[0].task = task::NONE;
                 continue;
             }
+            task::TRANSFER => {
+                // Reported under the number it had while it was still theirs:
+                // a fleet that changes hands is renumbered.
+                let was = state.fleets[index].id;
+                if give_fleet(state, index) {
+                    done.push((was, job));
+                }
+                state.fleets[index].waypoints[0].task = task::NONE;
+                continue;
+            }
             // Everything else is somebody else's pass: remote mining and
             // laying mines run later in the year, patrol at the end of it, and
             // giving a fleet away is not modelled. None of them is cancelled
@@ -652,6 +662,132 @@ fn scrap_fleet(state: &mut GameState, index: usize) {
     }
     state.fleets[index].stacks.clear();
     state.fleets[index].cargo = crate::fleet::Cargo::default();
+}
+
+/// Give a fleet to another player.
+///
+/// The arm is at `10b0:932b`, on pass 4. Four things have to be true, and the
+/// original checks them in this order:
+///
+/// * **Who gets it** is the waypoint's `id`, but counted among the *other*
+///   players: an index at or above the giver's own is shifted up by one, so
+///   the number is a position in the list of everybody else. It must land on a
+///   player who is in the game.
+/// * **The fleet must not be carrying colonists** (`FLEET.rgwtMin[3]`,
+///   `10b0:9436`). You cannot hand people over.
+/// * **The receiving player must have room for the designs.** Every design the
+///   fleet uses is looked for in the recipient's own list first, and only a
+///   design they do not already have needs a free slot. If any design has
+///   nowhere to go, the whole gift is refused.
+/// * The fleet then changes hands: its stacks are renumbered to the
+///   recipient's design slots, it takes the lowest fleet number they are not
+///   using, and it stops where it is.
+///
+/// Returns whether the fleet changed hands.
+fn give_fleet(state: &mut GameState, index: usize) -> bool {
+    let fleet = &state.fleets[index];
+    let owner = fleet.owner;
+    // The waypoint names a player, numbered among everyone but the giver.
+    let Some(named) = fleet.waypoints.first().and_then(|w| w.target) else {
+        return false;
+    };
+    let mut recipient = i16::try_from(named).unwrap_or(-1);
+    if recipient >= owner {
+        recipient += 1;
+    }
+    let Ok(to) = usize::try_from(recipient) else {
+        return false;
+    };
+    if to >= state.players.len() || recipient == owner {
+        return false;
+    }
+    // People are not a gift.
+    if fleet.cargo.colonists > 0 {
+        return false;
+    }
+
+    let Ok(from) = usize::try_from(owner) else {
+        return false;
+    };
+    let mine = state.designs.get(from).cloned().unwrap_or_default();
+    if state.designs.len() <= to {
+        state.designs.resize_with(to + 1, Vec::new);
+    }
+
+    // Work out where each of the fleet's designs would live, without changing
+    // anything: a design the recipient already has is reused, and the rest need
+    // free slots. Ship designs live below the starbase slots.
+    let limit = usize::from(crate::startup::FIRST_STARBASE_SLOT);
+    let mut moved: Vec<(u8, u8)> = Vec::new();
+    let mut claimed: Vec<usize> = Vec::new();
+    for stack in &state.fleets[index].stacks {
+        if stack.count <= 0 {
+            continue;
+        }
+        let Some(design) = mine.get(usize::from(stack.design)) else {
+            return false;
+        };
+        let theirs = &state.designs[to];
+        let slot = theirs.iter().position(|d| d == design).or_else(|| {
+            (0..limit).find(|slot| {
+                !claimed.contains(slot)
+                    && theirs
+                        .get(*slot)
+                        .is_none_or(|d| d.hull_id < 0 || d.name.is_empty())
+            })
+        });
+        let Some(slot) = slot else {
+            // No room for one of the designs: the whole gift is refused.
+            return false;
+        };
+        claimed.push(slot);
+        let Ok(slot) = u8::try_from(slot) else {
+            return false;
+        };
+        moved.push((stack.design, slot));
+    }
+
+    // Nothing has been changed until here.
+    for (old, new) in &moved {
+        let design = mine[usize::from(*old)].clone();
+        let theirs = &mut state.designs[to];
+        if theirs.len() <= usize::from(*new) {
+            theirs.resize_with(usize::from(*new) + 1, || crate::design::ShipDesign {
+                name: String::new(),
+                picture: 0,
+                stored_armor: 0,
+                hull_id: -1,
+                slots: Vec::new(),
+            });
+        }
+        theirs[usize::from(*new)] = design;
+    }
+
+    let id = crate::turn::next_fleet_id(state, recipient);
+    let fleet = &mut state.fleets[index];
+    for stack in &mut fleet.stacks {
+        if let Some((_, new)) = moved.iter().find(|(old, _)| *old == stack.design) {
+            stack.design = *new;
+        }
+    }
+    fleet.owner = recipient;
+    fleet.id = id;
+    fleet.name = None;
+    fleet.battle_plan = 0;
+    fleet.repeat_orders = false;
+    fleet.warp = None;
+    let here = fleet.position;
+    let orbiting = fleet.orbiting;
+    fleet.waypoints = vec![crate::fleet::Waypoint {
+        position: here,
+        target: orbiting,
+        target_class: if orbiting.is_some() { 1 } else { 4 },
+        warp: 0,
+        task: stars_formats::task::NONE,
+        transport: None,
+        task_data: Vec::new(),
+    }];
+    true
 }
 
 /// Send a fleet on to the route its planet sets.
@@ -896,6 +1032,89 @@ mod tests {
         assert!(drops.is_empty(), "own planet: {drops:?}");
         // The colonists still arrive; they are simply added to the population.
         assert_eq!(state.planets[0].pop, 125);
+    }
+
+    /// A fleet given away changes hands, taking its designs with it.
+    #[test]
+    fn a_given_fleet_changes_hands() {
+        use crate::design::ShipDesign;
+        use stars_formats::task;
+
+        let mut state = game();
+        state.planets = vec![Planet::unowned(1)];
+        let design = ShipDesign {
+            name: "Scout".to_string(),
+            picture: 0,
+            stored_armor: 0,
+            hull_id: 4,
+            slots: Vec::new(),
+        };
+        state.designs = vec![vec![design], Vec::new()];
+        let mut mine = fleet(0, 3, Cargo::default());
+        mine.waypoints[0].task = task::TRANSFER;
+        // Player 1, named among "everybody but me": 0 shifts up to 1.
+        mine.waypoints[0].target = Some(0);
+        state.fleets = vec![mine];
+
+        let (done, _) = execute_arrival_tasks(&mut state);
+        assert_eq!(done, vec![(3, task::TRANSFER)]);
+        let given = &state.fleets[0];
+        assert_eq!(given.owner, 1, "player 1 has it now");
+        assert_eq!(given.id, 1, "and it takes their first free number");
+        // The design came with it.
+        assert_eq!(state.designs[1].len(), 1);
+        assert_eq!(state.designs[1][0].name, "Scout");
+        assert_eq!(given.stacks[0].design, 0);
+    }
+
+    /// Colonists are not a gift, and a design with nowhere to go stops the
+    /// whole thing.
+    #[test]
+    fn a_gift_can_be_refused() {
+        use crate::design::ShipDesign;
+        use stars_formats::task;
+
+        let design = |name: &str| ShipDesign {
+            name: name.to_string(),
+            picture: 0,
+            stored_armor: 0,
+            hull_id: 4,
+            slots: Vec::new(),
+        };
+
+        // Carrying colonists.
+        let mut state = game();
+        state.planets = vec![Planet::unowned(1)];
+        state.designs = vec![vec![design("Scout")], Vec::new()];
+        let mut mine = fleet(
+            0,
+            3,
+            Cargo {
+                minerals: [0; 3],
+                colonists: 10,
+                fuel: 0,
+            },
+        );
+        mine.waypoints[0].task = task::TRANSFER;
+        mine.waypoints[0].target = Some(0);
+        state.fleets = vec![mine];
+        let (done, _) = execute_arrival_tasks(&mut state);
+        assert!(done.is_empty(), "people are not a gift");
+        assert_eq!(state.fleets[0].owner, 0);
+
+        // The recipient's design list is full.
+        let mut state = game();
+        state.planets = vec![Planet::unowned(1)];
+        let full: Vec<ShipDesign> = (0..16).map(|i| design(&format!("theirs {i}"))).collect();
+        state.designs = vec![vec![design("Scout")], full];
+        let mut mine = fleet(0, 3, Cargo::default());
+        mine.waypoints[0].task = task::TRANSFER;
+        mine.waypoints[0].target = Some(0);
+        state.fleets = vec![mine];
+        let (done, _) = execute_arrival_tasks(&mut state);
+        assert!(done.is_empty(), "nowhere to put the design");
+        assert_eq!(state.fleets[0].owner, 0);
+        assert_eq!(state.designs[1].len(), 16, "and nothing was copied in");
     }
 
     /// A task that has nothing to do with a planet is not cancelled for want of

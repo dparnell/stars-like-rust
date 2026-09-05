@@ -1,7 +1,7 @@
 # Waypoint tasks
 
-Status: **in progress** — seven of the ten tasks are simulated. Only Give is
-not.
+Status: **verified in outline** — every one of the ten tasks is simulated. What
+is left is detail inside two of them, noted where it applies.
 
 A waypoint carries a task in the low nibble of its flags word (`ORDER.grTask`,
 see [`waypoint.md`](../formats/waypoint.md)), performed when the fleet reaches
@@ -20,7 +20,7 @@ pass it belongs to.
 | 6 | Lay Minefield | 3 | simulated (`minefields.md`) |
 | 7 | Patrol | end of turn | simulated |
 | 8 | Route | 4 | simulated |
-| 9 | Give | 4 | **not performed** |
+| 9 | Give | 4 | simulated |
 
 The task is **consumed** when it runs, which is why every waypoint in a saved
 game that has already been reached reads `0`.
@@ -156,14 +156,34 @@ is fitted to it. `1` is a freighter, `2..=4` the armed hulls, `5` a bomber and
 The original also takes an "exact" flag, and with it clear — which is how the
 patrol search calls it — anything matches None, Any or Starbase.
 
-## Give (9) — not performed
+## Give (9)
 
-`SatisfyOrders` handles it on pass 4, in a block long enough that the
-reconstruction in `tmp/stars-decompile` gives up on it (`"full give-away logic
-is very large"`). The start of it (`10b0:9556`) loops over all sixteen players,
-tests a per-player field, creates a fleet for the receiver and copies position
-and orders across — a fleet changing hands has to bring its **designs** with it,
-which is the expensive part. No fixture contains one. Nothing here models it.
+Hand a fleet to another player. The arm is at `10b0:932b`, on pass 4, and the
+block is long enough that the community reconstruction gives up on it — but
+what it does comes apart into four rules.
+
+**Who gets it** is the waypoint's `id`, counted among the **other** players: an
+index at or above the giver's own is shifted up by one, so the stored number is
+a position in the list of everybody else. It has to land on a player who is in
+the game.
+
+**A fleet carrying colonists cannot be given** (`10b0:9436`, testing
+`FLEET.rgwtMin[3]`). People are not a gift.
+
+**The receiving player must have room for the designs.** Each design the fleet
+uses is looked for in the recipient's own list first — an identical design is
+reused rather than copied — and only the rest need a free slot, which the
+original finds by walking their design array for one whose in-use bit is clear.
+If any design has nowhere to go, the whole gift is refused.
+
+**Then it changes hands**: the original builds a fleet for the recipient and
+copies the position and orders across; this engine renumbers the fleet into the
+recipient's numbering, remaps its stacks onto their design slots and stops it
+where it stands.
+
+No fixture contains one — nobody in the sample gave a fleet away — so this rests
+on the binary alone. The messages the original sends, and the salvage-value
+bookkeeping around a gift, are not modelled.
 
 ## Source
 
