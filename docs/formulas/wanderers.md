@@ -1,7 +1,8 @@
 # Wormholes and the Mystery Trader
 
 Status: **carried, moved, travelled and traded with, as far as the fixtures
-allow.** The Trader's arrival behaviour is not modelled.
+allow.** A Trader's whole life is now modelled — it crosses, it arrives, it
+turns round or it leaves.
 
 Two things in a Stars! galaxy move without anybody ordering them to. Both are
 `THING`s ([`thing.md`](../formats/thing.md)) and both are now in the model:
@@ -39,8 +40,14 @@ to find it again.
 ### Going through
 
 A fleet is ordered to a wormhole by naming it as a waypoint target — `grobj` 8,
-a `THING` rather than a planet. When it **arrives**, `MoveFleets`
-(`10b0:4ce4`) takes it out of the far end:
+a `THING` rather than a planet. The id it stores is the thing's **full** id,
+whose top three bits are the `ith` saying what kind of thing it is; without
+checking those, a fleet bound for wormhole 1 would be caught by anything else
+that happened to be object 1. All 3,686 thing waypoints in the fixtures carry
+their kind — 3,346 name a mineral packet and 340 a wormhole.
+
+When the fleet **arrives**, `MoveFleets` (`10b0:4ce4`) takes it out of the far
+end:
 
 ```
 fleet.pt        = partner.pt      the fleet is at the other end of the galaxy
@@ -67,10 +74,47 @@ implied the other.
 
 ## The Mystery Trader
 
+A galaxy may hold **more than one** Trader: 374 of the fixture files carry two
+and some carry three. Each flies, trades and remembers who it has met on its
+own.
+
 The Trader crosses the galaxy at speed, and one year in twenty-five it changes
 its mind (`10b0:1af7`): it always **speeds up** by a warp factor, and one time
 in three it also picks a new destination somewhere on the **edge** of the map.
-Then it covers the square of its warp toward wherever it is going.
+A Trader already at warp 13 has stopped changing its mind. Then it covers the
+square of its warp toward wherever it is going.
+
+### Arriving, and leaving
+
+Reaching its destination ends the pass (`10b0:1da3`), and what happens then
+turns on whether the galaxy holds another Trader:
+
+* **another Trader exists** — this one leaves for good;
+* **it is the only one** — a coin flip decides between leaving and staying.
+
+A Trader that stays **makes another pass**: it sits where it arrived, picks a
+fresh destination the same way a course change does, and its warp becomes
+
+```
+warp = max(warp − 2, 6) + 1
+```
+
+— slower than the pass it just flew, but never below 7, so a Trader already
+down at warp 6 or 7 comes back *faster*. It spends the year turning round
+rather than moving. Every player is told (`0xc0`,
+`idmMysteryTraderHasDecidedMakeAnotherPass`), as they are for a course change
+(`0x130`).
+
+The removal happens as the loop reaches it, so a second Trader arriving in the
+same year may find itself alone by the time its own turn comes — and then get
+the coin flip that the first one did not.
+
+**A fleet on its way to a Trader that has gone** has its waypoint turned into a
+plain position at the Trader's last known spot, and is told so
+(`idmMysteryTraderHeadingHasVanishedOrdersHave`, `0x110`). The original does
+this per player as it writes their file, and applies it to a Trader that is
+merely *out of view* as well; only the *gone* half is modelled here, because
+this engine has no per-player visibility pass.
 
 ### Trading with it
 
@@ -154,25 +198,28 @@ before it reaches any of this.
 
 ## What is verified
 
-- **2,672 wormhole ends and 589 Traders** survive a load and a save unchanged.
+- **2,672 wormhole ends and 859 Traders** survive a load and a save unchanged.
+  The Trader figure was 589 until a galaxy was allowed to hold more than one:
+  the model kept a single Trader, so 270 of them were being dropped on load and
+  would have been lost from any file written back.
 - **1,764 wormhole ends have both halves in view and every one of those pairs
   is mutual** — each end names the other, and no end names itself. The rest have
   only one end visible, which is exactly what a wormhole nobody has been through
   looks like.
-- **527 of 547 Trader-years** flew the modelled distance: the square of its
-  warp, before or after the speed-up.
+- **807 of 807 Trader-years** flew the modelled distance: the square of its
+  warp, before or after the speed-up — or the remainder of the leg, on the year
+  it arrived.
+- **20 Trader-years ended a pass**, and every one of them matches the
+  another-pass rule exactly: the Trader stands on the destination it had, its
+  warp is `max(warp − 2, 6) + 1`, and it has a new heading. These are the same
+  twenty years that would not fit the flight model before arrival was
+  understood.
 - **1,309 wormhole ends that somebody has been through**, 728 of them with both
   halves in the same file, and in every one of those the traveller is recorded
   at both ends — which is what `MoveFleets` guarantees. 713 of the 1,309 are no
   longer in the traveller's view, which is how the two masks were told apart.
 - **859 Trader records**, every one carrying a single `GrbitTrader` bit or
   nothing: the field is a technology, not a player mask.
-
-The twenty that did not are the Trader's own doing. In each, its warp went
-**down** and its destination changed — and the course change only ever speeds it
-up, so those are not the same flight continuing but a new pass beginning. The
-Trader's arrival behaviour, which the original handles with a "decided to make
-another pass" message, is not modelled.
 
 Movement itself cannot be checked exactly for wormholes: where one jumps is a
 hundred dice rolls deep, and reproducing it would need the original's random
@@ -182,12 +229,16 @@ Neither trading nor traversal can be checked against the fixtures directly:
 both need two consecutive years in which the event happens, and no captured
 game has one. The ship gift leaves a permanent trace where the others do not —
 a design on hull 29 or 30 — and there is **none in any fixture**: nobody in the
-captured games ever got one, so even that cannot be confirmed from data. They are checked against the binary, and by construction in
+captured games ever got one, so even that cannot be confirmed from data. Those
+are checked against the binary, and by construction in
 `crates/stars-core/tests/trading.rs`.
 
 ## Not modelled
 
-- **The Trader's arrival** at its destination, and its departure.
+- **Visibility**: a waypoint following a Trader that is merely out of scanner
+  range is left alone, where the original would cut it loose when it writes
+  that player's file. The same goes for a wormhole or a minefield, which the
+  original cuts loose the same way, with their own messages (`0x111`, `0x112`).
 - **The AI's shortcut** (`1110:1631`): an AI player of level 2 or better with a
   starbase planet within 100 light years of the Trader gets the same goods for
   free, paid for out of the planet's surface minerals, without sending a fleet.

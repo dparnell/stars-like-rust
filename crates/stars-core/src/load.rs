@@ -453,7 +453,7 @@ impl GameState {
                     continue;
                 }
                 stars_formats::ThingKind::MysteryTrader(trader) => {
-                    state.trader = Some(crate::wormhole::MysteryTrader {
+                    state.traders.push(crate::wormhole::MysteryTrader {
                         id: thing.id,
                         position: Point::new(thing.x, thing.y),
                         destination: Point::new(trader.dest_x, trader.dest_y),

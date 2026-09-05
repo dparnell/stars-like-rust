@@ -1134,21 +1134,58 @@ disagree.
     games ever received one and even this, the only branch that leaves a
     permanent trace, cannot be confirmed from data.
 
-    Still not modelled: the Trader's arrival behaviour, and the AI's shortcut
-    of trading from a planet within a hundred light years without sending
-    anything.
+    Still not modelled: the AI's shortcut of trading from a planet within a
+    hundred light years without sending anything.
 
-32. **What is still missing to call it playable.** Every waypoint task is now
+32. ~~**The Trader's arrival and departure.**~~ **Done**, and it closed the
+    last gap in the Trader's flight. Reaching its destination ends the pass
+    (`10b0:1da3`): with another Trader in the galaxy this one leaves for good,
+    and as the only one it gets a coin flip. A Trader that stays sits where it
+    arrived, takes a fresh heading and comes back at `max(warp − 2, 6) + 1` —
+    slower than the pass it flew, but never below 7, so warp 6 or 7 comes back
+    *faster*. It spends the year turning round. Every player is told.
+
+    This is what the twenty unexplained Trader-years were. Every one of them
+    has the Trader standing exactly on the destination it had, with a new
+    heading and that warp: the flight model now accounts for **807 of 807**
+    Trader-years rather than 787, and the twenty are asserted separately as
+    arrivals rather than written off.
+
+    A fleet following a Trader that has gone gets a plain position at its last
+    known spot, and a message. The original does that per player as it writes
+    their file and also applies it to a Trader merely out of view; only the
+    *gone* half is modelled, for want of a per-player visibility pass.
+
+    One bug fell out of this. A galaxy may hold **more than one** Trader — 374
+    fixture files carry two and some carry three — and the model held a single
+    `Option`. 270 Traders were being dropped on load and would have been lost
+    from any file written back. `GameState::traders` is now a list, and the
+    round-trip test counts 859 where it counted 589.
+
+    A second, smaller one: messages were cleared *after* the Trader moved, so
+    anything the earliest step of a year sent was wiped before the year ended.
+    The clear belongs at the head of the turn, where the original's reload puts
+    it.
+
+    A third: a waypoint aimed at a `THING` stores the thing's **full** id, and
+    its top three bits are the kind. Matching on the low nine alone would have
+    let a departing Trader cancel the orders of a fleet bound for the wormhole
+    that happened to share its number. All 3,686 thing waypoints in the
+    fixtures carry their kind — 3,346 name a mineral packet and 340 a
+    wormhole.
+
+33. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
-    - **More messages.** Six ids are sent; the original has hundreds, and the
-      message filter (type 33) is carried but not obeyed.
+    - **More messages.** Nineteen ids are sent; the original has hundreds, and
+      the message filter (type 33) is carried but not obeyed.
     - **Packets, the rest of the way**: launching them from a production
       queue, catching them with a planet's own mass driver, and the damage and
       terraforming when one lands.
-    - The Mystery Trader's **ship gift**, which needs the game's own Mystery
-      Trader hull designs.
+    - **Per-player visibility**: what each player can see is carried through a
+      file rather than recomputed, which is what the Trader's and the
+      wormholes' out-of-view order cancelling waits on.
     - Inside combat: the minefield damage step's interval merging, engine-count
       scaling and shield absorption.
     - A loaded state file still cannot carry structural fleet changes back —

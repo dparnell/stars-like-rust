@@ -81,18 +81,28 @@ fn an_end(id: u16, at: Point, partner: u16) -> Wormhole {
     }
 }
 
-/// The Trader, carrying `part`.
+/// The Trader, carrying `part`, part way across a long crossing.
+///
+/// Warp 13 so that it never changes course — the roll is only made below that
+/// — and a destination far enough away that it does not arrive, which would
+/// end the pass and quite possibly the Trader.
 fn a_trader(at: Point, part: u16) -> MysteryTrader {
     MysteryTrader {
         id: 1,
         position: at,
-        destination: at,
-        warp: 13, // fast enough that it never changes course
+        destination: Point::new(at.x + 5000, at.y),
+        warp: 13,
         include: true,
         detected_by: 0,
         part,
         turn: 0,
     }
+}
+
+/// Where a Trader will be at the end of the year, which is where a fleet has
+/// to be to meet it: the Trader flies before anything else happens.
+fn meeting_point(trader: &MysteryTrader) -> Point {
+    stars_core::movement::advance(trader.position, trader.destination, trader.range())
 }
 
 /// A fleet ordered to a wormhole comes out of the far end.
@@ -107,7 +117,9 @@ fn a_fleet_goes_through_a_wormhole() {
     fleet.warp = Some(8);
     fleet.waypoints.push(Waypoint {
         position: near,
-        target: Some(1),
+        // A thing's id in a waypoint carries its kind in the top three bits:
+        // 2 is a wormhole.
+        target: Some(1 | (2 << 13)),
         // `grobj` 8: the waypoint names a thing, not a planet.
         target_class: 8,
         warp: 8,
@@ -142,7 +154,7 @@ fn a_fleet_that_has_not_arrived_stays_put() {
     fleet.warp = Some(4);
     fleet.waypoints.push(Waypoint {
         position: near,
-        target: Some(1),
+        target: Some(1 | (2 << 13)),
         target_class: 8,
         warp: 4,
         task: stars_formats::task::NONE,
@@ -162,8 +174,9 @@ fn a_fleet_that_has_not_arrived_stays_put() {
 #[test]
 fn the_trader_gives_what_it_carries() {
     let mut state = a_galaxy();
-    let at = Point::new(2000, 2000);
-    state.trader = Some(a_trader(at, part::SHIELD));
+    let trader = a_trader(Point::new(2000, 2000), part::SHIELD);
+    let at = meeting_point(&trader);
+    state.traders = vec![trader];
     let mut fleet = a_fleet(at);
     fleet.cargo.minerals = [2000, 2000, 1000];
     state.fleets = vec![fleet];
@@ -177,7 +190,7 @@ fn the_trader_gives_what_it_carries() {
     assert!(state.fleets[0].stacks.is_empty());
     assert_eq!(state.fleets[0].cargo.minerals, [0, 0, 0]);
     // And the Trader will not trade with this player again.
-    assert_eq!(state.trader.as_ref().unwrap().detected_by, 1);
+    assert_eq!(state.traders[0].detected_by, 1);
 
     let message = state
         .messages
@@ -192,8 +205,9 @@ fn the_trader_gives_what_it_carries() {
 #[test]
 fn the_trader_gives_technology() {
     let mut state = a_galaxy();
-    let at = Point::new(2000, 2000);
-    state.trader = Some(a_trader(at, 0));
+    let trader = a_trader(Point::new(2000, 2000), 0);
+    let at = meeting_point(&trader);
+    state.traders = vec![trader];
     let mut fleet = a_fleet(at);
     // Ten thousand kilotons: five thousand buys the audience and the rest buys
     // four more levels.
@@ -223,8 +237,9 @@ fn the_trader_gives_technology() {
 #[test]
 fn the_trader_trades_once_and_wants_paying() {
     let mut state = a_galaxy();
-    let at = Point::new(2000, 2000);
-    state.trader = Some(a_trader(at, part::MINER));
+    let trader = a_trader(Point::new(2000, 2000), part::MINER);
+    let at = meeting_point(&trader);
+    state.traders = vec![trader];
 
     let mut rich = a_fleet(at);
     rich.cargo.minerals = [2000, 2000, 1000];
@@ -264,8 +279,9 @@ fn the_trader_gives_ships_when_it_has_nothing_else() {
     // walks a spread of seeds rather than hunting for a lucky one.
     for seed in 1..=25u32 {
         let mut state = a_galaxy();
-        let at = Point::new(2000, 2000);
-        state.trader = Some(a_trader(at, 0));
+        let trader = a_trader(Point::new(2000, 2000), 0);
+        let at = meeting_point(&trader);
+        state.traders = vec![trader];
         // A player who has researched everything and been given every part:
         // the Trader has nothing to sell them.
         state.players[0].research.levels = [26; 6];
@@ -320,8 +336,9 @@ fn the_trader_gives_ships_when_it_has_nothing_else() {
 #[test]
 fn the_trader_does_not_bother_with_the_ai() {
     let mut state = a_galaxy();
-    let at = Point::new(2000, 2000);
-    state.trader = Some(a_trader(at, 0));
+    let trader = a_trader(Point::new(2000, 2000), 0);
+    let at = meeting_point(&trader);
+    state.traders = vec![trader];
     state.players[0].research.levels = [26; 6];
     state.players[0].trader_parts = part::ALL;
     state.players[0].control = stars_core::ai::Control::Computer {
@@ -336,7 +353,7 @@ fn the_trader_does_not_bother_with_the_ai() {
     let ship_seed = (1..=25u32)
         .find(|seed| {
             let mut human = a_galaxy();
-            human.trader = Some(a_trader(at, 0));
+            human.traders = vec![a_trader(Point::new(2000, 2000), 0)];
             human.players[0].research.levels = [26; 6];
             human.players[0].trader_parts = part::ALL;
             let mut fleet = a_fleet(at);
@@ -355,4 +372,104 @@ fn the_trader_does_not_bother_with_the_ai() {
         .messages
         .iter()
         .all(|m| m.id != id::TRADER_GAVE_SHIP && m.id != id::TRADER_TRIED_SHIP));
+}
+
+/// A Trader that reaches its destination either turns round or leaves, and a
+/// fleet that was following one that left is told and given a plain position.
+#[test]
+fn a_trader_that_arrives_turns_round_or_leaves() {
+    use stars_core::wormhole::Event;
+
+    let mut turned = 0;
+    let mut left = 0;
+    for seed in 1..=20u32 {
+        let mut state = a_galaxy();
+        let at = Point::new(2000, 2000);
+        let mut trader = a_trader(at, 0);
+        // Standing on its destination: this year ends the pass.
+        trader.destination = at;
+        trader.warp = 10;
+        state.traders = vec![trader];
+
+        // A fleet on its way to the Trader, which will need new orders if it
+        // goes.
+        let mut fleet = a_fleet(Point::new(1000, 1000));
+        fleet.warp = Some(1);
+        fleet.waypoints.push(Waypoint {
+            position: at,
+            // 3 is the Mystery Trader.
+            target: Some(1 | (3 << 13)),
+            target_class: 8,
+            warp: 1,
+            task: stars_formats::task::NONE,
+            transport: None,
+            task_data: Vec::new(),
+        });
+        state.fleets = vec![fleet];
+
+        let mut rng = Rng::randomize(seed);
+        let report = generate_turn(&mut state, &mut rng);
+
+        match report.trader_events.as_slice() {
+            [(1, Event::AnotherPass)] => {
+                turned += 1;
+                let trader = &state.traders[0];
+                assert_eq!(trader.position, at, "it turns round where it arrived");
+                // Two slower than the pass it flew, then the shared step up.
+                assert_eq!(trader.warp, 9);
+                assert_ne!(trader.destination, at, "with somewhere new to go");
+                // Everybody hears about it.
+                assert!(state
+                    .messages
+                    .iter()
+                    .any(|m| m.id == id::TRADER_ANOTHER_PASS));
+                // The fleet's orders still point at a Trader that is still
+                // there.
+                assert_eq!(state.fleets[0].waypoints[1].target, Some(1 | (3 << 13)));
+            }
+            [(1, Event::Departed)] => {
+                left += 1;
+                assert!(state.traders.is_empty());
+                // The orders that were following it now point at where it was.
+                let waypoint = &state.fleets[0].waypoints[1];
+                assert_eq!(waypoint.target, None);
+                assert_eq!(waypoint.target_class, 4);
+                assert_eq!(waypoint.position, at);
+                assert!(state.messages.iter().any(|m| m.id == id::TRADER_VANISHED));
+            }
+            // It changed its mind on the doorstep: the one-in-twenty-five
+            // roll comes first, and a new destination means it never arrived.
+            [(1, Event::ChangedCourse)] => {}
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    assert!(turned > 0 && left > 0, "{turned} turned, {left} left");
+    eprintln!("{turned} of 20 arrivals turned round, {left} left the galaxy");
+}
+
+/// With another Trader in the galaxy, an arriving one always leaves.
+#[test]
+fn a_second_trader_is_never_needed() {
+    use stars_core::wormhole::Event;
+
+    for seed in 1..=10u32 {
+        let mut state = a_galaxy();
+        let at = Point::new(2000, 2000);
+        let mut first = a_trader(at, 0);
+        first.destination = at;
+        // The second is nowhere near its own destination, so it just flies.
+        let mut second = a_trader(Point::new(5000, 5000), 0);
+        second.id = 2;
+        state.traders = vec![first, second];
+
+        let mut rng = Rng::randomize(seed);
+        let report = generate_turn(&mut state, &mut rng);
+        assert_eq!(
+            report.trader_events,
+            vec![(1, Event::Departed)],
+            "seed {seed}"
+        );
+        assert_eq!(state.traders.len(), 1);
+        assert_eq!(state.traders[0].id, 2);
+    }
 }

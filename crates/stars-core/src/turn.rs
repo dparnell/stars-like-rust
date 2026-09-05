@@ -56,6 +56,30 @@ pub enum SkippedStep {
     Scores,
 }
 
+/// `grobj` for a waypoint that names no object at all: a bare position.
+const GROBJ_POSITION: u8 = 4;
+/// `grobj` for a waypoint aimed at a `THING` — a wormhole, a Trader, a
+/// minefield.
+const GROBJ_THING: u8 = 8;
+
+/// Whether a waypoint aimed at a `THING` names this particular object.
+///
+/// A thing's id in a waypoint is its **full** id: the nine-bit id, the owning
+/// player, and in the top three bits the `ith` that says what kind of thing it
+/// is. The models here keep the nine-bit id alone, so the kind has to be
+/// checked against those top bits — without it, a fleet bound for wormhole 1
+/// would be caught by anything else that happened to be object 1. Every one of
+/// the 3,686 thing waypoints in the fixtures carries its kind: 3,346 name a
+/// mineral packet and 340 a wormhole.
+fn names_thing(target: Option<u16>, ith: u16, id: u16) -> bool {
+    target.is_some_and(|t| t >> 13 == ith && t & 0x01FF == id)
+}
+
+/// `ith` for a wormhole.
+const ITH_WORMHOLE: u16 = 2;
+/// `ith` for the Mystery Trader.
+const ITH_TRADER: u16 = 3;
+
 /// What one generated turn did.
 #[derive(Debug, Clone, Default)]
 pub struct TurnReport {
@@ -100,6 +124,8 @@ pub struct TurnReport {
     pub packets_landed: Vec<(i16, [i32; 3], i32)>,
     /// Wormholes that jumped this year, by id.
     pub wormholes_moved: Vec<u16>,
+    /// What became of each Mystery Trader, as `(trader id, event)`.
+    pub trader_events: Vec<(u16, crate::wormhole::Event)>,
     /// Fleets that went through a wormhole, as `(fleet id, entered, left)`.
     pub wormhole_trips: Vec<(u16, u16, u16)>,
     /// Fleets that reached the Mystery Trader, and what came of it.
@@ -162,6 +188,12 @@ pub fn generate_turn_with_orders(
         ..TurnReport::default()
     };
 
+    // Last year's news is last year's. The original reloads the host file at
+    // the head of `FGenerateTurn`, so nothing a previous year said survives
+    // into this one; here it has to be said explicitly, and it has to be said
+    // *first* — the Mystery Trader's news is the earliest thing a year sends.
+    state.messages.clear();
+
     // --- DoOrders(0): the recorded cargo transfers, before anything moves or
     // produces. A transfer applied here feeds this year's growth.
     if !orders.cargo.is_empty() {
@@ -175,7 +207,7 @@ pub fn generate_turn_with_orders(
 
     // --- MoveThings(0): the Mystery Trader crosses a year, and the packets
     // already in flight do too, before anything else happens.
-    move_trader(state, rng);
+    report.trader_events = move_traders(state, rng);
     report.packets_landed = move_packets(state, false);
 
     // --- MoveFleets, which happens before Produce.
@@ -208,10 +240,6 @@ pub fn generate_turn_with_orders(
             }
         }
     }
-
-    // Last year's news is last year's; the original queues a player's
-    // messages afresh each time it generates a turn.
-    state.messages.clear();
 
     // --- ThingDecay: an armed field goes off under everyone inside it, and
     // then every field loses a slice of itself. A field that runs out is gone.
@@ -1063,49 +1091,161 @@ fn land_packet(state: &mut GameState, index: usize) -> Option<(i16, [i32; 3], i3
     Some((target, delivered, damage))
 }
 
-/// Fly the Mystery Trader a year.
+/// Where the Mystery Trader heads for when it picks a new destination.
 ///
-/// `MoveThings` (`10b0:1af7`), before production. One year in twenty-five it
-/// changes its mind: it always **speeds up**, and one time in three it also
-/// picks a new destination on the edge of the galaxy. Then it covers the square
-/// of its warp toward wherever it is going, and stops when it arrives.
-fn move_trader(state: &mut GameState, rng: &mut Rng) {
-    let Some(trader) = state.trader.as_mut() else {
-        return;
+/// `MoveThings` (`10b0:1b5c`): a point on one **edge** of the galaxy — the far
+/// side or the near one, and along the x axis or the y — so that whatever it
+/// does next, it crosses the map rather than loitering.
+fn trader_destination(size: i32, rng: &mut Rng) -> crate::movement::Point {
+    let span = size * 400;
+    let edge = if rng.random(2) == 0 {
+        span + 1380
+    } else {
+        1020
     };
+    let along = i32::from(rng.random(i16::try_from(span + 361).unwrap_or(i16::MAX))) + 1020;
+    let (x, y) = if rng.random(2) == 0 {
+        (edge, along)
+    } else {
+        (along, edge)
+    };
+    crate::movement::Point::new(
+        i16::try_from(x).unwrap_or(i16::MAX),
+        i16::try_from(y).unwrap_or(i16::MAX),
+    )
+}
+
+/// Fly the Mystery Traders a year, and see what becomes of them.
+///
+/// `MoveThings` (`10b0:1af7`), before production.
+///
+/// **On the way**, one year in twenty-five it changes its mind: it always
+/// speeds up, and one time in three it also picks a new destination. A Trader
+/// already at warp 13 or better has stopped changing its mind. Then it covers
+/// the square of its warp toward wherever it is going.
+///
+/// **On arrival** (`10b0:1da3`) it is finished with that pass, and what happens
+/// then depends on whether the galaxy has another Trader in it:
+///
+/// * another Trader exists — this one **leaves for good**;
+/// * it is the only one — a coin flip decides between leaving and staying.
+///
+/// A Trader that stays **makes another pass**: it sits where it arrived, picks
+/// a fresh destination, and its warp becomes `max(warp − 2, 6) + 1` — slower
+/// than the pass it just finished, but never below warp 7, and warp 6 or 7
+/// actually comes back *faster*. It does not move that year. Everybody is told,
+/// which is the one thing about the Trader every player learns at once.
+///
+/// Returns what happened, per Trader, as `(id, event)`.
+fn move_traders(state: &mut GameState, rng: &mut Rng) -> Vec<(u16, crate::wormhole::Event)> {
+    use crate::message::{id, Message};
+    use crate::wormhole::Event;
+
     // A universe size class, from the planet count the game info gave us; the
     // original reads `game.mdSize` directly.
     let size = i32::from(state.galaxy_planets).max(1);
-    if trader.warp <= 12 && rng.random(25) == 0 {
-        if rng.random(3) == 0 {
-            // The edge it heads for, and how far along that edge.
-            let span = size * 400;
-            let edge = if rng.random(2) == 0 {
-                span + 1380
-            } else {
-                1020
-            };
-            let along = i32::from(rng.random(i16::try_from(span + 361).unwrap_or(i16::MAX))) + 1020;
-            let (x, y) = if rng.random(2) == 0 {
-                (edge, along)
-            } else {
-                (along, edge)
-            };
-            trader.destination = crate::movement::Point::new(
-                i16::try_from(x).unwrap_or(i16::MAX),
-                i16::try_from(y).unwrap_or(i16::MAX),
-            );
-        }
-        trader.warp = (trader.warp + 1) & 0x0F;
-    }
+    let players = state.players.len();
+    let mut events = Vec::new();
 
-    let range = trader.range();
-    let target = trader.destination;
-    let distance = crate::movement::distance(trader.position, target);
-    if distance <= f64::from(range) {
-        trader.position = target;
-    } else {
-        trader.position = crate::movement::advance(trader.position, target, range);
+    // A Trader that leaves is taken out of the galaxy there and then, which is
+    // what the original does — so a second Trader arriving the same year may
+    // find itself alone by the time its turn comes.
+    let mut index = 0;
+    while index < state.traders.len() {
+        // Both of the Trader's messages go to every player at once: what it is
+        // doing is the one thing the whole galaxy learns together.
+        let announce = |state: &mut GameState, id: u16, trader: u16| {
+            for player in 0..players {
+                state.messages.push(Message {
+                    player,
+                    id,
+                    object: -6,
+                    params: vec![trader as i16, 0],
+                });
+            }
+        };
+
+        let trader = &mut state.traders[index];
+        let name = trader.id;
+
+        // The course change: never for a Trader already at warp 13.
+        if trader.warp <= 12 && rng.random(25) == 0 {
+            if rng.random(3) == 0 {
+                trader.destination = trader_destination(size, rng);
+            }
+            trader.warp = (trader.warp + 1) & 0x0F;
+            events.push((name, Event::ChangedCourse));
+            announce(state, id::TRADER_CHANGED_COURSE, name);
+        }
+
+        let range = state.traders[index].range();
+        let target = state.traders[index].destination;
+        let from = state.traders[index].position;
+        if crate::movement::distance(from, target) > f64::from(range) {
+            state.traders[index].position = crate::movement::advance(from, target, range);
+            index += 1;
+            continue;
+        }
+
+        // Arrived, which ends the pass. Another Trader in the galaxy means
+        // this one is done; being the only one earns it a coin flip.
+        let alone = state.traders.len() == 1;
+        if alone && rng.random(2) != 0 {
+            let trader = &mut state.traders[index];
+            trader.position = target;
+            // Slower than the pass it just flew, but never crawling.
+            trader.warp = trader.warp.saturating_sub(2).max(6);
+            trader.destination = trader_destination(size, rng);
+            trader.warp = (trader.warp + 1) & 0x0F;
+            events.push((name, Event::AnotherPass));
+            announce(state, id::TRADER_ANOTHER_PASS, name);
+            index += 1;
+            continue;
+        }
+
+        events.push((name, Event::Departed));
+        let trader = state.traders.remove(index);
+        orders_lose_their_trader(state, &trader);
+    }
+    events
+}
+
+/// Turn a waypoint that was following a departed Trader into a plain position.
+///
+/// The original does this per player as it writes their file (`save.c`), from
+/// what that player can see: a waypoint aimed at a `THING` that has gone, or
+/// that this player can no longer see, becomes a bare coordinate and the player
+/// is told. Only the *gone* half is modelled here — this engine has no
+/// per-player visibility pass, so a Trader that is merely out of scanner range
+/// keeps everybody's orders pointed at it.
+fn orders_lose_their_trader(state: &mut GameState, trader: &crate::wormhole::MysteryTrader) {
+    use crate::message::{fleet_object, id, Message};
+
+    let mut told = Vec::new();
+    for fleet in &mut state.fleets {
+        let Ok(owner) = usize::try_from(fleet.owner) else {
+            continue;
+        };
+        for waypoint in fleet.waypoints.iter_mut().skip(1) {
+            if waypoint.target_class != GROBJ_THING
+                || !names_thing(waypoint.target, ITH_TRADER, trader.id)
+            {
+                continue;
+            }
+            // Where it last was, which is where the orders now point.
+            waypoint.position = trader.position;
+            waypoint.target = None;
+            waypoint.target_class = GROBJ_POSITION;
+            told.push((owner, fleet.id));
+        }
+    }
+    for (player, fleet) in told {
+        state.messages.push(Message {
+            player,
+            id: id::TRADER_VANISHED,
+            object: fleet_object(fleet),
+            params: vec![fleet as i16, 0],
+        });
     }
 }
 
@@ -1120,20 +1260,17 @@ fn move_trader(state: &mut GameState, rng: &mut Rng) {
 ///
 /// Returns the two ends, near then far.
 fn traverse_wormhole(state: &mut GameState, index: usize) -> Option<(u16, u16)> {
-    /// `grobj` for a waypoint aimed at a `THING`.
-    const GROBJ_THING: u8 = 8;
-
     let fleet = &state.fleets[index];
     let owner = usize::try_from(fleet.owner).ok()?;
     let waypoint = fleet.waypoints.first()?;
     if waypoint.target_class != GROBJ_THING {
         return None;
     }
-    // A waypoint holds a thing's full id; a wormhole's own id is the low nine
-    // bits of it.
-    let id = waypoint.target? & 0x01FF;
-
-    let near = state.wormholes.iter().position(|w| w.id == id)?;
+    let target = waypoint.target;
+    let near = state
+        .wormholes
+        .iter()
+        .position(|w| names_thing(target, ITH_WORMHOLE, w.id))?;
     let partner = state.wormholes[near].partner & 0x01FF;
     let far = state.wormholes.iter().position(|w| w.id == partner)?;
 
@@ -1189,16 +1326,27 @@ fn primary_design(fleet: &Fleet) -> (u8, bool) {
 /// Each Trader trades once with each player, which is what its `grbitPlr` mask
 /// records.
 fn trade_with_trader(state: &mut GameState, rng: &mut Rng) -> Vec<(u16, crate::wormhole::Gift)> {
+    let mut done = Vec::new();
+    for trader in 0..state.traders.len() {
+        let at = state.traders[trader].position;
+        let carried = state.traders[trader].part;
+        done.extend(trade_with_one(state, trader, at, carried, rng));
+    }
+    done
+}
+
+/// Trade with one Mystery Trader; see [`trade_with_trader`].
+fn trade_with_one(
+    state: &mut GameState,
+    trader: usize,
+    at: crate::movement::Point,
+    carried: u16,
+    rng: &mut Rng,
+) -> Vec<(u16, crate::wormhole::Gift)> {
     use crate::message::{fleet_name_word, fleet_object, id, Message};
     use crate::wormhole::{part, tech_levels, Gift, TRADE_GOODS};
 
-    let Some(trader) = state.trader.as_ref() else {
-        return Vec::new();
-    };
-    let at = trader.position;
-    let carried = trader.part;
     let mut done = Vec::new();
-
     for index in 0..state.fleets.len() {
         let fleet = &state.fleets[index];
         if fleet.stacks.is_empty() || fleet.position != at {
@@ -1231,11 +1379,7 @@ fn trade_with_trader(state: &mut GameState, rng: &mut Rng) -> Vec<(u16, crate::w
         }
 
         let bit = 1u16 << (owner & 0x0F);
-        let met = state
-            .trader
-            .as_ref()
-            .is_some_and(|t| t.detected_by & bit != 0);
-        if met {
+        if state.traders[trader].detected_by & bit != 0 {
             state.messages.push(Message {
                 player: owner,
                 id: id::TRADER_ALREADY_MET,
@@ -1249,9 +1393,7 @@ fn trade_with_trader(state: &mut GameState, rng: &mut Rng) -> Vec<(u16, crate::w
         // From here the trade happens: the Trader marks the player off, and
         // the fleet is gone. A message about a fleet that no longer exists
         // names it rather than pointing at it.
-        if let Some(trader) = state.trader.as_mut() {
-            trader.detected_by |= bit;
-        }
+        state.traders[trader].detected_by |= bit;
         let (design, mixed) = primary_design(&state.fleets[index]);
         let named = fleet_name_word(fleet_id, design, mixed);
         // `FRemovePlayerMessage`: a fleet the Trader has taken did not finish

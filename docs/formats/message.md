@@ -62,7 +62,10 @@ right routine:
 | `0xc2` | `idmHasSweptMinesMineField` | `SweepForMines`, to the sweeping fleet's owner |
 | `0xc3` | `idmHasDispersedMines` | the lay-mines arm at `10b0:999e` |
 | `0xf4` | `idmStarbaseHasSweptMinesMineField` | `SweepForMines`, for a planet's starbase |
+| `0xc0` | `idmMysteryTraderHasDecidedMakeAnotherPass` | `MoveThings`, `10b0:1e86` — to **every** player |
 | `0x108` | `idmMysteryTraderHasRefusedGiveCaptainAudience` | `DoThingInteractions`, `1110:0cad` |
+| `0x110` | `idmMysteryTraderHeadingHasVanishedOrdersHave` | the waypoint check as a player's file is written |
+| `0x130` | `idmMysteryTraderHasUnexplicablyChangedHisCourse` | `MoveThings`, `10b0:1b40` — to **every** player |
 | `0x109` | `idmHasAbsorbedMysteryTraderTraderHasGiven` | `1110:0f57` — technology for a load of minerals |
 | `0x10a` | `idmHasAbsorbedMysteryTraderReturnTraderHas` | `1110:0f5f` — the same, for a player who holds every part |
 | `0x10b` | a Mystery Trader part | `IdmGiveTraderPart`, `1110:1a96` |
@@ -73,6 +76,11 @@ right routine:
 | `0x14f` | the Trader gave a ship | `1110:142e` |
 | `0x150` | the Trader meant to and could not | `1110:133b` |
 | `0x149` | `idmCouldntGiveAwayBecauseThereColonistsBoard` | the give arm at `10b0:9436` |
+
+Two of the Trader's messages go to **every player at once** rather than to one:
+what it is doing is the one thing the whole galaxy learns together. They carry
+the object `-6`, which stands for the Trader itself rather than for anything of
+the player's own.
 
 A message about a fleet the Mystery Trader has just absorbed cannot point at
 it, because it no longer exists. Those pass `-1` as the object and a packed

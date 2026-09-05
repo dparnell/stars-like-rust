@@ -52,6 +52,24 @@ fn load(path: &Path) -> Option<GameState> {
     Some(state)
 }
 
+/// Every game's saves, keyed by the year they hold.
+fn games() -> Vec<BTreeMap<u16, PathBuf>> {
+    let mut by_game: BTreeMap<(PathBuf, String), BTreeMap<u16, PathBuf>> = BTreeMap::new();
+    for (turn, path) in saves() {
+        let (Some(name), Some(family)) = (
+            path.file_name().and_then(|n| n.to_str()),
+            path.parent().and_then(Path::parent),
+        ) else {
+            continue;
+        };
+        by_game
+            .entry((family.to_path_buf(), name.to_string()))
+            .or_default()
+            .insert(turn, path);
+    }
+    by_game.into_values().collect()
+}
+
 /// Wormholes and the Trader survive a load and a save unchanged.
 #[test]
 fn the_wanderers_round_trip() {
@@ -59,7 +77,7 @@ fn the_wanderers_round_trip() {
     let mut traders = 0;
     for (_, path) in saves() {
         let Some(state) = load(&path) else { continue };
-        if state.wormholes.is_empty() && state.trader.is_none() {
+        if state.wormholes.is_empty() && state.traders.is_empty() {
             continue;
         }
         let Ok(bytes) = stars_core::save::host_file(&state) else {
@@ -70,9 +88,9 @@ fn the_wanderers_round_trip() {
         };
         let (back, _) = GameState::from_file(&file);
         assert_eq!(back.wormholes, state.wormholes, "{}", path.display());
-        assert_eq!(back.trader, state.trader, "{}", path.display());
+        assert_eq!(back.traders, state.traders, "{}", path.display());
         holes += state.wormholes.len();
-        traders += usize::from(state.trader.is_some());
+        traders += state.traders.len();
     }
     if holes == 0 && traders == 0 {
         eprintln!("skipping: no wanderers in the fixtures");
@@ -121,49 +139,34 @@ fn wormholes_come_in_pairs() {
 /// about it that is not a dice roll.
 #[test]
 fn the_trader_flies_at_the_square_of_its_warp() {
-    let mut by_game: BTreeMap<(PathBuf, String), BTreeMap<u16, PathBuf>> = BTreeMap::new();
-    for (turn, path) in saves() {
-        let (Some(name), Some(family)) = (
-            path.file_name().and_then(|n| n.to_str()),
-            path.parent().and_then(Path::parent),
-        ) else {
-            continue;
-        };
-        by_game
-            .entry((family.to_path_buf(), name.to_string()))
-            .or_default()
-            .insert(turn, path);
-    }
-
     let mut followed = 0;
     let mut flew_right = 0;
-    for years in by_game.values() {
-        for (turn, path) in years {
+    for years in games() {
+        for (turn, path) in &years {
             let (Some(next), Some(before)) = (years.get(&(turn + 1)), load(path)) else {
                 continue;
             };
-            let (Some(after), Some(trader)) = (load(next), before.trader.as_ref()) else {
-                continue;
-            };
-            let Some(then) = after.trader.as_ref() else {
-                continue;
-            };
-            if then.id != trader.id {
-                continue;
-            }
-            followed += 1;
-            let flown = distance(trader.position, then.position);
-            // Either it covered a year's flight at the speed it had, or it
-            // arrived — and it may have sped up on the way, which is the one
-            // in twenty-five roll.
-            let expected = f64::from(trader.range());
-            let sped_up = f64::from(then.range());
-            let arrived = distance(then.position, then.destination) < 1.0;
-            if (flown - expected).abs() <= 2.0
-                || (flown - sped_up).abs() <= 2.0
-                || (arrived && flown <= sped_up.max(expected))
-            {
-                flew_right += 1;
+            let Some(after) = load(next) else { continue };
+            for trader in &before.traders {
+                let Some(then) = after.traders.iter().find(|t| t.id == trader.id) else {
+                    continue;
+                };
+                followed += 1;
+                let flown = distance(trader.position, then.position);
+                // Either it covered a year's flight at the speed it had, or it
+                // arrived — and it may have sped up on the way, which is the one
+                // in twenty-five roll.
+                let expected = f64::from(trader.range());
+                let sped_up = f64::from(then.range());
+                // Arriving means standing on the destination it *had*: on
+                // another pass it already has a new one.
+                let arrived = then.position == trader.destination;
+                if (flown - expected).abs() <= 2.0
+                    || (flown - sped_up).abs() <= 2.0
+                    || (arrived && flown <= sped_up.max(expected))
+                {
+                    flew_right += 1;
+                }
             }
         }
     }
@@ -172,15 +175,60 @@ fn the_trader_flies_at_the_square_of_its_warp() {
         eprintln!("skipping: the trader was not seen in two consecutive years");
         return;
     }
-    // The years that do not fit are the ones where the Trader reached its
-    // destination and set off again — its warp goes *down*, which the course
-    // change never does, so it is a new pass rather than the same flight.
-    // Arrival is not modelled.
     eprintln!("{followed} trader years followed, {flew_right} flew as modelled");
-    assert!(
-        flew_right * 100 >= followed * 90,
-        "{flew_right} of {followed}"
-    );
+    assert_eq!(flew_right, followed, "{flew_right} of {followed}");
+}
+
+/// A Trader that reaches its destination turns round: same spot, new heading,
+/// and a warp of `max(warp − 2, 6) + 1`.
+///
+/// This is what the twenty years that would not fit the flight model turned out
+/// to be. Every one of them has the Trader standing exactly on the destination
+/// it had, with a new destination and a warp one step slower — which is a pass
+/// ending, not a flight continuing.
+#[test]
+fn the_trader_turns_round_at_its_destination() {
+    let mut turned = 0;
+    for years in games() {
+        for (turn, path) in &years {
+            let (Some(next), Some(before)) = (years.get(&(turn + 1)), load(path)) else {
+                continue;
+            };
+            let Some(after) = load(next) else { continue };
+            for trader in &before.traders {
+                let Some(then) = after.traders.iter().find(|t| t.id == trader.id) else {
+                    continue;
+                };
+                if then.warp >= trader.warp {
+                    continue;
+                }
+                turned += 1;
+                assert_eq!(
+                    then.position,
+                    trader.destination,
+                    "{}: slowed down without arriving",
+                    path.display()
+                );
+                assert_eq!(
+                    then.warp,
+                    trader.warp.saturating_sub(2).max(6) + 1,
+                    "{}: not the another-pass warp",
+                    path.display()
+                );
+                assert_ne!(
+                    then.destination,
+                    trader.destination,
+                    "{}: turned round without a new heading",
+                    path.display()
+                );
+            }
+        }
+    }
+    if turned == 0 {
+        eprintln!("skipping: no trader reached its destination in the fixtures");
+        return;
+    }
+    eprintln!("{turned} trader-years ended a pass, all of them as modelled");
 }
 
 /// What the Trader carries is one technology, not a list of players.
@@ -194,22 +242,21 @@ fn the_trader_carries_one_thing() {
     let mut carrying = 0;
     for (_, path) in saves() {
         let Some(state) = load(&path) else { continue };
-        let Some(trader) = state.trader.as_ref() else {
-            continue;
-        };
-        seen += 1;
-        let part = trader.part;
-        assert!(
-            part & !stars_core::wormhole::part::ALL == 0,
-            "{}: {part:#06x} is not a GrbitTrader mask",
-            path.display()
-        );
-        assert!(
-            part.count_ones() <= 1,
-            "{}: carrying {part:#06x}, which is more than one thing",
-            path.display()
-        );
-        carrying += usize::from(part != 0);
+        for trader in &state.traders {
+            seen += 1;
+            let part = trader.part;
+            assert!(
+                part & !stars_core::wormhole::part::ALL == 0,
+                "{}: {part:#06x} is not a GrbitTrader mask",
+                path.display()
+            );
+            assert!(
+                part.count_ones() <= 1,
+                "{}: carrying {part:#06x}, which is more than one thing",
+                path.display()
+            );
+            carrying += usize::from(part != 0);
+        }
     }
     if seen == 0 {
         eprintln!("skipping: no trader in the fixtures");

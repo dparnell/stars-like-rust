@@ -714,7 +714,7 @@ fn push_things(state: &GameState, body: &mut Vec<Block>) -> Result<()> {
     let total = state.minefields.len()
         + state.packets.len()
         + state.wormholes.len()
-        + usize::from(state.trader.is_some())
+        + state.traders.len()
         + state.other_things.len();
     let count = u16::try_from(total).unwrap_or(u16::MAX);
     body.push(block(43, count.to_le_bytes().to_vec())?);
@@ -800,7 +800,7 @@ fn push_things(state: &GameState, body: &mut Vec<Block>) -> Result<()> {
             .to_vec(),
         )?);
     }
-    if let Some(trader) = &state.trader {
+    for trader in &state.traders {
         let carried = stars_formats::MysteryTrader {
             dest_x: trader.destination.x,
             dest_y: trader.destination.y,

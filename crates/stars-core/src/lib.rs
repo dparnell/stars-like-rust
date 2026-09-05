@@ -314,8 +314,12 @@ pub struct GameState {
     pub packets: Vec<crate::packet::Packet>,
     /// Every wormhole end in play. See [`crate::wormhole`].
     pub wormholes: Vec<crate::wormhole::Wormhole>,
-    /// The Mystery Trader, when the galaxy has one.
-    pub trader: Option<crate::wormhole::MysteryTrader>,
+    /// Every Mystery Trader in the galaxy.
+    ///
+    /// A list rather than a single Trader because a galaxy may hold several:
+    /// 374 of the fixture files carry two and some carry three. Each trades
+    /// separately, and each remembers on its own who has already been.
+    pub traders: Vec<crate::wormhole::MysteryTrader>,
     /// Any space object none of the above covers, exactly as the file held
     /// it.
     ///
@@ -383,7 +387,7 @@ impl GameState {
             minefields: Vec::new(),
             packets: Vec::new(),
             wormholes: Vec::new(),
-            trader: None,
+            traders: Vec::new(),
             other_things: Vec::new(),
         }
     }

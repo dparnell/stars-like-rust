@@ -70,6 +70,18 @@ impl MysteryTrader {
     }
 }
 
+/// What became of a Mystery Trader in a year.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Event {
+    /// It changed course, or speed, or both — the one-in-twenty-five roll.
+    ChangedCourse,
+    /// It reached its destination and decided to make another pass: a fresh
+    /// destination, a slower warp, and a year spent turning round.
+    AnotherPass,
+    /// It reached its destination and left the galaxy for good.
+    Departed,
+}
+
 /// What came of one fleet meeting the Mystery Trader.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Gift {

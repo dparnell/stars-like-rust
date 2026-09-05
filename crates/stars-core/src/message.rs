@@ -60,6 +60,16 @@ pub mod id {
     /// `idmMysteryTraderEyesCaptainSuspiciously...`: this player has already
     /// traded with this Trader (`1110:0d91`).
     pub const TRADER_ALREADY_MET: u16 = 0x118;
+    /// `idmMysteryTraderHasDecidedMakeAnotherPass`: it reached its
+    /// destination and turned round (`MoveThings`, `10b0:1e86`). Sent to every
+    /// player.
+    pub const TRADER_ANOTHER_PASS: u16 = 0xC0;
+    /// `idmMysteryTraderHasUnexplicablyChangedHisCourse` (`10b0:1b40`). Sent to
+    /// every player.
+    pub const TRADER_CHANGED_COURSE: u16 = 0x130;
+    /// `idmMysteryTraderHeadingHasVanishedOrdersHave`: the Trader a fleet was
+    /// following has gone, and its orders now point at where it last was.
+    pub const TRADER_VANISHED: u16 = 0x110;
     /// The Trader gave a ship (`1110:142e`).
     pub const TRADER_GAVE_SHIP: u16 = 0x14F;
     /// The Trader meant to give a ship and could not (`1110:133b`).
@@ -157,6 +167,16 @@ impl Message {
             }
             id::TRADER_ALREADY_MET => format!(
                 "The Mystery Trader has already traded with fleet {}.",
+                fleet()
+            ),
+            id::TRADER_ANOTHER_PASS => {
+                "The Mystery Trader has decided to make another pass.".to_string()
+            }
+            id::TRADER_CHANGED_COURSE => {
+                "The Mystery Trader has changed course, or speed, or both.".to_string()
+            }
+            id::TRADER_VANISHED => format!(
+                "The Mystery Trader fleet {} was following has gone; its orders now point at where it last was.",
                 fleet()
             ),
             id::TRADER_TRIED_SHIP => {
