@@ -959,11 +959,26 @@ disagree.
     are not modelled.
 
 26. **What is still missing to call it playable.** Every waypoint task is now
-    simulated; a loaded state file cannot carry
-    structural fleet changes back (the game does not either — the order log
-    does); and neither generation nor the writers carry wormholes, the Mystery
-    Trader, messages, battle recordings or scores, all of which live in
-    structures `GameState` does not model.
+    simulated, and minefields with them. What is left, in the order it is worth
+    doing:
+
+    - **Player scores.** The last visible number the engine does not produce.
+      The formula is located and written down in `docs/formulas/scores.md`;
+      what is missing is the scale of `LComputePower` and the two thresholds
+      that sort ships into unarmed, escort and capital. Every `.mN` and `.hN`
+      in the fixtures carries real score rows, so this can be settled
+      differentially rather than by transcription alone.
+    - **Messages.** The engine decides plenty that the original would tell the
+      player about — a fleet stopped by mines, a gift refused, a patrol
+      targeted — and says none of it. `FSendPlrMsg` is everywhere in the
+      routines already read.
+    - **Mineral packets**, which are the most common object in the fixtures by
+      far (95,798 of them), and **wormholes** and the **Mystery Trader**, which
+      are now carried through a save verbatim but not simulated.
+    - Inside combat: the minefield damage step's interval merging, engine-count
+      scaling and shield absorption.
+    - A loaded state file still cannot carry structural fleet changes back —
+      the game does not either; the order log does.
 
 #### Saving is not re-encoding
 

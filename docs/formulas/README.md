@@ -51,6 +51,7 @@ Still to come in Step 4:
 | `new-game.md` | Universe generation, homeworlds, starting fleets, advantage points | verified |
 | `waypoint-tasks.md` | What a fleet does when it arrives: colonise, transport, merge, scrap, route, and what the rest still need | in progress |
 | `minefields.md` | Laying minefields, how they grow, and what they do to a fleet that flies through one | in progress |
+| `scores.md` | The player scoreboard and the victory conditions | located, not implemented |
 
 `new-game.md` is checked against `fixtures/incoming/turn0/`, a real turn-0 game
 as `GenerateWorld` left it, which pins down almost every stage of the algorithm.
