@@ -337,3 +337,90 @@ fn a_host_does_not_take_a_log_on_trust() {
 
     let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
 }
+
+/// Splitting, merging and renaming a fleet — applied, logged, and replayed by
+/// the host to the same result.
+#[test]
+fn fleets_split_merge_and_rename() {
+    let (mut app, host) = a_saved_game("fleets");
+    let directory = host.parent().expect("a directory").to_path_buf();
+
+    // A fleet with more than one ship to split. The starting fleets each hold
+    // one, so merge two together first.
+    let (first, second) = {
+        let game = app.game.as_ref().expect("game");
+        let mine: Vec<usize> = game
+            .fleets
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.owner == 0)
+            .map(|(i, _)| i)
+            .collect();
+        (mine[0], mine[1])
+    };
+    let before = app.game.as_ref().expect("game").fleets.len();
+    let design = app.game.as_ref().expect("game").fleets[second].stacks[0].design;
+
+    assert!(app.merge_fleets(first, &[second]), "the merge went through");
+    let game = app.game.as_ref().expect("game");
+    assert_eq!(game.fleets.len(), before - 1, "one fleet was absorbed");
+    let merged = game
+        .fleets
+        .iter()
+        .position(|f| f.ships() == 2)
+        .expect("a fleet of two ships");
+
+    assert!(app.rename_fleet(merged, "Bold Endeavour"));
+    assert_eq!(
+        app.game.as_ref().expect("game").fleets[merged]
+            .name
+            .as_deref(),
+        Some("Bold Endeavour")
+    );
+
+    assert!(app.split_fleet(merged, design, 1), "one ship splits off");
+    let game = app.game.as_ref().expect("game");
+    assert_eq!(
+        game.fleets.len(),
+        before,
+        "and there are as many fleets again"
+    );
+
+    // The three orders are in the log, and in the file.
+    app.save(&host).expect("saves");
+    let bytes = std::fs::read(host.with_extension("x1")).expect("reads back");
+    let file = StarsFile::decode(&bytes).expect("decodes");
+    let log = order_log(&file);
+    let kinds: Vec<LogRecordType> = log.records.iter().map(|r| r.record_type).collect();
+    assert!(kinds.contains(&LogRecordType::FleetMerge), "{kinds:?}");
+    assert!(kinds.contains(&LogRecordType::FleetName), "{kinds:?}");
+    assert!(kinds.contains(&LogRecordType::FleetSplit), "{kinds:?}");
+    assert!(kinds.contains(&LogRecordType::FleetCargoXfer), "{kinds:?}");
+
+    let merge = log
+        .records
+        .iter()
+        .find_map(stars_formats::LogRecord::as_fleet_merge)
+        .expect("a merge record");
+    assert_eq!(merge.absorbed().len(), 1, "one fleet was absorbed");
+
+    // A host replaying that log against a fresh copy of the same game reaches
+    // the same place.
+    let mut fresh = App::new();
+    fresh.open(&host).expect("opens");
+    // The saved host file already has the orders applied, so replay against
+    // the state as it was before them: generate from the original instead.
+    let (mut original, _) = {
+        let bytes = std::fs::read(directory.join("fleets.hst")).expect("reads");
+        let decoded = StarsFile::decode(&bytes).expect("decodes");
+        stars_core::GameState::from_file(&decoded)
+    };
+    let mut cargo = stars_core::TurnOrders::default();
+    let report = stars_core::replay::replay(&mut original, 0, &log, &mut cargo);
+    assert_eq!(report.merges, 1);
+    assert_eq!(report.renames, 1);
+    assert_eq!(report.ship_moves, 1);
+    assert_eq!(report.rejected, 0, "a host accepts its own player's orders");
+
+    let _ = std::fs::remove_dir_all(&directory);
+}

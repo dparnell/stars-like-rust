@@ -667,13 +667,35 @@ disagree.
     its own player's log, which this session already applied as the orders were
     made.
 
-14. **What is still missing to call it playable.** The waypoint tasks beyond
-    colonise, transport and remote mining (merge, scrap, lay minefield, patrol,
-    route, transfer) can be set but are not simulated; the order operations for
-    splitting, merging and renaming fleets are not replayed; and neither
-    generation nor the writers carry wormholes, the Mystery Trader, messages,
-    battle recordings or scores, all of which live in structures `GameState`
-    does not model.
+14. ~~**Fleet splits, merges and renames.**~~ **Done**, and decoding them
+    corrected the spec. `rtLogFleetCargoXfer` (23) is not a cargo transfer at
+    all: its wider mask names the sixteen **ship design slots** and its
+    quantities are ship counts, which is how a split moves ships into the new
+    fleet. Every one of the 45 such records in the fixtures names a design slot
+    the source fleet actually holds, checked against the same turn's state
+    file, and every quantity is a small count rather than a cargo amount.
+
+    `rtLogFleetSplit` (24) is two bytes naming the fleet, with the transfer
+    that follows doing the work; `rtLogFleetMerge` (37) is a list of fleet ids
+    of which **the first survives**, which seven of the nine merges in the
+    exodus game confirm against the next year's state file (the two exceptions
+    are a survivor lost that year and reused fleet numbers). All 53 records
+    round-trip, and the replay creates the new fleet, moves the ships, absorbs
+    the merged fleets and applies the rename.
+
+    The frontend makes these orders by **replaying them** — the same function a
+    host runs on the submitted log — so a session's own copy and the host's
+    cannot drift. A rename is the one operation that does not survive a save:
+    the type-21 block that holds fleet names appears in no fixture, so its
+    layout is unverified.
+
+15. **What is still missing to call it playable.** The waypoint tasks beyond
+    colonise, transport and remote mining (scrap, lay minefield, patrol, route,
+    transfer) can be set but are not simulated; the order operations for
+    relations, battle plans and the two flag fields are classified but not
+    replayed; fleet names have nowhere to be written; and neither generation nor
+    the writers carry wormholes, the Mystery Trader, messages, battle recordings
+    or scores, all of which live in structures `GameState` does not model.
 
 #### Saving is not re-encoding
 

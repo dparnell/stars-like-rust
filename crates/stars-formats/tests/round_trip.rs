@@ -18,10 +18,10 @@
 use std::path::{Path, PathBuf};
 
 use stars_formats::{
-    order_log, BattlePlanRecord, CargoTransfer, DesignRecord, FleetOrderDelete, FleetRecord,
-    LogHeader, LogRecordType, PlanetRecord, PlanetRoutingOrder, PlayerRecord,
-    ProductionQueueRecord, ResearchOrder, ShipDesignChange, StarsFile, Thing, ThingParam,
-    WaypointOrder, WaypointRecord, THING_SIZE,
+    order_log, BattlePlanRecord, CargoTransfer, DesignRecord, FleetMerge, FleetOrderDelete,
+    FleetRecord, FleetSplit, LogHeader, LogRecordType, PlanetRecord, PlanetRoutingOrder,
+    PlayerRecord, ProductionQueueRecord, ResearchOrder, ShipDesignChange, StarsFile, Thing,
+    ThingParam, WaypointOrder, WaypointRecord, THING_SIZE,
 };
 
 /// Every file under `fixtures/`, in a stable order.
@@ -367,6 +367,26 @@ fn every_order_record_re_encodes() {
                         path.display()
                     );
                     note("ship design");
+                }
+                LogRecordType::FleetSplit => {
+                    let record = FleetSplit::decode(data).expect("fleet split");
+                    assert_eq!(
+                        record.encode().as_slice(),
+                        data.as_slice(),
+                        "{}",
+                        path.display()
+                    );
+                    note("fleet split");
+                }
+                LogRecordType::FleetMerge => {
+                    let record = FleetMerge::decode(data).expect("fleet merge");
+                    assert_eq!(record.encode(), *data, "{}", path.display());
+                    assert!(
+                        record.survivor().is_some() && !record.absorbed().is_empty(),
+                        "{}: a merge names at least two fleets",
+                        path.display()
+                    );
+                    note("fleet merge");
                 }
                 LogRecordType::ThingByteParam => {
                     let record = ThingParam::decode(data).expect("thing param");

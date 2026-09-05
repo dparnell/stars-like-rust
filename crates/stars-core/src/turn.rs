@@ -466,6 +466,7 @@ fn add_ships_to_orbiting_fleet(
     };
     let id = next_fleet_id(state, owner);
     state.fleets.push(crate::fleet::Fleet {
+        name: None,
         id,
         owner,
         position,
@@ -544,7 +545,12 @@ fn remote_mine_for_fleet(
 ///
 /// Fleet ids are per player, and the game hands out the first free slot rather
 /// than always counting up, so a disbanded fleet's number comes back.
-fn next_fleet_id(state: &GameState, owner: i16) -> u16 {
+/// The lowest fleet number a player is not already using.
+///
+/// Fleet numbers are per player and are reused once a fleet is gone, which is
+/// why this looks for the first gap rather than counting.
+#[must_use]
+pub fn next_fleet_id(state: &GameState, owner: i16) -> u16 {
     let mut used: Vec<u16> = state
         .fleets
         .iter()

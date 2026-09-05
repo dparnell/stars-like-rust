@@ -148,6 +148,8 @@ pub struct App {
     edited: std::collections::BTreeSet<i16>,
     /// The warp the fleet screen last used, remembered between orders.
     pub warp: u8,
+    /// The name the fleet screen's rename box holds.
+    pub fleet_name: String,
     /// The order log for this turn, in the order the player made the moves.
     ///
     /// A Stars! order log is **not** a list of intentions: it records what the
@@ -786,18 +788,15 @@ impl App {
         if moved != 0 {
             // The log's own transfer record: the two objects, their classes,
             // a bitmask of the cargo kinds moved and one quantity per kind.
-            self.orders.push(LogRecord::cargo(
-                &CargoTransfer {
-                    id1: source,
-                    id2: planet,
-                    grobj1: FLEET_CLASS,
-                    grobj2: PLANET_CLASS,
-                    items_mask: 1 << kind,
-                    quantities: vec![moved],
-                    quantity_bytes: Vec::new(),
-                },
-                false,
-            ));
+            self.orders.push(LogRecord::cargo(&CargoTransfer {
+                id1: source,
+                id2: planet,
+                grobj1: FLEET_CLASS,
+                grobj2: PLANET_CLASS,
+                items_mask: 1 << kind,
+                quantities: vec![moved],
+                quantity_bytes: Vec::new(),
+            }));
             self.dirty = true;
         }
         moved
@@ -970,6 +969,125 @@ impl App {
         }
         self.log_waypoint(index, 1, true);
         self.dirty = true;
+    }
+
+    /// Apply a run of orders to the loaded game and record them.
+    ///
+    /// The orders are applied by **replaying them**, through exactly the code a
+    /// host runs on the submitted log. That is the point: what this session
+    /// does to its own copy and what the host does to its copy cannot drift,
+    /// because it is the same function.
+    ///
+    /// Returns whether anything was applied; an order naming something the
+    /// player does not own changes nothing and is not logged.
+    fn apply_and_log(&mut self, records: Vec<stars_formats::LogRecord>) -> bool {
+        let player = self.local_player();
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let mut cargo = stars_core::TurnOrders::default();
+        let log = stars_formats::OrderLog {
+            header: None,
+            records: records.clone(),
+        };
+        let report = stars_core::replay::replay(game, player, &log, &mut cargo);
+        if report.applied() == 0 {
+            return false;
+        }
+        self.orders.extend(records);
+        self.dirty = true;
+        true
+    }
+
+    /// Split ships out of a fleet into a new one.
+    ///
+    /// `count` ships of design slot `design` leave. The new fleet starts where
+    /// the old one is, orbiting whatever it orbits, under the same battle plan.
+    /// Splitting off everything leaves no original behind, which is what the
+    /// game does too.
+    ///
+    /// Returns whether the split happened.
+    pub fn split_fleet(&mut self, fleet: usize, design: u8, count: i32) -> bool {
+        use stars_formats::{CargoTransfer, FleetSplit, LogRecord};
+
+        if count <= 0 {
+            return false;
+        }
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        let Some(source) = game.fleets.get(fleet) else {
+            return false;
+        };
+        let owner = u16::try_from(source.owner.max(0)).unwrap_or(0);
+        let from = (owner << 9) | (source.id & 0x1ff);
+        let new_id = stars_core::turn::next_fleet_id(game, source.owner);
+        let to = (owner << 9) | (new_id & 0x1ff);
+
+        self.apply_and_log(vec![
+            LogRecord::split_fleet(FleetSplit { fleet_id: from }),
+            LogRecord::ships(&CargoTransfer {
+                id1: from,
+                id2: to,
+                grobj1: FLEET_CLASS,
+                grobj2: FLEET_CLASS,
+                items_mask: 1 << design,
+                // Negative: the ships leave the fleet named first.
+                quantities: vec![-count],
+                quantity_bytes: Vec::new(),
+            }),
+        ])
+    }
+
+    /// Merge fleets into the first of them, which takes their ships and cargo.
+    ///
+    /// Returns whether the merge happened.
+    pub fn merge_fleets(&mut self, survivor: usize, absorbed: &[usize]) -> bool {
+        use stars_formats::{FleetMerge, LogRecord};
+
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        let word = |index: usize| -> Option<u16> {
+            let fleet = game.fleets.get(index)?;
+            let owner = u16::try_from(fleet.owner.max(0)).ok()?;
+            Some((owner << 9) | (fleet.id & 0x1ff))
+        };
+        let Some(first) = word(survivor) else {
+            return false;
+        };
+        let mut fleets = vec![first];
+        fleets.extend(absorbed.iter().filter_map(|index| word(*index)));
+        if fleets.len() < 2 {
+            return false;
+        }
+        self.apply_and_log(vec![LogRecord::merge_fleets(&FleetMerge { fleets })])
+    }
+
+    /// Rename a fleet. An empty name clears it.
+    ///
+    /// Returns whether the rename happened. **The name does not survive a
+    /// save**: the game keeps fleet names in a block type no file in the
+    /// fixtures contains, so its layout is unverified — see
+    /// [`stars_core::fleet::Fleet::name`].
+    pub fn rename_fleet(&mut self, fleet: usize, name: &str) -> bool {
+        use stars_formats::{FleetName, LogRecord};
+
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        let Some(record) = game.fleets.get(fleet) else {
+            return false;
+        };
+        let owner = u16::try_from(record.owner.max(0)).unwrap_or(0);
+        let Ok(order) = LogRecord::fleet_name(&FleetName {
+            id: (owner << 9) | (record.id & 0x1ff),
+            grobj: u16::from(FLEET_CLASS),
+            name: name.to_string(),
+        }) else {
+            return false;
+        };
+        self.apply_and_log(vec![order])
     }
 
     /// Start playing a battle.
@@ -1453,6 +1571,7 @@ mod tests {
         planet.position = Some(stars_core::movement::Point::new(100, 200));
         game.planets.push(planet);
         game.fleets.push(stars_core::fleet::Fleet {
+            name: None,
             id: 1,
             owner: 0,
             position: stars_core::movement::Point::new(0, 0),

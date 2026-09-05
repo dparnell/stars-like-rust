@@ -414,12 +414,13 @@ impl PlanetRoutingOrder {
     }
 }
 
-/// A decoded cargo-transfer operation (`RTXFER` family, type ids 1/2/23/25).
+/// A decoded transfer operation (`RTXFER` family, type ids 1/2/23/25).
 ///
-/// A transfer moves cargo between two objects (`id1`/`id2`, classes
-/// `grobj1`/`grobj2`). A `grbitItems` bitmask selects which cargo categories
-/// are present, and one signed quantity follows per set bit. The four op
-/// variants differ only in the width of the mask and of each quantity:
+/// A transfer moves something between two objects (`id1`/`id2`, classes
+/// `grobj1`/`grobj2`). A `grbitItems` bitmask selects what, one signed quantity
+/// follows per set bit, and a **positive** quantity means the first object
+/// gains. The four variants differ in the width of the mask and of each
+/// quantity:
 ///
 /// | op (type id)                | mask width | quantity width |
 /// |-----------------------------|-----------:|---------------:|
@@ -427,6 +428,23 @@ impl PlanetRoutingOrder {
 /// | `rtLogCargoXfer16` (2)       | `u8`       | `i16` (`RTXFERX`) |
 /// | `rtLogFleetCargoXfer` (23)   | `u16`      | `i16` (`RTXFERF`) |
 /// | `rtLogCargoXfer32` (25)      | `u8`       | `i32` (`RTXFERL`) |
+///
+/// # What the mask selects
+///
+/// For the three narrow variants it is the five **cargo kinds** — ironium,
+/// boranium, germanium, colonists, fuel — and the quantities are amounts.
+///
+/// For `rtLogFleetCargoXfer` (23), the fleet-to-fleet form, it is the sixteen
+/// **ship design slots**, and the quantities are ship counts. That is what the
+/// wider mask is for, and it is what makes a fleet split: the client writes a
+/// `rtLogFleetSplit` and then moves ships into the new fleet with one of these.
+///
+/// Verified across all 45 such records in the fixtures: every mask names a
+/// design slot the source fleet actually holds ships of — fleet 21 of the
+/// exodus game carries only design 3 and its transfers mask `0x0008`, fleet 12
+/// carries only design 0 and masks `0x0001`, and a sixteen-player game's fleet
+/// 10 carries only design 12 and masks `0x1000` — and every quantity is a small
+/// count rather than a cargo amount.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CargoTransfer {
     /// The first object id involved in the transfer (`id1`).
@@ -540,16 +558,13 @@ impl CargoTransfer {
         Some(out)
     }
 
-    /// The smallest cargo-transfer variant that can carry these quantities.
+    /// The narrowest **cargo** variant that can carry these quantities, which
+    /// is what keeps the log small.
     ///
-    /// A fleet-to-fleet transfer always uses [`LogRecordType::FleetCargoXfer`],
-    /// whose mask is sixteen bits wide; otherwise the narrowest quantity width
-    /// that holds every value is chosen, which is what keeps the log small.
+    /// Not for a fleet-to-fleet ship transfer, which is always
+    /// [`LogRecordType::FleetCargoXfer`] because it needs the sixteen-bit mask.
     #[must_use]
-    pub fn narrowest(&self, fleet_to_fleet: bool) -> LogRecordType {
-        if fleet_to_fleet {
-            return LogRecordType::FleetCargoXfer;
-        }
+    pub fn narrowest_cargo(&self) -> LogRecordType {
         if self.quantities.iter().all(|q| i8::try_from(*q).is_ok()) {
             LogRecordType::CargoXfer8
         } else if self.quantities.iter().all(|q| i16::try_from(*q).is_ok()) {
@@ -557,6 +572,99 @@ impl CargoTransfer {
         } else {
             LogRecordType::CargoXfer32
         }
+    }
+}
+
+/// A decoded fleet-split operation (`rtLogFleetSplit`, type id 24).
+///
+/// Two bytes: the object id of the fleet being split. It says nothing about
+/// what leaves, because the client writes a fleet-to-fleet ship transfer
+/// straight afterwards naming the new fleet and the ships that move into it —
+/// see [`CargoTransfer`]. All 44 split records in the fixtures are exactly two
+/// bytes and every one is followed by such a transfer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FleetSplit {
+    /// The fleet being split (raw object id).
+    pub fleet_id: u16,
+}
+
+impl FleetSplit {
+    /// Decode a **decrypted** type-24 payload.
+    ///
+    /// Returns `None` if the payload is shorter than 2 bytes.
+    #[must_use]
+    pub fn decode(data: &[u8]) -> Option<Self> {
+        if data.len() < 2 {
+            return None;
+        }
+        Some(Self {
+            fleet_id: u16::from_le_bytes([data[0], data[1]]),
+        })
+    }
+
+    /// Re-encode this operation as a type-24 payload.
+    #[must_use]
+    pub fn encode(&self) -> [u8; 2] {
+        self.fleet_id.to_le_bytes()
+    }
+}
+
+/// A decoded fleet-merge operation (`rtLogFleetMerge`, type id 37).
+///
+/// A list of fleet object ids, two bytes each. **The first survives and the
+/// rest are absorbed into it.**
+///
+/// The direction is read off the corpus rather than the struct: of the nine
+/// merges in the exodus game, seven have the first fleet present in the next
+/// year's state file and every other one gone. The two exceptions are
+/// explicable — one merge is followed by the surviving fleet being destroyed,
+/// and fleet numbers are reused once a fleet dies — and no case has the first
+/// fleet vanish while a later one survives.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FleetMerge {
+    /// The fleets, survivor first.
+    pub fleets: Vec<u16>,
+}
+
+impl FleetMerge {
+    /// Decode a **decrypted** type-37 payload.
+    ///
+    /// Returns `None` if the payload does not name at least two fleets.
+    #[must_use]
+    pub fn decode(data: &[u8]) -> Option<Self> {
+        if data.len() < 4 {
+            return None;
+        }
+        Some(Self {
+            fleets: data
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_le_bytes(*c))
+                .collect(),
+        })
+    }
+
+    /// The fleet everything merges into.
+    #[must_use]
+    pub fn survivor(&self) -> Option<u16> {
+        self.fleets.first().copied()
+    }
+
+    /// The fleets absorbed into [`Self::survivor`].
+    #[must_use]
+    pub fn absorbed(&self) -> &[u16] {
+        self.fleets.get(1..).unwrap_or_default()
+    }
+
+    /// Re-encode this operation as a type-37 payload.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.fleets.len() * 2);
+        for fleet in &self.fleets {
+            out.extend_from_slice(&fleet.to_le_bytes());
+        }
+        out
     }
 }
 
@@ -783,6 +891,22 @@ impl LogRecord {
             .flatten()
     }
 
+    /// Decode this record as a fleet split.
+    #[must_use]
+    pub fn as_fleet_split(&self) -> Option<FleetSplit> {
+        (self.record_type == LogRecordType::FleetSplit)
+            .then(|| FleetSplit::decode(&self.data))
+            .flatten()
+    }
+
+    /// Decode this record as a fleet merge.
+    #[must_use]
+    pub fn as_fleet_merge(&self) -> Option<FleetMerge> {
+        (self.record_type == LogRecordType::FleetMerge)
+            .then(|| FleetMerge::decode(&self.data))
+            .flatten()
+    }
+
     /// Decode this record as a `THING`-parameter operation.
     #[must_use]
     pub fn as_thing_param(&self) -> Option<ThingParam> {
@@ -832,10 +956,32 @@ impl LogRecord {
 
     /// Move cargo, in the narrowest variant that carries the quantities.
     #[must_use]
-    pub fn cargo(transfer: &CargoTransfer, fleet_to_fleet: bool) -> Self {
-        let record_type = transfer.narrowest(fleet_to_fleet);
+    pub fn cargo(transfer: &CargoTransfer) -> Self {
+        let record_type = transfer.narrowest_cargo();
         let data = transfer.encode(record_type).unwrap_or_default();
         Self::raw(record_type, data)
+    }
+
+    /// Move **ships** between two fleets: the mask names design slots.
+    #[must_use]
+    pub fn ships(transfer: &CargoTransfer) -> Self {
+        let data = transfer
+            .encode(LogRecordType::FleetCargoXfer)
+            .unwrap_or_default();
+        Self::raw(LogRecordType::FleetCargoXfer, data)
+    }
+
+    /// Split a fleet, which the client follows with a [`Self::ships`] transfer
+    /// naming the new fleet.
+    #[must_use]
+    pub fn split_fleet(fleet: FleetSplit) -> Self {
+        Self::raw(LogRecordType::FleetSplit, fleet.encode().to_vec())
+    }
+
+    /// Merge fleets into the first of them.
+    #[must_use]
+    pub fn merge_fleets(merge: &FleetMerge) -> Self {
+        Self::raw(LogRecordType::FleetMerge, merge.encode())
     }
 
     /// Replace a planet's production queue.

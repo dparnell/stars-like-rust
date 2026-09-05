@@ -192,10 +192,11 @@ typedef struct _rtChgPlanetLong {
 Decoded by [`PlanetRoutingOrder`] (`planet_id`, `no_research`, `fling_target`,
 `fling_warp`, `route_target`).
 
-### Cargo transfer (`RTXFER` family, ids 1 / 2 / 23 / 25)
+### Transfers (`RTXFER` family, ids 1 / 2 / 23 / 25)
 
 The four variants differ only in the width of the item mask and of each
-quantity; one signed quantity follows per set bit in `grbitItems`:
+quantity; one signed quantity follows per set bit in `grbitItems`, and a
+**positive** quantity means the object named *first* gains:
 
 | op (id)                    | struct    | mask  | quantity |
 |----------------------------|-----------|-------|----------|
@@ -218,6 +219,31 @@ and the per-item signed `quantities` (widened to `i32`), and still preserves the
 raw quantity region as `quantity_bytes`. Verified on the exodus files: every
 transfer has exactly `popcount(items_mask)` quantities and the raw bytes equal
 `count × width`.
+
+#### What the mask selects, and why the fleet-to-fleet form is wider
+
+For the three narrow variants the mask names the five **cargo kinds** —
+ironium, boranium, germanium, colonists, fuel — and the quantities are amounts.
+
+For `rtLogFleetCargoXfer` (23) it names the sixteen **ship design slots**, and
+the quantities are ship counts. That is what the wider mask is for, and it is
+how a fleet is split: the client writes a `rtLogFleetSplit` and then moves ships
+into the new fleet with one of these.
+
+The evidence is every one of the 45 such records in the fixtures. Each mask has
+a single bit, and that bit is always a design slot the source fleet actually
+holds ships of, checked against the same turn's state file:
+
+| source fleet | its stacks in the `.mN` | mask |
+|--------------|-------------------------|------|
+| exodus 5#21 | design 3 × 3 | `0x0008` |
+| exodus 5#13 | design 3 × 4 | `0x0008` |
+| exodus 5#12 | design 0 × 5 | `0x0001` |
+| a 16-player game's 6#10 | design 12 × 6 | `0x1000` |
+
+Every quantity is a small count (−1, +3) rather than the hundreds a cargo
+transfer moves, and bit 12 is not a cargo kind at all. An earlier revision of
+this spec listed all four as cargo transfers.
 
 ### Ship-design change (`RTCHGSHDEF`, id 27)
 
@@ -257,6 +283,41 @@ packed-string decoder ([`decode_stars_string`]); a leading length byte of `0`
 means the name was written as a literal C string. (Not present in the exodus
 capture, so decoded from the NB09 struct rather than fixture-verified.)
 
+### Fleet split (`rtLogFleetSplit`, id 24)
+
+Two bytes: the object id of the fleet being split. It says nothing about what
+leaves, because the client writes a fleet-to-fleet **ship** transfer straight
+afterwards naming the new fleet and the ships that move into it. All 44 split
+records in the fixtures are exactly two bytes, and every one is followed by such
+a transfer. Decoded by [`FleetSplit`].
+
+### Fleet merge (`rtLogFleetMerge`, id 37)
+
+A list of fleet object ids, two bytes each — eight of the nine in the fixtures
+name two fleets and one names seven. **The first survives and the rest are
+absorbed into it.**
+
+That direction is read off the corpus rather than the struct. Of the nine merges
+in the exodus game, seven have the first fleet present in the next year's state
+file and every other one gone:
+
+```text
+2424  merge [4, 30]                        -> 4 present, 30 gone
+2425  merge [12, 22, 23, 27, 28, 30, 36]   -> 12 present, the other six gone
+2426  merge [26, 25]                       -> 26 present, 25 gone
+2429  merge [31, 21]                       -> 31 present, 21 gone
+2440  merge [17, 11]                       -> 17 present, 11 gone
+2449  merge [16, 6]                        -> 16 present, 6 gone
+```
+
+The two exceptions are explicable and neither contradicts the direction: after
+`2442 merge [34, 17]` *neither* fleet is in the next year's file, the survivor
+having been lost that year, and the two cases where a later-named fleet is still
+present are fleet numbers reused after a death. In no case does the first fleet
+vanish while a later one survives.
+
+Decoded by [`FleetMerge`], whose `survivor` and `absorbed` name the two halves.
+
 ### `THING` byte parameter (`RTLOGTHING`, id 43)
 
 `{ uint16_t idFull; int16_t fDetonate; }` — a full object id plus a parameter
@@ -274,8 +335,9 @@ player made the moves.
 
 Every one of the 58 `.xN` files in the fixtures rebuilds byte for byte from its
 parsed log. Record counts checked: 466 waypoint inserts/updates, 143 production
-queues, 106 cargo transfers, 58 log headers, 43 ship-design changes, 29 research
-settings, 25 order deletes, 8 planet routings.
+queues, 106 transfers, 58 log headers, 44 fleet splits, 43 ship-design changes,
+29 research settings, 25 order deletes, 9 fleet merges, 8 planet routings —
+931 records in all.
 
 ### What the frontend records
 
@@ -287,6 +349,9 @@ what the client **already did**, not what it intends:
 | moves cargo between a fleet and the planet it orbits | a cargo transfer, in the narrowest of the four width variants that holds the quantities |
 | sends a fleet somewhere | a delete of the old leg, if there was one, then an insert at waypoint 1 |
 | gives it a task or transport instructions | an update of that waypoint |
+| splits a fleet | a split naming it, then a ship transfer into the new fleet |
+| merges fleets | one merge record, survivor first |
+| renames a fleet | a rename record |
 | edits a production queue | one queue record per planet, at the end |
 | dials research | one research record, at the end |
 
@@ -295,9 +360,13 @@ queue and the research setting are **state**, and their records replace whatever
 the host holds, so one of each is enough. Generating a turn clears the log: it
 covers one year.
 
-The delete-then-insert idiom for replacing a leg, and the insert-then-update
-idiom for adding one and then giving it a task, are both what the exodus logs
-do.
+The delete-then-insert idiom for replacing a leg, the insert-then-update idiom
+for adding one and then giving it a task, and the split-then-transfer idiom are
+all what the exodus logs do.
+
+The frontend applies these orders by **replaying them** — the same function the
+host runs on the submitted log — so what a session does to its own copy of the
+game and what the host does to its copy cannot drift apart.
 
 ## Replaying an order log
 
@@ -307,7 +376,11 @@ received them. What each operation does:
 
 | Operation | Replayed as |
 |-----------|-------------|
-| cargo transfer (1/2/23/25) | collected into `TurnOrders` for `DoOrders(0)`, the first step of the year |
+| cargo transfer (1/2/25) | collected into `TurnOrders` for `DoOrders(0)`, the first step of the year |
+| fleet-to-fleet ship transfer (23) | ships move between two of the player's fleets; the destination is **created** if it does not exist, which is the second half of a split, and a fleet left with no ships ceases to exist |
+| fleet split (24) | nothing on its own — the transfer that follows does the work |
+| fleet merge (37) | the first fleet named takes the others' ships and cargo, and they cease to exist |
+| fleet rename (44) | the name is set on the fleet, in memory only (see below) |
 | waypoint insert / update (4/5) | inserted at or written over that slot of the fleet's order list |
 | waypoint delete (3) | removed; with the high bit, everything from that slot on |
 | production queue (29) | the planet's queue is replaced |
@@ -315,9 +388,17 @@ received them. What each operation does:
 | planet routing (35) | the planet's "no research" flag |
 | ship design (27) | the design is created, replaced, or the slot freed |
 
-Everything else — fleet splits and merges, relations, battle plans, fleet
-renames, the flag and attribute-nibble operations — is classified and named in
-`ReplayReport::unsupported` rather than silently dropped.
+Everything else — relations, battle plans, and the flag and attribute-nibble
+operations — is classified and named in `ReplayReport::unsupported` rather than
+silently dropped.
+
+**A replayed rename does not survive a save.** The game keeps fleet names in a
+separate type-21 string block, and no file in this repository's fixtures
+contains one — nobody renamed a fleet in any of the captured games — so neither
+the association rule nor the framing has been verified. The rename is applied to
+`Fleet::name` rather than dropped, because a host that ignored it would diverge
+from the client's view of the game; writing it back waits on a fixture that has
+one.
 
 Cargo transfers are the only operation that is *not* applied on the spot. The
 client applied them when the player made them, but their effect belongs at
@@ -354,11 +435,13 @@ every transfer twice.
   not interpret (bit 13 is `fNoAutoTrack` in the state file's own waypoint
   record). They are preserved, and a waypoint this project writes leaves them
   zero.
-- `rtLogFleetSplit` (24), `rtLogFleetMerge` (37), `rtLogFleetFlagBit9` (10),
-  `rtLogFleetOrderAttrNib` (11), `rtLogRelations` (38), `rtLogFleetPlan` (42)
-  and `rtLogPlayerZpq1` (46) are classified but not yet field-decoded, and so
-  not replayed either. The replay names them rather than dropping them
-  silently.
+- `rtLogFleetFlagBit9` (10), `rtLogFleetOrderAttrNib` (11), `rtLogRelations`
+  (38), `rtLogFleetPlan` (42) and `rtLogPlayerZpq1` (46) are classified but not
+  yet field-decoded, and so not replayed either. The replay names them rather
+  than dropping them silently.
+- Fleet names have nowhere to be written: the type-21 block that holds them
+  appears in no fixture, so its layout and its association with a fleet are
+  unverified.
 - `RTCHGNAME` (44) and `RTLOGTHING` (43) decoders are struct-derived; they need
   an orders fixture that renames a fleet / toggles a minefield to fixture-verify.
 
@@ -373,4 +456,6 @@ every transfer twice.
 [`ShipDesignChange`]: ../../crates/stars-formats/src/orders.rs
 [`FleetName`]: ../../crates/stars-formats/src/orders.rs
 [`ThingParam`]: ../../crates/stars-formats/src/orders.rs
+[`FleetSplit`]: ../../crates/stars-formats/src/orders.rs
+[`FleetMerge`]: ../../crates/stars-formats/src/orders.rs
 [`decode_stars_string`]: ../../crates/stars-formats/src/strings.rs

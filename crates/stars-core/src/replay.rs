@@ -23,8 +23,9 @@
 //! `docs/formats/orders-x.md`.
 
 use stars_formats::{
-    object_owner, CargoTransfer, CargoTransferRecord, FleetOrderDelete, GrobjClass, LogRecord,
-    LogRecordType, OrderLog, PlanetRoutingOrder, ResearchOrder, ShipDesignChange, WaypointOrder,
+    object_owner, CargoTransfer, CargoTransferRecord, FleetMerge, FleetName, FleetOrderDelete,
+    GrobjClass, LogRecord, LogRecordType, OrderLog, PlanetRoutingOrder, ResearchOrder,
+    ShipDesignChange, WaypointOrder,
 };
 
 use crate::fleet::Waypoint;
@@ -52,6 +53,13 @@ pub struct ReplayReport {
     pub designs: usize,
     /// Planet routing/no-research settings changed.
     pub routing: usize,
+    /// Ships moved between two of the player's fleets, which is what a split
+    /// and a manual regroup both come down to.
+    pub ship_moves: usize,
+    /// Fleets merged into another.
+    pub merges: usize,
+    /// Fleets renamed.
+    pub renames: usize,
     /// Operations dropped because they named something the player does not own,
     /// or an object this state does not hold.
     pub rejected: usize,
@@ -63,7 +71,15 @@ impl ReplayReport {
     /// How many operations were replayed.
     #[must_use]
     pub fn applied(&self) -> usize {
-        self.cargo + self.waypoints + self.queues + self.research + self.designs + self.routing
+        self.cargo
+            + self.waypoints
+            + self.queues
+            + self.research
+            + self.designs
+            + self.routing
+            + self.ship_moves
+            + self.merges
+            + self.renames
     }
 }
 
@@ -114,10 +130,7 @@ fn apply(
     report: &mut ReplayReport,
 ) {
     match record.record_type {
-        LogRecordType::CargoXfer8
-        | LogRecordType::CargoXfer16
-        | LogRecordType::CargoXfer32
-        | LogRecordType::FleetCargoXfer => {
+        LogRecordType::CargoXfer8 | LogRecordType::CargoXfer16 | LogRecordType::CargoXfer32 => {
             let Some(transfer) = record.as_cargo_transfer() else {
                 report.rejected += 1;
                 return;
@@ -128,6 +141,53 @@ fn apply(
                     report.cargo += 1;
                 }
                 None => report.rejected += 1,
+            }
+        }
+        // The fleet-to-fleet form moves **ships**, not cargo: its wider mask
+        // names design slots. See `stars_formats::CargoTransfer`.
+        LogRecordType::FleetCargoXfer => {
+            let Some(transfer) = record.as_cargo_transfer() else {
+                report.rejected += 1;
+                return;
+            };
+            if move_ships(state, player, &transfer) {
+                report.ship_moves += 1;
+            } else {
+                report.rejected += 1;
+            }
+        }
+        // A split says only which fleet is being split; the ship transfer
+        // that follows names the new fleet and what goes into it, and
+        // `move_ships` creates the fleet when it does not exist yet.
+        LogRecordType::FleetSplit => {
+            let Some(split) = record.as_fleet_split() else {
+                report.rejected += 1;
+                return;
+            };
+            if find_fleet(state, player, split.fleet_id).is_none() {
+                report.rejected += 1;
+            }
+        }
+        LogRecordType::FleetMerge => {
+            let Some(merge) = record.as_fleet_merge() else {
+                report.rejected += 1;
+                return;
+            };
+            if merge_fleets(state, player, &merge) {
+                report.merges += 1;
+            } else {
+                report.rejected += 1;
+            }
+        }
+        LogRecordType::FleetName => {
+            let Some(rename) = record.as_fleet_name() else {
+                report.rejected += 1;
+                return;
+            };
+            if rename_fleet(state, player, &rename) {
+                report.renames += 1;
+            } else {
+                report.rejected += 1;
             }
         }
         LogRecordType::FleetOrderInsert | LogRecordType::FleetOrderUpdate => {
@@ -246,6 +306,181 @@ fn cargo_record(player: usize, transfer: &CargoTransfer) -> Option<CargoTransfer
         selector: transfer.items_mask as u8,
         quantities,
     })
+}
+
+/// Move ships between two of the player's fleets, creating the destination if
+/// this is the second half of a split.
+///
+/// The mask names design slots and each quantity is a ship count, positive when
+/// the **first** fleet gains. A stack cannot go below zero, and a fleet left
+/// with no ships at all is removed, which is what happens to the source of a
+/// split that moves everything.
+fn move_ships(state: &mut GameState, player: usize, transfer: &CargoTransfer) -> bool {
+    let (Some(first), Some(second)) = (
+        GrobjClass::from_nibble(transfer.grobj1),
+        GrobjClass::from_nibble(transfer.grobj2),
+    ) else {
+        return false;
+    };
+    if first != GrobjClass::Fleet || second != GrobjClass::Fleet {
+        return false;
+    }
+    let Some(from) = find_fleet(state, player, transfer.id1) else {
+        return false;
+    };
+    // The other end may not exist yet: a split names the fleet it is about to
+    // create.
+    let to = match find_fleet(state, player, transfer.id2) {
+        Some(index) => index,
+        None => match new_fleet(state, player, transfer.id2, from) {
+            Some(index) => index,
+            None => return false,
+        },
+    };
+    if from == to {
+        return false;
+    }
+
+    let mut next = transfer.quantities.iter();
+    let mut moved = false;
+    for slot in 0..16u8 {
+        if transfer.items_mask & (1 << slot) == 0 {
+            continue;
+        }
+        let Some(quantity) = next.next().copied() else {
+            break;
+        };
+        // Positive means the first fleet gains, so the ships come from the
+        // second; negative is the other way round.
+        let (source, sink) = if quantity >= 0 {
+            (to, from)
+        } else {
+            (from, to)
+        };
+        let wanted = quantity.abs();
+        let available = state.fleets[source]
+            .stacks
+            .iter()
+            .find(|s| s.design == slot)
+            .map_or(0, |s| s.count)
+            .max(0);
+        let count = wanted.min(available);
+        if count == 0 {
+            continue;
+        }
+        if let Some(stack) = state.fleets[source]
+            .stacks
+            .iter_mut()
+            .find(|s| s.design == slot)
+        {
+            stack.count -= count;
+        }
+        match state.fleets[sink]
+            .stacks
+            .iter_mut()
+            .find(|s| s.design == slot)
+        {
+            Some(stack) => stack.count += count,
+            None => state.fleets[sink].stacks.push(crate::fleet::ShipStack {
+                design: slot,
+                count,
+                damaged_pct: 0,
+                damage_pct: 0,
+            }),
+        }
+        moved = true;
+    }
+
+    if moved {
+        for index in [from, to] {
+            state.fleets[index].stacks.retain(|s| s.count > 0);
+        }
+        // A fleet with nothing left in it no longer exists. Removing shifts
+        // the indices, so do it after both ends are settled.
+        state.fleets.retain(|f| !f.is_empty());
+    }
+    moved
+}
+
+/// Create an empty fleet alongside `beside`, for a split to fill.
+fn new_fleet(state: &mut GameState, player: usize, id: u16, beside: usize) -> Option<usize> {
+    if usize::from(object_owner(id)) != player {
+        return None;
+    }
+    let source = &state.fleets[beside];
+    let fleet = crate::fleet::Fleet {
+        id: id & 0x1FF,
+        owner: source.owner,
+        position: source.position,
+        orbiting: source.orbiting,
+        stacks: Vec::new(),
+        cargo: crate::fleet::Cargo::default(),
+        battle_plan: source.battle_plan,
+        warp: None,
+        waypoints: vec![crate::fleet::Waypoint {
+            position: source.position,
+            target: source.orbiting,
+            warp: 0,
+            task: 0,
+            transport: None,
+        }],
+        name: None,
+    };
+    state.fleets.push(fleet);
+    Some(state.fleets.len() - 1)
+}
+
+/// Merge fleets into the first of them.
+///
+/// Everything the absorbed fleets hold — ships, cargo — joins the survivor, and
+/// they cease to exist. A fleet the state does not hold is skipped rather than
+/// failing the whole operation, because the host may have destroyed it since
+/// the player's client last saw the game.
+fn merge_fleets(state: &mut GameState, player: usize, merge: &FleetMerge) -> bool {
+    let Some(survivor_id) = merge.survivor() else {
+        return false;
+    };
+    let Some(survivor) = find_fleet(state, player, survivor_id) else {
+        return false;
+    };
+
+    let mut merged = false;
+    for absorbed_id in merge.absorbed() {
+        let Some(absorbed) = find_fleet(state, player, *absorbed_id) else {
+            continue;
+        };
+        if absorbed == survivor {
+            continue;
+        }
+        let taken = state.fleets[absorbed].clone();
+        let into = &mut state.fleets[survivor];
+        for stack in taken.stacks {
+            match into.stacks.iter_mut().find(|s| s.design == stack.design) {
+                Some(existing) => existing.count += stack.count,
+                None => into.stacks.push(stack),
+            }
+        }
+        for (kind, amount) in taken.cargo.minerals.iter().enumerate() {
+            into.cargo.minerals[kind] += amount;
+        }
+        into.cargo.colonists += taken.cargo.colonists;
+        into.cargo.fuel += taken.cargo.fuel;
+        state.fleets[absorbed].stacks.clear();
+        merged = true;
+    }
+    if merged {
+        state.fleets.retain(|f| !f.is_empty());
+    }
+    merged
+}
+
+/// Rename one of the player's fleets.
+fn rename_fleet(state: &mut GameState, player: usize, rename: &FleetName) -> bool {
+    let Some(index) = find_fleet(state, player, rename.id) else {
+        return false;
+    };
+    state.fleets[index].name = (!rename.name.is_empty()).then(|| rename.name.clone());
+    true
 }
 
 /// The index of one of the player's fleets, by the object id a log names.
@@ -422,6 +657,7 @@ mod tests {
     use crate::planet::Planet;
     use crate::race::Race;
     use crate::Player;
+    use stars_formats::{FleetMerge, FleetName};
 
     /// A one-player game with a fleet orbiting its planet.
     fn a_game() -> GameState {
@@ -434,6 +670,7 @@ mod tests {
         planet.pop = 250;
         state.planets.push(planet);
         state.fleets.push(Fleet {
+            name: None,
             id: 3,
             owner: 0,
             position: Point::new(1100, 1200),
@@ -547,18 +784,15 @@ mod tests {
         let mut orders = TurnOrders::default();
         let mut log = OrderLog::new(0, [0; 11]);
         // Ironium (bit 0) and germanium (bit 2).
-        log.records.push(LogRecord::cargo(
-            &CargoTransfer {
-                id1: fleet_word(0, 3),
-                id2: 7,
-                grobj1: 2,
-                grobj2: 1,
-                items_mask: 0b101,
-                quantities: vec![11, 22],
-                quantity_bytes: Vec::new(),
-            },
-            false,
-        ));
+        log.records.push(LogRecord::cargo(&CargoTransfer {
+            id1: fleet_word(0, 3),
+            id2: 7,
+            grobj1: 2,
+            grobj2: 1,
+            items_mask: 0b101,
+            quantities: vec![11, 22],
+            quantity_bytes: Vec::new(),
+        }));
         let report = replay(&mut state, 0, &log, &mut orders);
         assert_eq!(report.cargo, 1);
         assert_eq!(orders.cargo.len(), 1);
@@ -573,18 +807,15 @@ mod tests {
         let mut state = a_game();
         let mut orders = TurnOrders::default();
         let mut log = OrderLog::new(0, [0; 11]);
-        log.records.push(LogRecord::cargo(
-            &CargoTransfer {
-                id1: fleet_word(4, 3),
-                id2: 7,
-                grobj1: 2,
-                grobj2: 1,
-                items_mask: 1,
-                quantities: vec![5],
-                quantity_bytes: Vec::new(),
-            },
-            false,
-        ));
+        log.records.push(LogRecord::cargo(&CargoTransfer {
+            id1: fleet_word(4, 3),
+            id2: 7,
+            grobj1: 2,
+            grobj2: 1,
+            items_mask: 1,
+            quantities: vec![5],
+            quantity_bytes: Vec::new(),
+        }));
         let report = replay(&mut state, 0, &log, &mut orders);
         assert_eq!(report.rejected, 1);
         assert!(orders.cargo.is_empty());
@@ -663,11 +894,174 @@ mod tests {
         let mut orders = TurnOrders::default();
         let mut log = OrderLog::new(0, [0; 11]);
         log.records
-            .push(LogRecord::raw(LogRecordType::FleetSplit, vec![0x03, 0x00]));
+            .push(LogRecord::raw(LogRecordType::FleetPlan, vec![0x03, 0x00]));
         log.records
-            .push(LogRecord::raw(LogRecordType::FleetSplit, vec![0x03, 0x00]));
+            .push(LogRecord::raw(LogRecordType::FleetPlan, vec![0x03, 0x00]));
         let report = replay(&mut state, 0, &log, &mut orders);
         assert_eq!(report.applied(), 0);
-        assert_eq!(report.unsupported, vec![LogRecordType::FleetSplit]);
+        assert_eq!(
+            report.unsupported,
+            vec![LogRecordType::FleetPlan],
+            "named once, however often it appears"
+        );
+    }
+
+    /// Splitting a fleet: the split names the fleet, the transfer that follows
+    /// creates the new one and moves ships into it.
+    #[test]
+    fn a_fleet_splits_into_a_new_one() {
+        let mut state = a_game();
+        state.fleets[0].stacks = vec![ShipStack {
+            design: 3,
+            count: 3,
+            damaged_pct: 0,
+            damage_pct: 0,
+        }];
+        let mut orders = TurnOrders::default();
+        let mut log = OrderLog::new(0, [0; 11]);
+
+        log.records
+            .push(LogRecord::split_fleet(stars_formats::FleetSplit {
+                fleet_id: fleet_word(0, 3),
+            }));
+        // One ship of design 3 leaves fleet 3 for a fleet that does not exist
+        // yet. Negative: the *first* fleet loses.
+        log.records.push(LogRecord::ships(&CargoTransfer {
+            id1: fleet_word(0, 3),
+            id2: fleet_word(0, 9),
+            grobj1: 2,
+            grobj2: 2,
+            items_mask: 1 << 3,
+            quantities: vec![-1],
+            quantity_bytes: Vec::new(),
+        }));
+
+        let report = replay(&mut state, 0, &log, &mut orders);
+        assert_eq!(report.ship_moves, 1);
+        assert_eq!(report.rejected, 0);
+        assert_eq!(state.fleets.len(), 2, "the new fleet exists");
+
+        let old = state
+            .fleets
+            .iter()
+            .find(|f| f.id == 3)
+            .expect("the original");
+        let new = state
+            .fleets
+            .iter()
+            .find(|f| f.id == 9)
+            .expect("the new one");
+        assert_eq!(old.stacks[0].count, 2, "two ships left behind");
+        assert_eq!(
+            new.stacks,
+            vec![ShipStack {
+                design: 3,
+                count: 1,
+                damaged_pct: 0,
+                damage_pct: 0
+            }]
+        );
+        assert_eq!(new.position, old.position, "it starts where it split");
+        assert_eq!(new.orbiting, old.orbiting);
+    }
+
+    /// Splitting off everything leaves no source fleet behind.
+    #[test]
+    fn a_fleet_that_gives_up_every_ship_ceases_to_exist() {
+        let mut state = a_game();
+        let mut orders = TurnOrders::default();
+        let mut log = OrderLog::new(0, [0; 11]);
+        log.records.push(LogRecord::ships(&CargoTransfer {
+            id1: fleet_word(0, 3),
+            id2: fleet_word(0, 9),
+            grobj1: 2,
+            grobj2: 2,
+            items_mask: 1,
+            quantities: vec![-1],
+            quantity_bytes: Vec::new(),
+        }));
+        replay(&mut state, 0, &log, &mut orders);
+        assert_eq!(state.fleets.len(), 1);
+        assert_eq!(state.fleets[0].id, 9, "only the new fleet is left");
+    }
+
+    /// Merging: the first fleet named survives and takes everything.
+    #[test]
+    fn fleets_merge_into_the_first_of_them() {
+        let mut state = a_game();
+        state.fleets[0].cargo.minerals = [10, 0, 0];
+        let mut second = state.fleets[0].clone();
+        second.id = 8;
+        second.stacks = vec![ShipStack {
+            design: 1,
+            count: 2,
+            damaged_pct: 0,
+            damage_pct: 0,
+        }];
+        second.cargo.minerals = [5, 7, 0];
+        second.cargo.fuel = 40;
+        state.fleets.push(second);
+
+        let mut orders = TurnOrders::default();
+        let mut log = OrderLog::new(0, [0; 11]);
+        log.records.push(LogRecord::merge_fleets(&FleetMerge {
+            fleets: vec![fleet_word(0, 3), fleet_word(0, 8)],
+        }));
+
+        let report = replay(&mut state, 0, &log, &mut orders);
+        assert_eq!(report.merges, 1);
+        assert_eq!(state.fleets.len(), 1, "the absorbed fleet is gone");
+        let survivor = &state.fleets[0];
+        assert_eq!(survivor.id, 3, "the first named survives");
+        assert_eq!(survivor.ships(), 3, "it has both fleets' ships");
+        assert_eq!(survivor.cargo.minerals, [15, 7, 0]);
+        assert_eq!(survivor.cargo.fuel, 40);
+    }
+
+    /// A merge naming someone else's fleet is refused.
+    #[test]
+    fn a_merge_must_name_the_players_own_fleets() {
+        let mut state = a_game();
+        let mut orders = TurnOrders::default();
+        let mut log = OrderLog::new(0, [0; 11]);
+        log.records.push(LogRecord::merge_fleets(&FleetMerge {
+            fleets: vec![fleet_word(2, 3), fleet_word(2, 8)],
+        }));
+        let report = replay(&mut state, 0, &log, &mut orders);
+        assert_eq!(report.rejected, 1);
+        assert_eq!(report.merges, 0);
+        assert_eq!(state.fleets.len(), 1);
+    }
+
+    /// Renaming a fleet, and clearing the name again.
+    #[test]
+    fn a_fleet_can_be_renamed() {
+        let mut state = a_game();
+        let mut orders = TurnOrders::default();
+
+        let mut log = OrderLog::new(0, [0; 11]);
+        log.records.push(
+            LogRecord::fleet_name(&FleetName {
+                id: fleet_word(0, 3),
+                grobj: 2,
+                name: "Bold Endeavour".into(),
+            })
+            .expect("encodes"),
+        );
+        let report = replay(&mut state, 0, &log, &mut orders);
+        assert_eq!(report.renames, 1);
+        assert_eq!(state.fleets[0].name.as_deref(), Some("Bold Endeavour"));
+
+        let mut log = OrderLog::new(0, [0; 11]);
+        log.records.push(
+            LogRecord::fleet_name(&FleetName {
+                id: fleet_word(0, 3),
+                grobj: 2,
+                name: String::new(),
+            })
+            .expect("encodes"),
+        );
+        replay(&mut state, 0, &log, &mut orders);
+        assert_eq!(state.fleets[0].name, None, "an empty name is no name");
     }
 }

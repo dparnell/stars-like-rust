@@ -532,6 +532,7 @@ mod tests {
 
     fn fleet(owner: i16, id: u16, cargo: Cargo) -> Fleet {
         Fleet {
+            name: None,
             id,
             owner,
             position: Point::new(0, 0),

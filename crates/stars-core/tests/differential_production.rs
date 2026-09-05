@@ -400,6 +400,7 @@ fn a_queued_ship_is_paid_for_and_joins_the_fleet() {
     state.designs = vec![vec![design]];
     state.planets = vec![planet];
     state.fleets = vec![Fleet {
+        name: None,
         id: 1,
         owner: 0,
         position: Point { x: 0, y: 0 },

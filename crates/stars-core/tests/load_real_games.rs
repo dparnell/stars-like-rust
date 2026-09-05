@@ -326,6 +326,7 @@ fn fuel_range_reflects_the_engine_table() {
     let designs = vec![design];
 
     let fleet = Fleet {
+        name: None,
         id: 0,
         owner: 0,
         position: Point::new(0, 0),

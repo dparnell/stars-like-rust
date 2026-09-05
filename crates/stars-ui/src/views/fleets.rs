@@ -21,7 +21,11 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     let mut destination: Option<(usize, i16)> = None;
     let mut task: Option<(usize, u8)> = None;
     let mut transport: Option<(usize, usize, stars_formats::XferAction)> = None;
+    let mut split: Option<(usize, u8, i32)> = None;
+    let mut merge: Option<(usize, usize)> = None;
+    let mut rename: Option<usize> = None;
     let mut warp = app.warp;
+    let mut name = app.fleet_name.clone();
 
     egui::SidePanel::left("fleet_list")
         .resizable(true)
@@ -50,7 +54,10 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             ui.label("No fleet selected.");
             return;
         };
-        ui.heading(format!("Fleet {}", fleet.id));
+        match &fleet.name {
+            Some(given) => ui.heading(format!("{given} (fleet {})", fleet.id)),
+            None => ui.heading(format!("Fleet {}", fleet.id)),
+        };
         ui.separator();
 
         egui::Grid::new("fleet_facts")
@@ -106,13 +113,26 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
 
         ui.separator();
         ui.heading("ships");
+        let designs = game
+            .designs
+            .get(usize::try_from(fleet.owner).unwrap_or(usize::MAX));
+        let index = app.selection.fleet.unwrap_or(0);
         egui::Grid::new("stacks")
-            .num_columns(2)
+            .num_columns(3)
             .spacing([16.0, 2.0])
             .show(ui, |ui| {
                 for stack in &fleet.stacks {
-                    ui.label(format!("design {}", stack.design));
+                    let label = designs
+                        .and_then(|d| d.get(usize::from(stack.design)))
+                        .filter(|d| !d.name.is_empty())
+                        .map_or_else(|| format!("design {}", stack.design), |d| d.name.clone());
+                    ui.label(label);
                     ui.label(format!("{}", stack.count));
+                    // Splitting one ship off is the whole of what a split is;
+                    // the game writes it as a fleet-to-fleet ship transfer.
+                    if stack.count > 1 && ui.small_button("split one off").clicked() {
+                        split = Some((index, stack.design, 1));
+                    }
                     ui.end_row();
                 }
             });
@@ -129,8 +149,15 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         }
 
         // --- orders
-        let index = app.selection.fleet.unwrap_or(0);
         let orbiting = fleet.orbiting;
+        // Fleets of the same owner sitting on the same spot can be merged.
+        let mergeable: Vec<(usize, String)> = game
+            .fleets
+            .iter()
+            .enumerate()
+            .filter(|(i, f)| *i != index && f.owner == fleet.owner && f.position == fleet.position)
+            .map(|(i, f)| (i, format!("fleet {} ({} ships)", f.id, f.ships())))
+            .collect();
         let destinations: Vec<(i16, String)> = game
             .planets
             .iter()
@@ -244,6 +271,35 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
 
         ui.add_space(6.0);
         ui.horizontal(|ui| {
+            ui.label("name:");
+            ui.add(egui::TextEdit::singleline(&mut name).desired_width(160.0));
+            if ui.button("rename").clicked() {
+                rename = Some(index);
+            }
+            ui.label(
+                egui::RichText::new("(not saved yet — see the fleet docs)")
+                    .weak()
+                    .small(),
+            );
+        });
+
+        if !mergeable.is_empty() {
+            ui.horizontal(|ui| {
+                ui.label("merge in:");
+                egui::ComboBox::from_id_source("merge")
+                    .selected_text("a fleet in the same place")
+                    .show_ui(ui, |ui| {
+                        for (other, label) in &mergeable {
+                            if ui.selectable_label(false, label).clicked() {
+                                merge = Some((index, *other));
+                            }
+                        }
+                    });
+            });
+        }
+
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
             ui.label("send to:");
             egui::ComboBox::from_id_source("destination")
                 .selected_text("choose a planet")
@@ -271,5 +327,15 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     if let Some((fleet, kind, action)) = transport {
         app.set_transport(fleet, kind, action);
     }
+    if let Some((fleet, design, count)) = split {
+        app.split_fleet(fleet, design, count);
+    }
+    if let Some((survivor, absorbed)) = merge {
+        app.merge_fleets(survivor, &[absorbed]);
+    }
+    if let Some(fleet) = rename {
+        app.rename_fleet(fleet, name.trim());
+    }
     app.warp = warp;
+    app.fleet_name = name;
 }

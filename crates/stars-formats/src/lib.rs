@@ -92,9 +92,9 @@ pub use header::{FileHeader, FileType};
 pub use history::{history_header, HistoryHeader};
 pub use names::{planet_name, planet_name_count};
 pub use orders::{
-    object_owner, order_log, CargoTransfer, FleetName, FleetOrderDelete, LogHeader, LogRecord,
-    LogRecordType, OrderLog, PlanetRoutingOrder, ResearchOrder, ShipDesignChange, ThingParam,
-    WaypointOrder, LOG_HEADER_BLOCK,
+    object_owner, order_log, CargoTransfer, FleetMerge, FleetName, FleetOrderDelete, FleetSplit,
+    LogHeader, LogRecord, LogRecordType, OrderLog, PlanetRoutingOrder, ResearchOrder,
+    ShipDesignChange, ThingParam, WaypointOrder, LOG_HEADER_BLOCK,
 };
 pub use planet::{
     planet_records, planet_records_in, Concentration, Environment, Installations, Minerals,
