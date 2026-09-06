@@ -3233,11 +3233,11 @@ impl App {
     pub fn buildable_items(&self) -> Vec<(u16, &'static str)> {
         use stars_core::production::item;
         const ITEMS: [(u16, &str); 5] = [
-            (item::MINE, "mines"),
-            (item::FACTORY, "factories"),
-            (item::DEFENSE, "defences"),
-            (item::ALCHEMY, "mineral alchemy"),
-            (item::MAX_TERRAFORM, "terraforming"),
+            (item::AUTO_MINE, "mines"),
+            (item::AUTO_FACTORY, "factories"),
+            (item::AUTO_DEFENSE, "defences"),
+            (item::AUTO_ALCHEMY, "mineral alchemy"),
+            (item::AUTO_MAX_TERRAFORM, "terraforming"),
         ];
         let prt = self
             .selected_planet()
@@ -3555,13 +3555,13 @@ mod tests {
 
         // A Claim Adjuster is never offered terraforming: AutoTerraform leaves
         // its planets at their optimum every turn.
-        assert!(!build_list_for(Prt::Ca).contains(&item::MAX_TERRAFORM));
-        assert!(build_list_for(Prt::Ca).contains(&item::MINE));
+        assert!(!build_list_for(Prt::Ca).contains(&item::AUTO_MAX_TERRAFORM));
+        assert!(build_list_for(Prt::Ca).contains(&item::AUTO_MINE));
         // An Alternate Reality race builds no planetary installation at all.
         let ar = build_list_for(Prt::Ar);
-        assert!(!ar.contains(&item::MINE));
-        assert!(!ar.contains(&item::FACTORY));
-        assert!(!ar.contains(&item::DEFENSE));
+        assert!(!ar.contains(&item::AUTO_MINE));
+        assert!(!ar.contains(&item::AUTO_FACTORY));
+        assert!(!ar.contains(&item::AUTO_DEFENSE));
         // Everyone else gets the lot.
         assert_eq!(build_list_for(Prt::Joat).len(), 5);
     }

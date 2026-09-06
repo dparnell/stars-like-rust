@@ -93,8 +93,10 @@ without a design:
 | Mineral alchemy | — | 100, or 25 with the trait |
 | Terraform | — | 100, 70 with Total Terraforming, halved again for Claim Adjuster |
 
-An item id at or above 256 is the **auto-build** form of the item 256 below
-it, and costs the same.
+The **auto-build** form of an item is a separate id — 0..=6, against 7 and up
+for the plain items — and costs the same. See `../formats/production.md` for
+the full table and the evidence, which this project had backwards until the
+ship-design work went past `FillProdSrcLB`.
 
 A queue item carries partial progress in its `completion` field, so a colony
 earning 2 resources a year does eventually finish a 9-resource factory. Any

@@ -44,7 +44,7 @@ pub fn defence_weight(prt: Option<Prt>) -> i32 {
 /// production queue, `PLAYER.zpq1` — with two races filtering it:
 ///
 /// - **Alternate Reality** drops every item at or below
-///   [`crate::production::item::DEFENSE`], because it has no planetary
+///   [`crate::production::item::AUTO_DEFENSE`], because it has no planetary
 ///   installations to build.
 /// - **Claim Adjuster** drops the two terraforming items, because it terraforms
 ///   from orbit for free.
@@ -54,8 +54,8 @@ pub fn defence_weight(prt: Option<Prt>) -> i32 {
 pub fn template_allows(prt: Option<Prt>, item: u16) -> bool {
     use crate::production::item;
     match prt {
-        Some(Prt::Ar) => item > item::DEFENSE,
-        Some(Prt::Ca) => item != item::MIN_TERRAFORM && item != item::MAX_TERRAFORM,
+        Some(Prt::Ar) => item > item::AUTO_DEFENSE,
+        Some(Prt::Ca) => item != item::AUTO_MIN_TERRAFORM && item != item::AUTO_MAX_TERRAFORM,
         _ => true,
     }
 }
@@ -391,22 +391,22 @@ mod tests {
         use crate::production::item;
 
         // Alternate Reality builds no planetary installation at all.
-        for i in [item::MINE, item::FACTORY, item::DEFENSE] {
+        for i in [item::AUTO_MINE, item::AUTO_FACTORY, item::AUTO_DEFENSE] {
             assert!(
                 !template_allows(Some(Prt::Ar), i),
                 "AR should drop item {i}"
             );
         }
-        assert!(template_allows(Some(Prt::Ar), item::ALCHEMY));
+        assert!(template_allows(Some(Prt::Ar), item::AUTO_ALCHEMY));
 
         // Claim Adjuster terraforms for free, so it queues no terraforming.
-        for i in [item::MIN_TERRAFORM, item::MAX_TERRAFORM] {
+        for i in [item::AUTO_MIN_TERRAFORM, item::AUTO_MAX_TERRAFORM] {
             assert!(
                 !template_allows(Some(Prt::Ca), i),
                 "CA should drop item {i}"
             );
         }
-        assert!(template_allows(Some(Prt::Ca), item::FACTORY));
+        assert!(template_allows(Some(Prt::Ca), item::AUTO_FACTORY));
 
         // Everyone else takes the template as it stands.
         for i in 0..=12u16 {

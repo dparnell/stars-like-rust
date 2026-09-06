@@ -2008,7 +2008,7 @@ fn run_queue(
             match item::auto_builds(entry.item).unwrap_or(entry.item) {
                 item::MINE => planet.mines += i16::try_from(outcome.built).unwrap_or(0),
                 item::FACTORY => planet.factories += i16::try_from(outcome.built).unwrap_or(0),
-                item::MIN_TERRAFORM | item::MAX_TERRAFORM => {
+                item::TERRAFORM => {
                     for _ in 0..outcome.built {
                         if !crate::terraform::terraform_one_step(planet, race, tech) {
                             break;

@@ -236,13 +236,5 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
 
 /// The name of a planetary production item.
 pub(crate) fn item_name(item: u16) -> String {
-    use stars_core::production::item;
-    match item {
-        item::FACTORY | item::AUTO_FACTORY => "factories".into(),
-        item::MINE | item::AUTO_MINE => "mines".into(),
-        item::DEFENSE | item::AUTO_DEFENSE => "defences".into(),
-        item::ALCHEMY | item::AUTO_ALCHEMY => "mineral alchemy".into(),
-        item::MIN_TERRAFORM | item::MAX_TERRAFORM | item::AUTO_TERRAFORM => "terraforming".into(),
-        other => format!("item {other}"),
-    }
+    stars_core::production::item_name(item).to_string()
 }

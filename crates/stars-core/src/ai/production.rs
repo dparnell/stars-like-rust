@@ -102,10 +102,10 @@ impl Decision {
                 });
             }
         };
-        push(item::AUTO_TERRAFORM, self.terraform);
-        push(item::AUTO_MINE, self.mines);
-        push(item::AUTO_FACTORY, self.factories);
-        push(item::AUTO_ALCHEMY, self.alchemy);
+        push(item::TERRAFORM, self.terraform);
+        push(item::MINE, self.mines);
+        push(item::FACTORY, self.factories);
+        push(item::ALCHEMY, self.alchemy);
         out
     }
 }
@@ -247,8 +247,8 @@ pub fn fill_prod_mines_and_factories(planet: &Planet, race: &Race, ctx: &Context
             .map(|e| e.count)
             .sum()
     };
-    let mines_queued = queued(item::AUTO_MINE);
-    let factories_queued = queued(item::AUTO_FACTORY);
+    let mines_queued = queued(item::MINE);
+    let factories_queued = queued(item::FACTORY);
 
     // `fNextYear = 0`: the AI sizes its order against the population the planet
     // has **now**, not the one it will have after this year's growth. Both call
@@ -369,7 +369,7 @@ pub fn queue_ai_terraforming(planet: &Planet, race: &Race, ctx: &Context) -> i32
     if planet
         .queue
         .iter()
-        .any(|e| !e.ship && e.item == item::AUTO_TERRAFORM)
+        .any(|e| !e.ship && e.item == item::TERRAFORM)
     {
         return 0;
     }

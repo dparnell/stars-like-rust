@@ -1486,7 +1486,28 @@ disagree.
     Dock and the Death Star and square for the Space Station and the Ultra
     Station, which the binary really does decide with two equality tests.
 
-44. **What is still missing to call it playable.** Every waypoint task is now
+44. ~~**The production item numbering.**~~ **Corrected.** Recovering the
+    Production dialog's inventory turned up that this project — and the
+    community reconstruction's `enums.h`, which it followed — had the two
+    families of `ProdItemType` ids **the wrong way round**.
+
+    Ids **0..=6 are the auto-build items** and 7 upward the things a planet
+    builds one of. `FillProdSrcLB` (`10d0:3b00`) settles it: it appends
+    `" (Auto Build)"` and draws the row italic exactly when the id is below 7
+    (`10d0:3c42 CMP AX,0x7 / JC`). The names agree — the auto items are plural
+    (`Mines`, `Factories`) and the plain ones singular (`Mine`, `Factory`) —
+    and so do the fixtures: all 1649 entries for ids 0, 1 and 2 carry a count
+    of exactly 100 and nothing else, which is an "up to 100" order.
+    `FFillProdMinesAndFactories` (`10a8:2d72`) confirms it from the AI's side.
+
+    The cost was in the simulation, not the file. `run_queue` capped the AI's
+    plain factories by what the planet could operate (harmless, since the AI
+    had already capped them) and did **not** cap a player's genuine
+    `Mines up to 100`, which would build a hundred mines in a single year if
+    the planet could afford them. Two tests now pin it, one from the ids and
+    one over every queue in the fixtures.
+
+45. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

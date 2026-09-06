@@ -49,23 +49,61 @@ list.
 
 ### `item` — the `ProdItemType` ids
 
-From the binary's own debug symbols:
+Two families. **Ids 0..=6 are the auto-build items** — what the manual writes
+as `Factories Up to 50` — and ids 7 upward are the things a planet builds one
+of. Auto-build is a distinct set of ids, not a flag on an ordinary item.
 
-| Id | Name                        | Id | Name                          |
-|----|-----------------------------|----|-------------------------------|
-| 0  | `iobjMine`                  | 9  | `mdIdleDefense`               |
-| 1  | `iobjFactory`               | 11 | `mdIdleAlchemy`               |
-| 2  | `iobjDefense`               | 12 | `mdIdleTerraform`             |
-| 3  | `iobjAlchemy`               | 13 | `iobjGenesis`                 |
-| 4  | `iobjMinTerraform`          | 14–17 | `iobjPacket{Iron,Bor,Germ,Mixed}` |
-| 5  | `iobjMaxTerraform`          | 18–26 | planetary scanners (`Viewer50` … `Snooper620X`) |
-| 6  | `iobjPacket`                | 27 | `iobjPlanetaryScanner`        |
-| 7  | `mdIdleFactory`             | 31 | `iobjUnknown`                 |
-| 8  | `mdIdleMine`                |    |                               |
+| Id | Item | | Id | Item |
+|----|------|-|----|------|
+| 0  | Mines *(auto)* | | 11 | Mineral Alchemy |
+| 1  | Factories *(auto)* | | 12 | Terraform Environment |
+| 2  | Defenses *(auto)* | | 13 | Genesis Device |
+| 3  | Alchemy *(auto)* | | 14–17 | ironium / boranium / germanium / mixed mineral packet |
+| 4  | Min Terraform *(auto)* | | 18–26 | planetary scanners, `Viewer 50` … `Snooper 620X` |
+| 5  | Max Terraform *(auto)* | | 27 | Planetary Scanner (the generic one the inventory offers) |
+| 6  | Mineral Packets *(auto)* | | 31 | none — what `PLANET.iScanner` holds when the planet has no scanner |
+| 7  | Factory | | 10 | unused; its name is a single space |
+| 8  | Mine | | | |
+| 9  | Defenses | | | |
 
-The `mdIdle*` ids are the **auto-build** form of an item: they keep building as
-the planet grows instead of counting down. Auto-build is thus a distinct set of
-item ids, not a flag applied to an ordinary one.
+The names are `PszNameProdItem`'s, read from the string table at
+`idsMines + id`. Note the number: the auto-build items are the **plural** ones
+and the plain items the singular — `Mines` against `Mine`, `Factories` against
+`Factory`.
+
+#### How that was settled
+
+This spec previously had the two families the other way round, following the
+`mdIdle*` names in the community reconstruction's `enums.h`. Three independent
+things say otherwise, and they agree:
+
+* `FillProdSrcLB` (`10d0:3b00`) appends ` (Auto Build)` to an inventory row and
+  draws it italic exactly when the id is **below 7**. The comparison is not
+  ambiguous in the listing: `10d0:3c42 CMP AX,0x7 / JC` takes the branch that
+  writes `'I'` and appends the string at `DS:0x0cda`, which is
+  `" (Auto Build)"`.
+* The fixtures corroborate it. Every one of the **1649** entries for ids 0, 1
+  and 2 carries a count of exactly **100** — nothing else, ever — which is an
+  "up to 100" auto-build order and not a build order for a hundred mines. The
+  plain ids carry ordinary varying counts: 1–7 for id 7, 1–4 for id 9, 1–23 for
+  id 12. Id 3, auto alchemy, is always 1, which is the manual's
+  `Mineral Alchemy as needed`: the count is a placeholder, and
+  `EstimateItemProdSched` overwrites it with 1020 when the entry is last in the
+  queue.
+* `InitProduction` (`10d0:015e`) gives ids 0..=6 an unlimited inventory count
+  and gives 7, 8 and 9 the planet's *remaining capacity* — which is the right
+  cap for a one-off build and the wrong one for an "up to N" order.
+
+The AI agrees from the other side: `FFillProdMinesAndFactories` (`10a8:2d72`)
+counts the queue's existing 7s and 8s against `CMaxOperableFactories` and
+`CMaxOperableMines`, then queues with `AddItemToQueue(7, …)` and
+`AddItemToQueue(8, …)`.
+
+The cost of having it backwards was in the simulation, not the file: the turn
+generator capped the AI's plain factories by what the planet could operate
+(harmless, since the AI had already capped them) and did **not** cap a player's
+genuine `Mines up to 100`, which would build a hundred mines in one year if the
+planet could afford them.
 
 ## Evidence
 
@@ -86,7 +124,7 @@ This project previously read `item` as a **10-bit** field spanning bits 10–19,
 which silently folds `class` into the top of the item id: `class = 1` appeared
 as `item + 128` and `class = 2` as `item + 256`. The `+ 256` range was then read
 as "auto build", which is wrong twice over — those entries build *ships*, and
-the real auto-build items are ids 7/8/9/11/12.
+the real auto-build items are ids 0 to 6.
 
 The cost of the error was invisible in a round-trip test, because re-encoding
 the misread fields reproduces the same bytes. It showed up only in simulation:

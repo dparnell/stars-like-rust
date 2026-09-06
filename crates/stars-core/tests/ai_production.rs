@@ -85,7 +85,7 @@ fn corpus() -> Vec<Sample> {
                 terraform: planet
                     .queue
                     .iter()
-                    .filter(|e| !e.ship && e.item == item::AUTO_TERRAFORM)
+                    .filter(|e| !e.ship && e.item == item::TERRAFORM)
                     .map(|e| e.count)
                     .sum(),
             });
@@ -244,7 +244,7 @@ fn the_transcription_honours_its_gates() {
     let mut queued = planet.clone();
     queued.queue.push(stars_core::production::QueueItem {
         count: 1,
-        item: item::AUTO_TERRAFORM,
+        item: item::TERRAFORM,
         ship: false,
         completion: 0,
     });
@@ -569,7 +569,7 @@ fn the_queue_template_exclusions_hold_across_the_corpus() {
                         if base <= item::DEFENSE {
                             others_use_installations = true;
                         }
-                        if base == item::MAX_TERRAFORM || base == item::MIN_TERRAFORM {
+                        if base == item::TERRAFORM {
                             others_use_terraform = true;
                         }
                     }

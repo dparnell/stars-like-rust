@@ -182,7 +182,7 @@ fn planetary_item_costs_match_the_manual() {
 
     // Terraforming: 100, 70 with Total Terraforming, halved for Claim Adjuster.
     assert_eq!(
-        planetary_item_cost(item::MIN_TERRAFORM, &humanoid, false)
+        planetary_item_cost(item::TERRAFORM, &humanoid, false)
             .unwrap()
             .resources,
         100
@@ -190,7 +190,7 @@ fn planetary_item_costs_match_the_manual() {
     let mut tt = humanoid.clone();
     tt.lrt_bits |= 1 << lrt::TT;
     assert_eq!(
-        planetary_item_cost(item::MIN_TERRAFORM, &tt, false)
+        planetary_item_cost(item::TERRAFORM, &tt, false)
             .unwrap()
             .resources,
         70
@@ -198,7 +198,7 @@ fn planetary_item_costs_match_the_manual() {
     let mut ca = humanoid.clone();
     ca.attrs[RaceStat::MajorAdv as usize] = Prt::Ca as i16;
     assert_eq!(
-        planetary_item_cost(item::MIN_TERRAFORM, &ca, false)
+        planetary_item_cost(item::TERRAFORM, &ca, false)
             .unwrap()
             .resources,
         50
@@ -434,4 +434,125 @@ fn a_queued_ship_is_paid_for_and_joins_the_fleet() {
     // And the ships are in the fleet that was in orbit.
     let ships: i32 = state.fleets[0].stacks.iter().map(|s| s.count).sum();
     assert_eq!(ships, built, "every ship built should join the fleet");
+}
+
+/// The auto-build items are ids 0..=6, not 7 and up.
+///
+/// The disassembly settles it — `FillProdSrcLB` (`10d0:3b00`) appends
+/// " (Auto Build)" exactly when the id is below 7 — and every queue in the
+/// fixtures corroborates it: ids 0, 1 and 2 carry a count of **100** and
+/// nothing else, which is an "up to 100" order, while the plain ids carry
+/// ordinary varying counts. See `docs/formats/production.md`.
+#[test]
+fn the_auto_build_items_are_the_low_ids() {
+    for id in 0..=item::AUTO_PACKET {
+        assert!(item::is_auto(id), "{id} should be auto-build");
+        assert!(item::auto_builds(id).is_some());
+    }
+    for id in [
+        item::FACTORY,
+        item::MINE,
+        item::DEFENSE,
+        item::ALCHEMY,
+        item::TERRAFORM,
+        item::GENESIS,
+        item::PACKET_MIXED,
+        item::PLANETARY_SCANNER,
+    ] {
+        assert!(!item::is_auto(id), "{id} should not be auto-build");
+        assert_eq!(item::auto_builds(id), None);
+    }
+
+    assert_eq!(item::auto_builds(item::AUTO_MINE), Some(item::MINE));
+    assert_eq!(item::auto_builds(item::AUTO_FACTORY), Some(item::FACTORY));
+    assert_eq!(item::auto_builds(item::AUTO_DEFENSE), Some(item::DEFENSE));
+    assert_eq!(item::auto_builds(item::AUTO_ALCHEMY), Some(item::ALCHEMY));
+    // Both terraform variants build the same thing; they differ in how far
+    // they go, not in what they make.
+    assert_eq!(
+        item::auto_builds(item::AUTO_MIN_TERRAFORM),
+        Some(item::TERRAFORM)
+    );
+    assert_eq!(
+        item::auto_builds(item::AUTO_MAX_TERRAFORM),
+        Some(item::TERRAFORM)
+    );
+
+    // The names are the giveaway: plural for the auto items, singular for the
+    // one-offs.
+    use stars_core::production::item_name;
+    assert_eq!(item_name(item::AUTO_MINE), "Mines");
+    assert_eq!(item_name(item::MINE), "Mine");
+    assert_eq!(item_name(item::AUTO_FACTORY), "Factories");
+    assert_eq!(item_name(item::FACTORY), "Factory");
+    assert_eq!(item_name(item::AUTO_MAX_TERRAFORM), "Max Terraform");
+    assert_eq!(item_name(item::TERRAFORM), "Terraform Environment");
+    assert_eq!(item_name(item::GENESIS), "Genesis Device");
+    assert_eq!(item_name(item::PACKET_MIXED), "Mixed Mineral Packet");
+    assert_eq!(item_name(item::PLANETARY_SCANNER_FIRST), "Viewer 50");
+    assert_eq!(item_name(item::PLANETARY_SCANNER), "Planetary Scanner");
+}
+
+/// The fixture half of the same claim, run over every save this checkout has.
+#[test]
+fn every_auto_build_entry_in_the_fixtures_is_an_up_to_order() {
+    use stars_formats::production::{ProductionQueueRecord, QueueClass};
+
+    let root = workspace_root().join("fixtures");
+    if !root.is_dir() {
+        eprintln!("skipping: no fixtures");
+        return;
+    }
+
+    let mut seen = 0usize;
+    let mut stack = vec![root];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+                continue;
+            };
+            let ext = ext.to_ascii_lowercase();
+            if !(ext.starts_with('m') || ext == "hst") {
+                continue;
+            }
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            let Ok(file) = StarsFile::decode(&bytes) else {
+                continue;
+            };
+            for block in &file.blocks {
+                if block.type_id != 28 {
+                    continue;
+                }
+                for queued in ProductionQueueRecord::decode(&block.data).items {
+                    if matches!(queued.class, QueueClass::Fleet) {
+                        continue;
+                    }
+                    if queued.item <= item::AUTO_DEFENSE {
+                        assert_eq!(
+                            queued.count,
+                            100,
+                            "auto-build {} in {} should be an up-to order",
+                            queued.item,
+                            path.display()
+                        );
+                        seen += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        seen > 1000,
+        "expected the fixtures to hold many, saw {seen}"
+    );
 }

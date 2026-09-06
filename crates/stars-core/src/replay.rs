@@ -1200,15 +1200,15 @@ mod tests {
             no_research: true,
             items: vec![
                 DefaultQueueItem {
-                    item: item::FACTORY as u8,
+                    item: item::AUTO_FACTORY as u8,
                     count: 12,
                 },
                 DefaultQueueItem {
-                    item: item::MINE as u8,
+                    item: item::AUTO_MINE as u8,
                     count: 7,
                 },
                 DefaultQueueItem {
-                    item: item::MAX_TERRAFORM as u8,
+                    item: item::AUTO_MAX_TERRAFORM as u8,
                     count: 1,
                 },
             ],
@@ -1234,9 +1234,9 @@ mod tests {
                 .map(|q| (q.item, q.count))
                 .collect::<Vec<_>>(),
             vec![
-                (item::FACTORY, 12),
-                (item::MINE, 7),
-                (item::MAX_TERRAFORM, 1)
+                (item::AUTO_FACTORY, 12),
+                (item::AUTO_MINE, 7),
+                (item::AUTO_MAX_TERRAFORM, 1)
             ]
         );
     }
@@ -1251,11 +1251,11 @@ mod tests {
         let queue = DefaultQueue {
             no_research: false,
             items: [
-                item::MINE,
-                item::FACTORY,
-                item::DEFENSE,
-                item::ALCHEMY,
-                item::MAX_TERRAFORM,
+                item::AUTO_MINE,
+                item::AUTO_FACTORY,
+                item::AUTO_DEFENSE,
+                item::AUTO_ALCHEMY,
+                item::AUTO_MAX_TERRAFORM,
             ]
             .into_iter()
             .map(|item| DefaultQueueItem {
@@ -1280,7 +1280,7 @@ mod tests {
                 .iter()
                 .map(|q| q.item)
                 .collect::<Vec<_>>(),
-            vec![item::ALCHEMY, item::MAX_TERRAFORM]
+            vec![item::AUTO_ALCHEMY, item::AUTO_MAX_TERRAFORM]
         );
 
         // A Claim Adjuster is never offered terraforming.
@@ -1298,7 +1298,12 @@ mod tests {
                 .iter()
                 .map(|q| q.item)
                 .collect::<Vec<_>>(),
-            vec![item::MINE, item::FACTORY, item::DEFENSE, item::ALCHEMY]
+            vec![
+                item::AUTO_MINE,
+                item::AUTO_FACTORY,
+                item::AUTO_DEFENSE,
+                item::AUTO_ALCHEMY
+            ]
         );
     }
 

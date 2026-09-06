@@ -110,58 +110,151 @@ impl QueueItem {
     }
 }
 
-/// Planetary item ids — the game's `ProdItemType` enum, recovered from the
-/// binary's own debug symbols.
-///
-/// A queue entry's 7-bit item field holds one of these when the entry's class
-/// is [`stars_formats::QueueClass::Planet`], and a ship design slot when it is
-/// `Fleet`.
-///
-/// The `AUTO_*` ids are the game's `mdIdle*` values: they are the **auto-build**
-/// form of the item, which keeps building as the planet grows instead of
-/// counting down. Auto-build is therefore its own set of item ids, not a flag
-/// on an ordinary one.
 pub mod item {
-    /// A mine.
-    pub const MINE: u16 = 0;
-    /// A factory.
-    pub const FACTORY: u16 = 1;
-    /// A planetary defence.
-    pub const DEFENSE: u16 = 2;
-    /// Mineral alchemy: resources into one kT of each mineral.
-    pub const ALCHEMY: u16 = 3;
-    /// Terraform one step toward the race's ideal.
-    pub const MIN_TERRAFORM: u16 = 4;
-    /// Terraform as far as technology allows.
-    pub const MAX_TERRAFORM: u16 = 5;
-    /// A mineral packet.
-    pub const PACKET: u16 = 6;
-    /// Auto-build factories (`mdIdleFactory`).
-    pub const AUTO_FACTORY: u16 = 7;
-    /// Auto-build mines (`mdIdleMine`).
-    pub const AUTO_MINE: u16 = 8;
-    /// Auto-build defences (`mdIdleDefense`).
-    pub const AUTO_DEFENSE: u16 = 9;
-    /// Auto-build mineral alchemy (`mdIdleAlchemy`).
-    pub const AUTO_ALCHEMY: u16 = 11;
-    /// Auto-build terraforming (`mdIdleTerraform`).
-    pub const AUTO_TERRAFORM: u16 = 12;
-    /// The first planetary-scanner id.
+    //! Planetary item ids — the game's `ProdItemType` enum.
+    //!
+    //! A queue entry's 7-bit item field holds one of these when the entry's
+    //! class is [`stars_formats::QueueClass::Planet`], and a ship design slot
+    //! when it is `Fleet`.
+    //!
+    //! Two families, and which is which is easy to get backwards. Ids **0..=6
+    //! are the auto-build items** — the ones the manual writes as `Factories
+    //! Up to 50` — and ids 7 upward are the things a planet builds one of.
+    //!
+    //! Three independent pieces of evidence say so:
+    //!
+    //! * `FillProdSrcLB` (`10d0:3b00`) labels an inventory row with
+    //!   ` (Auto Build)` and draws it italic exactly when `iItem < 7`
+    //!   (`10d0:3c42: CMP AX,0x7 / JC`).
+    //! * `PszNameProdItem` names 0..=6 in the **plural** — `Mines`,
+    //!   `Factories`, `Min Terraform` — and 7..=12 in the singular: `Factory`,
+    //!   `Mine`, `Terraform Environment`.
+    //! * Every one of the 1649 entries for ids 0, 1 and 2 across the fixtures
+    //!   has a count of exactly **100** and nothing else, which is an "up to
+    //!   100" auto-build order; the plain ids carry ordinary varying counts.
+    //!
+    //! The AI agrees from the other side: `FFillProdMinesAndFactories`
+    //! (`10a8:2d72`) queues with `AddItemToQueue(7, …)` for factories and
+    //! `(8, …)` for mines, having counted the queue's existing 7s and 8s
+    //! against what the planet can *operate*.
+
+    /// Auto-build mines: keep building as the planet grows.
+    pub const AUTO_MINE: u16 = 0;
+    /// Auto-build factories.
+    pub const AUTO_FACTORY: u16 = 1;
+    /// Auto-build defences.
+    pub const AUTO_DEFENSE: u16 = 2;
+    /// Auto-build mineral alchemy — "as needed", only when minerals are short.
+    pub const AUTO_ALCHEMY: u16 = 3;
+    /// Auto-build terraforming, only as far as the planet needs.
+    pub const AUTO_MIN_TERRAFORM: u16 = 4;
+    /// Auto-build terraforming, as far as technology allows.
+    pub const AUTO_MAX_TERRAFORM: u16 = 5;
+    /// Auto-build mineral packets.
+    pub const AUTO_PACKET: u16 = 6;
+
+    /// One factory.
+    pub const FACTORY: u16 = 7;
+    /// One mine.
+    pub const MINE: u16 = 8;
+    /// One planetary defence.
+    pub const DEFENSE: u16 = 9;
+    /// One unit of mineral alchemy: resources into a kT of each mineral.
+    pub const ALCHEMY: u16 = 11;
+    /// One terraforming step toward the race's ideal.
+    pub const TERRAFORM: u16 = 12;
+    /// A Genesis Device.
+    pub const GENESIS: u16 = 13;
+    /// An ironium mineral packet.
+    pub const PACKET_IRONIUM: u16 = 14;
+    /// A boranium mineral packet.
+    pub const PACKET_BORANIUM: u16 = 15;
+    /// A germanium mineral packet.
+    pub const PACKET_GERMANIUM: u16 = 16;
+    /// A packet of all three minerals.
+    pub const PACKET_MIXED: u16 = 17;
+    /// The first planetary-scanner id (`Viewer 50`).
     pub const PLANETARY_SCANNER_FIRST: u16 = 18;
+    /// The last planetary-scanner id (`Snooper 620X`).
+    pub const PLANETARY_SCANNER_LAST: u16 = 26;
+    /// The generic planetary scanner, which is what the inventory offers: a
+    /// planet builds one and it upgrades itself as technology arrives, which
+    /// is why the inventory drops it once the planet has one.
+    pub const PLANETARY_SCANNER: u16 = 27;
+    /// The id a planet with no scanner stores (`PLANET.iScanner`, five bits).
+    pub const NO_SCANNER: u16 = 31;
+
+    /// Whether an id is one of the auto-build items.
+    #[must_use]
+    pub fn is_auto(item: u16) -> bool {
+        item <= AUTO_PACKET
+    }
 
     /// The ordinary item an auto-build id builds, or `None` if `item` is not
     /// an auto-build id.
+    ///
+    /// Both terraforming variants build the same thing; the difference is how
+    /// far they go, not what they make. The auto packet is costed as a mixed
+    /// packet, which is what `GetProductionCosts` does with it.
     #[must_use]
     pub fn auto_builds(item: u16) -> Option<u16> {
         Some(match item {
-            AUTO_FACTORY => FACTORY,
             AUTO_MINE => MINE,
+            AUTO_FACTORY => FACTORY,
             AUTO_DEFENSE => DEFENSE,
             AUTO_ALCHEMY => ALCHEMY,
-            AUTO_TERRAFORM => MAX_TERRAFORM,
+            AUTO_MIN_TERRAFORM | AUTO_MAX_TERRAFORM => TERRAFORM,
+            AUTO_PACKET => PACKET_MIXED,
             _ => return None,
         })
     }
+}
+
+/// What the game calls a queue item.
+///
+/// `PszNameProdItem` (`10d0:3c92`) reads the name out of the string table at
+/// `idsMines + iItem` for everything but the planetary scanners, which take
+/// their names from the components table. The auto-build items are the plural
+/// ones — `Mines`, `Factories` — and the plain items the singular: `Mine`,
+/// `Factory`. Id 10 is unused and reads as a single space.
+///
+/// A **ship** entry is named by its design instead, so this covers only the
+/// `grobjPlanet` half of a queue.
+#[must_use]
+pub fn item_name(id: u16) -> &'static str {
+    const NAMES: [&str; 18] = [
+        "Mines",
+        "Factories",
+        "Defenses",
+        "Alchemy",
+        "Min Terraform",
+        "Max Terraform",
+        "Mineral Packets",
+        "Factory",
+        "Mine",
+        "Defenses",
+        " ",
+        "Mineral Alchemy",
+        "Terraform Environment",
+        "Genesis Device",
+        "Ironium Mineral Packet",
+        "Boranium Mineral Packet",
+        "Germanium Mineral Packet",
+        "Mixed Mineral Packet",
+    ];
+    if let Some(name) = NAMES.get(usize::from(id)) {
+        return name;
+    }
+    if (item::PLANETARY_SCANNER_FIRST..=item::PLANETARY_SCANNER_LAST).contains(&id) {
+        let index = usize::from(id - item::PLANETARY_SCANNER_FIRST);
+        return crate::components::PLANETARY
+            .get(index)
+            .map_or("", |p| p.name);
+    }
+    if id == item::PLANETARY_SCANNER {
+        return "Planetary Scanner";
+    }
+    ""
 }
 
 /// What one unit of a queue item costs.
@@ -234,7 +327,7 @@ pub fn planetary_item_cost(item: u16, race: &Race, tutorial: bool) -> Option<Ite
                 100
             },
         },
-        item::MIN_TERRAFORM | item::MAX_TERRAFORM => {
+        item::TERRAFORM => {
             let mut resources = if race.has_lrt(lrt::TT) { 70 } else { 100 };
             if race.prt() == Some(Prt::Ca) {
                 resources /= 2;
