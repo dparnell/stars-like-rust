@@ -271,9 +271,10 @@ fn building_completes_whole_units_then_banks_the_rest() {
 /// Auto-build keeps pace with what the population can operate.
 #[test]
 fn auto_build_is_capped_by_what_can_be_operated() {
-    use stars_core::production::{auto_build_cap, item};
+    use stars_core::production::{auto_build_cap, item, UNLIMITED};
 
     let race = Race::humanoid();
+    let tech = [3u8; 6];
     let mut planet = Planet::unowned(0);
     planet.owner = Some(0);
     planet.env = race.env_center;
@@ -281,18 +282,51 @@ fn auto_build_is_capped_by_what_can_be_operated() {
     planet.factories = 0;
 
     // Ten factories per 10,000 colonists, so 100 for this population.
-    let cap = auto_build_cap(&planet, &race, item::FACTORY);
+    let cap = auto_build_cap(&planet, &race, tech, &[], item::AUTO_FACTORY);
     assert!(cap > 0, "a populated planet can add factories");
 
     // Already at the cap: nothing more to add.
     planet.factories = i16::try_from(cap).unwrap();
-    assert_eq!(auto_build_cap(&planet, &race, item::FACTORY), 0);
-
-    // The auto-build id and the plain id cost and cap the same.
-    planet.factories = 0;
     assert_eq!(
-        auto_build_cap(&planet, &race, item::FACTORY),
-        auto_build_cap(&planet, &race, item::AUTO_FACTORY)
+        auto_build_cap(&planet, &race, tech, &[], item::AUTO_FACTORY),
+        0
+    );
+    planet.factories = 0;
+
+    // Defences are capped too, and alchemy is not.
+    assert!(auto_build_cap(&planet, &race, tech, &[], item::AUTO_DEFENSE) > 0);
+    assert_eq!(
+        auto_build_cap(&planet, &race, tech, &[], item::AUTO_ALCHEMY),
+        UNLIMITED
+    );
+
+    // Packets need a mass driver, which this planet has not got.
+    assert_eq!(
+        auto_build_cap(&planet, &race, tech, &[], item::AUTO_PACKET),
+        0
+    );
+
+    // Minimum terraforming stands aside while the planet is growing and
+    // habitable; maximum terraforming does not.
+    planet.env = race.env_center;
+    assert_eq!(
+        auto_build_cap(&planet, &race, tech, &[], item::AUTO_MIN_TERRAFORM),
+        0,
+        "a planet at its ideal has nothing to fix"
+    );
+    // A planet well off its ideal has terraforming to do either way.
+    let mut poor = planet.clone();
+    poor.env = [
+        race.env_center[0] + 20,
+        race.env_center[1] + 20,
+        race.env_center[2] + 20,
+    ];
+    assert!(auto_build_cap(&poor, &race, tech, &[], item::AUTO_MAX_TERRAFORM) > 0);
+
+    // An id that is not an auto-build item is not capped.
+    assert_eq!(
+        auto_build_cap(&planet, &race, tech, &[], item::FACTORY),
+        UNLIMITED
     );
 }
 
@@ -723,4 +757,224 @@ fn the_inventory_offers_what_the_planet_can_build() {
     assert_eq!(mixed.resources, 10);
     let iron = item_cost(item::PACKET_IRONIUM, &who, false).expect("an ironium packet");
     assert_eq!(iron.minerals, [110, 0, 0]);
+}
+
+/// The queue stops at the first ordinary item it cannot finish, and an
+/// auto-build item's "up to N" survives the year.
+#[test]
+fn the_queue_stops_where_the_original_stops() {
+    use stars_core::production::{build_item, BuildStatus, ItemCost, QueueItem};
+
+    let cost = ItemCost {
+        minerals: [0, 0, 0],
+        resources: 10,
+    };
+
+    // An ordinary item that finishes: the queue carries on.
+    let mut have = [0, 0, 0, 100];
+    let outcome = build_item(cost, 3, 0, &mut have, false);
+    assert_eq!(outcome.built, 3);
+    assert_eq!(outcome.status, BuildStatus::Complete);
+    assert!(!outcome.status.stops_the_queue());
+
+    // One that builds some but not all: the queue stops behind it.
+    let mut have = [0, 0, 0, 25];
+    let outcome = build_item(cost, 5, 0, &mut have, false);
+    assert_eq!(outcome.built, 2);
+    assert_eq!(outcome.status, BuildStatus::Some);
+    assert!(outcome.status.stops_the_queue());
+
+    // One that cannot build even one: likewise.
+    let mut have = [0, 0, 0, 3];
+    let outcome = build_item(cost, 5, 0, &mut have, false);
+    assert_eq!(outcome.built, 0);
+    assert_eq!(outcome.status, BuildStatus::Blocked);
+    assert!(outcome.status.stops_the_queue());
+
+    // An auto-build item with nothing to do is skipped, and does not stop
+    // anything.
+    let mut have = [0, 0, 0, 100];
+    let outcome = build_item(cost, 0, 0, &mut have, true);
+    assert_eq!(outcome.status, BuildStatus::SkippedAuto);
+    assert!(!outcome.status.stops_the_queue());
+
+    // An auto-build item short of *minerals* banks nothing and lets the queue
+    // carry on — the manual's "auto-build items that require only resources
+    // will continue to be produced".
+    let mineral = ItemCost {
+        minerals: [0, 0, 4],
+        resources: 10,
+    };
+    let mut have = [0, 0, 1, 100];
+    let outcome = build_item(mineral, 3, 0, &mut have, true);
+    assert!(outcome.mineral_blocked);
+    assert_eq!(outcome.status, BuildStatus::NoneAuto);
+    assert!(!outcome.status.stops_the_queue());
+
+    // And the whole-turn version: an auto-build entry keeps its target.
+    use stars_core::rng::Rng;
+    use stars_core::{generate_turn, GameState, Player};
+
+    let race = Race::humanoid();
+    let mut planet = Planet::unowned(0);
+    planet.owner = Some(0);
+    planet.env = race.env_center;
+    planet.pop = 2500;
+    planet.factories = 10;
+    planet.mines = 10;
+    planet.surface_min = [500, 500, 500];
+    planet.queue = vec![QueueItem {
+        count: 100,
+        item: item::AUTO_FACTORY,
+        ship: false,
+        completion: 0,
+    }];
+
+    let mut state = GameState::new(1);
+    state.planets = vec![planet];
+    state.players = vec![Player::new(race)];
+    let mut rng = Rng::randomize(7);
+    generate_turn(&mut state, &mut rng);
+
+    let planet = &state.planets[0];
+    assert_eq!(
+        planet.queue.first().map(|e| (e.item, e.count)),
+        Some((item::AUTO_FACTORY, 100)),
+        "an auto-build target is not a countdown"
+    );
+    assert!(
+        planet.factories > 10,
+        "and it did build some: {}",
+        planet.factories
+    );
+}
+
+/// The year estimate: when will this be finished?
+#[test]
+fn the_estimate_dates_a_queue_item() {
+    use stars_core::parts::Builder;
+    use stars_core::production::{eta, item, EtaMark, QueueItem};
+
+    let race = Race::humanoid();
+    let player = stars_core::Player::new(race.clone());
+    let who = Builder::player(&player);
+
+    let mut planet = Planet::unowned(1);
+    planet.owner = Some(0);
+    planet.env = race.env_center;
+    planet.min_conc = [80, 80, 80];
+    planet.pop = 2_500;
+    planet.mines = 10;
+    planet.factories = 10;
+    planet.surface_min = [500, 500, 500];
+
+    // One factory, on a planet that can plainly afford it: next year.
+    planet.queue = vec![QueueItem {
+        count: 1,
+        item: item::FACTORY,
+        ship: false,
+        completion: 0,
+    }];
+    let one = eta(&planet, &who, 0, &[], 0);
+    assert_eq!(one.first, 1);
+    assert_eq!(one.last, 1);
+    assert_eq!(one.text(item::FACTORY, false), "1 year");
+    assert_eq!(one.mark(item::FACTORY, false), EtaMark::AllNextYear);
+
+    // More than it can pay for in one year: the first still lands next year,
+    // the last does not.
+    planet.queue = vec![QueueItem {
+        count: 500,
+        item: item::FACTORY,
+        ship: false,
+        completion: 0,
+    }];
+    let many = eta(&planet, &who, 0, &[], 0);
+    assert_eq!(many.first, 1);
+    assert!(many.last > 1, "{many:?}");
+    assert_eq!(many.mark(item::FACTORY, false), EtaMark::FirstNextYear);
+
+    // Something behind a blockage waits for it.
+    planet.queue = vec![
+        QueueItem {
+            count: 500,
+            item: item::FACTORY,
+            ship: false,
+            completion: 0,
+        },
+        QueueItem {
+            count: 1,
+            item: item::MINE,
+            ship: false,
+            completion: 0,
+        },
+    ];
+    let behind = eta(&planet, &who, 0, &[], 1);
+    assert!(
+        behind.first > 1,
+        "a mine behind 500 factories waits: {behind:?}"
+    );
+
+    // A planet with nothing to build with never finishes anything.
+    let mut barren = Planet::unowned(2);
+    barren.owner = Some(0);
+    barren.env = race.env_center;
+    barren.pop = 1;
+    barren.queue = vec![QueueItem {
+        count: 1,
+        item: item::DEFENSE,
+        ship: false,
+        completion: 0,
+    }];
+    let never = eta(&barren, &who, 0, &[], 0);
+    assert_eq!(never.first, 100);
+    assert_eq!(never.text(item::DEFENSE, false), "Never");
+    assert_eq!(never.mark(item::DEFENSE, false), EtaMark::Never);
+
+    // Auto alchemy in front of something else is standing by, not building.
+    planet.queue = vec![
+        QueueItem {
+            count: 1,
+            item: item::AUTO_ALCHEMY,
+            ship: false,
+            completion: 0,
+        },
+        QueueItem {
+            count: 1,
+            item: item::FACTORY,
+            ship: false,
+            completion: 0,
+        },
+    ];
+    let standing_by = eta(&planet, &who, 0, &[], 0);
+    assert_eq!(standing_by.first, -1);
+    assert_eq!(standing_by.last, -1);
+    assert_eq!(standing_by.text(item::AUTO_ALCHEMY, false), "As Needed");
+    assert_eq!(standing_by.mark(item::AUTO_ALCHEMY, false), EtaMark::Idle);
+}
+
+/// The wording, against the strings the game uses.
+#[test]
+fn the_estimate_reads_the_way_the_game_writes_it() {
+    use stars_core::production::{item, Eta, EtaMark};
+
+    let e = |first, last| Eta { first, last };
+    assert_eq!(e(1, 1).text(item::FACTORY, false), "1 year");
+    assert_eq!(e(4, 4).text(item::FACTORY, false), "4 years");
+    assert_eq!(e(2, 9).text(item::FACTORY, false), "2 - 9 years");
+    assert_eq!(e(3, 100).text(item::FACTORY, false), "3 - ??? years");
+    assert_eq!(e(0, 0).text(item::FACTORY, false), "Skipped");
+    assert_eq!(e(-1, -1).text(item::FACTORY, false), "As Needed");
+    assert_eq!(e(100, 100).text(item::FACTORY, false), "Never");
+    // An auto-build item is "Unknown" rather than "Never", and is not drawn
+    // red.
+    assert_eq!(e(100, 100).text(item::AUTO_FACTORY, false), "Unknown");
+    assert_eq!(
+        e(100, 100).mark(item::AUTO_FACTORY, false),
+        EtaMark::Ordinary
+    );
+    assert_eq!(e(100, 100).mark(item::FACTORY, false), EtaMark::Never);
+    // A ship is never "Unknown", whatever its slot number.
+    assert_eq!(e(100, 100).text(3, true), "Never");
+    assert_eq!(e(5, 20).mark(item::FACTORY, false), EtaMark::Ordinary);
 }

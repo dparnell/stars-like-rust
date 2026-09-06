@@ -1942,8 +1942,23 @@ pub fn next_fleet_id(state: &GameState, owner: i16) -> u16 {
 /// Run a planet's production queue for one year.
 ///
 /// Items are taken in order, each spending from what is left. An item that
-/// completes everything it wanted is dropped; one that is only part-built
-/// keeps its progress for next year.
+/// completes everything it wanted is dropped; one that is only part-built keeps
+/// its progress for next year.
+///
+/// Three rules that are easy to miss, all from `Produce` (`10b8:0000`) and
+/// `CBuildProdItem` (`10b8:0c92`):
+///
+/// * **The queue stops** at the first ordinary item that could not be finished
+///   (`if (mdStatus > 4)`). Everything behind it waits — which is the manual's
+///   "your people will not work to complete the original item until the new
+///   item you placed in the queue is complete" (p. 7-1). An **auto-build** item
+///   that could not finish does *not* stop it.
+/// * An auto-build item's "up to N" is a **target, not a countdown**. It is
+///   clamped to the year's cap before building and its stored count is left
+///   alone, so the entry means the same thing next year.
+/// * **Auto alchemy** in front of another item is skipped and marks the next
+///   item as alchemy-assisted; only as the last item in the queue does it run,
+///   and then it runs flat out.
 ///
 /// Returns what was completed, as `(item id, count)` pairs, and separately the
 /// ships finished, as `(design slot, count)`.
@@ -1958,20 +1973,44 @@ fn run_queue(
     available: &mut [i32; COST_PARTS],
     ships_built: &mut Vec<(u8, i32)>,
 ) -> Vec<(u16, i32)> {
+    /// What auto alchemy's count becomes when it is the last item in the
+    /// queue, and so is allowed to run flat out.
+    const ALCHEMY_FLAT_OUT: i32 = 1020;
+
     let mut completed: Vec<(u16, i32)> = Vec::new();
     let mut queue = std::mem::take(&mut planet.queue);
+    let last = queue.len().saturating_sub(1);
 
-    for entry in &mut queue {
+    // The index is the point: it says whether the entry is the last in the
+    // queue, which is what decides how auto alchemy behaves.
+    #[allow(clippy::needless_range_loop)]
+    for index in 0..queue.len() {
+        // Auto alchemy only runs as the last item in the queue; anywhere else
+        // it stands aside and lends a hand to whatever follows.
+        let alchemy_last =
+            !queue[index].ship && queue[index].item == item::AUTO_ALCHEMY && index == last;
+        if !queue[index].ship && queue[index].item == item::AUTO_ALCHEMY && !alchemy_last {
+            continue;
+        }
+
+        let entry = &mut queue[index];
         if entry.ship {
             // A ship costs its design; anything finished joins a fleet at the
             // planet. A design we do not hold is left alone rather than guessed.
             let Some(slot) = u8::try_from(entry.item).ok() else {
                 continue;
             };
-            let Some(cost) = designs
-                .get(usize::from(slot))
-                .and_then(crate::design::ShipDesign::cost)
-            else {
+            let Some(design) = designs.get(usize::from(slot)).filter(|d| d.hull_id >= 0) else {
+                continue;
+            };
+            let who = crate::parts::Builder {
+                race,
+                levels: tech,
+                researching: 0,
+                trader_parts: 0,
+                starbase: false,
+            };
+            let Some(cost) = design.true_cost(&who) else {
                 continue;
             };
             let outcome = build_item(
@@ -1989,6 +2028,9 @@ fn run_queue(
             }
             entry.count = outcome.remaining;
             entry.completion = outcome.completion_pct;
+            if outcome.status.stops_the_queue() {
+                break;
+            }
             continue;
         }
         let Some(cost) = planetary_item_cost(entry.item, race, false) else {
@@ -1996,18 +2038,26 @@ fn run_queue(
         };
         let auto = entry.is_auto();
 
-        // Auto-build installations are capped by what the planet will be able
-        // to operate; a manual order was already clamped when it was queued.
-        let mut wanted = entry.count;
-        if auto {
-            wanted = wanted.min(auto_build_cap(planet, race, entry.item));
-        }
+        // An auto-build item builds up to its cap for the year, not up to the
+        // figure the player typed — and that figure survives the year.
+        // As the last item in the queue, auto alchemy runs flat out — the
+        // original overwrites its count with 1020 rather than reading it.
+        let wanted = if alchemy_last {
+            ALCHEMY_FLAT_OUT
+        } else if auto {
+            entry
+                .count
+                .min(auto_build_cap(planet, race, tech, designs, entry.item))
+        } else {
+            entry.count
+        };
 
         let outcome = build_item(cost, wanted, entry.completion, available, auto);
         if outcome.built > 0 {
             match item::auto_builds(entry.item).unwrap_or(entry.item) {
                 item::MINE => planet.mines += i16::try_from(outcome.built).unwrap_or(0),
                 item::FACTORY => planet.factories += i16::try_from(outcome.built).unwrap_or(0),
+                item::DEFENSE => planet.defenses += i16::try_from(outcome.built).unwrap_or(0),
                 item::TERRAFORM => {
                     for _ in 0..outcome.built {
                         if !crate::terraform::terraform_one_step(planet, race, tech) {
@@ -2019,8 +2069,14 @@ fn run_queue(
             }
             completed.push((entry.item, outcome.built));
         }
-        entry.count = outcome.remaining;
+        let entry = &mut queue[index];
+        if !auto {
+            entry.count = outcome.remaining;
+        }
         entry.completion = outcome.completion_pct;
+        if outcome.status.stops_the_queue() {
+            break;
+        }
     }
 
     // Drop anything finished; an auto-build entry stays even at zero, because

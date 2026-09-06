@@ -1540,7 +1540,43 @@ disagree.
     scanners and Genesis Devices the inventory now offers, which the turn
     generator still skips.
 
-46. **What is still missing to call it playable.** Every waypoint task is now
+46. ~~**The production estimate.**~~ **Done.** `EstimateItemProdSched`
+    (`10d0:4f40`), which is what puts a year against every queue row and turns
+    an unbuildable one red.
+
+    It does not estimate — it **simulates**: a copy of the planet, up to
+    ninety-nine years of the whole queue run over it, mining and resources and
+    the research skim and population growth between years, until the row in
+    question completes or the century runs out. It returns two years, when the
+    first of them is finished and when the last is, and three of the values are
+    not years: 100 is *never*, 0 is *skipped*, and −1 is auto alchemy standing
+    by, *as needed*.
+
+    Writing it turned up three things wrong in the turn generator's own queue
+    step, all of which the estimate has to share or the two would disagree:
+
+    - **The queue did not stop.** `Produce` breaks at the first ordinary item
+      it cannot finish (`if (mdStatus > 4)`) and everything behind it waits a
+      year — the manual says so on p. 7-1 — while an auto-build item that
+      cannot finish is passed over. `run_queue` ran straight through, spending
+      on items that should have been waiting. `build_item` now returns the
+      game's own `mdProdStat`.
+    - **An auto-build target was being treated as a countdown.** `Mines up to
+      100` had its stored count overwritten with what was left after the year's
+      cap, so the entry meant something smaller every year and eventually
+      nothing. The original clamps to the cap and leaves the entry alone.
+    - **Auto alchemy ran in place.** It stands aside unless it is the last item
+      in the queue, and runs flat out when it is.
+
+    The caps came with it: defences, terraforming, and the *minimum*
+    terraforming rule — it only acts while the planet is not both growing and
+    habitable, which is precisely what makes it the minimum.
+
+    Not done, and written down: alchemy's actual **top-up**, the block at the
+    end of `CBuildProdItem` that turns resources into just enough minerals to
+    unblock the item behind it.
+
+47. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

@@ -1859,27 +1859,63 @@ impl App {
     /// The **Production** tile: the queue, in build order.
     #[must_use]
     pub fn planet_production_tile(&self) -> Vec<String> {
+        self.planet_production_rows()
+            .into_iter()
+            .map(|(line, _)| line)
+            .collect()
+    }
+
+    /// The same rows, each with the mark the original draws it by.
+    ///
+    /// `FillPlanetProdLB` fills the tile and the dialog's queue list from the
+    /// same routine, so the tile is coloured by the same estimate: an item that
+    /// will practically never be built is red here too.
+    #[must_use]
+    pub fn planet_production_rows(&self) -> Vec<(String, stars_core::production::EtaMark)> {
+        use stars_core::production::EtaMark;
         let Some(planet) = self.pane_planet() else {
             return Vec::new();
         };
         if planet.queue.is_empty() {
-            return vec!["--- Queue is Empty ---".to_string()];
+            return vec![("--- Queue is Empty ---".to_string(), EtaMark::Ordinary)];
         }
+        let me = self.local_player();
+        let who = self
+            .game
+            .as_ref()
+            .and_then(|g| g.players.get(me))
+            .map(stars_core::parts::Builder::player);
+        let designs: &[stars_core::design::ShipDesign] = self
+            .game
+            .as_ref()
+            .and_then(|g| g.designs.get(me))
+            .map_or(&[], Vec::as_slice);
+        let research_pct = self
+            .game
+            .as_ref()
+            .and_then(|g| g.players.get(me))
+            .map_or(0, |p| p.research_pct);
+
         planet
             .queue
             .iter()
-            .map(|entry| {
+            .enumerate()
+            .map(|(index, entry)| {
                 let name = if entry.ship {
                     self.game
                         .as_ref()
-                        .and_then(|g| g.designs.get(self.local_player()))
+                        .and_then(|g| g.designs.get(me))
                         .and_then(|d| d.get(usize::from(entry.item)))
                         .filter(|d| d.hull_id >= 0 && !d.name.is_empty())
                         .map_or_else(|| format!("Design #{}", entry.item), |d| d.name.clone())
                 } else {
                     crate::views::planets::item_name(entry.item)
                 };
-                format!("{} {}", entry.count, name)
+                let mark = who.as_ref().map_or(EtaMark::Ordinary, |who| {
+                    stars_core::production::eta(planet, who, research_pct, designs, index)
+                        .mark(entry.item, entry.ship)
+                });
+                (format!("{} {}", entry.count, name), mark)
             })
             .collect()
     }
@@ -5030,6 +5066,53 @@ impl App {
                 (
                     entry.count,
                     self.production_item_name(entry.item, entry.ship),
+                )
+            })
+            .collect()
+    }
+
+    /// When each queue row will be finished, and how it should be drawn.
+    ///
+    /// One estimate per row, each a fresh simulation of the whole queue — which
+    /// is what the original does too, once per row, in `FillPlanetProdLB`.
+    #[must_use]
+    pub fn production_schedule(&self) -> Vec<(String, stars_core::production::EtaMark)> {
+        let Some(dialog) = self.production.as_ref() else {
+            return Vec::new();
+        };
+        let Some(planet) = self.production_planet() else {
+            return Vec::new();
+        };
+        let me = self.local_player();
+        let Some(game) = self.game.as_ref() else {
+            return Vec::new();
+        };
+        let Some(player) = game.players.get(me) else {
+            return Vec::new();
+        };
+        let who = stars_core::parts::Builder::player(player);
+        let designs: &[stars_core::design::ShipDesign] =
+            game.designs.get(me).map_or(&[], Vec::as_slice);
+
+        // The estimate reads the queue off the planet, so it runs against the
+        // dialog's working copy rather than what is saved.
+        let mut working = planet.clone();
+        working.queue.clone_from(&dialog.queue);
+        working.no_research = dialog.no_research;
+
+        (0..dialog.queue.len())
+            .map(|index| {
+                let entry = dialog.queue[index];
+                let eta = stars_core::production::eta(
+                    &working,
+                    &who,
+                    player.research_pct,
+                    designs,
+                    index,
+                );
+                (
+                    eta.text(entry.item, entry.ship),
+                    eta.mark(entry.item, entry.ship),
                 )
             })
             .collect()

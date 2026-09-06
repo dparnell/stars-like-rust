@@ -37,12 +37,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
             ui.set_width(width);
             lines(ui, "Fleets in Orbit", &app.planet_fleets_tile(), "none");
-            lines(
-                ui,
-                "Production",
-                &app.planet_production_tile(),
-                "--- Queue is Empty ---",
-            );
+            production(ui, &app.planet_production_rows());
             // The tile's own button, which is how the original opens the
             // Production dialog.
             if ui
@@ -94,6 +89,29 @@ fn lines(ui: &mut egui::Ui, title: &str, lines: &[String], empty: &str) {
         }
         for line in lines {
             ui.label(egui::RichText::new(line).small());
+        }
+    });
+}
+
+/// The production tile, whose rows are coloured by when they will be built —
+/// red for one that practically never will be, which is the manual's warning
+/// on p. 7-7.
+fn production(ui: &mut egui::Ui, rows: &[(String, stars_core::production::EtaMark)]) {
+    use stars_core::production::EtaMark;
+    tile(ui, "Production", |ui| {
+        if rows.is_empty() {
+            ui.label(egui::RichText::new("--- Queue is Empty ---").weak().small());
+            return;
+        }
+        for (line, mark) in rows {
+            let text = egui::RichText::new(line).small();
+            ui.label(match mark {
+                EtaMark::Never => text.color(egui::Color32::from_rgb(0xff, 0x6b, 0x6b)),
+                EtaMark::AllNextYear => text.color(egui::Color32::from_rgb(0x5a, 0xd6, 0x8a)),
+                EtaMark::FirstNextYear => text.color(egui::Color32::from_rgb(0xa3, 0xbf, 0x5a)),
+                EtaMark::Idle => text.weak(),
+                EtaMark::Ordinary => text,
+            });
         }
     });
 }

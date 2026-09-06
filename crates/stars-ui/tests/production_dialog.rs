@@ -388,3 +388,57 @@ fn the_dialog_draws() {
     app.production_cancel();
     frame(&mut app);
 }
+
+/// Every queue row carries a year and a colour.
+#[test]
+fn the_queue_says_when_each_row_will_be_done() {
+    use stars_core::production::EtaMark;
+
+    let mut app = a_game();
+    app.open_production();
+    app.production_clear();
+
+    // One factory on a home world: next year.
+    let index = app
+        .production_inventory()
+        .iter()
+        .position(|r| !r.ship && r.item == item::FACTORY)
+        .expect("factories");
+    app.production.as_mut().expect("open").inventory_index = index;
+    app.production_add(1);
+
+    let schedule = app.production_schedule();
+    assert_eq!(schedule.len(), 1);
+    let (when, mark) = &schedule[0];
+    assert_eq!(when, "1 year", "a home world can afford one factory");
+    assert_eq!(*mark, EtaMark::AllNextYear);
+
+    // A thousand of them will not be finished in a century.
+    app.production_clear();
+    app.production.as_mut().expect("open").inventory_index = index;
+    app.production_add(1000);
+    let (when, mark) = app.production_schedule().remove(0);
+    assert!(
+        when == "Never" || when.contains("???") || when.contains("years"),
+        "{when}"
+    );
+    assert_ne!(mark, EtaMark::AllNextYear);
+
+    // An auto-build item that has nothing to do reads as skipped, and one
+    // standing by reads "As Needed".
+    app.production_clear();
+    let alchemy = app
+        .production_inventory()
+        .iter()
+        .position(|r| !r.ship && r.item == item::AUTO_ALCHEMY)
+        .expect("auto alchemy");
+    app.production.as_mut().expect("open").inventory_index = alchemy;
+    app.production_add(1);
+    app.production.as_mut().expect("open").queue_index = Some(0);
+    app.production.as_mut().expect("open").inventory_index = index;
+    app.production_add(1);
+    // Alchemy is now in front of the factory, so it is standing by.
+    let schedule = app.production_schedule();
+    assert_eq!(schedule[0].0, "As Needed", "{schedule:?}");
+    assert_eq!(schedule[0].1, EtaMark::Idle);
+}

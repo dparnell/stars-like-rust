@@ -98,13 +98,58 @@ takes the row out and gives the count back to the inventory.
 **Item Up** and **Item Down** swap a row with its neighbour. **Clear** empties
 the queue and returns everything to the inventory.
 
+## When will it be done?
+
+`EstimateItemProdSched` (`10d0:4f40`) answers that, and it does not estimate —
+it **simulates**. It takes a copy of the planet and runs up to ninety-nine
+years of the whole queue over it: mining, resources, the research skim, the
+queue's own stopping rules, and population growth between years. Nothing
+cheaper would do, because an item's date depends on everything ahead of it in
+the queue and on how the planet grows underneath it while it waits.
+
+It returns two years — when the **first** of them is finished and when the
+**last** is — and three of the values are not years at all:
+
+| value | meaning |
+|-------|---------|
+| `100` | a century or more: **never** |
+| `0` | nothing to do: **skipped** |
+| `-1` | auto alchemy standing by: **as needed** |
+
+`PszProductionETA` (`1048:310c`) turns the pair into words, and this uses the
+game's own: `Never`, `Unknown`, `Skipped`, `As Needed`, `1 year`, `4 years`,
+`2 - 9 years`, `3 - ??? years`. An **auto-build** item that never completes
+reads `Unknown` rather than `Never`, because it has no schedule to miss.
+
+Two rules inside the simulation are the ones that matter, and both are
+`Produce`'s as well as the estimate's — so the turn generator and the estimate
+now agree, which they did not before:
+
+* **The queue stops** at the first ordinary item it cannot finish
+  (`if (mdStatus > 4)`). Everything behind it waits a year. An **auto-build**
+  item that cannot finish does not stop it — the manual's "auto-build items
+  that require only resources will continue to be produced" (p. 7-1).
+* **Auto alchemy** stands aside unless it is the last item in the queue, and
+  lends a hand to whatever follows it; as the last item it runs flat out, its
+  count overwritten with 1020.
+
+A third, which the estimate depends on and which was wrong here: an auto-build
+item's `up to N` is a **target, not a countdown**. It is clamped to the year's
+cap before building and the stored figure is left alone, so it means the same
+thing next year.
+
+The caps themselves come from the opening of `CBuildProdItem`: mines,
+factories and defences are held to what the planet can **operate**, not to what
+it could ever hold; maximum terraforming to how much is left; and **minimum**
+terraforming to the same but only while the planet is not both growing and
+habitable — which is exactly what makes it the minimum. Packets need a mass
+driver and something on the surface to fling.
+
 ## Reading the queue
 
 `FillPlanetProdLB` (`1048:6692`) builds each row as `"%c%5d%s"` — a status
 character, the count, the name — and `DrawProductionItem` (`1048:6208`) reads
-that first character to decide how to draw it. From
-`EstimateItemProdSched`'s two figures, the year the **first** one is finished
-and the year the **last** one is:
+that first character to decide how to draw it. From the same two figures:
 
 | char | meaning |
 |------|---------|
@@ -113,10 +158,6 @@ and the year the **last** one is:
 | `#` | the first lands next year but the rest take longer |
 | ` ` | ordinary — somewhere between two and ninety-nine years |
 | `!` | a hundred years or more: **never**, and the manual's red row (p. 7-7) |
-
-`PszProductionETA` (`1048:310c`) turns the same two figures into words:
-`Never`, `%d years`, `%d year`/`%d years`, `%d to %d years`, or `Skipped` and
-`Needed` for the two zero cases.
 
 Two more markers are hidden in the same string: the count field's first
 character is bumped for an auto-build item and for terraforming, and the
@@ -148,7 +189,9 @@ double-click doing the same as the button, the merge with a neighbouring row,
 next starbase, the *Contribute only leftover resources to research* checkbox,
 the cost panel against what the planet has on the surface, and a working copy
 that **Cancel** throws away and **OK** — or stepping to another planet — writes
-back.
+back. Every queue row carries its year and its colour, in the dialog and in the
+planet pane's Production tile alike — the original fills both from the same
+routine, so an item that will practically never be built is red in both.
 
 The queue is written to the save through the same path a queue edited on the
 Planets screen takes, so it reaches the `.xN` as an `rtLogPlanetProdQ` order.
@@ -163,15 +206,23 @@ In `crates/stars-core/src/production.rs`:
   other: the Genesis Device and the planetary scanners. Ship designs are costed
   by `ShipDesign::true_cost`.
 * `mass_driver_warp(planet, designs)` — whether packets are on offer at all.
+* `eta(planet, builder, research_pct, designs, index)` — the simulation above,
+  returning an [`Eta`] that knows both its wording and its colour.
+* `build_item`'s [`BuildStatus`], which is `mdProdStat` and is what decides
+  whether the queue carries on.
 
 ## What is not reproduced
 
-* **The year estimate.** `EstimateItemProdSched` (`10d0:4f40`) simulates up to
-  ninety-nine years of the whole queue, planet growth and all, to answer "when
-  will this be done". The pieces are all here — `build_item` is
-  `CBuildProdItem` — but the loop is not, so the queue carries no ETA and no
-  colour yet.
 * **Templates** beyond the default one, and the `<Customize>` editor.
+* **Alchemy's help.** Auto alchemy standing in front of an item is modelled as
+  far as standing aside and reading `As Needed`, but the *top-up* it performs —
+  `CBuildProdItem`'s closing block, which turns resources into just enough
+  minerals to unblock the item behind it — is not. Until it is, an alchemy row
+  in front of a mineral-starved item does nothing for it.
+* The estimate is recomputed from scratch for every row on every frame, as the
+  original recomputes it whenever it refills the list. It costs about a
+  millisecond for a seven-row queue in a debug build, which is affordable; a
+  very long queue on a slow machine would want caching.
 * **Building what the new inventory rows offer.** A queued packet, planetary
   scanner or Genesis Device is priced and can be ordered, but the turn
   generator does not yet build any of them: `run_queue` skips an item it has no

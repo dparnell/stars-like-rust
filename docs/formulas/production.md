@@ -126,9 +126,29 @@ The one asymmetry: an **auto-build** item blocked for want of *minerals* banks
 nothing and stops, rather than part-paying something it cannot finish. Blocked
 on resources it behaves like any other item.
 
-Auto-build mines and factories are additionally capped by what the planet will
-be able to **operate** next year, not by what it could ever hold, so an
-auto-build queue keeps pace with population instead of racing ahead of it.
+Auto-build mines, factories and defences are additionally capped by what the
+planet will be able to **operate** next year, not by what it could ever hold,
+so an auto-build queue keeps pace with population instead of racing ahead of
+it. Terraforming is capped by how much is left, and the **minimum** variant
+only acts while the planet is not both growing and habitable. An auto-build
+item's `up to N` is a target rather than a countdown: it is clamped to that cap
+each year and the stored figure is untouched.
+
+## Where the queue stops
+
+`CBuildProdItem` returns an `mdProdStat` alongside the count, and `Produce`
+reads it: **anything above `mdProdStatNoneAuto` (4) stops the queue for the
+year**. So an ordinary item that cannot be finished holds up everything behind
+it — the manual's "your people will not work to complete the original item
+until the new item you placed in the queue is complete" (p. 7-1) — while an
+auto-build item that cannot be finished is simply passed over.
+
+Auto alchemy is the other special case: in front of another item it stands
+aside and marks the next item as alchemy-assisted; as the last item in the
+queue it runs flat out, with its count overwritten by 1020.
+
+Both rules are shared with the year estimate the Production dialog shows, which
+is why they live in `production.rs`. See `../ui/production.md`.
 
 ## Open questions
 

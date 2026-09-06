@@ -356,6 +356,55 @@ pub struct BuildOutcome {
     /// Whether the item stopped because minerals ran out rather than
     /// resources. An auto-build item blocked this way banks nothing.
     pub mineral_blocked: bool,
+    /// How the year went for this item, which is what decides whether the
+    /// queue carries on behind it.
+    pub status: BuildStatus,
+}
+
+/// What became of one queue item this year (`mdProdStat`).
+///
+/// The numbers are the game's own, and the order matters: **anything above
+/// `NoneAuto` stops the queue for the year**, which is `Produce`'s
+/// `if (mdStatus > 4)`. An auto-build item that could not be finished does
+/// *not* stop it — the manual's "auto-build items that require only resources
+/// will continue to be produced" (p. 7-1) — but an ordinary one does, so an
+/// unaffordable ship at the front of a queue holds up everything behind it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum BuildStatus {
+    /// An ordinary item, finished.
+    #[default]
+    Complete = 0,
+    /// An auto-build item that reached its cap this year.
+    CompleteAuto = 1,
+    /// An auto-build item with nothing to do — it is already at its cap.
+    SkippedAuto = 2,
+    /// An auto-build item that built some of what it wanted.
+    SomeAuto = 3,
+    /// An auto-build item that built none of it.
+    NoneAuto = 4,
+    /// An ordinary item that built some but not all of what was asked.
+    Some = 5,
+    /// An ordinary item that could not build even one.
+    ///
+    /// The original distinguishes two of these — `mdProdStatBlockedSame` and
+    /// `mdProdStatBlockedDiff`, by whether the item id changed under the
+    /// auto-build clamp — but only to choose a message; both stop the queue.
+    Blocked = 6,
+}
+
+impl BuildStatus {
+    /// Whether the queue stops here for the year.
+    #[must_use]
+    pub fn stops_the_queue(self) -> bool {
+        (self as u8) > (BuildStatus::NoneAuto as u8)
+    }
+
+    /// Whether the item finished everything it was asked for.
+    #[must_use]
+    pub fn is_complete(self) -> bool {
+        matches!(self, BuildStatus::Complete | BuildStatus::CompleteAuto)
+    }
 }
 
 /// Try to build `count` of an item from what the planet has available.
@@ -369,6 +418,10 @@ pub struct BuildOutcome {
 /// in place. `auto_build` marks the automatic queue items, which differ in one
 /// way: if they are blocked for want of **minerals** they bank nothing and
 /// stop, rather than part-paying a unit they cannot finish.
+///
+/// `count` is what the item is allowed to build this year — for an auto-build
+/// item that is its cap, not the "up to N" the player typed — and the outcome's
+/// [`BuildStatus`] says whether the queue carries on behind it.
 pub fn build_item(
     cost: ItemCost,
     count: i32,
@@ -396,6 +449,7 @@ pub fn build_item(
                 remaining,
                 completion_pct: pct,
                 mineral_blocked: false,
+                status: status_of(auto_build, built, remaining, false),
             };
         }
 
@@ -449,6 +503,7 @@ pub fn build_item(
                 remaining,
                 completion_pct: pct,
                 mineral_blocked: true,
+                status: status_of(auto_build, built, remaining, true),
             };
         }
 
@@ -462,27 +517,97 @@ pub fn build_item(
             remaining,
             completion_pct: best,
             mineral_blocked,
+            status: status_of(auto_build, built, remaining, false),
         };
     }
 }
 
-/// How many of an auto-build installation a planet may still add.
-///
-/// Auto-build mines, factories and defences are capped by what the planet will
-/// be able to *operate* next year, not by what it could ever hold — which is
-/// why an auto-build queue keeps pace with population rather than racing ahead
-/// of it.
-#[must_use]
-pub fn auto_build_cap(planet: &Planet, race: &Race, item: u16) -> i32 {
-    use crate::resources::{max_operable_factories, max_operable_mines};
+/// `CBuildProdItem`'s closing `mdStatus` decision.
+fn status_of(auto: bool, built: i32, remaining: i32, mineral_blocked: bool) -> BuildStatus {
+    if auto && mineral_blocked {
+        // An auto item that ran out of minerals: it does not hold the queue up.
+        return if built < 1 {
+            BuildStatus::NoneAuto
+        } else {
+            BuildStatus::SomeAuto
+        };
+    }
+    if !auto || remaining != 0 {
+        return if built == 0 {
+            BuildStatus::Blocked
+        } else if remaining == 0 {
+            BuildStatus::Complete
+        } else {
+            BuildStatus::Some
+        };
+    }
+    if built < 1 {
+        BuildStatus::SkippedAuto
+    } else {
+        BuildStatus::CompleteAuto
+    }
+}
 
-    let item = item::auto_builds(item).unwrap_or(item);
-    let cap = match item {
-        item::MINE => i32::from(max_operable_mines(planet, race, true)) - i32::from(planet.mines),
-        item::FACTORY => {
+/// How many of an auto-build item a planet may still build this year.
+///
+/// Source: the opening of `CBuildProdItem` (`10b8:0c92`), which clamps an
+/// auto-build item's count to this before spending anything on it. The cap is
+/// not the same as the plain item's: mines, factories and defences are held to
+/// what the planet will be able to **operate** next year rather than to what it
+/// could ever hold, which is what keeps an auto-build queue in step with the
+/// population instead of racing ahead of it.
+///
+/// The other four:
+///
+/// * **alchemy** has no cap;
+/// * **maximum terraforming** is capped by how much terraforming is left;
+/// * **minimum terraforming** by the same, but drops to nothing while the
+///   planet is growing *and* habitable — which is what makes it the *minimum*:
+///   it only acts when people would otherwise be dying;
+/// * **packets** need a mass driver and something on the surface to fling.
+///
+/// An id that is not an auto-build item has no cap.
+#[must_use]
+pub fn auto_build_cap(
+    planet: &Planet,
+    race: &Race,
+    tech: [u8; 6],
+    designs: &[crate::design::ShipDesign],
+    id: u16,
+) -> i32 {
+    use crate::resources::{max_operable_defenses, max_operable_factories, max_operable_mines};
+
+    let cap = match id {
+        item::AUTO_MINE => {
+            i32::from(max_operable_mines(planet, race, true)) - i32::from(planet.mines)
+        }
+        item::AUTO_FACTORY => {
             i32::from(max_operable_factories(planet, race, true)) - i32::from(planet.factories)
         }
-        _ => return 1000,
+        item::AUTO_DEFENSE => {
+            i32::from(max_operable_defenses(planet, race)) - i32::from(planet.defenses)
+        }
+        item::AUTO_ALCHEMY => return UNLIMITED,
+        item::AUTO_MIN_TERRAFORM | item::AUTO_MAX_TERRAFORM => {
+            let left = crate::terraform::terraform_steps(planet, race, tech);
+            if id == item::AUTO_MIN_TERRAFORM && left > 0 {
+                // Growing and habitable: nothing needs doing yet.
+                let growing = crate::population::chg_pop_from_planet(planet, race)
+                    .is_some_and(|change| change.delta >= 0);
+                if growing && crate::hab::pct_planet_desirability(planet, race) > 0 {
+                    return 0;
+                }
+            }
+            left
+        }
+        item::AUTO_PACKET => {
+            if mass_driver_warp(planet, designs) == 0 || planet.surface_min.iter().all(|m| *m == 0)
+            {
+                return 0;
+            }
+            return UNLIMITED;
+        }
+        _ => return UNLIMITED,
     };
     cap.max(0)
 }
@@ -792,4 +917,255 @@ pub fn item_cost(id: u16, who: &crate::parts::Builder<'_>, tutorial: bool) -> Op
         }
         _ => return None,
     })
+}
+
+/// When a queue item will be built, as two years: the one the **first** of them
+/// is finished in and the one the **last** is.
+///
+/// Both are counted from next year, so `1` means "next year". Three values are
+/// not years at all:
+///
+/// * `100` — a hundred years or more, which the game calls **never**;
+/// * `0` — nothing to do, which it calls **skipped**;
+/// * `-1` — auto alchemy standing by, which it calls **as needed**.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Eta {
+    /// The year the first one is finished.
+    pub first: i16,
+    /// The year the last one is finished.
+    pub last: i16,
+}
+
+impl Eta {
+    /// What the original prints for this (`PszProductionETA`, `1048:310c`).
+    ///
+    /// The wording is the game's, string ids 815 to 820 and 596.
+    #[must_use]
+    pub fn text(self, id: u16, ship: bool) -> String {
+        if self.first == 100 {
+            // An auto-build item is never "never" — it simply has no schedule.
+            return if !ship && id <= item::AUTO_PACKET {
+                "Unknown".to_string()
+            } else {
+                "Never".to_string()
+            };
+        }
+        if self.last == 100 {
+            return format!("{} - ??? years", self.first);
+        }
+        if self.first == self.last {
+            return match self.first {
+                0 => "Skipped".to_string(),
+                -1 => "As Needed".to_string(),
+                1 => "1 year".to_string(),
+                n => format!("{n} years"),
+            };
+        }
+        format!("{} - {} years", self.first, self.last)
+    }
+
+    /// How the row is drawn.
+    ///
+    /// `FillPlanetProdLB` puts one of five characters in front of a queue row
+    /// and `DrawProductionItem` reads it back. The interesting one is
+    /// [`EtaMark::Never`], which is the manual's red row: the item's minerals
+    /// are so far out of reach that it will practically never be finished
+    /// (p. 7-7).
+    #[must_use]
+    pub fn mark(self, id: u16, ship: bool) -> EtaMark {
+        if (self.first == 0 && self.last == 0) || (self.first == -1 && self.last == -1) {
+            return EtaMark::Idle;
+        }
+        // An auto-build item at 100 is "unknown", not "never", and is drawn
+        // like any ordinary row.
+        let unknown = self.first == 100 && !ship && id <= item::AUTO_PACKET;
+        if (self.first < 2 || self.first > 99) && !unknown {
+            if self.first == 1 && self.last == 1 {
+                return EtaMark::AllNextYear;
+            }
+            return if self.first < 100 {
+                EtaMark::FirstNextYear
+            } else {
+                EtaMark::Never
+            };
+        }
+        EtaMark::Ordinary
+    }
+}
+
+/// How a production-queue row is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EtaMark {
+    /// `&` — nothing to do, or nothing known.
+    Idle,
+    /// `*` — all of them finish next year.
+    AllNextYear,
+    /// `#` — the first finishes next year, the rest take longer.
+    FirstNextYear,
+    /// ` ` — somewhere between two and ninety-nine years.
+    Ordinary,
+    /// `!` — a hundred years or more. The original draws this row **red**.
+    Never,
+}
+
+/// When one item in a planet's queue will be finished.
+///
+/// Source: `EstimateItemProdSched` (`10d0:4f40`), which is a real simulation:
+/// it takes a copy of the planet and runs **up to ninety-nine years** of the
+/// whole queue over it — mining, resources, research skim, the queue's own
+/// stopping rules and population growth — until the item in question completes
+/// or the century runs out. Nothing cheaper would do, because an item's date
+/// depends on everything ahead of it and on how the planet grows underneath it.
+///
+/// `index` is the entry in `planet.queue` being asked about.
+#[must_use]
+pub fn eta(
+    planet: &Planet,
+    who: &crate::parts::Builder<'_>,
+    research_pct: u8,
+    designs: &[crate::design::ShipDesign],
+    index: usize,
+) -> Eta {
+    /// The century the original gives up after.
+    const PASSES: i16 = 100;
+    /// What auto alchemy's count becomes when it is the last item in the
+    /// queue, and so is allowed to run flat out.
+    const ALCHEMY_FLAT_OUT: i32 = 1020;
+
+    let race = who.race;
+    let tech = who.levels;
+    if index >= planet.queue.len() {
+        return Eta { first: 0, last: 0 };
+    }
+
+    let mut pl = planet.clone();
+    let mut first: i16 = 0;
+    let mut last: i16 = 0;
+
+    for pass in 1..PASSES {
+        // This year's minerals and resources. The estimate truncates the
+        // mining remainder rather than rolling for it, which is what
+        // `EstMineralsMined`'s `fTrue` means.
+        let mined = crate::mining::minerals_mined(&pl, race, None, None);
+        for (surface, add) in pl.surface_min.iter_mut().zip(mined.iter()) {
+            *surface += add;
+        }
+        let Some(budget) = planet_budget(
+            &pl,
+            race,
+            research_pct,
+            0,
+            pl.no_research,
+            i16::from(tech[0]),
+        ) else {
+            break;
+        };
+        let mut available = [
+            pl.surface_min[0],
+            pl.surface_min[1],
+            pl.surface_min[2],
+            budget.production,
+        ];
+
+        let mut queue = std::mem::take(&mut pl.queue);
+        let end = queue.len().saturating_sub(1);
+        // The index is the point: it says whether this is the entry being
+        // asked about and whether it is the last in the queue.
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..queue.len() {
+            let entry = queue[i];
+            if entry.count == 0 && !entry.is_auto() {
+                continue;
+            }
+
+            // Auto alchemy stands aside unless it is the last item, in which
+            // case it runs flat out. An entry asked about while it is standing
+            // aside has no schedule at all.
+            let mut wanted = entry.count;
+            if !entry.ship && entry.item == item::AUTO_ALCHEMY {
+                if i != end {
+                    if i == index {
+                        return Eta {
+                            first: -1,
+                            last: -1,
+                        };
+                    }
+                    continue;
+                }
+                wanted = ALCHEMY_FLAT_OUT;
+            }
+
+            let auto = entry.is_auto();
+            let cost = if entry.ship {
+                designs
+                    .get(usize::from(entry.item))
+                    .filter(|d| d.hull_id >= 0)
+                    .and_then(|d| d.true_cost(who))
+                    .map(|c| ItemCost {
+                        minerals: c.minerals,
+                        resources: c.resources,
+                    })
+            } else {
+                item_cost(entry.item, who, false)
+            };
+            let Some(cost) = cost else {
+                continue;
+            };
+            if auto {
+                wanted = wanted.min(auto_build_cap(&pl, race, tech, designs, entry.item));
+            }
+
+            let outcome = build_item(cost, wanted, entry.completion, &mut available, auto);
+
+            if i == index {
+                if outcome.built > 0 && first == 0 {
+                    first = pass;
+                }
+                match outcome.status {
+                    BuildStatus::SkippedAuto => {
+                        if first != 0 {
+                            last = pass - 1;
+                        }
+                        return Eta { first, last };
+                    }
+                    status if status.is_complete() => {
+                        return Eta { first, last: pass };
+                    }
+                    _ => {}
+                }
+            }
+
+            // The planet grows under the estimate, which is what lets a
+            // colony that cannot afford a factory this year afford one later.
+            if outcome.built > 0 {
+                match item::auto_builds(entry.item).unwrap_or(entry.item) {
+                    item::MINE => pl.mines += i16::try_from(outcome.built).unwrap_or(0),
+                    item::FACTORY => pl.factories += i16::try_from(outcome.built).unwrap_or(0),
+                    item::DEFENSE => pl.defenses += i16::try_from(outcome.built).unwrap_or(0),
+                    _ => {}
+                }
+            }
+            if !auto {
+                queue[i].count = outcome.remaining;
+            }
+            queue[i].completion = outcome.completion_pct;
+            if outcome.status.stops_the_queue() {
+                break;
+            }
+        }
+        pl.queue = queue;
+
+        pl.surface_min = [available[0], available[1], available[2]];
+        if let Some(change) = crate::population::chg_pop_from_planet(&pl, race) {
+            pl.pop += change.delta;
+        }
+    }
+
+    if first == 0 {
+        first = PASSES;
+    }
+    Eta {
+        first,
+        last: PASSES,
+    }
 }

@@ -9,6 +9,7 @@
 //! See `docs/ui/production.md`.
 
 use crate::App;
+use stars_core::production::EtaMark;
 
 /// Draw the dialog's contents.
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
@@ -188,6 +189,7 @@ fn inventory(app: &mut App, ui: &mut egui::Ui, step: i32) {
 
 fn queue(app: &mut App, ui: &mut egui::Ui, step: i32) {
     let rows = app.production_queue_rows();
+    let schedule = app.production_schedule();
     let selected = app.production.as_ref().and_then(|d| d.queue_index);
 
     // The original's first line, which is where "add to the front" lives.
@@ -224,10 +226,24 @@ fn queue(app: &mut App, ui: &mut egui::Ui, step: i32) {
         } else {
             format!("{count}  {name}")
         };
-        let mut text = egui::RichText::new(label).small();
+        // The year it will be finished, and the colour that goes with it.
+        // `!` is the manual's red row: the item will practically never be
+        // built (p. 7-7).
+        let (when, mark) = schedule
+            .get(index)
+            .cloned()
+            .unwrap_or_else(|| (String::new(), EtaMark::Ordinary));
+        let mut text = egui::RichText::new(format!("{label}   {when}")).small();
         if auto {
             text = text.italics();
         }
+        text = match mark {
+            EtaMark::Never => text.color(egui::Color32::from_rgb(0xff, 0x6b, 0x6b)),
+            EtaMark::AllNextYear => text.color(egui::Color32::from_rgb(0x5a, 0xd6, 0x8a)),
+            EtaMark::FirstNextYear => text.color(egui::Color32::from_rgb(0xa3, 0xbf, 0x5a)),
+            EtaMark::Idle => text.weak(),
+            EtaMark::Ordinary => text,
+        };
         let response = ui.selectable_label(selected == Some(index), text);
         if response.clicked() {
             clicked = Some(Some(index));
