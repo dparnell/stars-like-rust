@@ -126,7 +126,41 @@ impl Art {
         cell: Cell,
         size: egui::Vec2,
     ) -> Option<egui::Image<'_>> {
-        let name = cell.name();
+        self.sprite_at(
+            ctx,
+            &cell.name(),
+            cell.x,
+            cell.y,
+            cell.width,
+            cell.height,
+            size,
+        )
+    }
+
+    /// A rectangle of any sheet, named however it is named.
+    ///
+    /// [`Cell`] can only name a bitmap by number, and a few of the game's are
+    /// named by string — the scanner's own sheet among them — so this is the
+    /// way in for those.
+    #[allow(clippy::too_many_arguments)]
+    pub fn sprite_at(
+        &mut self,
+        ctx: &egui::Context,
+        name: &Name,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        size: egui::Vec2,
+    ) -> Option<egui::Image<'_>> {
+        let cell = Cell {
+            resource: 0,
+            x,
+            y,
+            width,
+            height,
+        };
+        let name = name.clone();
         let handle = self.texture(ctx, &name)?;
         let sheet = handle.size_vec2();
         if cell.x + cell.width > sheet.x as u32 || cell.y + cell.height > sheet.y as u32 {

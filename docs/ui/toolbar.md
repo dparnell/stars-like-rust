@@ -129,8 +129,8 @@ them apart.
 ## The two ship filters
 
 Buttons 12/13 and 14/15 are each a toggle with a menu hung off it, and the
-thing to get right is that **they apply to different fleets**. `CshOfFleet`
-(`1058:4b4a`), which is what counts the ships the Ship Count overlay writes:
+thing to get right is that **they apply to different fleets**. `CShipsScanVis`
+(`1058:4bf4`), which is what counts the ships the Ship Count overlay writes:
 
 * the **Ship Design filter** (`0x200`, mask `grbitScanShip`) narrows only *this
   player's own* fleets, and picks by **design slot** — bit `n` is design `n`;

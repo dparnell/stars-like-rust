@@ -25,6 +25,7 @@
 use egui::{Color32, Pos2, Rect, Sense, Stroke, Vec2};
 
 use crate::views::{colonists, player_colour};
+use crate::OrbitRing;
 use crate::{App, ScanView};
 
 /// Draw the galaxy.
@@ -108,6 +109,11 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         .as_ref()
         .and_then(|g| g.players.get(app.local_player()))
         .map(|p| p.race.clone());
+    // Which planets have fleets in orbit, and whose. Collected here and drawn
+    // after the loop, because painting the game's own ring sprite needs the
+    // app mutably and the loop is holding it.
+    let rings = app.orbit_rings();
+    let mut to_ring: Vec<(egui::Pos2, OrbitRing, bool)> = Vec::new();
     for (planet, owned) in app.visible_planets() {
         let Some(position) = planet.position else {
             continue;
@@ -177,6 +183,11 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         if Some(planet.id) == selected {
             painter.circle_stroke(at, radius + 4.0, Stroke::new(1.5_f32, Color32::WHITE));
         }
+        if let Ok(id) = u16::try_from(planet.id) {
+            if let Some(ring) = rings.get(&id) {
+                to_ring.push((at, *ring, Some(planet.id) == selected));
+            }
+        }
         if app.scan_overlays.names {
             if let Some(name) = planet.name {
                 painter.text(
@@ -194,6 +205,13 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             }
         }
     }
+
+    // The orbit rings, over the planets. The original blits one of three
+    // rings out of the scanner's own sheet — grey for this player's fleets,
+    // red for anybody else's, magenta for both — and uses the **larger** ring
+    // when the planet is the selected object rather than at any particular
+    // zoom.
+    orbit_rings(app, ui, &to_ring);
 
     // Scanner coverage: a ring round each of the player's planets, showing how
     // far it sees. An overlay of its own.
@@ -417,5 +435,54 @@ fn mineral_colour(mineral: usize) -> Color32 {
         0 => Color32::from_rgb(90, 130, 230),
         1 => Color32::from_rgb(90, 200, 110),
         _ => Color32::from_rgb(220, 200, 80),
+    }
+}
+
+/// Draw the orbit rings gathered while the planets were drawn.
+///
+/// The game's own sprite when a copy of the original has been found — the
+/// scanner's sheet holds the three colours at 11 pixels and again at 19 — and
+/// a stroked circle in the same colour when it has not.
+fn orbit_rings(app: &mut App, ui: &mut egui::Ui, rings: &[(egui::Pos2, OrbitRing, bool)]) {
+    if rings.is_empty() {
+        return;
+    }
+    let ctx = ui.ctx().clone();
+    let painter = ui.painter().clone();
+    for (at, ring, selected) in rings {
+        let side: u32 = if *selected { 19 } else { 11 };
+        let drawn = app
+            .art
+            .as_mut()
+            .and_then(|art| {
+                art.sprite_at(
+                    &ctx,
+                    &stars_formats::resources::Name::Text("ScannerBmp".to_string()),
+                    if side == 19 { 29 } else { 16 },
+                    ring.row() * side,
+                    side,
+                    side,
+                    egui::vec2(side as f32, side as f32),
+                )
+            })
+            .map(|image| {
+                let half = side as f32 / 2.0;
+                image.paint_at(
+                    ui,
+                    egui::Rect::from_min_size(
+                        *at - Vec2::new(half, half),
+                        egui::vec2(side as f32, side as f32),
+                    ),
+                );
+            })
+            .is_some();
+        if !drawn {
+            let [r, g, b] = ring.colour();
+            painter.circle_stroke(
+                *at,
+                side as f32 / 2.0,
+                Stroke::new(1.0_f32, Color32::from_rgb(r, g, b)),
+            );
+        }
     }
 }

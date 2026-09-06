@@ -6484,7 +6484,7 @@ impl App {
 
     /// How many ships of a fleet the scanner counts, with the filters applied.
     ///
-    /// `CshOfFleet` (`1058:4b4a`) puts the two filters on **different fleets**,
+    /// `CShipsScanVis` (`1058:4bf4`) puts the two filters on **different fleets**,
     /// which is the thing to get right: the design filter looks only at this
     /// player's own fleets and picks by design slot, and the class filter looks
     /// only at everybody else's and picks by the hull's class. A fleet that
@@ -6628,5 +6628,80 @@ impl App {
         };
         let party = stars_core::relations::party(game, me, owner);
         self.scan_minefield_filter & (1 << party.index()) != 0
+    }
+}
+
+// --- Orbit rings ----------------------------------------------------------
+
+/// Whose fleets are in orbit round a planet.
+///
+/// `DrawScanner` keeps a byte per planet and adds **one** for a fleet of this
+/// player's and **two** for anybody else's, refusing to add the same kind
+/// twice and stopping at three — so the three values are exactly "mine",
+/// "theirs" and "both", and the ring's colour says which.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum OrbitRing {
+    /// Only this player's fleets: a white ring.
+    Yours = 1,
+    /// Only other players': red.
+    Theirs = 2,
+    /// Some of each: magenta.
+    Both = 3,
+}
+
+impl OrbitRing {
+    /// Which of the three rows of rings in the scanner's sheet it is.
+    #[must_use]
+    pub fn row(self) -> u32 {
+        u32::from(self as u8) - 1
+    }
+
+    /// The colour to draw it in without the game's own sprite, taken from the
+    /// sprite itself.
+    #[must_use]
+    pub fn colour(self) -> [u8; 3] {
+        match self {
+            OrbitRing::Yours => [0xc0, 0xc0, 0xc0],
+            OrbitRing::Theirs => [0xff, 0x00, 0x00],
+            OrbitRing::Both => [0xff, 0x00, 0xff],
+        }
+    }
+}
+
+impl App {
+    /// Which planets have a ring round them, and whose.
+    ///
+    /// A fleet earns its planet a ring only if the scanner would **count** it
+    /// — the two ship filters narrow this exactly as they narrow the ship
+    /// counts, which is what the manual means by "only those planets orbited
+    /// by the selected ships will have orbit rings" (p. 5-15).
+    #[must_use]
+    pub fn orbit_rings(&self) -> std::collections::BTreeMap<u16, OrbitRing> {
+        let me = self.local_player();
+        let mut out: std::collections::BTreeMap<u16, u8> = std::collections::BTreeMap::new();
+        let Some(game) = self.game.as_ref() else {
+            return std::collections::BTreeMap::new();
+        };
+        for fleet in &game.fleets {
+            let Some(planet) = fleet.orbiting else {
+                continue;
+            };
+            if self.filtered_ship_count(fleet) <= 0 {
+                continue;
+            }
+            let mine = usize::try_from(fleet.owner).is_ok_and(|owner| owner == me);
+            *out.entry(planet).or_insert(0) |= if mine { 1 } else { 2 };
+        }
+        out.into_iter()
+            .filter_map(|(planet, bits)| {
+                let ring = match bits {
+                    1 => OrbitRing::Yours,
+                    2 => OrbitRing::Theirs,
+                    3 => OrbitRing::Both,
+                    _ => return None,
+                };
+                Some((planet, ring))
+            })
+            .collect()
     }
 }

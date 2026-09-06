@@ -640,8 +640,8 @@ pub fn copied_name(name: &str) -> String {
 ///
 /// Every hull carries one in the packed word at `+0x7B` of its `HULDEF`,
 /// transcribed as [`crate::components::Hull::category`]. It is what the
-/// scanner's **Enemy Ship Class filter** selects on — `CshOfFleet`
-/// (`1058:4b4a`) compares `(huldef.wFlags >> 10) & 0xf` against the bit the
+/// scanner's **Enemy Ship Class filter** selects on — `CShipsScanVis`
+/// (`1058:4bf4`) compares `(huldef.wFlags >> 10) & 0xf` against the bit the
 /// player ticked — and the names are the game's own, from the eight
 /// consecutive strings the filter's menu is built from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

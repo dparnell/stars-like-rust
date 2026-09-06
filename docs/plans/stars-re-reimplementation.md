@@ -1890,7 +1890,7 @@ disagree.
     drew but could not act on. Spec in `docs/ui/toolbar.md`.
 
     The thing to get right is that **they apply to different fleets**.
-    `CshOfFleet` (`1058:4b4a`) is where both live: the Ship Design filter
+    `CShipsScanVis` (`1058:4bf4`) is where both live: the Ship Design filter
     narrows only *this player's own* fleets and picks by design **slot**, and
     the Enemy Ship Class filter narrows only *everybody else's* and picks by
     the hull's **class**. A fleet neither applies to is counted whole. So the
@@ -1940,7 +1940,35 @@ disagree.
     100%; and both ship filters to empty. This project had started with every
     overlay off.
 
-60. **What is still missing to call it playable.** Every waypoint task is now
+60. ~~**The orbit rings.**~~ **Done.** Spec in `docs/ui/scanner.md`.
+
+    A planet with fleets in orbit gets a ring, and the ring's **colour says
+    whose**. `DrawScanner` keeps a byte per planet, adds one for a fleet of this
+    player's and two for anybody else's, refuses to add the same kind twice and
+    stops at three — so the three values are exactly mine, theirs and both, and
+    the sheet holds a grey, a red and a magenta ring to match. It is a blit out
+    of the scanner's own sheet, at 11 pixels and again at 19.
+
+    Two things were easy to assume and wrong. The larger ring is used when the
+    planet **is the selected object** — the flag is a comparison against
+    `ptSelMain`, not a zoom test. And the rings go through `CShipsScanVis`, the
+    same count the ship overlays use, so **the two ship filters narrow them**,
+    which is exactly what the manual means by "only those planets orbited by
+    the selected ships will have orbit rings". The fleet **paths** overlay is
+    gated on that count too.
+
+    Reading the count's caller settled one more bit: `grbitScan & 0x2000` is
+    **Player Colors**, the View menu's own item and the only bit of `grbitScan`
+    no toolbar button touches. `DrawScanFleetCount` uses it to decide whether a
+    ship count is written in the owner's colour, and a count is only coloured
+    when every fleet at that spot has one owner.
+
+    A correction came out of the same reading. The function these last two
+    commits cited as `CshOfFleet` at `1058:4b4a` is really **`CShipsScanVis` at
+    `1058:4bf4`** — the name and the address were both wrong, in the docs and in
+    two source comments. Fixed everywhere.
+
+61. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -1955,9 +1983,9 @@ disagree.
       scaling and shield absorption.
     - A loaded state file still cannot carry structural fleet changes back —
       the game does not either; the order log does.
-    - **The scanner's remaining tools**: orbit rings (which the ship filters
-      would narrow as well as the ship counts), and clicking one spot
-      repeatedly to cycle through what is on it.
+    - **The scanner's remaining tools**: clicking one spot repeatedly to cycle
+      through what is on it, and Player Colors, which is recovered but has no
+      menu item here to turn it on.
     - **`stars.ini` does not keep the scanner's settings** between sessions —
       the view, the overlays, the three filter masks and the coverage. Their
       defaults are honoured; the saving is not.

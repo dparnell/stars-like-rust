@@ -65,11 +65,48 @@ planet stored near `y = 0` appears at the *bottom* of the scanner.
 | `Fleet Paths Overlay` | each fleet's waypoints, leg by leg |
 | `Ship Counts Overlay` | how many ships in each fleet |
 | `Idle Fleets Filter` | show only the fleets with nothing to do |
-| `Ship Design Filter`, `Enemy Ship Class Filter` | show only certain designs or classes |
+| `Ship Design Filter` | show only chosen designs, in this player's own fleets |
+| `Enemy Ship Class Filter` | show only chosen classes, in everybody else's |
 | `Add Way Points Mode` | clicking the map adds a waypoint instead of selecting |
 
 There is also a `Scanner Effective %` slider (`vpctRadarView`) and a
 `Zoom Menu`.
+
+## Orbit rings
+
+A planet with fleets in orbit is drawn with a ring round it, and the ring's
+**colour says whose** they are. `DrawScanner` keeps a byte per planet and adds
+**one** for a fleet of this player's and **two** for anybody else's, refusing to
+add the same kind twice and stopping at three — so the three values are exactly
+"mine", "theirs" and "both":
+
+| | ring |
+|---|---|
+| only this player's fleets | grey/white |
+| only other players' | red |
+| some of each | magenta |
+
+The ring is a blit out of the scanner's own sheet (`ScannerBmp`), which holds
+the three colours at **11 pixels** and again at **19**, each with a mask below
+them at y = 69. The larger one is used when the planet **is the selected
+object** — `bVar34` is a comparison against `ptSelMain`, not a zoom test, which
+is easy to assume and wrong.
+
+**The ship filters narrow the rings.** A fleet earns its planet a ring only if
+`CShipsScanVis` (`1058:4bf4`) counts it, which is the same function the ship
+counts go through — so the design and enemy-class filters apply here exactly as
+they apply there. That is what `MANUAL.PDF` p. 5-15 means by "only those planets
+orbited by the selected ships will have orbit rings". The **fleet paths**
+overlay is gated on the same count, so the filters narrow that too.
+
+## Player colours
+
+`grbitScan & 0x2000` is **Player Colors**, the View menu's own item — the one
+bit of `grbitScan` no toolbar button touches. `DrawScanFleetCount` reads it to
+decide whether a ship count is written in the owner's colour: with it off every
+count is white, and with it on a count is drawn in that player's colour only
+when every fleet at that spot belongs to one player, white otherwise. The
+manual (p. 5-15) puts it as your own numbers always appearing white.
 
 ## Giving orders by dragging
 
@@ -202,7 +239,9 @@ it), and `GetScanFleetOrientation` (which way a fleet's arrow points).
 
 Reproduced: the nine zoom steps with the original's shift arithmetic; the y
 flip; all six views and their names; the names, scanner coverage, mine fields,
-fleet paths, ship counts and idle-fleets overlays; click-to-select; and
+fleet paths, ship counts and idle-fleets overlays; the **orbit rings**, in the
+game's own three colours and narrowed by the ship filters as the original
+narrows them; click-to-select; and
 **waypoint dragging** — adding a leg, moving one, dropping one, and the warp the
 client suggests, both halves of it. Every edit writes the order record the real
 client writes, so a host replaying the log reaches the same orders. And the
