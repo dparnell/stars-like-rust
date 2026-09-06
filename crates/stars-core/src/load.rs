@@ -182,6 +182,9 @@ pub fn planet_from_record(record: &PlanetRecord) -> Option<Planet> {
         artifact: record.artifact,
         starbase_design: record.starbase.map(|s| s.design),
         queue: Vec::new(),
+        // 31 is the game's "no scanner"; anything else indexes the planetary
+        // table.
+        scanner: (installations.scanner != 31).then_some(installations.scanner),
         no_research: installations.no_research,
         // Stored one-based so that zero can mean "no route"; `AutoRouteFleet`
         // (`1080:1e52`) subtracts the one before it looks the planet up.

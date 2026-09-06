@@ -486,3 +486,310 @@ pub fn auto_build_cap(planet: &Planet, race: &Race, item: u16) -> i32 {
     };
     cap.max(0)
 }
+
+/// What a planet may add to its queue, and how many more of it.
+///
+/// The count of an item there is no limit on. The game stores the inventory
+/// count in a ten-bit field, so this is what "unlimited" looks like to it.
+pub const UNLIMITED: i32 = 0x3ff;
+
+/// One row of the production inventory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Available {
+    /// The item id, or a design slot when [`Self::ship`] is set.
+    pub item: u16,
+    /// Whether it builds a ship or starbase rather than a planetary item.
+    pub ship: bool,
+    /// How many more may be queued, or [`UNLIMITED`].
+    pub count: i32,
+    /// What the game calls it.
+    pub name: String,
+    /// Whether it is one of the auto-build items, which the original draws in
+    /// italic and labels ` (Auto Build)`.
+    pub auto: bool,
+}
+
+impl Available {
+    /// Whether there is no limit on how many may be queued.
+    #[must_use]
+    pub fn unlimited(&self) -> bool {
+        self.count >= UNLIMITED
+    }
+}
+
+/// The production inventory: everything this planet can build right now.
+///
+/// Source: `InitProduction` (`10d0:015e`), in its own order — ship designs,
+/// starbase designs, the Genesis Device, mineral packets, the three
+/// installations, alchemy, a planetary scanner, terraforming, and finally the
+/// seven auto-build items. `FillProdSrcLB` then drops any row whose count has
+/// fallen to zero, which is what makes a unique item disappear from the list
+/// once it is queued.
+///
+/// `designs` is the owning player's full design list — ship slots `0..16` and
+/// starbase slots `16..26` — and `queue` is the planet's queue, whose contents
+/// are **subtracted** from the counts, so what comes back is what may still be
+/// added.
+///
+/// See `docs/ui/production.md`.
+#[must_use]
+pub fn inventory(
+    planet: &Planet,
+    who: &crate::parts::Builder<'_>,
+    designs: &[crate::design::ShipDesign],
+    queue: &[QueueItem],
+) -> Vec<Available> {
+    use crate::components::slot;
+    use crate::race::Prt;
+
+    let race = who.race;
+    let prt = race.prt();
+    let first_base = usize::from(crate::startup::FIRST_STARBASE_SLOT);
+    let mut out: Vec<Available> = Vec::new();
+
+    let mut push = |item: u16, ship: bool, count: i32| {
+        // The count lives in the same ten-bit field the queue uses, so a
+        // capacity above 1023 is stored as — and is indistinguishable from —
+        // "no limit". A well-grown planet reaches that for mines and
+        // factories long before it runs out of room for them.
+        let count = count.min(UNLIMITED);
+        if count > 0 {
+            out.push(Available {
+                item,
+                ship,
+                count,
+                name: if ship {
+                    designs
+                        .get(usize::from(item))
+                        .map_or_else(String::new, |d| d.name.clone())
+                } else {
+                    item_name(item).to_string()
+                },
+                auto: !ship && item::is_auto(item),
+            });
+        }
+    };
+
+    // Ships, but only from a starbase with a space dock, and only designs the
+    // dock is big enough for: the hull's cargo capacity is the dock's size.
+    let dock = planet
+        .starbase
+        .then(|| planet.starbase_design.map(usize::from))
+        .flatten()
+        .and_then(|slot| designs.get(first_base + slot))
+        .and_then(|base| crate::components::hull(base.hull_id))
+        .map(|hull| i32::from(hull.cargo_max))
+        .filter(|dock| *dock != 0);
+    if let Some(dock) = dock {
+        for (slot, design) in designs
+            .iter()
+            .take(crate::design::MAX_SHIP_DESIGNS)
+            .enumerate()
+        {
+            if design.hull_id < 0 {
+                continue;
+            }
+            if design.mass().is_some_and(|mass| mass <= dock) {
+                push(u16::try_from(slot).unwrap_or(0), true, UNLIMITED);
+            }
+        }
+    }
+
+    // Starbases: every design but the one already in orbit. A planet needs no
+    // starbase to build a starbase.
+    for slot in 0..MAX_STARBASE_DESIGNS_SHOWN {
+        let Some(design) = designs.get(first_base + slot) else {
+            continue;
+        };
+        if design.hull_id < 0 {
+            continue;
+        }
+        if planet.starbase && planet.starbase_design == u8::try_from(slot).ok() {
+            continue;
+        }
+        push(u16::try_from(first_base + slot).unwrap_or(0), true, 1);
+    }
+
+    // The Genesis Device, if the Mystery Trader has handed it over and the
+    // technology is there.
+    if crate::parts::availability(who, slot::PLANETARY, GENESIS_PART).is_available() {
+        push(item::GENESIS, false, 1);
+    }
+
+    // Mineral packets, once the planet has a mass driver to fling them with.
+    if mass_driver_warp(planet, designs) > 0 {
+        for id in item::PACKET_IRONIUM..=item::PACKET_MIXED {
+            push(id, false, UNLIMITED);
+        }
+    }
+
+    // The three installations, each limited by what the planet can run.
+    push(
+        item::FACTORY,
+        false,
+        i32::from(crate::resources::max_factories(planet, race)) - i32::from(planet.factories),
+    );
+    push(
+        item::MINE,
+        false,
+        i32::from(crate::resources::max_mines(planet, race)) - i32::from(planet.mines),
+    );
+    push(
+        item::DEFENSE,
+        false,
+        i32::from(crate::resources::max_defenses(planet, race)) - i32::from(planet.defenses),
+    );
+
+    // Alchemy is always on offer.
+    push(item::ALCHEMY, false, UNLIMITED);
+
+    // A planetary scanner, once and only once: a planet that has one upgrades
+    // it for free as technology arrives. Alternate Reality scans from its
+    // starbases and never builds one.
+    if planet.scanner.is_none() && prt != Some(Prt::Ar) {
+        push(item::PLANETARY_SCANNER, false, 1);
+    }
+
+    // Terraforming, as far as there is any left to do.
+    let steps = crate::terraform::terraform_steps(planet, race, who.levels);
+    push(item::TERRAFORM, false, steps);
+
+    // And the auto-build items. Alternate Reality has no mines, factories or
+    // defences to keep topped up, and a Claim Adjuster terraforms for free.
+    for id in item::AUTO_MINE..=item::AUTO_PACKET {
+        if !crate::ground::template_allows(prt, id) {
+            continue;
+        }
+        push(id, false, UNLIMITED);
+    }
+
+    // What is already queued comes off the counts, and a unique item queued
+    // once drops out of the list entirely.
+    for entry in queue {
+        let Some(row) = out
+            .iter_mut()
+            .find(|row| row.ship == entry.ship && row.item == entry.item)
+        else {
+            continue;
+        };
+        if row.count < UNLIMITED {
+            row.count = (row.count - entry.count).max(0);
+        }
+    }
+    out.retain(|row| row.count > 0);
+    out
+}
+
+/// How many starbase designs the inventory walks (`FillBuildDD`'s ten).
+const MAX_STARBASE_DESIGNS_SHOWN: usize = crate::design::MAX_STARBASE_DESIGNS;
+
+/// The Genesis Device's index in [`crate::components::PLANETARY`].
+const GENESIS_PART: usize = 14;
+
+/// The warp a planet's mass driver flings at, or `0` when it has none.
+///
+/// A mass driver is an orbital special fitted to the planet's starbase, and
+/// its rating *is* the warp: `Mass Driver 5` flings at warp 5 and the
+/// `Ultra Driver 13` at warp 13. The stargates share the same table and are
+/// the first seven entries, which is why only the rest count.
+///
+/// Source: `IWarpMAFromLppl`. The turn generator does not use this yet — a
+/// planet catching a packet is still modelled without its own driver, which
+/// `docs/formulas/packets.md` records — but the production inventory needs it
+/// to decide whether to offer packets at all.
+#[must_use]
+pub fn mass_driver_warp(planet: &Planet, designs: &[crate::design::ShipDesign]) -> i32 {
+    use crate::components::{slot, SPECIALS_SB};
+    /// Orbital specials below this index are stargates.
+    const FIRST_DRIVER: usize = 7;
+
+    if !planet.starbase {
+        return 0;
+    }
+    let base = planet
+        .starbase_design
+        .map(usize::from)
+        .map(|s| usize::from(crate::startup::FIRST_STARBASE_SLOT) + s)
+        .and_then(|s| designs.get(s));
+    let Some(base) = base else {
+        return 0;
+    };
+    base.slots
+        .iter()
+        .filter(|s| s.count > 0 && s.category & slot::SPECIAL_SB != 0)
+        .filter(|s| usize::from(s.item) >= FIRST_DRIVER)
+        .filter_map(|s| SPECIALS_SB.get(usize::from(s.item)))
+        .map(|driver| i32::from(driver.ability))
+        .max()
+        .unwrap_or(0)
+}
+
+/// What one of a queue item costs this player.
+///
+/// The superset of [`planetary_item_cost`]: it also covers the four mineral
+/// packets, the Genesis Device and the planetary scanners, which need the
+/// player's technology because the last two are **miniaturised** like any
+/// other component.
+///
+/// Source: `GetProductionCosts` (`10d0:3f20`). Returns `None` for a ship
+/// design, which is costed by [`crate::design::ShipDesign::true_cost`].
+#[must_use]
+pub fn item_cost(id: u16, who: &crate::parts::Builder<'_>, tutorial: bool) -> Option<ItemCost> {
+    use crate::components::slot;
+    use crate::race::Prt;
+
+    let id = item::auto_builds(id).unwrap_or(id);
+    if let Some(cost) = planetary_item_cost(id, who.race, tutorial) {
+        return Some(cost);
+    }
+
+    // A packet's minerals depend only on the primary trait: Packet Physics
+    // packs them tightest and Interstellar Traveler worst.
+    let packet = |each: i32| -> ItemCost {
+        let pp = who.race.prt() == Some(Prt::Pp);
+        ItemCost {
+            minerals: [each, each, each],
+            resources: if pp { 5 } else { 10 },
+        }
+    };
+    let single = |which: usize| -> ItemCost {
+        let each = match who.race.prt() {
+            Some(Prt::Pp) => 70,
+            Some(Prt::It) => 120,
+            _ => 110,
+        };
+        let mut cost = packet(0);
+        cost.minerals[which] = each;
+        cost
+    };
+
+    // The two that are really components, and are miniaturised as such.
+    let part = |index: usize| -> Option<ItemCost> {
+        let part = crate::parts::part(slot::PLANETARY, index)?;
+        let cost = crate::design::true_part_cost(&part, who);
+        Some(ItemCost {
+            minerals: cost.minerals,
+            resources: cost.resources,
+        })
+    };
+
+    Some(match id {
+        item::PACKET_MIXED => packet(match who.race.prt() {
+            Some(Prt::Pp) => 25,
+            Some(Prt::It) => 48,
+            _ => 44,
+        }),
+        item::PACKET_IRONIUM => single(0),
+        item::PACKET_BORANIUM => single(1),
+        item::PACKET_GERMANIUM => single(2),
+        item::GENESIS => part(GENESIS_PART)?,
+        // The generic scanner is costed as a Viewer 50 whatever the planet
+        // will actually end up with — `GetProductionCosts` rewrites id 27 to
+        // id 18 before looking the part up.
+        item::PLANETARY_SCANNER => part(0)?,
+        id if (item::PLANETARY_SCANNER_FIRST..=item::PLANETARY_SCANNER_LAST).contains(&id) => {
+            part(usize::from(id - item::PLANETARY_SCANNER_FIRST))?
+        }
+        _ => return None,
+    })
+}

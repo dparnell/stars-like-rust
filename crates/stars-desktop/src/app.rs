@@ -261,6 +261,15 @@ impl eframe::App for StarsApp {
                 {
                     self.app.open_designer();
                 }
+                if ui
+                    .add_enabled(
+                        self.app.selected_planet().is_some() && self.app.setup.is_none(),
+                        egui::Button::new("Production…"),
+                    )
+                    .clicked()
+                {
+                    self.app.open_production();
+                }
                 ui.separator();
                 for screen in Screen::ALL {
                     let enabled = self.app.game.is_some() && self.app.setup.is_none();
@@ -384,6 +393,20 @@ impl eframe::App for StarsApp {
                 .show(ctx, |ui| stars_ui::views::designer::view(&mut self.app, ui));
             if !open {
                 self.app.close_designer();
+            }
+        }
+
+        if self.app.production.is_some() {
+            let mut open = true;
+            egui::Window::new("Production")
+                .open(&mut open)
+                .resizable(true)
+                .default_width(700.0)
+                .show(ctx, |ui| {
+                    stars_ui::views::production::view(&mut self.app, ui)
+                });
+            if !open {
+                self.app.production_cancel();
             }
         }
 

@@ -556,3 +556,171 @@ fn every_auto_build_entry_in_the_fixtures_is_an_up_to_order() {
         "expected the fixtures to hold many, saw {seen}"
     );
 }
+
+/// The production inventory: what a planet may add to its queue.
+#[test]
+fn the_inventory_offers_what_the_planet_can_build() {
+    use stars_core::design::{DesignSlot, ShipDesign};
+    use stars_core::parts::Builder;
+    use stars_core::production::{inventory, item_cost, mass_driver_warp, QueueItem, UNLIMITED};
+    use stars_core::startup::FIRST_STARBASE_SLOT;
+
+    let race = Race::humanoid();
+    let player = stars_core::Player::new(race.clone());
+    let who = Builder::player(&player);
+
+    let mut planet = Planet::unowned(1);
+    planet.owner = Some(0);
+    planet.pop = 5_000;
+    planet.env = [50, 50, 50];
+    planet.min_conc = [50, 50, 50];
+
+    // A bare colony with no starbase: no ships, no starbases in orbit to
+    // exclude, no packets.
+    let rows = inventory(&planet, &who, &[], &[]);
+    let ids: Vec<u16> = rows.iter().filter(|r| !r.ship).map(|r| r.item).collect();
+    assert!(!rows.iter().any(|r| r.ship), "nothing to build ships with");
+    assert!(ids.contains(&item::FACTORY));
+    assert!(ids.contains(&item::MINE));
+    assert!(ids.contains(&item::ALCHEMY));
+    assert!(ids.contains(&item::PLANETARY_SCANNER));
+    assert!(!ids.contains(&item::PACKET_MIXED), "no mass driver");
+    // The auto-build items are all there, and marked as such.
+    for id in item::AUTO_MINE..=item::AUTO_PACKET {
+        let row = rows
+            .iter()
+            .find(|r| !r.ship && r.item == id)
+            .unwrap_or_else(|| panic!("auto item {id} should be offered"));
+        assert!(row.auto);
+        assert!(row.unlimited());
+    }
+    // Alchemy is unlimited; the installations are capped by what the planet
+    // can run.
+    let alchemy = rows.iter().find(|r| r.item == item::ALCHEMY).unwrap();
+    assert_eq!(alchemy.count, UNLIMITED);
+    // A grown planet can hold more factories than the ten-bit count field
+    // will express, so this one reads as unlimited; a small colony does not.
+    let factories = rows.iter().find(|r| r.item == item::FACTORY).unwrap();
+    assert_eq!(factories.count, UNLIMITED);
+    // The cap is the planet's own maximum, so it only bites once most of the
+    // room is used up.
+    let cap = i32::from(stars_core::resources::max_factories(&planet, &race));
+    let mut nearly_full = planet.clone();
+    nearly_full.factories = i16::try_from(cap - 5).expect("a sane cap");
+    let rows_full = inventory(&nearly_full, &who, &[], &[]);
+    let capped = rows_full
+        .iter()
+        .find(|r| r.item == item::FACTORY)
+        .expect("five more will fit");
+    assert_eq!(capped.count, 5);
+
+    // A scanner is offered exactly once: once the planet has one it is gone.
+    planet.scanner = Some(0);
+    let rows = inventory(&planet, &who, &[], &[]);
+    assert!(!rows.iter().any(|r| r.item == item::PLANETARY_SCANNER));
+    planet.scanner = None;
+
+    // Queueing a unique item takes it out of the list, and queueing some of a
+    // limited one takes them off its count.
+    let queued = vec![
+        QueueItem {
+            count: 1,
+            item: item::PLANETARY_SCANNER,
+            ship: false,
+            completion: 0,
+        },
+        QueueItem {
+            count: 3,
+            item: item::FACTORY,
+            ship: false,
+            completion: 0,
+        },
+    ];
+    let rows = inventory(&planet, &who, &[], &queued);
+    assert!(!rows.iter().any(|r| r.item == item::PLANETARY_SCANNER));
+    // Three factories queued come off a *limited* count; an unlimited one
+    // stays unlimited.
+    let rows_full = inventory(&nearly_full, &who, &[], &queued);
+    assert_eq!(
+        rows_full
+            .iter()
+            .find(|r| r.item == item::FACTORY)
+            .unwrap()
+            .count,
+        capped.count - 3
+    );
+
+    // A starbase with a dock offers ships — but only ones it is big enough
+    // for. The Space Dock's is 200kT.
+    let scout = ShipDesign {
+        hull_id: 4,
+        slots: Vec::new(),
+        name: "Scout".into(),
+        picture: 0,
+        stored_armor: 0,
+    };
+    // A Dreadnought's bare hull is 250kT, more than a Space Dock's 200.
+    let dreadnought = ShipDesign {
+        hull_id: 10,
+        slots: Vec::new(),
+        name: "Dreadnought".into(),
+        picture: 0,
+        stored_armor: 0,
+    };
+    let mut designs = vec![scout.clone(), dreadnought.clone()];
+    designs.resize(
+        usize::from(FIRST_STARBASE_SLOT) + 2,
+        ShipDesign {
+            hull_id: -1,
+            slots: Vec::new(),
+            name: String::new(),
+            picture: 0,
+            stored_armor: 0,
+        },
+    );
+    // Slot 16: a Space Dock with a mass driver in its orbital slot.
+    designs[usize::from(FIRST_STARBASE_SLOT)] = ShipDesign {
+        hull_id: 33,
+        slots: vec![DesignSlot {
+            category: stars_core::components::slot::SPECIAL_SB,
+            item: 7, // Mass Driver 5
+            count: 1,
+        }],
+        name: "Dock".into(),
+        picture: 0,
+        stored_armor: 1000,
+    };
+    // Slot 17: an Orbital Fort, so there is a second starbase to offer.
+    designs[usize::from(FIRST_STARBASE_SLOT) + 1] = ShipDesign {
+        hull_id: 32,
+        slots: Vec::new(),
+        name: "Fort".into(),
+        picture: 0,
+        stored_armor: 1000,
+    };
+    planet.starbase = true;
+    planet.starbase_design = Some(0);
+
+    assert_eq!(mass_driver_warp(&planet, &designs), 5);
+    let rows = inventory(&planet, &who, &designs, &[]);
+    let ships: Vec<u16> = rows.iter().filter(|r| r.ship).map(|r| r.item).collect();
+    assert!(ships.contains(&0), "the Scout fits the dock: {ships:?}");
+    assert!(
+        !ships.contains(&1),
+        "a Dreadnought is heavier than a Space Dock will build: {ships:?}"
+    );
+    // The starbase already in orbit is not on offer; the other one is.
+    assert!(!ships.contains(&u16::from(FIRST_STARBASE_SLOT)));
+    assert!(ships.contains(&(u16::from(FIRST_STARBASE_SLOT) + 1)));
+    // And with a driver, packets appear.
+    for id in item::PACKET_IRONIUM..=item::PACKET_MIXED {
+        assert!(rows.iter().any(|r| !r.ship && r.item == id), "packet {id}");
+    }
+
+    // Packet costs come from the primary trait.
+    let mixed = item_cost(item::PACKET_MIXED, &who, false).expect("a mixed packet costs something");
+    assert_eq!(mixed.minerals, [44, 44, 44]);
+    assert_eq!(mixed.resources, 10);
+    let iron = item_cost(item::PACKET_IRONIUM, &who, false).expect("an ironium packet");
+    assert_eq!(iron.minerals, [110, 0, 0]);
+}

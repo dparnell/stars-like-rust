@@ -1507,7 +1507,40 @@ disagree.
     the planet could afford them. Two tests now pin it, one from the ids and
     one over every queue in the fixtures.
 
-45. **What is still missing to call it playable.** Every waypoint task is now
+45. ~~**The Production dialog.**~~ **Done.** `ChangeProduction` (`10d0:0000`)
+    and `ProdCommandHandler` (`10d0:1994`), spec in `docs/ui/production.md`.
+    Both lists, Add and Remove with their four modifier steps, Item Up and
+    Down, Clear, Prev and Next, the research checkbox and the cost panel — over
+    a working copy that Cancel throws away.
+
+    `InitProduction` (`10d0:015e`) builds the inventory of everything a planet
+    can build, and `production::inventory` now reproduces it: ship designs but
+    only from a starbase with a big enough dock, every starbase design but the
+    one already in orbit, the Genesis Device, the four mineral packets once the
+    planet has a mass driver, the three installations each capped by the
+    planet's own room for them, alchemy, a planetary scanner exactly once,
+    terraforming as far as there is any left, and the seven auto-build items —
+    with whatever is already queued subtracted, which is what makes a unique
+    item vanish from the list once ordered.
+
+    Two things had to be added underneath it. `Planet.scanner` — the game's
+    `iScanner`, five bits with 31 meaning "none" — was decoded by
+    `stars-formats` but thrown away on the way into the model, so nothing could
+    tell a planet that had built a scanner from one that had not.
+    `production::item_cost` now covers the ids `planetary_item_cost` never did:
+    the packets, whose minerals depend only on the primary trait, and the
+    Genesis Device and planetary scanners, which are really components and are
+    miniaturised like any other.
+
+    Left for later, and recorded in the spec: `EstimateItemProdSched`
+    (`10d0:4f40`) simulates up to ninety-nine years of the whole queue to
+    answer "when will this be done", which is what colours a queue row and
+    turns an unbuildable one red; the three custom templates and the
+    `<Customize>` editor behind them; and actually *building* the packets,
+    scanners and Genesis Devices the inventory now offers, which the turn
+    generator still skips.
+
+46. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

@@ -441,7 +441,9 @@ fn planet_record(planet: &Planet) -> PlanetRecord {
             mines: u16::try_from(planet.mines).unwrap_or(0),
             factories: u16::try_from(planet.factories).unwrap_or(0),
             defenses: u16::try_from(planet.defenses).unwrap_or(0),
-            scanner: 0,
+            // The game stores 31 for a planet with no scanner, not zero —
+            // zero is the Viewer 50.
+            scanner: planet.scanner.unwrap_or(31),
             artifact: planet.artifact,
             no_research: planet.no_research,
             unused5: 0,

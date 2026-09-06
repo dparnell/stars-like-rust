@@ -97,6 +97,16 @@ pub struct Planet {
     pub starbase_design: Option<u8>,
     /// The planet's production queue, in build order.
     pub queue: Vec<crate::production::QueueItem>,
+    /// The planetary scanner built here, as an index into
+    /// [`crate::components::PLANETARY`] — or `None` when the planet has none
+    /// (`PLANET.iScanner`, five bits, where the game stores **31** for "no
+    /// scanner").
+    ///
+    /// A planet scans only once one has been built, and it then upgrades
+    /// itself as technology arrives, which is why the production inventory
+    /// offers a scanner exactly once. Alternate Reality is the exception: its
+    /// starbases scan and it never builds one.
+    pub scanner: Option<u8>,
     /// Whether this planet is exempt from the research skim (`fNoResearch`).
     pub no_research: bool,
     /// Where fleets built here, or given the Route task, are sent
@@ -141,6 +151,7 @@ impl Planet {
             starbase_design: None,
             artifact: false,
             queue: Vec::new(),
+            scanner: None,
             no_research: false,
             route_dest: None,
             position: None,

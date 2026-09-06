@@ -273,6 +273,8 @@ pub struct App {
     pub find_text: String,
     /// The Ship and Starbase Designer, while it is open (`hwndSlotDlg`).
     pub designer: Option<Designer>,
+    /// The Production dialog, while it is open (`hwndProdDlg`).
+    pub production: Option<Production>,
     /// Which message the pane is showing — the original's `iMsgCur`.
     ///
     /// `-1` means the pane is at the start of the list and showing nothing,
@@ -4910,5 +4912,392 @@ impl App {
             }
         }
         rows
+    }
+}
+
+// --- The Production dialog -----------------------------------------------
+
+/// What the Production dialog is editing.
+///
+/// The queue is a **working copy**: the original edits `lpplProdGlob` and
+/// writes it back with `FinishProduction`, so Cancel throws the changes away.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Production {
+    /// The planet whose queue this is.
+    pub planet: i16,
+    /// The queue being edited.
+    pub queue: Vec<stars_core::production::QueueItem>,
+    /// `fNoResearch`: whether this planet gives research only what production
+    /// leaves over.
+    pub no_research: bool,
+    /// Which inventory row is picked out.
+    pub inventory_index: usize,
+    /// Which queue row is picked out. `None` is the list's first line,
+    /// `— Top of the Queue —`, which is where a new item goes to the front.
+    pub queue_index: Option<usize>,
+}
+
+impl App {
+    /// Open the Production dialog on the selected planet.
+    pub fn open_production(&mut self) {
+        let Some(planet) = self.selected_planet() else {
+            return;
+        };
+        if planet.owner != i16::try_from(self.local_player()).ok() {
+            return;
+        }
+        self.production = Some(Production {
+            planet: planet.id,
+            queue: planet.queue.clone(),
+            no_research: planet.no_research,
+            inventory_index: 0,
+            queue_index: None,
+        });
+    }
+
+    /// Close it without keeping the changes.
+    pub fn production_cancel(&mut self) {
+        self.production = None;
+    }
+
+    /// Write the working copy back to the planet and close.
+    pub fn production_ok(&mut self) {
+        let Some(dialog) = self.production.take() else {
+            return;
+        };
+        self.production_write(&dialog);
+    }
+
+    /// Write one dialog's working copy back to its planet.
+    ///
+    /// `FinishProduction(1)` does this whenever the dialog leaves a planet, not
+    /// only on OK, which is why stepping to the next planet keeps the edits.
+    fn production_write(&mut self, dialog: &Production) {
+        let Some(game) = self.game.as_mut() else {
+            return;
+        };
+        let Some(planet) = game.planets.iter_mut().find(|p| p.id == dialog.planet) else {
+            return;
+        };
+        if planet.queue == dialog.queue && planet.no_research == dialog.no_research {
+            return;
+        }
+        planet.queue.clone_from(&dialog.queue);
+        planet.no_research = dialog.no_research;
+        self.dirty = true;
+        self.edited.insert(dialog.planet);
+    }
+
+    /// The planet the dialog is on.
+    #[must_use]
+    fn production_planet(&self) -> Option<&Planet> {
+        let id = self.production.as_ref()?.planet;
+        self.game.as_ref()?.planets.iter().find(|p| p.id == id)
+    }
+
+    /// The inventory, with the working queue already subtracted.
+    #[must_use]
+    pub fn production_inventory(&self) -> Vec<stars_core::production::Available> {
+        let Some(dialog) = self.production.as_ref() else {
+            return Vec::new();
+        };
+        let Some(planet) = self.production_planet() else {
+            return Vec::new();
+        };
+        let me = self.local_player();
+        let Some(game) = self.game.as_ref() else {
+            return Vec::new();
+        };
+        let Some(player) = game.players.get(me) else {
+            return Vec::new();
+        };
+        let who = stars_core::parts::Builder::player(player);
+        let designs: &[stars_core::design::ShipDesign] =
+            game.designs.get(me).map_or(&[], Vec::as_slice);
+        stars_core::production::inventory(planet, &who, designs, &dialog.queue)
+    }
+
+    /// The queue, as `(count, name)` — what the two columns of the list show.
+    #[must_use]
+    pub fn production_queue_rows(&self) -> Vec<(i32, String)> {
+        let Some(dialog) = self.production.as_ref() else {
+            return Vec::new();
+        };
+        dialog
+            .queue
+            .iter()
+            .map(|entry| {
+                (
+                    entry.count,
+                    self.production_item_name(entry.item, entry.ship),
+                )
+            })
+            .collect()
+    }
+
+    /// What the game calls one queue entry.
+    #[must_use]
+    fn production_item_name(&self, item: u16, ship: bool) -> String {
+        if !ship {
+            return stars_core::production::item_name(item).to_string();
+        }
+        let me = self.local_player();
+        self.game
+            .as_ref()
+            .and_then(|g| g.designs.get(me))
+            .and_then(|d| d.get(usize::from(item)))
+            .filter(|d| d.hull_id >= 0)
+            .map_or_else(String::new, |d| d.name.clone())
+    }
+
+    /// How many one click of **Add** or **Remove** is worth.
+    ///
+    /// Nothing is one, Shift is ten, Ctrl a hundred, and both together
+    /// **1020** — three short of what the ten-bit count field holds, which is
+    /// the original's "as many as possible" (`MANUAL.PDF` p. 7-3).
+    #[must_use]
+    pub fn production_step(ctrl: bool, shift: bool) -> i32 {
+        match (ctrl, shift) {
+            (false, false) => 1,
+            (false, true) => 10,
+            (true, false) => 100,
+            (true, true) => 1020,
+        }
+    }
+
+    /// **Add**: put the selected inventory item into the queue.
+    ///
+    /// It goes **under** the selected queue row, so with the list's first line
+    /// selected it goes to the front. Adding the same item the neighbouring
+    /// row already holds merges into it rather than making a second row, and
+    /// nothing more is added than the inventory still offers.
+    pub fn production_add(&mut self, count: i32) {
+        let inventory = self.production_inventory();
+        let Some(dialog) = self.production.as_mut() else {
+            return;
+        };
+        let Some(row) = inventory.get(dialog.inventory_index) else {
+            return;
+        };
+        let count = count.min(row.count).max(0);
+        if count == 0 {
+            return;
+        }
+
+        // The row it goes after: `None` is the top of the queue.
+        let at = match dialog.queue_index {
+            Some(index) => index + 1,
+            None => 0,
+        }
+        .min(dialog.queue.len());
+
+        let same = |entry: &stars_core::production::QueueItem| {
+            entry.ship == row.ship && entry.item == row.item
+        };
+        // Merge with whichever neighbour matches, as `AddItemToQueue` does.
+        if at > 0 && dialog.queue.get(at - 1).is_some_and(same) {
+            dialog.queue[at - 1].count += count;
+            dialog.queue_index = Some(at - 1);
+            return;
+        }
+        if dialog.queue.get(at).is_some_and(same) {
+            dialog.queue[at].count += count;
+            dialog.queue_index = Some(at);
+            return;
+        }
+        dialog.queue.insert(
+            at,
+            stars_core::production::QueueItem {
+                count,
+                item: row.item,
+                ship: row.ship,
+                completion: 0,
+            },
+        );
+        dialog.queue_index = Some(at);
+    }
+
+    /// **Remove**: take some of the selected queue row back off.
+    ///
+    /// Auto alchemy comes off whole: its count is a placeholder — the entry
+    /// means "as needed" — so the original removes 1020 of it whatever was
+    /// asked for.
+    pub fn production_remove(&mut self, count: i32) {
+        let Some(dialog) = self.production.as_mut() else {
+            return;
+        };
+        let Some(index) = dialog.queue_index else {
+            return;
+        };
+        let Some(entry) = dialog.queue.get_mut(index) else {
+            return;
+        };
+        let count = if !entry.ship && entry.item == stars_core::production::item::AUTO_ALCHEMY {
+            1020
+        } else {
+            count
+        };
+        entry.count -= count.min(entry.count);
+        if entry.count <= 0 {
+            dialog.queue.remove(index);
+            dialog.queue_index = index.checked_sub(1);
+        }
+    }
+
+    /// **Item Up** / **Item Down**: swap a row with its neighbour.
+    pub fn production_move(&mut self, up: bool) {
+        let Some(dialog) = self.production.as_mut() else {
+            return;
+        };
+        let Some(index) = dialog.queue_index else {
+            return;
+        };
+        let target = if up {
+            match index.checked_sub(1) {
+                Some(target) => target,
+                None => return,
+            }
+        } else {
+            index + 1
+        };
+        if target >= dialog.queue.len() {
+            return;
+        }
+        dialog.queue.swap(index, target);
+        dialog.queue_index = Some(target);
+    }
+
+    /// **Clear**: empty the queue.
+    pub fn production_clear(&mut self) {
+        if let Some(dialog) = self.production.as_mut() {
+            dialog.queue.clear();
+            dialog.queue_index = None;
+        }
+    }
+
+    /// **Prev** / **Next**: move to another of the player's planets without
+    /// closing, writing this one's queue out first.
+    ///
+    /// With `starbase_only` — the original's Shift — it skips to the next
+    /// planet that has a starbase.
+    pub fn production_step_planet(&mut self, forward: bool, starbase_only: bool) {
+        let Some(dialog) = self.production.clone() else {
+            return;
+        };
+        self.production_write(&dialog);
+
+        let me = i16::try_from(self.local_player()).ok();
+        let Some(game) = self.game.as_ref() else {
+            return;
+        };
+        let mine: Vec<i16> = game
+            .planets
+            .iter()
+            .filter(|p| p.owner == me)
+            .filter(|p| !starbase_only || p.starbase)
+            .map(|p| p.id)
+            .collect();
+        if mine.is_empty() {
+            return;
+        }
+        // The current planet may not be in the filtered list, so fall back to
+        // wherever it would sort.
+        let here = mine
+            .iter()
+            .position(|id| *id == dialog.planet)
+            .unwrap_or_else(|| mine.partition_point(|id| *id < dialog.planet));
+        let next = if forward {
+            (here + 1) % mine.len()
+        } else {
+            (here + mine.len() - 1) % mine.len()
+        };
+        let planet = mine[next];
+
+        self.selection.planet = Some(planet);
+        let queue = game
+            .planets
+            .iter()
+            .find(|p| p.id == planet)
+            .map(|p| (p.queue.clone(), p.no_research));
+        if let (Some(dialog), Some((queue, no_research))) = (self.production.as_mut(), queue) {
+            dialog.planet = planet;
+            dialog.queue = queue;
+            dialog.no_research = no_research;
+            dialog.inventory_index = 0;
+            dialog.queue_index = None;
+        }
+    }
+
+    /// What the selected item costs, and what the planet has: the four rows
+    /// under the inventory.
+    ///
+    /// The quantity costed is the selected **queue** row's, if one is
+    /// selected, and otherwise one of the selected inventory item — which is
+    /// `GetProductionCosts`' `fOnlyOne`.
+    #[must_use]
+    pub fn production_cost_rows(&self) -> Vec<(String, String)> {
+        let Some(dialog) = self.production.as_ref() else {
+            return Vec::new();
+        };
+        let me = self.local_player();
+        let Some(game) = self.game.as_ref() else {
+            return Vec::new();
+        };
+        let Some(player) = game.players.get(me) else {
+            return Vec::new();
+        };
+        let who = stars_core::parts::Builder::player(player);
+        let designs: &[stars_core::design::ShipDesign] =
+            game.designs.get(me).map_or(&[], Vec::as_slice);
+
+        // Whichever list the player last touched: a queue row if one is
+        // picked, otherwise the inventory row.
+        let (item, ship, count) = match dialog.queue_index.and_then(|i| dialog.queue.get(i)) {
+            Some(entry) => (entry.item, entry.ship, entry.count),
+            None => {
+                let inventory = self.production_inventory();
+                let Some(row) = inventory.get(dialog.inventory_index) else {
+                    return Vec::new();
+                };
+                (row.item, row.ship, 1)
+            }
+        };
+
+        let cost = if ship {
+            designs
+                .get(usize::from(item))
+                .filter(|d| d.hull_id >= 0)
+                .and_then(|d| d.true_cost(&who))
+                .map(|c| stars_core::production::ItemCost {
+                    minerals: c.minerals,
+                    resources: c.resources,
+                })
+        } else {
+            stars_core::production::item_cost(item, &who, false)
+        };
+        let Some(cost) = cost else {
+            return Vec::new();
+        };
+
+        let planet = self.production_planet();
+        let have = planet.map(|p| p.surface_min);
+        let row = |name: &str, need: i32, have: Option<i32>| {
+            (
+                name.to_string(),
+                match have {
+                    Some(have) => format!("{need} of {have}kT"),
+                    None => format!("{need}"),
+                },
+            )
+        };
+        vec![
+            row("Ironium", cost.minerals[0] * count, have.map(|h| h[0])),
+            row("Boranium", cost.minerals[1] * count, have.map(|h| h[1])),
+            row("Germanium", cost.minerals[2] * count, have.map(|h| h[2])),
+            (
+                "Resources".to_string(),
+                (cost.resources * count).to_string(),
+            ),
+        ]
     }
 }

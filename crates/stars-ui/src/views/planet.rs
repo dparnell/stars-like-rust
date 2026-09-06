@@ -43,6 +43,17 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 &app.planet_production_tile(),
                 "--- Queue is Empty ---",
             );
+            // The tile's own button, which is how the original opens the
+            // Production dialog.
+            if ui
+                .add_enabled(
+                    app.selected_planet().is_some(),
+                    egui::Button::new(egui::RichText::new("Change").small()),
+                )
+                .clicked()
+            {
+                app.open_production();
+            }
             let (title, starbase) = app.planet_starbase_tile();
             rows(ui, &title, &starbase);
         });
