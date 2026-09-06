@@ -16,6 +16,7 @@ pub mod planet;
 pub mod planets;
 pub mod players;
 pub mod production;
+pub mod research;
 pub mod survey;
 
 use crate::{App, Screen};

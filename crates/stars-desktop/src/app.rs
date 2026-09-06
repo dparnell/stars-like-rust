@@ -299,6 +299,17 @@ impl eframe::App for StarsApp {
             }
         }
 
+        if self.app.game.is_some()
+            && self.app.setup.is_none()
+            && ctx.input(|i| i.key_pressed(egui::Key::F5))
+        {
+            if self.app.research_dialog.is_some() {
+                self.app.research_cancel();
+            } else {
+                self.app.open_research();
+            }
+        }
+
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
@@ -379,6 +390,15 @@ impl eframe::App for StarsApp {
                     .clicked()
                 {
                     self.app.open_production();
+                }
+                if ui
+                    .add_enabled(
+                        self.app.game.is_some() && self.app.setup.is_none(),
+                        egui::Button::new("Research…").shortcut_text("F5"),
+                    )
+                    .clicked()
+                {
+                    self.app.open_research();
                 }
                 ui.separator();
                 for screen in Screen::ALL {
@@ -503,6 +523,18 @@ impl eframe::App for StarsApp {
                 .show(ctx, |ui| stars_ui::views::designer::view(&mut self.app, ui));
             if !open {
                 self.app.close_designer();
+            }
+        }
+
+        if self.app.research_dialog.is_some() {
+            let mut open = true;
+            egui::Window::new("Research")
+                .open(&mut open)
+                .resizable(true)
+                .default_width(700.0)
+                .show(ctx, |ui| stars_ui::views::research::view(&mut self.app, ui));
+            if !open {
+                self.app.research_cancel();
             }
         }
 

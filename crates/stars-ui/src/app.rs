@@ -275,6 +275,8 @@ pub struct App {
     pub designer: Option<Designer>,
     /// The Production dialog, while it is open (`hwndProdDlg`).
     pub production: Option<Production>,
+    /// The Research dialog, while it is open.
+    pub research_dialog: Option<ResearchDialog>,
     /// The player's production templates, slots 1..3 — the `<Customize>`
     /// dialog's, which the original keeps in `stars.ini`. Slot 0 is filled in
     /// from the player's own default queue; see [`App::production_templates`].
@@ -5604,5 +5606,248 @@ impl App {
             self.templates[slot] =
                 stars_formats::ProductionTemplate::decode_ini(value).unwrap_or_default();
         }
+    }
+}
+
+// --- The Research dialog -------------------------------------------------
+
+/// What the Research dialog is showing.
+///
+/// The original edits three globals — `pctResGlob`, `iResTechNow` and the
+/// dropdown — and commits all three at once on OK, so **Cancel changes
+/// nothing**. This is those three.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResearchDialog {
+    /// Which field's radio button is selected (`iResTechNow`).
+    pub field: usize,
+    /// What to research next (`iTechCur >> 4`).
+    pub next: stars_core::research::NextField,
+    /// The share of resources going to research (`pctResGlob`).
+    pub percent: u8,
+}
+
+impl App {
+    /// Open the Research dialog (`ResearchDlg`, F5).
+    pub fn open_research(&mut self) {
+        let me = self.local_player();
+        let Some(player) = self.game.as_ref().and_then(|g| g.players.get(me)) else {
+            return;
+        };
+        self.research_dialog = Some(ResearchDialog {
+            field: player.research.current_field,
+            next: player.research.next_field,
+            percent: player.research_pct,
+        });
+    }
+
+    /// Close it without keeping anything.
+    pub fn research_cancel(&mut self) {
+        self.research_dialog = None;
+    }
+
+    /// **OK**: commit the field, the next field and the percentage together.
+    ///
+    /// `ResearchDlg` writes all three only if any of them changed, and logs a
+    /// single two-byte `rtLogResearch` order carrying `iTechCur` and the
+    /// percentage.
+    pub fn research_ok(&mut self) {
+        let Some(dialog) = self.research_dialog.take() else {
+            return;
+        };
+        let me = self.local_player();
+        let Some(player) = self.game.as_mut().and_then(|g| g.players.get_mut(me)) else {
+            return;
+        };
+        if player.research.current_field == dialog.field
+            && player.research.next_field == dialog.next
+            && player.research_pct == dialog.percent
+        {
+            return;
+        }
+        player.research.current_field = dialog.field;
+        player.research.next_field = dialog.next;
+        player.research_pct = dialog.percent;
+        self.research_edited = true;
+        self.player_edited = true;
+        self.dirty = true;
+    }
+
+    /// The six rows of the **Technology Status** box: each field's name and
+    /// the level held.
+    #[must_use]
+    pub fn research_levels(&self) -> Vec<(&'static str, u8)> {
+        let me = self.local_player();
+        let Some(player) = self.game.as_ref().and_then(|g| g.players.get(me)) else {
+            return Vec::new();
+        };
+        stars_core::research::TechField::ALL
+            .iter()
+            .enumerate()
+            .map(|(index, field)| (field.name(), player.research.levels[index]))
+            .collect()
+    }
+
+    /// The **Currently Researching** box: the level being worked on, what it
+    /// still costs, and how long it will take.
+    ///
+    /// Returns the three lines in the original's wording. `Maxed Out` stands
+    /// in for the cost at level 26, and `Never` for the time when nothing is
+    /// budgeted.
+    #[must_use]
+    pub fn research_status(&self) -> Vec<(String, String)> {
+        use stars_core::research::{remaining_cost, years_to_next};
+        let Some(dialog) = self.research_dialog else {
+            return Vec::new();
+        };
+        let me = self.local_player();
+        let Some(game) = self.game.as_ref() else {
+            return Vec::new();
+        };
+        let Some(player) = game.players.get(me) else {
+            return Vec::new();
+        };
+
+        let name = stars_core::research::TechField::ALL[dialog.field.min(5)].name();
+        let level = player.research.levels[dialog.field.min(5)];
+        let mut rows = vec![(
+            String::new(),
+            // `%s, Tech Level %d` — the level being researched, one above what
+            // is held.
+            format!("{name}, Tech Level {}", i16::from(level) + 1),
+        )];
+
+        let remaining =
+            remaining_cost(dialog.field, &player.research, &player.race, game.slow_tech);
+        rows.push((
+            "Resources needed to complete:".to_string(),
+            match remaining {
+                Some(cost) => cost.to_string(),
+                None => "Maxed Out".to_string(),
+            },
+        ));
+
+        let budget = self.research_projected(dialog.percent);
+        let generalized = player
+            .race
+            .has_lrt(stars_core::race::lrt::GENERALIZED_RESEARCH);
+        rows.push((
+            "Estimated time to completion:".to_string(),
+            match remaining {
+                None => "Maxed Out".to_string(),
+                Some(cost) => match years_to_next(cost, budget, generalized) {
+                    None => "Never".to_string(),
+                    Some(1) => "1 year".to_string(),
+                    Some(years) => format!("{years} years"),
+                },
+            },
+        ));
+        rows
+    }
+
+    /// The **Resource Allocation** box.
+    #[must_use]
+    pub fn research_allocation(&self) -> Vec<(String, String)> {
+        let Some(dialog) = self.research_dialog else {
+            return Vec::new();
+        };
+        let me = self.local_player();
+        let Some(game) = self.game.as_ref() else {
+            return Vec::new();
+        };
+        let Some(player) = game.players.get(me) else {
+            return Vec::new();
+        };
+        let owner = i16::try_from(me).unwrap_or(-1);
+        let energy = i16::from(player.research.levels[0]);
+        let annual: i32 = game
+            .planets
+            .iter()
+            .filter(|p| p.owner == Some(owner))
+            .filter_map(|p| stars_core::resources::resources_at_planet(p, &player.race, energy))
+            .map(i32::from)
+            .sum();
+
+        vec![
+            (
+                "Annual resources from all planets:".to_string(),
+                annual.to_string(),
+            ),
+            (
+                "Total resources spent on research last year:".to_string(),
+                player.research_last_year.to_string(),
+            ),
+            (
+                "Resources budgeted for research:".to_string(),
+                format!("{}%", dialog.percent),
+            ),
+            (
+                "Next year's projected research budget:".to_string(),
+                self.research_projected(dialog.percent).to_string(),
+            ),
+        ]
+    }
+
+    /// What research would get next year at a given allocation.
+    #[must_use]
+    pub fn research_projected(&self, percent: u8) -> i32 {
+        let me = self.local_player();
+        let Some(game) = self.game.as_ref() else {
+            return 0;
+        };
+        let Some(player) = game.players.get(me) else {
+            return 0;
+        };
+        let who = stars_core::parts::Builder::player(player);
+        let designs: &[stars_core::design::ShipDesign] =
+            game.designs.get(me).map_or(&[], Vec::as_slice);
+        stars_core::production::projected_research_spending(
+            &game.planets,
+            i16::try_from(me).unwrap_or(-1),
+            &who,
+            percent,
+            designs,
+        )
+    }
+
+    /// The **Expected Research Benefits** list, nearest first.
+    #[must_use]
+    pub fn research_benefits(&self) -> Vec<stars_core::research::Benefit> {
+        let me = self.local_player();
+        let Some(player) = self.game.as_ref().and_then(|g| g.players.get(me)) else {
+            return Vec::new();
+        };
+        stars_core::research::expected_benefits(&stars_core::parts::Builder::player(player))
+    }
+
+    /// The note under the allocation box, for a race whose traits change how
+    /// research works.
+    #[must_use]
+    pub fn research_notes(&self) -> Vec<String> {
+        use stars_core::race::lrt;
+        let me = self.local_player();
+        let Some(player) = self.game.as_ref().and_then(|g| g.players.get(me)) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        if player.race.has_lrt(lrt::GENERALIZED_RESEARCH) {
+            out.push("Your race has Generalized Research".to_string());
+        }
+        if player.race.has_lrt(lrt::BLEEDING_EDGE_TECH) {
+            out.push("Your race has Bleeding Edge Technology".to_string());
+        }
+        out
+    }
+
+    /// What the **Next field to research** dropdown offers, in the original's
+    /// order: `<Same field>`, the six fields, then `<Lowest field>`.
+    #[must_use]
+    pub fn research_next_choices() -> Vec<(stars_core::research::NextField, String)> {
+        use stars_core::research::{NextField, TechField};
+        let mut out = vec![(NextField::Same, "<Same field>".to_string())];
+        for (index, field) in TechField::ALL.iter().enumerate() {
+            out.push((NextField::Field(index), field.name().to_string()));
+        }
+        out.push((NextField::Lowest, "<Lowest field>".to_string()));
+        out
     }
 }

@@ -1327,3 +1327,127 @@ pub fn template_lines(template: Option<&stars_formats::DefaultQueue>) -> Vec<Str
         })
         .collect()
 }
+
+/// What research gets out of one planet next year.
+///
+/// The Research dialog's **Next year's projected research budget** is the sum
+/// of this over the player's planets (`ProjectedResearchSpending`,
+/// `10d8:65ae`), and the answer is not simply the research percentage:
+///
+/// * a planet with an **empty queue** gives research everything it makes —
+///   which is the manual's "you receive all resources from planets with
+///   nothing in the production queue" (p. 8-4);
+/// * a planet with a queue gives the research skim **plus whatever the queue
+///   fails to spend**, which is why a blocked queue quietly funds research.
+///
+/// The second is `EstimateItemProdSched` called with a negative item, which
+/// runs one year of the queue and returns what is left over. So the projection
+/// shares the whole of the production simulation — the queue's stopping rules,
+/// alchemy and all.
+#[must_use]
+pub fn research_from_planet(
+    planet: &Planet,
+    who: &crate::parts::Builder<'_>,
+    research_pct: u8,
+    designs: &[crate::design::ShipDesign],
+) -> i32 {
+    let race = who.race;
+    let tech = who.levels;
+
+    let Some(budget) = planet_budget(
+        planet,
+        race,
+        research_pct,
+        0,
+        planet.no_research,
+        i16::from(tech[0]),
+    ) else {
+        return 0;
+    };
+    if planet.queue.is_empty() {
+        return budget.total;
+    }
+
+    // One year of the queue over a copy of the planet; what production does
+    // not spend goes to research, on top of the skim.
+    let mut pl = planet.clone();
+    let mined = crate::mining::minerals_mined(&pl, race, None, None);
+    for (surface, add) in pl.surface_min.iter_mut().zip(mined.iter()) {
+        *surface += add;
+    }
+    let mut available = [
+        pl.surface_min[0],
+        pl.surface_min[1],
+        pl.surface_min[2],
+        budget.production,
+    ];
+    let queue = std::mem::take(&mut pl.queue);
+    let end = queue.len().saturating_sub(1);
+    let alchemy_cost = planetary_item_cost(item::ALCHEMY, race, false).map(|c| c.resources);
+    let mut alchemy: Option<i32> = None;
+
+    for (i, entry) in queue.iter().enumerate() {
+        if entry.count == 0 && !entry.is_auto() {
+            continue;
+        }
+        let mut wanted = entry.count;
+        if !entry.ship && entry.item == item::AUTO_ALCHEMY {
+            if i != end {
+                alchemy = alchemy_cost;
+                continue;
+            }
+            wanted = 1020;
+        }
+        let auto = entry.is_auto();
+        let cost = if entry.ship {
+            designs
+                .get(usize::from(entry.item))
+                .filter(|d| d.hull_id >= 0)
+                .and_then(|d| d.true_cost(who))
+                .map(|c| ItemCost {
+                    minerals: c.minerals,
+                    resources: c.resources,
+                })
+        } else {
+            item_cost(entry.item, who, false)
+        };
+        let Some(cost) = cost else { continue };
+        if auto {
+            wanted = wanted.min(auto_build_cap(&pl, race, tech, designs, entry.item));
+        }
+        let outcome = build_item(
+            cost,
+            wanted,
+            entry.completion,
+            &mut available,
+            auto,
+            alchemy.take(),
+        );
+        if outcome.status.stops_the_queue() {
+            break;
+        }
+    }
+
+    // What production left, plus the skim it never had.
+    available[3].max(0) + budget.research
+}
+
+/// The whole empire's projected research budget for next year.
+///
+/// `ProjectedResearchSpending(pct)` with the percentage the dialog is showing,
+/// which is how moving the slider changes the figure before anything is
+/// committed.
+#[must_use]
+pub fn projected_research_spending(
+    planets: &[Planet],
+    owner: i16,
+    who: &crate::parts::Builder<'_>,
+    research_pct: u8,
+    designs: &[crate::design::ShipDesign],
+) -> i32 {
+    planets
+        .iter()
+        .filter(|p| p.owner == Some(owner))
+        .map(|p| research_from_planet(p, who, research_pct, designs))
+        .sum()
+}

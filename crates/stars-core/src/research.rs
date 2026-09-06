@@ -31,6 +31,47 @@ pub enum TechField {
     Biotechnology = 5,
 }
 
+impl TechField {
+    /// The six fields, in the order the game lists them — which is also the
+    /// order the Research dialog's radio buttons and the six research levels
+    /// are in.
+    pub const ALL: [TechField; TECH_FIELDS] = [
+        TechField::Energy,
+        TechField::Weapons,
+        TechField::Propulsion,
+        TechField::Construction,
+        TechField::Electronics,
+        TechField::Biotechnology,
+    ];
+
+    /// What the game calls it.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            TechField::Energy => "Energy",
+            TechField::Weapons => "Weapons",
+            TechField::Propulsion => "Propulsion",
+            TechField::Construction => "Construction",
+            TechField::Electronics => "Electronics",
+            TechField::Biotechnology => "Biotechnology",
+        }
+    }
+
+    /// The short form the Technology Status box uses — `Ener:`, `Weap:` and
+    /// so on (strings 91 to 96).
+    #[must_use]
+    pub fn short_name(self) -> &'static str {
+        match self {
+            TechField::Energy => "Ener",
+            TechField::Weapons => "Weap",
+            TechField::Propulsion => "Prop",
+            TechField::Construction => "Const",
+            TechField::Electronics => "Elect",
+            TechField::Biotechnology => "Bio",
+        }
+    }
+}
+
 /// Base resource cost of reaching each technology level, before the
 /// per-field and whole-empire adjustments.
 ///
@@ -324,4 +365,139 @@ mod tests {
         // The half-level of progress is still there afterwards.
         assert_eq!(research.points[0], cost / 2);
     }
+}
+
+/// What is still owed on the level being researched, or `None` at the top.
+///
+/// The dialog's `Resources needed to complete:` line — the level's cost less
+/// what the field has already banked. A field at [`MAX_TECH_LEVEL`] reads
+/// `Maxed Out` instead, which is the `None`.
+///
+/// Source: `DrawResearchDlg` (`10d8:090a`).
+#[must_use]
+pub fn remaining_cost(
+    field: usize,
+    research: &Research,
+    race: &Race,
+    slow_tech: bool,
+) -> Option<i32> {
+    let field = field.min(TECH_FIELDS - 1);
+    let level = research.levels[field];
+    if level >= MAX_TECH_LEVEL {
+        return None;
+    }
+    let cost = tech_level_cost(field, level + 1, research, race, slow_tech);
+    Some((cost - research.points[field]).max(0))
+}
+
+/// How long the level being researched will take, in years.
+///
+/// `None` is the dialog's **Never**: nothing is being put aside for research,
+/// so the level will not arrive. A level that is already paid for reads one
+/// year.
+///
+/// A race with **Generalized Research** only sends half its budget to the
+/// field it is studying, so only half counts toward this.
+///
+/// Source: `DrawResearchDlg`, which divides rounding **up**.
+#[must_use]
+pub fn years_to_next(remaining: i32, budget: i32, generalized: bool) -> Option<i32> {
+    if remaining <= 0 {
+        return Some(1);
+    }
+    if budget <= 0 {
+        return None;
+    }
+    // Generalized Research spreads the budget over every field; half of it
+    // reaches the one being studied.
+    let toward = if generalized {
+        budget - budget / 2
+    } else {
+        budget
+    };
+    if toward <= 0 {
+        return None;
+    }
+    Some((remaining + toward - 1) / toward)
+}
+
+/// One thing a future level of research will bring.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Benefit {
+    /// How many levels away it is: `1` is the level being researched now.
+    ///
+    /// The dialog groups these — the next level in green, the three after it
+    /// in red, and everything further off in black — and gathers everything
+    /// beyond nine levels into one last group.
+    pub levels_away: i16,
+    /// The component's category (see [`crate::components::slot`]).
+    pub category: u16,
+    /// Its index within that category.
+    pub item: usize,
+    /// What it is called.
+    pub name: &'static str,
+}
+
+/// What the next levels of research will unlock — the dialog's **Expected
+/// Research Benefits**.
+///
+/// `DrawResearchDlg` walks every component in every category, asks
+/// `FLookupPart` how far away it is, and lists those between one and nine
+/// levels off, nearest first. The distance is `TechStatus`' answer less one,
+/// so a component one level away comes back as `1`; everything ten or more
+/// levels off is reported as nine, which is the group the dialog draws last.
+///
+/// **It is not a preview of one field.** The original sets the player's
+/// current field to whichever radio button is selected before it asks, and
+/// puts it back afterwards — but that makes no difference to the answer.
+/// `TechStatus` only consults the current field to decide between its
+/// `LookupNear` (2) and the general `(need - have) + 1`, and for a component
+/// one level short those are the same number; anything short in more than one
+/// field is reported as unreachable whatever is being studied. So the list is
+/// the same for every field, and it is a list of what research in general is
+/// about to bring, sorted by how soon.
+///
+/// A component the player's traits forbid outright never appears, however
+/// close its technology is.
+#[must_use]
+pub fn expected_benefits(who: &crate::parts::Builder<'_>) -> Vec<Benefit> {
+    use crate::components::slot;
+    use crate::parts::Availability;
+
+    /// How far ahead the dialog looks before lumping the rest together.
+    const HORIZON: i16 = 9;
+
+    let who = *who;
+    let mut out = Vec::new();
+    for category in crate::parts::CATEGORY_ORDER.iter().copied().chain([
+        slot::HULL,
+        slot::SB_HULL,
+        slot::PLANETARY,
+    ]) {
+        for item in 0.. {
+            let away = match crate::parts::availability(&who, category, item) {
+                Availability::Missing => break,
+                // One level off in the field being studied.
+                Availability::Nearly => 1,
+                Availability::Levels(n) => n - 1,
+                // Already buildable, or a trait forbids it outright.
+                Availability::Available | Availability::Forbidden => continue,
+                Availability::Far => continue,
+            };
+            if away < 1 {
+                continue;
+            }
+            let Some(part) = crate::parts::part(category, item) else {
+                continue;
+            };
+            out.push(Benefit {
+                levels_away: away.min(HORIZON),
+                category,
+                item,
+                name: part.name,
+            });
+        }
+    }
+    out.sort_by_key(|b| b.levels_away);
+    out
 }

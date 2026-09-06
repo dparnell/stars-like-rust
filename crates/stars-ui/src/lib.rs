@@ -37,6 +37,6 @@ pub mod views;
 
 pub use app::{
     distance_text, App, DesignView, Designer, DesignerDrag, Editing, FindResult, PartRow,
-    Production, ScanOverlays, ScanView, SchematicSlot, Screen, Selection, StatusBar, SurveyBar,
-    SurveySubject,
+    Production, ResearchDialog, ScanOverlays, ScanView, SchematicSlot, Screen, Selection,
+    StatusBar, SurveyBar, SurveySubject,
 };

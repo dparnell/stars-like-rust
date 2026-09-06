@@ -1102,3 +1102,120 @@ fn a_turn_runs_alchemy_for_the_item_behind_it() {
     let (behind, _) = build(vec![factories(), alchemy()]);
     assert_eq!(behind, without, "alchemy only helps what comes after it");
 }
+
+/// The Research dialog's numbers.
+#[test]
+fn the_research_dialog_reports_what_it_should() {
+    use stars_core::parts::Builder;
+    use stars_core::production::{item, projected_research_spending, QueueItem};
+    use stars_core::research::{
+        expected_benefits, remaining_cost, tech_level_cost, years_to_next, MAX_TECH_LEVEL,
+    };
+
+    let race = Race::humanoid();
+    let mut player = stars_core::Player::new(race.clone());
+    player.research.levels = [3; 6];
+    player.research.current_field = 0;
+
+    // Resources needed to complete: the next level's cost less what is banked.
+    let cost = tech_level_cost(0, 4, &player.research, &race, false);
+    assert_eq!(
+        remaining_cost(0, &player.research, &race, false),
+        Some(cost)
+    );
+    player.research.points[0] = cost / 3;
+    assert_eq!(
+        remaining_cost(0, &player.research, &race, false),
+        Some(cost - cost / 3)
+    );
+
+    let who = Builder::player(&player);
+
+    // A field at the top is Maxed Out.
+    let mut maxed = player.research.clone();
+    maxed.levels[0] = MAX_TECH_LEVEL;
+    assert_eq!(remaining_cost(0, &maxed, &race, false), None);
+
+    // Estimated time to completion, rounding up; nothing budgeted is Never.
+    assert_eq!(years_to_next(100, 50, false), Some(2));
+    assert_eq!(years_to_next(101, 50, false), Some(3));
+    assert_eq!(years_to_next(0, 50, false), Some(1), "already paid for");
+    assert_eq!(years_to_next(100, 0, false), None, "Never");
+    // Generalized Research only sends half the budget to the field in hand, so
+    // that field takes twice as long.
+    assert_eq!(years_to_next(100, 50, true), Some(4));
+
+    // Expected benefits: what the next levels of a field will bring.
+    let benefits = expected_benefits(&who);
+    assert!(!benefits.is_empty());
+    assert!(benefits
+        .iter()
+        .all(|b| b.levels_away >= 1 && b.levels_away <= 9));
+    assert!(
+        benefits
+            .windows(2)
+            .all(|w| w[0].levels_away <= w[1].levels_away),
+        "nearest first"
+    );
+    // Nothing already buildable is listed.
+    let buildable = stars_core::parts::filtered(&who, 0x19ff);
+    for part in &buildable {
+        assert!(
+            !benefits
+                .iter()
+                .any(|b| b.category == part.category && b.item == part.item),
+            "{} is already buildable",
+            part.name
+        );
+    }
+    // The list does not depend on which field is selected, surprising as that
+    // is: `TechStatus` only consults the current field to choose between its
+    // "near" answer and the general one, and for a component one level short
+    // those are the same number. The original sets the field before asking
+    // anyway; this checks that doing so changes nothing.
+    let mut studying_weapons = who;
+    studying_weapons.researching = 1;
+    assert_eq!(benefits, expected_benefits(&studying_weapons));
+
+    // The projected budget: a planet with an empty queue gives everything.
+    let mut planet = Planet::unowned(1);
+    planet.owner = Some(0);
+    planet.env = race.env_center;
+    planet.pop = 2_500;
+    planet.factories = 10;
+    planet.mines = 10;
+    planet.min_conc = [50, 50, 50];
+    planet.surface_min = [500, 500, 500];
+
+    let total = i32::from(
+        stars_core::resources::resources_at_planet(&planet, &race, 3).expect("a resource figure"),
+    );
+    assert!(total > 0);
+    let empty_queue = projected_research_spending(std::slice::from_ref(&planet), 0, &who, 50, &[]);
+    assert_eq!(
+        empty_queue, total,
+        "an idle planet gives research everything it makes"
+    );
+
+    // With something in the queue it gives the skim plus whatever the queue
+    // could not spend — never less than the skim.
+    let mut busy = planet.clone();
+    busy.queue = vec![QueueItem {
+        count: 1000,
+        item: item::FACTORY,
+        ship: false,
+        completion: 0,
+    }];
+    let with_queue = projected_research_spending(std::slice::from_ref(&busy), 0, &who, 50, &[]);
+    assert!(with_queue >= total / 2, "the skim at least: {with_queue}");
+    assert!(
+        with_queue <= empty_queue,
+        "and no more than an idle planet: {with_queue} vs {empty_queue}"
+    );
+
+    // The percentage moves it, which is what makes the dialog's figure change
+    // as the slider does.
+    let none = projected_research_spending(std::slice::from_ref(&busy), 0, &who, 0, &[]);
+    let all = projected_research_spending(std::slice::from_ref(&busy), 0, &who, 100, &[]);
+    assert!(all > none, "{all} vs {none}");
+}

@@ -1642,7 +1642,33 @@ disagree.
     `memcmp` guard in `LogChangeZpq1` and is what stops the restore from
     writing a pointless order.
 
-50. **What is still missing to call it playable.** Every waypoint task is now
+50. ~~**The Research dialog.**~~ **Done.** `ResearchDlg` (`10d8:0000`), F5.
+    Spec in `docs/ui/research.md`. Both columns, the six radio buttons, the
+    eight-choice next-field dropdown with its nibble encoding, the remaining
+    cost with its `Maxed Out`, the year estimate with its `Never` and
+    Generalized Research's halving, and the four allocation figures.
+
+    Two things worth recording.
+
+    **The projected budget is not a percentage.** `ProjectedResearchSpending`
+    gives research *everything* a planet with an empty queue makes, and for a
+    planet with a queue gives the skim plus whatever the queue failed to spend
+    — which is why a blocked queue quietly funds research. The second half is
+    `EstimateItemProdSched` called with a negative item, so the projection
+    reuses the whole production simulation that went in with the production
+    estimate.
+
+    **The benefits list is not a preview of the selected field**, although the
+    original goes to the trouble of setting the current field before asking and
+    putting it back afterwards. `TechStatus` only consults the current field to
+    choose between its "near" answer and the general one, and for a component
+    one level short those are the same number; anything short in more than one
+    field is unreachable whatever is being studied. So the list is identical
+    for all six buttons. A test pins that, because a plausible-looking "fix"
+    would otherwise be made later — the assertion I first wrote was that the
+    lists differed, and it failed.
+
+51. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
