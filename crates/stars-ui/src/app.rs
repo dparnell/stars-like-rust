@@ -6,6 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
+use stars_core::design::ShipDesign;
 use stars_core::newgame::{Created, NewGame};
 use stars_core::{GameState, Planet};
 use stars_formats::block::{Block, BlockType};
@@ -270,6 +271,8 @@ pub struct App {
     pub measuring: Option<(stars_core::movement::Point, stars_core::movement::Point)>,
     /// What the Find box holds.
     pub find_text: String,
+    /// The Ship and Starbase Designer, while it is open (`hwndSlotDlg`).
+    pub designer: Option<Designer>,
     /// Which message the pane is showing — the original's `iMsgCur`.
     ///
     /// `-1` means the pane is at the start of the list and showing nothing,
@@ -3839,5 +3842,1073 @@ mod tests {
 
         app.open_battle(0);
         assert!(app.vcr.is_some());
+    }
+}
+
+// --- The Ship and Starbase Designer --------------------------------------
+
+/// Which of the four **View** radio buttons the designer is on
+/// (`mdBuild`, set from `wParam - 0x812` in `SlotDlg`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DesignView {
+    /// `mdBuildShdef`: the player's own designs. The only view from which a
+    /// design can be edited or deleted.
+    #[default]
+    Existing,
+    /// `mdBuildHuldef`: the bare hulls the player has researched.
+    Hulls,
+    /// `mdBuildEnemyShdef`: designs the player has seen other players fly.
+    Enemy,
+    /// `mdBuildComp`: no design at all — the dropdown becomes a category
+    /// filter and the parts list fills the window.
+    Components,
+}
+
+impl DesignView {
+    /// All four, in the order the radio group lists them.
+    pub const ALL: [DesignView; 4] = [
+        DesignView::Existing,
+        DesignView::Hulls,
+        DesignView::Enemy,
+        DesignView::Components,
+    ];
+
+    /// The label beside the radio button.
+    #[must_use]
+    pub fn title(self) -> &'static str {
+        match self {
+            DesignView::Existing => "Existing Designs",
+            DesignView::Hulls => "Available Hull Types",
+            DesignView::Enemy => "Enemy Hulls",
+            DesignView::Components => "Components",
+        }
+    }
+}
+
+/// The design being edited, and where it will be written back to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Editing {
+    /// The design slot it occupies: `0..16` for a ship, `16..26` for a
+    /// starbase — the original's `ishdefBuild`.
+    pub slot: usize,
+    /// Whether **Copy** created it, so **Cancel** must throw it away again
+    /// (`fHullCopy`).
+    pub fresh: bool,
+    /// The working copy (`shdefBuild`). Nothing outside the dialog sees it
+    /// until OK.
+    pub design: ShipDesign,
+}
+
+/// What the Ship and Starbase Designer is showing.
+///
+/// One dialog with two faces: a browser over designs and hulls, and — once
+/// **Copy** or **Edit** is pressed — an editor over one design. `mdBuild`
+/// carries both in the original, which is why [`Designer::editing`] and
+/// [`Designer::view`] are separate here.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Designer {
+    /// `fStarbaseMode`: whether the **Design** radio is on Starbase.
+    pub starbase: bool,
+    /// Which **View** radio is on.
+    pub view: DesignView,
+    /// The dropdown's selection, as an index into [`App::designer_list`].
+    pub selected: usize,
+    /// The design being edited, when the dialog is in edit mode.
+    pub editing: Option<Editing>,
+    /// Which entry of the parts-list filter dropdown is chosen.
+    pub filter: usize,
+    /// Which part in the list is picked out, if any.
+    pub selected_part: Option<usize>,
+    /// Which slot of the schematic is picked out (`iselSlot`).
+    pub selected_slot: Option<usize>,
+    /// A question waiting to be answered before a design is deleted or edited.
+    pub confirm: Option<String>,
+    /// What the last refused action was, for the dialog to explain.
+    pub complaint: Option<String>,
+}
+
+/// One row of the designer's parts list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartRow {
+    /// Which component table it came from.
+    pub category: u16,
+    /// Its index in that table.
+    pub item: usize,
+    /// The name the game shows.
+    pub name: String,
+    /// Mass of one, in kT.
+    pub mass: i32,
+}
+
+/// One slot of the schematic, ready to draw.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SchematicSlot {
+    /// Where it sits, as `(column, row)` in half-cells of the designer's grid.
+    pub cell: (i32, i32),
+    /// What the hull slot accepts.
+    pub allowed: u16,
+    /// How many fit.
+    pub capacity: u8,
+    /// What is fitted, if anything: its name and how many.
+    pub fitted: Option<(String, u8)>,
+    /// The line under the picture: `up to 3`, `needs 1`, or `2 of 4`.
+    pub label: String,
+}
+
+impl App {
+    /// Open the Ship and Starbase Designer (`ShipBuilder`, F4).
+    pub fn open_designer(&mut self) {
+        if self.game.is_none() {
+            return;
+        }
+        // The dialog opens on the player's first design, as `ShipBuilder` does
+        // with `NthValidShdef(0)`.
+        self.designer = Some(Designer::default());
+    }
+
+    /// Close it, throwing away an unsaved copy the way **Cancel** does.
+    pub fn close_designer(&mut self) {
+        if let Some(designer) = &self.designer {
+            if designer.editing.is_some() {
+                self.designer_cancel();
+            }
+        }
+        self.designer = None;
+    }
+
+    /// Who is building, for the parts and cost model.
+    #[must_use]
+    fn designer_builder(&self) -> Option<stars_core::parts::Builder<'_>> {
+        let game = self.game.as_ref()?;
+        let player = game.players.get(self.local_player())?;
+        let starbase = self.designer.as_ref().is_some_and(|d| d.starbase);
+        Some(stars_core::parts::Builder::player(player).designing_starbase(starbase))
+    }
+
+    /// The range of design slots the current mode uses: ships or starbases.
+    #[must_use]
+    fn designer_slots(&self) -> std::ops::Range<usize> {
+        let first = usize::from(stars_core::startup::FIRST_STARBASE_SLOT);
+        if self.designer.as_ref().is_some_and(|d| d.starbase) {
+            first..first + stars_core::design::MAX_STARBASE_DESIGNS
+        } else {
+            0..stars_core::design::MAX_SHIP_DESIGNS
+        }
+    }
+
+    /// A design slot holds a real design when it names a hull; `-1` is the
+    /// game's `fFree`.
+    fn designer_design(&self, owner: usize, slot: usize) -> Option<&ShipDesign> {
+        self.game
+            .as_ref()?
+            .designs
+            .get(owner)?
+            .get(slot)
+            .filter(|d| d.hull_id >= 0)
+    }
+
+    /// The slots of the current mode that hold a design, in order.
+    #[must_use]
+    pub fn designer_used_slots(&self) -> Vec<usize> {
+        let me = self.local_player();
+        self.designer_slots()
+            .filter(|slot| self.designer_design(me, *slot).is_some())
+            .collect()
+    }
+
+    /// What the dropdown lists, in the order it lists it.
+    ///
+    /// `FillBuildDD` fills it four different ways: the player's designs, the
+    /// hulls they can build, every design they have seen an opponent fly, or —
+    /// in Components view and while editing — the parts-list filter names.
+    #[must_use]
+    pub fn designer_list(&self) -> Vec<String> {
+        let Some(designer) = self.designer.as_ref() else {
+            return Vec::new();
+        };
+        if designer.editing.is_some() || designer.view == DesignView::Components {
+            return self
+                .designer_filters()
+                .iter()
+                .map(|(_, name)| (*name).to_string())
+                .collect();
+        }
+        let me = self.local_player();
+        match designer.view {
+            DesignView::Existing | DesignView::Components => self
+                .designer_used_slots()
+                .into_iter()
+                .filter_map(|slot| self.designer_design(me, slot))
+                .map(|d| d.name.clone())
+                .collect(),
+            DesignView::Hulls => self
+                .designer_hulls()
+                .into_iter()
+                .map(|h| h.name.to_string())
+                .collect(),
+            DesignView::Enemy => self
+                .designer_enemy_designs()
+                .into_iter()
+                .map(|(owner, slot)| {
+                    let name = self
+                        .designer_design(owner, slot)
+                        .map_or(String::new(), |d| d.name.clone());
+                    format!("{} {name}", self.player_name(owner))
+                })
+                .collect(),
+        }
+    }
+
+    /// The parts-list filter names for the current mode (`rgidsParts` /
+    /// `rgidsPartsSB`).
+    #[must_use]
+    pub fn designer_filters(&self) -> &'static [(u16, &'static str)] {
+        if self.designer.as_ref().is_some_and(|d| d.starbase) {
+            &stars_core::parts::STARBASE_FILTERS
+        } else {
+            &stars_core::parts::SHIP_FILTERS
+        }
+    }
+
+    /// The hulls the player may build, in table order — what **Available Hull
+    /// Types** lists.
+    #[must_use]
+    pub fn designer_hulls(&self) -> Vec<&'static stars_core::components::Hull> {
+        use stars_core::components::{slot, HULLS, STARBASE_HULLS};
+        let Some(who) = self.designer_builder() else {
+            return Vec::new();
+        };
+        let starbase = self.designer.as_ref().is_some_and(|d| d.starbase);
+        let (category, table): (u16, &'static [stars_core::components::Hull]) = if starbase {
+            (slot::SB_HULL, &STARBASE_HULLS)
+        } else {
+            (slot::HULL, &HULLS)
+        };
+        table
+            .iter()
+            .enumerate()
+            .filter(|(item, _)| {
+                stars_core::parts::availability(&who, category, *item).is_available()
+            })
+            .map(|(_, hull)| hull)
+            .collect()
+    }
+
+    /// Every other player's designs, as `(owner, slot)` — what **Enemy Hulls**
+    /// lists, in `NthValidEnemyShdef`'s order: player by player, and within a
+    /// player, slot by slot.
+    #[must_use]
+    pub fn designer_enemy_designs(&self) -> Vec<(usize, usize)> {
+        let Some(game) = self.game.as_ref() else {
+            return Vec::new();
+        };
+        let me = self.local_player();
+        let mut out = Vec::new();
+        for owner in 0..game.players.len() {
+            if owner == me {
+                continue;
+            }
+            for slot in self.designer_slots() {
+                if self.designer_design(owner, slot).is_some() {
+                    out.push((owner, slot));
+                }
+            }
+        }
+        out
+    }
+
+    /// The design the dialog is showing: the one being edited, or whichever the
+    /// dropdown has selected.
+    #[must_use]
+    pub fn designer_subject(&self) -> Option<ShipDesign> {
+        let designer = self.designer.as_ref()?;
+        if let Some(editing) = &designer.editing {
+            return Some(editing.design.clone());
+        }
+        let me = self.local_player();
+        match designer.view {
+            DesignView::Components => None,
+            DesignView::Existing => {
+                let slot = *self.designer_used_slots().get(designer.selected)?;
+                self.designer_design(me, slot).cloned()
+            }
+            DesignView::Hulls => {
+                let hull = self.designer_hulls().get(designer.selected).copied()?;
+                Some(Self::designer_empty_design(hull))
+            }
+            DesignView::Enemy => {
+                let (owner, slot) = *self.designer_enemy_designs().get(designer.selected)?;
+                self.designer_design(owner, slot).cloned()
+            }
+        }
+    }
+
+    /// A bare hull with nothing on it, which is what **Available Hull Types**
+    /// shows and what **Copy** turns into a new design.
+    fn designer_empty_design(hull: &stars_core::components::Hull) -> ShipDesign {
+        ShipDesign {
+            hull_id: hull.id,
+            slots: hull
+                .real_slots()
+                .iter()
+                .map(|s| stars_core::design::DesignSlot {
+                    category: s.allowed,
+                    item: 0,
+                    count: 0,
+                })
+                .collect(),
+            name: hull.name.to_string(),
+            picture: 0,
+            stored_armor: if hull.id >= 32 { 1000 } else { 0 },
+        }
+    }
+
+    /// The design's hull, whichever table it is in.
+    #[must_use]
+    pub fn designer_hull(design: &ShipDesign) -> Option<&'static stars_core::components::Hull> {
+        stars_core::components::hull(design.hull_id)
+    }
+}
+
+impl App {
+    /// The name a player is known by, for a foreign design's label.
+    #[must_use]
+    pub fn player_name(&self, owner: usize) -> String {
+        self.game
+            .as_ref()
+            .and_then(|game| game.players.get(owner))
+            .map_or_else(|| format!("player {}", owner + 1), |p| p.name.clone())
+    }
+
+    /// How many ships of the shown design still exist, and how many were ever
+    /// built — the two numbers on the plaque under the schematic
+    /// (`"%ld of %ld"`, `MANUAL.PDF` p. 9-6).
+    ///
+    /// The engine does not keep the design's own counters, so the first is
+    /// counted off the fleets in play. The second would need `SHDEF.cBuilt`,
+    /// which nothing in this project reads yet, so the plaque shows the same
+    /// figure twice rather than inventing one.
+    #[must_use]
+    pub fn designer_plaque(&self) -> Option<(i64, i64)> {
+        let designer = self.designer.as_ref()?;
+        if designer.editing.is_some() || designer.view != DesignView::Existing {
+            return None;
+        }
+        let me = self.local_player();
+        let slot = *self.designer_used_slots().get(designer.selected)?;
+        let alive = self.designer_ships_built(me, slot);
+        Some((alive, alive))
+    }
+
+    /// How many ships a player has flying that were built to one design.
+    #[must_use]
+    fn designer_ships_built(&self, owner: usize, slot: usize) -> i64 {
+        let Some(game) = self.game.as_ref() else {
+            return 0;
+        };
+        let slot = u8::try_from(slot).unwrap_or(u8::MAX);
+        game.fleets
+            .iter()
+            .filter(|f| usize::try_from(f.owner).is_ok_and(|o| o == owner))
+            .flat_map(|f| f.stacks.iter())
+            .filter(|s| s.design == slot)
+            .map(|s| i64::from(s.count))
+            .sum()
+    }
+
+    /// Whether **Copy Selected Design** may be pressed: only if there is a free
+    /// design slot to copy into (`FillBuildDD`).
+    #[must_use]
+    pub fn designer_can_copy(&self) -> bool {
+        let Some(designer) = self.designer.as_ref() else {
+            return false;
+        };
+        if designer.editing.is_some() || designer.view == DesignView::Components {
+            return false;
+        }
+        if self.designer_free_slot().is_none() {
+            return false;
+        }
+        let Some(design) = self.designer_subject() else {
+            return false;
+        };
+        // A foreign design can only be copied if its hull is one the player
+        // can build: "You can't copy this ship design because you can't build
+        // the hull it's based on."
+        if designer.view == DesignView::Enemy {
+            return self.designer_can_build_hull(design.hull_id);
+        }
+        true
+    }
+
+    /// Whether the player may build a hull at all.
+    #[must_use]
+    fn designer_can_build_hull(&self, hull_id: i16) -> bool {
+        use stars_core::components::slot;
+        let Some(who) = self.designer_builder() else {
+            return false;
+        };
+        let (category, item) = if hull_id >= 32 {
+            (slot::SB_HULL, hull_id - 32)
+        } else {
+            (slot::HULL, hull_id)
+        };
+        let Ok(item) = usize::try_from(item) else {
+            return false;
+        };
+        stars_core::parts::availability(&who, category, item).is_available()
+    }
+
+    /// The first free design slot of the current mode, or `None` when the
+    /// player has reached the limit — sixteen ships, ten starbases.
+    #[must_use]
+    fn designer_free_slot(&self) -> Option<usize> {
+        let me = self.local_player();
+        self.designer_slots()
+            .find(|slot| self.designer_design(me, *slot).is_none())
+    }
+
+    /// Whether **Edit Selected Design** may be pressed.
+    ///
+    /// Only a design with no ships built to it and none in a production queue
+    /// can be edited — otherwise the ships in play would silently change shape.
+    /// `MANUAL.PDF` p. 9-4 says the same.
+    #[must_use]
+    pub fn designer_can_edit(&self) -> bool {
+        let Some(designer) = self.designer.as_ref() else {
+            return false;
+        };
+        if designer.editing.is_some() || designer.view != DesignView::Existing {
+            return false;
+        }
+        let me = self.local_player();
+        let Some(&slot) = self.designer_used_slots().get(designer.selected) else {
+            return false;
+        };
+        self.designer_ships_built(me, slot) == 0 && self.designer_queued(me, slot) == 0
+    }
+
+    /// How many of a design a player has in production queues (`CshQueued`).
+    #[must_use]
+    fn designer_queued(&self, owner: usize, slot: usize) -> i64 {
+        let Some(game) = self.game.as_ref() else {
+            return 0;
+        };
+        let item = u16::try_from(slot).unwrap_or(u16::MAX);
+        game.planets
+            .iter()
+            .filter(|p| p.owner == i16::try_from(owner).ok())
+            .flat_map(|p| p.queue.iter())
+            .filter(|entry| entry.ship && entry.item == item)
+            .map(|entry| i64::from(entry.count))
+            .sum()
+    }
+
+    /// Whether **Delete Design** may be pressed.
+    #[must_use]
+    pub fn designer_can_delete(&self) -> bool {
+        let Some(designer) = self.designer.as_ref() else {
+            return false;
+        };
+        designer.editing.is_none()
+            && designer.view == DesignView::Existing
+            && !self.designer_used_slots().is_empty()
+    }
+
+    /// **Copy Selected Design**: put the shown design into the first free slot
+    /// and open it for editing.
+    ///
+    /// A copy of one of the player's own designs is renamed by
+    /// [`stars_core::design::copied_name`]; a bare hull and a foreign design
+    /// keep the name they came with. A foreign design also has any component
+    /// the player cannot build **stripped out of it**, which is the "the
+    /// results may not be perfect" the manual warns about on p. 9-2.
+    pub fn designer_copy(&mut self) {
+        if !self.designer_can_copy() {
+            return;
+        }
+        let Some(mut design) = self.designer_subject() else {
+            return;
+        };
+        let Some(slot) = self.designer_free_slot() else {
+            return;
+        };
+        let view = self.designer.as_ref().map(|d| d.view);
+
+        if view == Some(DesignView::Existing) {
+            design.name = stars_core::design::copied_name(&design.name);
+        } else if view == Some(DesignView::Enemy) {
+            if let Some(who) = self.designer_builder() {
+                for s in &mut design.slots {
+                    if s.count == 0 {
+                        continue;
+                    }
+                    let buildable = stars_core::design::slot_part(s).is_some_and(|p| {
+                        stars_core::parts::availability(&who, p.category, p.item).is_available()
+                    });
+                    if !buildable {
+                        s.count = 0;
+                    }
+                }
+            }
+        }
+
+        if let Some(designer) = self.designer.as_mut() {
+            designer.editing = Some(Editing {
+                slot,
+                fresh: true,
+                design,
+            });
+            designer.selected_slot = None;
+            designer.selected_part = None;
+            designer.filter = 0;
+            designer.complaint = None;
+        }
+    }
+
+    /// **Edit Selected Design**: open the selected design for editing in place.
+    pub fn designer_edit(&mut self) {
+        if !self.designer_can_edit() {
+            return;
+        }
+        let Some(designer) = self.designer.as_ref() else {
+            return;
+        };
+        let Some(&slot) = self.designer_used_slots().get(designer.selected) else {
+            return;
+        };
+        let Some(design) = self.designer_design(self.local_player(), slot).cloned() else {
+            return;
+        };
+        if let Some(designer) = self.designer.as_mut() {
+            designer.editing = Some(Editing {
+                slot,
+                fresh: false,
+                design,
+            });
+            designer.selected_slot = None;
+            designer.selected_part = None;
+            designer.filter = 0;
+            designer.complaint = None;
+        }
+    }
+
+    /// **Delete Design**: free the slot the dropdown is on.
+    ///
+    /// Every ship built to it is destroyed and nothing is recovered — the
+    /// manual is emphatic about that (p. 9-5) — so the caller is expected to
+    /// have asked first. [`App::designer_delete_warning`] is the question.
+    pub fn designer_delete(&mut self) {
+        if !self.designer_can_delete() {
+            return;
+        }
+        let me = self.local_player();
+        let Some(designer) = self.designer.as_ref() else {
+            return;
+        };
+        let Some(&slot) = self.designer_used_slots().get(designer.selected) else {
+            return;
+        };
+        let design_slot = u8::try_from(slot).unwrap_or(u8::MAX);
+        let queue_item = u16::try_from(slot).unwrap_or(u16::MAX);
+        let mine = i16::try_from(me).ok();
+
+        if let Some(game) = self.game.as_mut() {
+            // The design itself: a slot with no hull is a free slot.
+            if let Some(design) = game.designs.get_mut(me).and_then(|d| d.get_mut(slot)) {
+                design.hull_id = -1;
+                design.slots.clear();
+                design.name.clear();
+            }
+            // Every ship built to it, and every copy in a queue.
+            for fleet in &mut game.fleets {
+                if usize::try_from(fleet.owner).is_ok_and(|o| o == me) {
+                    fleet.stacks.retain(|s| s.design != design_slot);
+                }
+            }
+            game.fleets.retain(|f| {
+                !usize::try_from(f.owner).is_ok_and(|o| o == me) || !f.stacks.is_empty()
+            });
+            for planet in &mut game.planets {
+                if planet.owner == mine {
+                    planet
+                        .queue
+                        .retain(|entry| !(entry.ship && entry.item == queue_item));
+                }
+            }
+        }
+        self.dirty = true;
+        self.log_design_change(slot);
+        if let Some(designer) = self.designer.as_mut() {
+            designer.selected = designer.selected.saturating_sub(1);
+            designer.confirm = None;
+        }
+    }
+
+    /// Record a design change in the order log (`LogChangeShDef`, `log.c`).
+    ///
+    /// This is how a design reaches the host: a state file is not rewritten
+    /// with the new design, an `rtLogShDef` order is written beside it and the
+    /// host replays it. The header word carries the **full** design slot —
+    /// `SHDEF.det`'s five-bit `ishdef`, which is 16..=25 for a starbase — and
+    /// the low nibble is the mode: `1` when a design follows, `0` for a bare
+    /// delete.
+    fn log_design_change(&mut self, slot: usize) {
+        use stars_formats::{LogRecord, ShipDesignChange};
+
+        let me = self.local_player();
+        let Ok(player) = u8::try_from(me) else {
+            return;
+        };
+        let Ok(index) = u8::try_from(slot) else {
+            return;
+        };
+        let starbase = slot >= usize::from(stars_core::startup::FIRST_STARBASE_SLOT);
+        let design = self.designer_design(me, slot).map(|design| {
+            stars_core::save::design_record(
+                design,
+                index & 0x0f,
+                starbase,
+                u32::try_from(self.designer_ships_built(me, slot)).unwrap_or(0),
+            )
+        });
+        let change = ShipDesignChange {
+            mode: u8::from(design.is_some()),
+            player: player & 0x0f,
+            design_index: index & 0x1f,
+            header_high: 0,
+            design,
+        };
+        if let Ok(record) = LogRecord::ship_design(&change) {
+            self.orders.push(record);
+        }
+    }
+
+    /// What deleting the selected design would cost, in the original's own
+    /// terms: how many ships would be destroyed and how many removed from
+    /// queues. `None` when there is nothing to warn about.
+    #[must_use]
+    pub fn designer_delete_warning(&self) -> Option<String> {
+        let me = self.local_player();
+        let designer = self.designer.as_ref()?;
+        let &slot = self.designer_used_slots().get(designer.selected)?;
+        let name = self.designer_design(me, slot)?.name.clone();
+        let alive = self.designer_ships_built(me, slot);
+        let queued = self.designer_queued(me, slot);
+        match (alive, queued) {
+            (0, 0) => None,
+            (0, q) => Some(format!(
+                "You currently have {q} {name} in production queues. If you delete this \
+                 design, these ships will be removed from the queues. Are you sure?"
+            )),
+            (a, 0) => Some(format!(
+                "You currently have {a} {name}. If you delete this design, these ships \
+                 will be destroyed. Are you sure?"
+            )),
+            (a, q) => Some(format!(
+                "You currently have {a} {name} and {q} in production. If you delete this \
+                 design, these ships will be destroyed and/or removed from the queues. \
+                 Are you sure?"
+            )),
+        }
+    }
+
+    /// **OK**: write the working copy back into its slot.
+    ///
+    /// Refused, as the original refuses it, if a ship design has no engine —
+    /// `SlotDlg` checks slot 0 and puts up "This ship design does not have any
+    /// engines." The complaint is left in [`Designer::complaint`].
+    pub fn designer_ok(&mut self) {
+        let Some(designer) = self.designer.as_ref() else {
+            return;
+        };
+        let Some(editing) = designer.editing.clone() else {
+            return;
+        };
+        if !designer.starbase && !editing.design.slots.first().is_some_and(|s| s.count > 0) {
+            if let Some(designer) = self.designer.as_mut() {
+                designer.complaint = Some(
+                    "This ship design does not have any engines. You must add engines \
+                     before the design will be accepted."
+                        .into(),
+                );
+            }
+            return;
+        }
+
+        let me = self.local_player();
+        if let Some(game) = self.game.as_mut() {
+            if let Some(designs) = game.designs.get_mut(me) {
+                if designs.len() <= editing.slot {
+                    designs.resize_with(editing.slot + 1, || ShipDesign {
+                        name: String::new(),
+                        picture: 0,
+                        stored_armor: 0,
+                        hull_id: -1,
+                        slots: Vec::new(),
+                    });
+                }
+                designs[editing.slot] = editing.design;
+            }
+        }
+        self.dirty = true;
+        self.log_design_change(editing.slot);
+        if let Some(designer) = self.designer.as_mut() {
+            designer.editing = None;
+            designer.complaint = None;
+            designer.view = DesignView::Existing;
+        }
+        // Land on the design that was just saved.
+        let used = self.designer_used_slots();
+        if let Some(designer) = self.designer.as_mut() {
+            designer.selected = used.iter().position(|s| *s == editing.slot).unwrap_or(0);
+        }
+    }
+
+    /// **Cancel**: throw the working copy away. A design that **Copy** had just
+    /// created never existed.
+    pub fn designer_cancel(&mut self) {
+        if let Some(designer) = self.designer.as_mut() {
+            designer.editing = None;
+            designer.complaint = None;
+            designer.selected_slot = None;
+        }
+    }
+
+    /// The parts list, filtered as the dropdown says.
+    #[must_use]
+    pub fn designer_parts(&self) -> Vec<PartRow> {
+        let Some(designer) = self.designer.as_ref() else {
+            return Vec::new();
+        };
+        let Some(who) = self.designer_builder() else {
+            return Vec::new();
+        };
+        let filters = self.designer_filters();
+        let mask = filters.get(designer.filter).map_or(0, |(mask, _)| *mask);
+        stars_core::parts::filtered(&who, mask)
+            .into_iter()
+            .map(|p| PartRow {
+                category: p.category,
+                item: p.item,
+                name: p.name.to_string(),
+                mass: p.mass,
+            })
+            .collect()
+    }
+
+    /// The schematic: one entry per real hull slot, with what is in it.
+    #[must_use]
+    pub fn designer_schematic(&self) -> Vec<SchematicSlot> {
+        use stars_core::components::slot as cat;
+        let Some(design) = self.designer_subject() else {
+            return Vec::new();
+        };
+        let Some(hull) = Self::designer_hull(&design) else {
+            return Vec::new();
+        };
+        hull.real_slots()
+            .iter()
+            .enumerate()
+            .filter_map(|(i, hull_slot)| {
+                let cell = hull.slot_cell(i)?;
+                let fitted = design
+                    .slots
+                    .get(i)
+                    .filter(|s| s.count > 0)
+                    .and_then(|s| stars_core::design::slot_part(s).map(|p| (p, s.count)));
+                let label = match &fitted {
+                    Some((_, count)) => format!("{count} of {}", hull_slot.capacity),
+                    // An engine slot must be filled; everything else may be
+                    // left empty, so it reads "up to" rather than "needs".
+                    None if hull_slot.allowed & cat::ENGINE != 0 => {
+                        format!("needs {}", hull_slot.capacity)
+                    }
+                    None => format!("up to {}", hull_slot.capacity),
+                };
+                Some(SchematicSlot {
+                    cell,
+                    allowed: hull_slot.allowed,
+                    capacity: hull_slot.capacity,
+                    fitted: fitted.map(|(p, count)| (p.name.to_string(), count)),
+                    label,
+                })
+            })
+            .collect()
+    }
+
+    /// The words on a slot's empty picture: the categories it accepts, in the
+    /// order the game's bits run.
+    #[must_use]
+    pub fn designer_slot_kinds(allowed: u16) -> String {
+        use stars_core::components::slot as cat;
+        const NAMES: [(u16, &str); 13] = [
+            (cat::ENGINE, "Engine"),
+            (cat::SCANNER, "Scanner"),
+            (cat::SHIELD, "Shield"),
+            (cat::ARMOR, "Armor"),
+            (cat::BEAM, "Beam"),
+            (cat::TORPEDO, "Torpedo"),
+            (cat::BOMB, "Bomb"),
+            (cat::MINING, "Mining"),
+            (cat::MINES, "Mine Layer"),
+            (cat::SPECIAL_SB, "Orbital"),
+            (cat::SPECIAL_E, "Elect"),
+            (cat::SPECIAL_M, "Mech"),
+            (cat::TERRA, "Terra"),
+        ];
+        let mut parts = Vec::new();
+        for (bit, name) in NAMES {
+            if allowed & bit != 0 {
+                parts.push(name);
+            }
+        }
+        parts.join(" / ")
+    }
+}
+
+/// A component being dragged, either from the parts list or off a slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DesignerDrag {
+    /// Which component table it came from.
+    pub category: u16,
+    /// Its index in that table.
+    pub item: usize,
+    /// How many are being carried.
+    pub count: u8,
+    /// The schematic slot it was picked up from, or `None` from the list.
+    pub from_slot: Option<usize>,
+}
+
+impl App {
+    /// How many components one drag picks up (`IDropPart`, `10c8:5476`).
+    ///
+    /// * **Ctrl** from the list carries a hundred, which is more than any slot
+    ///   holds, so the slot fills.
+    /// * **Shift** carries four, or the whole stack if it is smaller.
+    /// * Otherwise a drag off a slot moves **one**, and a drag from the list
+    ///   carries the one the caller offered.
+    ///
+    /// `MANUAL.PDF` p. 9-3 describes the same two shortcuts.
+    #[must_use]
+    pub fn designer_drag_count(from_slot: Option<usize>, held: u8, ctrl: bool, shift: bool) -> u8 {
+        if ctrl {
+            if from_slot.is_none() {
+                return 100;
+            }
+            return held;
+        }
+        if shift {
+            if from_slot.is_none() || held > 4 {
+                return 4;
+            }
+            return held;
+        }
+        if from_slot.is_some() {
+            return 1;
+        }
+        held
+    }
+
+    /// Drop a dragged component on one of the schematic's slots.
+    ///
+    /// Returns whether the design changed. A refused drop is where the original
+    /// beeps: the slot is full, or it already holds something else, or it does
+    /// not take that kind of component at all. Only identical components stack.
+    pub fn designer_drop_on_slot(&mut self, mut drag: DesignerDrag, target: usize) -> bool {
+        use stars_core::components::slot as cat;
+        let Some(designer) = self.designer.as_ref() else {
+            return false;
+        };
+        let Some(editing) = designer.editing.as_ref() else {
+            return false;
+        };
+        let Some(hull) = Self::designer_hull(&editing.design) else {
+            return false;
+        };
+        let Some(hull_slot) = hull.real_slots().get(target).copied() else {
+            return false;
+        };
+        if drag.from_slot == Some(target) {
+            return false;
+        }
+        // An engine slot is all or nothing: whatever the drag was carrying, it
+        // fills.
+        if hull_slot.allowed & cat::ENGINE != 0 {
+            drag.count = 100;
+        }
+
+        let current = editing
+            .design
+            .slots
+            .get(target)
+            .map_or((0u16, 0usize, 0u8), |s| {
+                (s.category, usize::from(s.item), s.count)
+            });
+        let (have_category, have_item, have_count) = current;
+
+        if have_count >= hull_slot.capacity {
+            return false;
+        }
+        let stackable =
+            have_count == 0 || (have_category == drag.category && have_item == drag.item);
+        let accepted = have_count != 0 || drag.category & hull_slot.allowed != 0;
+        if !stackable || !accepted {
+            return false;
+        }
+
+        let want = u16::from(have_count) + u16::from(drag.count);
+        let new = want.min(u16::from(hull_slot.capacity)) as u8;
+        let moved = new - have_count;
+
+        let Some(designer) = self.designer.as_mut() else {
+            return false;
+        };
+        let Some(editing) = designer.editing.as_mut() else {
+            return false;
+        };
+        if let Some(from) = drag.from_slot {
+            if let Some(source) = editing.design.slots.get_mut(from) {
+                source.count = source.count.saturating_sub(moved);
+            }
+        }
+        if let Some(s) = editing.design.slots.get_mut(target) {
+            s.category = drag.category;
+            s.item = u8::try_from(drag.item).unwrap_or(0);
+            s.count = new;
+        }
+        designer.selected_slot = Some(target);
+        true
+    }
+
+    /// Drop a dragged component back on the parts list, which takes it off the
+    /// design. Dropping an **engine** back removes the whole stack, whatever
+    /// the drag was carrying.
+    pub fn designer_drop_on_list(&mut self, drag: DesignerDrag) -> bool {
+        use stars_core::components::slot as cat;
+        let Some(from) = drag.from_slot else {
+            return false;
+        };
+        let Some(designer) = self.designer.as_mut() else {
+            return false;
+        };
+        let Some(editing) = designer.editing.as_mut() else {
+            return false;
+        };
+        let Some(s) = editing.design.slots.get_mut(from) else {
+            return false;
+        };
+        let take = if s.category & cat::ENGINE != 0 {
+            s.count
+        } else {
+            drag.count
+        };
+        if take == 0 {
+            return false;
+        }
+        s.count = s.count.saturating_sub(take);
+        true
+    }
+
+    /// Step the design's picture along, which is what the two arrows under it
+    /// do. Ships have thirty-two pictures and starbases five.
+    pub fn designer_next_picture(&mut self, forward: bool) {
+        let count: u8 = if self.designer.as_ref().is_some_and(|d| d.starbase) {
+            5
+        } else {
+            32
+        };
+        if let Some(editing) = self.designer.as_mut().and_then(|d| d.editing.as_mut()) {
+            let picture = i32::from(editing.design.picture);
+            let step = if forward { 1 } else { i32::from(count) - 1 };
+            editing.design.picture = u8::try_from((picture + step) % i32::from(count)).unwrap_or(0);
+        }
+    }
+
+    /// Rename the design being edited, clipped to what the name field holds.
+    pub fn designer_rename(&mut self, name: &str) {
+        if let Some(editing) = self.designer.as_mut().and_then(|d| d.editing.as_mut()) {
+            let clipped: String = name.chars().take(stars_core::design::MAX_NAME).collect();
+            editing.design.name = clipped;
+        }
+    }
+
+    /// The cost panel's left column: the three minerals and the resources, then
+    /// the mass — `Cost of one <name>`, as `DrawBuildSelHull` lays it out.
+    #[must_use]
+    pub fn designer_cost_rows(&self) -> Vec<(String, String)> {
+        let Some(design) = self.designer_subject() else {
+            return Vec::new();
+        };
+        let Some(who) = self.designer_builder() else {
+            return Vec::new();
+        };
+        let Some(cost) = design.true_cost(&who) else {
+            return Vec::new();
+        };
+        let mut rows = vec![
+            ("Ironium".into(), format!("{}kT", cost.minerals[0])),
+            ("Boranium".into(), format!("{}kT", cost.minerals[1])),
+            ("Germanium".into(), format!("{}kT", cost.minerals[2])),
+            ("Resources".into(), cost.resources.to_string()),
+        ];
+        // The original prints the mass for a ship and leaves it off a starbase,
+        // which never moves.
+        if !design.is_starbase() {
+            if let Some(mass) = design.mass() {
+                rows.push(("Mass".into(), format!("{mass}kT")));
+            }
+        }
+        rows
+    }
+
+    /// The cost panel's right column: what the design *does*.
+    ///
+    /// `Max Fuel`, `Armor`, `Shields` and `Rating` always; `Cloak/Jam`,
+    /// `Initiative` and `Scanner Range` only at 800x600 and above, which is the
+    /// `mdScreenSize` test in `DrawBuildSelHull`. There is no such thing here,
+    /// so they are always shown.
+    #[must_use]
+    pub fn designer_stat_rows(&self) -> Vec<(String, String)> {
+        let Some(design) = self.designer_subject() else {
+            return Vec::new();
+        };
+        let regenerating = self
+            .game
+            .as_ref()
+            .and_then(|g| g.players.get(self.local_player()))
+            .is_some_and(|p| p.race.has_lrt(stars_core::race::lrt::REGENERATING_SHIELDS));
+
+        let mut rows = Vec::new();
+        if !design.is_starbase() {
+            if let Some(fuel) = design.fuel_capacity() {
+                rows.push(("Max Fuel:".to_string(), format!("{fuel}mg")));
+            }
+        }
+        if let Some(armor) = design.armor(regenerating) {
+            rows.push(("Armor:".to_string(), format!("{armor}dp")));
+        }
+        let shields = design.shields(regenerating);
+        rows.push((
+            "Shields:".to_string(),
+            if shields == 0 {
+                "none".to_string()
+            } else {
+                format!("{shields}dp")
+            },
+        ));
+
+        if !design.is_starbase() {
+            let range = design.scanner_range();
+            let text = match (range.normal, range.penetrating) {
+                (0, _) => None,
+                (n, 0) => Some(format!("{n}")),
+                (n, p) => Some(format!("{n}/{p}")),
+            };
+            if let Some(text) = text {
+                rows.push(("Scanner Range:".to_string(), text));
+            }
+        }
+        rows
     }
 }

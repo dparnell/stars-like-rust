@@ -1607,3 +1607,110 @@ fn find_takes_you_to_a_planet_or_a_fleet() {
 
     let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
 }
+
+/// A design created, edited and deleted in the designer reaches the host the
+/// way the original sends it: as `rtLogShDef` orders in the `.xN`, not by
+/// rewriting the state file.
+#[test]
+fn designing_a_ship_writes_a_design_order() {
+    use stars_ui::DesignView;
+
+    let (mut app, host) = a_saved_game("design");
+
+    // Copy a hull, fit an engine, name it and OK it.
+    app.open_designer();
+    app.designer.as_mut().expect("open").view = DesignView::Hulls;
+    let scout = app
+        .designer_hulls()
+        .iter()
+        .position(|h| h.name == "Scout")
+        .expect("a Scout");
+    app.designer.as_mut().expect("open").selected = scout;
+    app.designer_copy();
+    let slot = app
+        .designer
+        .as_ref()
+        .expect("open")
+        .editing
+        .as_ref()
+        .expect("editing")
+        .slot;
+    let engine_slot = app
+        .designer_schematic()
+        .iter()
+        .position(|s| s.allowed & stars_core::components::slot::ENGINE != 0)
+        .expect("an engine slot");
+    app.designer_drop_on_slot(
+        stars_ui::DesignerDrag {
+            category: stars_core::components::slot::ENGINE,
+            item: 1,
+            count: 1,
+            from_slot: None,
+        },
+        engine_slot,
+    );
+    app.designer_rename("Order Scout");
+    app.designer_ok();
+
+    // And delete one of the starting designs, which is the other half of the
+    // record: a bare header with no design body.
+    let doomed = {
+        let game = app.game.as_ref().expect("game");
+        (0..16)
+            .find(|s| game.designs[0].get(*s).is_some_and(|d| d.hull_id >= 0))
+            .expect("a starting design")
+    };
+    let used = app.designer_used_slots();
+    app.designer.as_mut().expect("open").selected = used
+        .iter()
+        .position(|s| *s == doomed)
+        .expect("it is in the list");
+    app.designer_delete();
+    app.close_designer();
+
+    app.save(&host).expect("saves");
+
+    // Read the orders back.
+    let orders = host.with_extension("x1");
+    let bytes = std::fs::read(&orders).expect("the order file was written");
+    let file = StarsFile::decode(&bytes).expect("the order file decodes");
+    let log = order_log(&file);
+
+    let designs: Vec<_> = log
+        .records
+        .iter()
+        .filter(|r| r.record_type == LogRecordType::ShipDesign)
+        .filter_map(stars_formats::LogRecord::as_ship_design_change)
+        .collect();
+    assert_eq!(designs.len(), 2, "one create and one delete");
+
+    let created = designs
+        .iter()
+        .find(|c| c.design.is_some())
+        .expect("the new design");
+    assert_eq!(created.mode, 1);
+    assert_eq!(usize::from(created.design_index), slot);
+    let record = created.design.as_ref().expect("a design body");
+    assert_eq!(record.name, "Order Scout");
+    assert!(!record.starbase);
+    assert!(record.full_design);
+
+    let deleted = designs
+        .iter()
+        .find(|c| c.design.is_none())
+        .expect("the deleted design");
+    assert_eq!(deleted.mode, 0);
+    assert_eq!(usize::from(deleted.design_index), doomed);
+
+    // Replaying them onto a fresh copy of the game reproduces both changes.
+    let mut fresh = App::new();
+    fresh.open(&host).expect("reopens the game");
+    let mut state = fresh.game.take().expect("a game");
+    let mut turn_orders = stars_core::TurnOrders::default();
+    let report = stars_core::replay::replay(&mut state, 0, &log, &mut turn_orders);
+    assert_eq!(report.designs, 2);
+    assert_eq!(state.designs[0][slot].name, "Order Scout");
+    assert_eq!(state.designs[0][doomed].hull_id, -1);
+
+    let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
+}

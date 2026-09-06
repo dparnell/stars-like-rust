@@ -884,12 +884,15 @@ fn set_design(state: &mut GameState, player: usize, change: &ShipDesignChange) -
     if usize::from(change.player) != player {
         return false;
     }
-    let slot = usize::from(change.design_index)
-        + if change.design.as_ref().is_some_and(|d| d.starbase) {
-            usize::from(crate::startup::FIRST_STARBASE_SLOT)
-        } else {
-            0
-        };
+    // The header's `ishdef` is already the **full** design slot: `SHDEF.det`
+    // packs it as five bits (`det:8, fInclude:1, fFree:1, ishdef:5, fGift:1`)
+    // and a starbase design is stored at 16..=25, so its top bit is set.
+    // `LogChangeShDef` writes that whole field into the header word, and the
+    // embedded record's own "starbase" flag is nothing but the same bit — its
+    // `design_number` carries only the low four. Adding the starbase offset to
+    // the header value would count it twice, and a bare delete carries no
+    // record to read it from at all.
+    let slot = usize::from(change.design_index);
     if state.designs.len() <= player {
         state.designs.resize_with(player + 1, Vec::new);
     }

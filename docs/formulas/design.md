@@ -1,10 +1,10 @@
 # Subsystem: Ship & Starbase Design
 
 - **Status:** verified — mass, armour, shields, capacities and scanner ranges
-- **Ghidra routine(s):** `UpdateShdefCost` (armour, mass and cost, `util.c`), `WtMaxShdefStat` (fuel and cargo), `DpShieldOfShdef` (shields), `WriteRtShDef` (`save.c`, which field is stored), the `rghuldef` / `rghuldefSB` tables
-- **Manual reference:** `MANUAL.PDF` ch. 9 (Ship and Starbase Design), ch. 23 (armour and shields)
+- **Ghidra routine(s):** `UpdateShdefCost` (`1038:47b0` — armour, mass and cost), `GetTruePartCost` (`1050:cd00` — miniaturisation), `FLookupPart` (`1008:524e` — who may build what), `WtMaxShdefStat` (fuel and cargo), `DpShieldOfShdef` (shields), `WriteRtShDef` (`save.c`, which field is stored), the `rghuldef` / `rghuldefSB` tables
+- **Manual reference:** `MANUAL.PDF` ch. 9 (Ship and Starbase Design), p. 8-2 and p. 20-14 (miniaturisation), ch. 23 (armour and shields)
 - **Uses RNG:** no
-- **Implemented in:** `crates/stars-core/src/design.rs`, hull tables in `crates/stars-core/src/components.rs`
+- **Implemented in:** `crates/stars-core/src/design.rs` and `crates/stars-core/src/parts.rs`, hull tables in `crates/stars-core/src/components.rs`
 - **Records decoded by:** `stars_formats::DesignRecord`, see `../formats/design.md`
 
 A design is a hull plus up to sixteen slots, each holding some number of one
@@ -96,6 +96,85 @@ happened to belong to Regenerating Shields races. It only resolved by reading
 the computation out of the binary. That is worth remembering — six of seven
 starbases fitted the wrong rule exactly.
 
+## What a design really costs
+
+The table price is not what anyone pays. `UpdateShdefCost` (`1038:47b0`) adds
+the hull and every fitted component through `GetTruePartCost` (`1050:cd00`),
+and the designer and the production queue then make two more adjustments to a
+starbase.
+
+### Miniaturisation
+
+Every technology level held **above** what a component needs makes it cheaper:
+
+| | per level | floor |
+|-|----------:|------:|
+| ordinarily | 4% | 25% of list |
+| with Bleeding Edge Technology | 5% | 20% of list |
+
+The excess counted is the **smallest** margin over any field the component
+actually requires; a component that requires nothing at all — a Scout hull, an
+Orbital Fort — is measured against the player's *weakest* field instead.
+Nineteen levels of margin is as far as it counts, which is exactly where both
+floors are reached. The cut is `MulDiv(cost, pct, 100)` — rounded to nearest —
+and nothing ever falls to free: a figure that would reach zero is held at one.
+
+Two categories are excluded: **terraforming modules never get cheaper**, and of
+the planetary items only the five defences do — not the scanners and not the
+Genesis Device.
+
+Bleeding Edge Technology pays for its steeper curve up front: until the player
+is past **every** one of a component's requirements by a level, anything that
+requires any technology at all costs **twice** as much.
+
+`MANUAL.PDF` p. 20-14 states both curves and both floors, and agrees with the
+binary. **Page 8-2 does not** — it says 5% a level and 75%, which matches
+neither trait — and is the page to distrust.
+
+### Starbases
+
+Two more adjustments, applied by the designer's own panel (`DrawBuildSelHull`)
+and by `GetProductionCosts` alike:
+
+1. **Improved Starbases**, and Alternate Reality, take a fifth off;
+2. every starbase cost is then **halved**, because the hull table stores it
+   doubled. The Orbital Fort is listed at 80 resources, 24 ironium and 34
+   germanium and is built for 40, 12 and 17.
+
+Upgrading a starbase in place is cheaper again — the planet is credited for the
+parts it already has, in full for an identical component, four fifths for a
+different one of the same kind and seven tenths for a different kind, or half
+the old hull's cost when the hull itself changes. That is a production rule
+rather than a design one and is not implemented here.
+
+## Where a design sits on the schematic
+
+Each hull carries the layout of its own schematic: `HULDEF.rgbrc[16]` at
+`+0x7F` places its slots on a grid and `HULDEF.wrcCargo` at `+0x7D` places its
+hold. Transcribed into `Hull::slot_pos` and `Hull::cargo_pos`, recorded for all
+37 hulls in `../vectors/hull-schematics.json`, and described in
+`../ui/ship-design.md`.
+
+## Who may build what
+
+`FLookupPart` (`1008:524e`) decides whether a player may put a component on a
+hull at all, before any question of cost. Three gates, in order: a **primary
+racial trait** that reserves the component for somebody else, a **lesser trait**
+that forbids it, and the **Mystery Trader** for the twelve components only it
+hands out (`FShouldPartBeHidden`, `research.c`; see `wanderers.md`). What
+survives all three goes to `TechStatus`, which reports whether the technology is
+there — and treats being one level short *in the field currently being
+researched* as its own answer, because that component arrives on its own.
+
+Implemented in `crates/stars-core/src/parts.rs`. Two rules the reconstructed C
+had **backwards**, both pinned by tests:
+
+- **Hyper Expansion cannot build a stargate at all.** The reconstruction reads
+  `if (majorAdv != raCheapCol) return LookupDisallowed`, which would make
+  stargates HE's alone; the binary disallows them *for* HE, and `MANUAL.PDF`
+  p. 6-10 says so in as many words.
+- **The Mine Dispenser 50 is denied to War Monger**, not reserved for it.
+
 ## Open questions
 
 - Battle initiative: the hull's base initiative plus battle computers; the
@@ -103,4 +182,6 @@ starbases fitted the wrong rule exactly.
   (`InitFromHuldef`) has not been read yet.
 - Stock designs (`rgshdefT`, `rgshdefSBT`) are not transcribed; only the hull
   tables are.
+- `LComputePower`, the design's `Rating:`, and the cloak, jammer and initiative
+  figures the designer shows at higher resolutions.
 - `grfAbilities` bit meanings across the component tables.

@@ -178,6 +178,17 @@ impl eframe::App for StarsApp {
             ctx.request_repaint_after(std::time::Duration::from_millis(120));
         }
 
+        if self.app.game.is_some()
+            && self.app.setup.is_none()
+            && ctx.input(|i| i.key_pressed(egui::Key::F4))
+        {
+            if self.app.designer.is_some() {
+                self.app.close_designer();
+            } else {
+                self.app.open_designer();
+            }
+        }
+
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
@@ -238,6 +249,17 @@ impl eframe::App for StarsApp {
                     .clicked()
                 {
                     self.app.generate_turn();
+                }
+                ui.separator();
+                // The original's Commands menu opens the designer with F4.
+                if ui
+                    .add_enabled(
+                        self.app.game.is_some() && self.app.setup.is_none(),
+                        egui::Button::new("Ship Design…").shortcut_text("F4"),
+                    )
+                    .clicked()
+                {
+                    self.app.open_designer();
                 }
                 ui.separator();
                 for screen in Screen::ALL {
@@ -349,6 +371,20 @@ impl eframe::App for StarsApp {
                         });
                     });
                 });
+        }
+
+        // The Ship and Starbase Designer is a dialog in the original, so it is
+        // a window here rather than one of the screens.
+        if self.app.designer.is_some() {
+            let mut open = true;
+            egui::Window::new("Ship and Starbase Designer")
+                .open(&mut open)
+                .resizable(true)
+                .default_width(660.0)
+                .show(ctx, |ui| stars_ui::views::designer::view(&mut self.app, ui));
+            if !open {
+                self.app.close_designer();
+            }
         }
 
         let action = egui::CentralPanel::default()

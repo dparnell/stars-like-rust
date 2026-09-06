@@ -285,6 +285,16 @@ pub struct Hull {
     pub category: u8,
     /// How many of [`Hull::slots`] are real.
     pub slot_count: u8,
+    /// Where each slot sits on the hull's **schematic** in the ship designer:
+    /// the low nibble is the column and the high nibble the row, both counted
+    /// in half-cells of 32 pixels, and every slot is two cells square
+    /// (`HULDEF.rgbrc`, `+0x7F`). Only the first [`Hull::slot_count`] entries
+    /// are meaningful.
+    pub slot_pos: [u8; 16],
+    /// The cargo space's place on the same grid, packed as two of those bytes:
+    /// the high byte is its top-left cell and the low byte its bottom-right
+    /// (`HULDEF.wrcCargo`, `+0x7D`). `0xFFFF` on a hull with no hold.
+    pub cargo_pos: u16,
     /// The slot layout; only the first [`Hull::slot_count`] are meaningful.
     pub slots: [HullSlot; 16],
 }
@@ -2381,6 +2391,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 0,
         category: 1,
         slot_count: 3,
+        slot_pos: [
+            0x31, 0x37, 0x35, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0x3355,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -2461,6 +2476,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 0,
         category: 1,
         slot_count: 3,
+        slot_pos: [
+            0x30, 0x38, 0x36, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0x3256,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -2541,6 +2561,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 0,
         category: 1,
         slot_count: 3,
+        slot_pos: [
+            0x30, 0x26, 0x46, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0x2266,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -2621,6 +2646,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 0,
         category: 1,
         slot_count: 4,
+        slot_pos: [
+            0x40, 0x28, 0x48, 0x68, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0x2288,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -2701,6 +2731,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 1,
         category: 2,
         slot_count: 3,
+        slot_pos: [
+            0x32, 0x36, 0x34, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -2781,6 +2816,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 4,
         category: 2,
         slot_count: 4,
+        slot_pos: [
+            0x31, 0x37, 0x35, 0x33, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -2861,6 +2901,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 3,
         category: 2,
         slot_count: 7,
+        slot_pos: [
+            0x42, 0x15, 0x75, 0x46, 0x44, 0x23, 0x63, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -2941,6 +2986,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 5,
         category: 3,
         slot_count: 7,
+        slot_pos: [
+            0x31, 0x23, 0x43, 0x15, 0x55, 0x37, 0x35, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -3021,6 +3071,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 5,
         category: 3,
         slot_count: 7,
+        slot_pos: [
+            0x31, 0x23, 0x43, 0x15, 0x55, 0x37, 0x35, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -3101,6 +3156,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 10,
         category: 3,
         slot_count: 11,
+        slot_pos: [
+            0x30, 0x38, 0x26, 0x14, 0x54, 0x02, 0x62, 0x46, 0x34, 0x22, 0x42, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -3181,6 +3241,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 10,
         category: 3,
         slot_count: 13,
+        slot_pos: [
+            0x40, 0x20, 0x60, 0x12, 0x72, 0x32, 0x52, 0x24, 0x64, 0x44, 0x36, 0x56, 0x48, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -3261,6 +3326,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 3,
         category: 4,
         slot_count: 5,
+        slot_pos: [
+            0x41, 0x37, 0x57, 0x25, 0x65, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0x4367,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -3341,6 +3411,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 4,
         category: 4,
         slot_count: 9,
+        slot_pos: [
+            0x41, 0x46, 0x66, 0x48, 0x14, 0x74, 0x26, 0x12, 0x72, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0x3376,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -3421,6 +3496,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 4,
         category: 4,
         slot_count: 8,
+        slot_pos: [
+            0x40, 0x13, 0x73, 0x15, 0x75, 0x36, 0x56, 0x48, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0x3276,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -3501,6 +3581,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 0,
         category: 0,
         slot_count: 2,
+        slot_pos: [
+            0x32, 0x36, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0x3456,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -3581,6 +3666,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 0,
         category: 0,
         slot_count: 2,
+        slot_pos: [
+            0x32, 0x36, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0x3456,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -3661,6 +3751,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 0,
         category: 5,
         slot_count: 2,
+        slot_pos: [
+            0x33, 0x35, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -3741,6 +3836,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 0,
         category: 5,
         slot_count: 4,
+        slot_pos: [
+            0x31, 0x33, 0x35, 0x37, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -3821,6 +3921,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 0,
         category: 5,
         slot_count: 5,
+        slot_pos: [
+            0x32, 0x24, 0x44, 0x26, 0x46, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -3901,6 +4006,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 0,
         category: 5,
         slot_count: 7,
+        slot_pos: [
+            0x31, 0x13, 0x53, 0x25, 0x45, 0x37, 0x33, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -3981,6 +4091,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 0,
         category: 6,
         slot_count: 2,
+        slot_pos: [
+            0x33, 0x35, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -4061,6 +4176,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 0,
         category: 6,
         slot_count: 4,
+        slot_pos: [
+            0x32, 0x36, 0x24, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -4141,6 +4261,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 0,
         category: 6,
         slot_count: 6,
+        slot_pos: [
+            0x31, 0x37, 0x23, 0x25, 0x43, 0x45, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -4221,6 +4346,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 0,
         category: 6,
         slot_count: 6,
+        slot_pos: [
+            0x31, 0x37, 0x23, 0x25, 0x43, 0x45, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -4301,6 +4431,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 0,
         category: 6,
         slot_count: 6,
+        slot_pos: [
+            0x31, 0x37, 0x23, 0x25, 0x43, 0x45, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -4381,6 +4516,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 0,
         category: 7,
         slot_count: 2,
+        slot_pos: [
+            0x33, 0x35, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -4461,6 +4601,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 0,
         category: 7,
         slot_count: 3,
+        slot_pos: [
+            0x32, 0x34, 0x36, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -4541,6 +4686,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 0,
         category: 4,
         slot_count: 4,
+        slot_pos: [
+            0x32, 0x24, 0x44, 0x36, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -4621,6 +4771,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 0,
         category: 4,
         slot_count: 6,
+        slot_pos: [
+            0x31, 0x23, 0x43, 0x35, 0x27, 0x47, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -4701,6 +4856,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 2,
         category: 4,
         slot_count: 13,
+        slot_pos: [
+            0x40, 0x20, 0x60, 0x12, 0x72, 0x32, 0x52, 0x24, 0x64, 0x44, 0x36, 0x56, 0x48, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -4781,6 +4941,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 2,
         category: 4,
         slot_count: 7,
+        slot_pos: [
+            0x30, 0x32, 0x26, 0x46, 0x38, 0x12, 0x52, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0x2466,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -4861,6 +5026,11 @@ pub const HULLS: [Hull; 32] = [
         initiative: 2,
         category: 4,
         slot_count: 7,
+        slot_pos: [
+            0x30, 0x32, 0x26, 0x46, 0x38, 0x12, 0x52, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0x2466,
         slots: [
             HullSlot {
                 allowed: 0x1,
@@ -4945,6 +5115,11 @@ pub const STARBASE_HULLS: [Hull; 5] = [
         initiative: 10,
         category: 0,
         slot_count: 5,
+        slot_pos: [
+            0x44, 0x24, 0x46, 0x64, 0x42, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0xffff,
         slots: [
             HullSlot {
                 allowed: 0xa00,
@@ -5025,6 +5200,11 @@ pub const STARBASE_HULLS: [Hull; 5] = [
         initiative: 12,
         category: 0,
         slot_count: 8,
+        slot_pos: [
+            0x22, 0x14, 0x41, 0x47, 0x74, 0x26, 0x66, 0x62, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0x4466,
         slots: [
             HullSlot {
                 allowed: 0xa00,
@@ -5105,6 +5285,11 @@ pub const STARBASE_HULLS: [Hull; 5] = [
         initiative: 14,
         category: 0,
         slot_count: 12,
+        slot_pos: [
+            0x42, 0x05, 0x03, 0x58, 0x50, 0x85, 0x64, 0x83, 0x24, 0x30, 0x46, 0x38, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        cargo_pos: 0x4466,
         slots: [
             HullSlot {
                 allowed: 0xa00,
@@ -5185,6 +5370,11 @@ pub const STARBASE_HULLS: [Hull; 5] = [
         initiative: 16,
         category: 0,
         slot_count: 16,
+        slot_pos: [
+            0x24, 0x50, 0x42, 0x58, 0x62, 0x26, 0x46, 0x03, 0x83, 0x38, 0x64, 0x66, 0x30, 0x22,
+            0x05, 0x85,
+        ],
+        cargo_pos: 0x4466,
         slots: [
             HullSlot {
                 allowed: 0xa00,
@@ -5265,6 +5455,11 @@ pub const STARBASE_HULLS: [Hull; 5] = [
         initiative: 18,
         category: 0,
         slot_count: 16,
+        slot_pos: [
+            0x14, 0x60, 0x41, 0x68, 0x62, 0x26, 0x47, 0x02, 0x82, 0x28, 0x74, 0x66, 0x20, 0x22,
+            0x06, 0x86,
+        ],
+        cargo_pos: 0x4466,
         slots: [
             HullSlot {
                 allowed: 0xa00,
@@ -5379,4 +5574,36 @@ pub fn hull(id: i16) -> Option<&'static Hull> {
         .iter()
         .chain(STARBASE_HULLS.iter())
         .find(|h| h.id == id)
+}
+
+impl Hull {
+    /// Where a slot sits on the designer's schematic, as `(column, row)` in
+    /// half-cells; a slot is two cells square. See [`Hull::slot_pos`].
+    #[must_use]
+    pub fn slot_cell(&self, slot: usize) -> Option<(i32, i32)> {
+        if slot >= usize::from(self.slot_count) {
+            return None;
+        }
+        let b = self.slot_pos[slot];
+        Some((i32::from(b & 0x0f), i32::from(b >> 4)))
+    }
+
+    /// The cargo space's corners on the same grid, as `((left, top), (right,
+    /// bottom))` — or `None` on a hull with no hold. See [`Hull::cargo_pos`].
+    #[must_use]
+    pub fn cargo_cells(&self) -> Option<((i32, i32), (i32, i32))> {
+        if self.cargo_max == 0 || self.cargo_pos == 0xffff {
+            return None;
+        }
+        let cell = |b: u16| (i32::from(b & 0x0f), i32::from((b >> 4) & 0x0f));
+        Some((cell(self.cargo_pos >> 8), cell(self.cargo_pos & 0xff)))
+    }
+
+    /// Whether the hold is unlimited, which is how the three big starbases
+    /// carry a dock: `wtCargoMax` is stored as `0xFFFF` and the schematic reads
+    /// `Unlimited` rather than a figure.
+    #[must_use]
+    pub fn unlimited_cargo(&self) -> bool {
+        self.cargo_max == 0xffff
+    }
 }

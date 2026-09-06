@@ -58,7 +58,8 @@ pub enum Prt {
     Sd = 5,
     /// Packet Physics (`raMassAccel`).
     Pp = 6,
-    /// Inner Tech (`raStargate`).
+    /// Interstellar Traveler (`raStargate`): stargates, and the only race
+    /// that may build the longer-ranged ones.
     It = 7,
     /// Alternate Reality (`raMacintosh`): lives on starbases, mines by robot.
     Ar = 8,

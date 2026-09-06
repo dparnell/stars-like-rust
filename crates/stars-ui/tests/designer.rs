@@ -1,0 +1,492 @@
+//! The Ship and Starbase Designer, driven the way a player drives it.
+//!
+//! A generated game gives a real player with real starting designs, so these
+//! go through the dialog's own doors: pick a hull, copy it, drag parts on and
+//! off, OK it, and delete a design that has ships built to it.
+
+use stars_core::components::slot;
+use stars_core::newgame::{NewGame, NewPlayer, Size};
+use stars_core::{opponents, Race};
+use stars_ui::{App, DesignView, DesignerDrag};
+
+/// A generated two-player game, in memory.
+fn a_game() -> App {
+    let mut app = App::new();
+    let config = NewGame {
+        name: "designer".to_string(),
+        size: Size::Small,
+        players: vec![
+            NewPlayer::human(Race::humanoid()),
+            opponents::opponent(1, 1).expect("Turindrones").as_player(),
+        ],
+        ..NewGame::default()
+    };
+    app.new_game(&config).expect("creates the game");
+    app
+}
+
+/// The dialog opens on the player's own designs, and every one of them is a
+/// design they really have.
+#[test]
+fn the_designer_opens_on_the_players_own_designs() {
+    let mut app = a_game();
+    app.open_designer();
+    let designer = app.designer.as_ref().expect("the dialog is open");
+    assert_eq!(designer.view, DesignView::Existing);
+    assert!(!designer.starbase);
+    assert!(designer.editing.is_none());
+
+    let list = app.designer_list();
+    assert!(
+        !list.is_empty(),
+        "a new game starts the player with several designs"
+    );
+    let subject = app.designer_subject().expect("the first design");
+    assert_eq!(subject.name, list[0]);
+    assert!(subject.hull_id >= 0);
+
+    // Starbase mode has its own, shorter, list.
+    app.designer.as_mut().expect("open").starbase = true;
+    let bases = app.designer_list();
+    assert!(
+        !bases.is_empty(),
+        "the player starts with a starbase design"
+    );
+    let base = app.designer_subject().expect("a starbase");
+    assert!(base.is_starbase(), "{} should be a starbase", base.name);
+}
+
+/// **Available Hull Types** lists only hulls the player has researched, and
+/// their schematic comes out empty.
+#[test]
+fn available_hull_types_lists_what_can_be_built() {
+    let mut app = a_game();
+    app.open_designer();
+    app.designer.as_mut().expect("open").view = DesignView::Hulls;
+
+    let hulls = app.designer_hulls();
+    assert!(!hulls.is_empty());
+    let names: Vec<&str> = hulls.iter().map(|h| h.name).collect();
+    // Everybody can build these at tech zero.
+    assert!(names.contains(&"Scout"), "{names:?}");
+    assert!(names.contains(&"Small Freighter"), "{names:?}");
+    // A Humanoid is Jack of All Trades, so the traits' own hulls are not there.
+    assert!(!names.contains(&"Meta Morph"), "{names:?}");
+    assert!(!names.contains(&"Dreadnought"), "{names:?}");
+
+    let schematic = app.designer_schematic();
+    assert!(!schematic.is_empty());
+    assert!(schematic.iter().all(|s| s.fitted.is_none()));
+    // A bare hull's engine slot asks to be filled; the others merely may be.
+    let engine = schematic
+        .iter()
+        .find(|s| s.allowed & slot::ENGINE != 0)
+        .expect("a ship hull has an engine slot");
+    assert!(engine.label.starts_with("needs "), "{}", engine.label);
+    let other = schematic
+        .iter()
+        .find(|s| s.allowed & slot::ENGINE == 0)
+        .expect("and something else");
+    assert!(other.label.starts_with("up to "), "{}", other.label);
+}
+
+/// Copy a hull, fit it out, and OK it: the design lands in a free slot.
+#[test]
+fn a_hull_can_be_copied_fitted_and_saved() {
+    let mut app = a_game();
+    app.open_designer();
+    let before = app.designer_list().len();
+
+    // Pick the Scout from the hull list.
+    app.designer.as_mut().expect("open").view = DesignView::Hulls;
+    let scout = app
+        .designer_hulls()
+        .iter()
+        .position(|h| h.name == "Scout")
+        .expect("a Scout");
+    app.designer.as_mut().expect("open").selected = scout;
+
+    assert!(app.designer_can_copy());
+    app.designer_copy();
+    let editing = app
+        .designer
+        .as_ref()
+        .expect("open")
+        .editing
+        .clone()
+        .expect("copying opens the editor");
+    assert!(editing.fresh, "a copied design is thrown away by Cancel");
+    assert_eq!(editing.design.name, "Scout");
+
+    // With no engine, OK is refused and says why.
+    app.designer_ok();
+    assert!(app.designer.as_ref().expect("open").editing.is_some());
+    let complaint = app
+        .designer
+        .as_ref()
+        .expect("open")
+        .complaint
+        .clone()
+        .expect("the original complains too");
+    assert!(complaint.contains("engines"), "{complaint}");
+
+    // Drag an engine onto the engine slot. The Quick Jump 5 is index 1.
+    let engine_slot = app
+        .designer_schematic()
+        .iter()
+        .position(|s| s.allowed & slot::ENGINE != 0)
+        .expect("an engine slot");
+    let dropped = app.designer_drop_on_slot(
+        DesignerDrag {
+            category: slot::ENGINE,
+            item: 1,
+            count: 1,
+            from_slot: None,
+        },
+        engine_slot,
+    );
+    assert!(dropped);
+
+    // An engine slot fills whatever the drag was carrying, so one drag fills
+    // the whole slot.
+    let fitted = app.designer_schematic();
+    let (name, count) = fitted[engine_slot]
+        .fitted
+        .clone()
+        .expect("the engine went in");
+    assert_eq!(name, "Quick Jump 5");
+    assert_eq!(count, fitted[engine_slot].capacity);
+
+    // Name it and save it.
+    app.designer_rename("Test Scout");
+    app.designer_ok();
+    assert!(app.designer.as_ref().expect("open").editing.is_none());
+    assert_eq!(
+        app.designer.as_ref().expect("open").view,
+        DesignView::Existing
+    );
+
+    let after = app.designer_list();
+    assert_eq!(after.len(), before + 1);
+    assert!(after.contains(&"Test Scout".to_string()), "{after:?}");
+    assert!(app.dirty);
+}
+
+/// Only identical components stack, a slot fills no further than its capacity,
+/// and dropping back on the list takes them off again.
+#[test]
+fn a_slot_takes_only_what_it_will_hold() {
+    let mut app = a_game();
+    app.open_designer();
+    app.designer.as_mut().expect("open").view = DesignView::Hulls;
+
+    // A hull with an armour slot that holds more than one, so stacking has
+    // something to do. The small freighters' slots each hold exactly one.
+    let (hull, armour_slot) = {
+        let hulls = app.designer_hulls();
+        hulls
+            .iter()
+            .enumerate()
+            .find_map(|(index, hull)| {
+                let slot = hull
+                    .real_slots()
+                    .iter()
+                    .position(|s| s.allowed & slot::ARMOR != 0 && s.capacity > 1)?;
+                Some((index, slot))
+            })
+            .expect("some hull stacks armour")
+    };
+    app.designer.as_mut().expect("open").selected = hull;
+    app.designer_copy();
+    let capacity = app.designer_schematic()[armour_slot].capacity;
+    assert!(capacity > 1);
+
+    let armour = DesignerDrag {
+        category: slot::ARMOR,
+        item: 0,
+        count: 1,
+        from_slot: None,
+    };
+    assert!(app.designer_drop_on_slot(armour, armour_slot));
+    assert_eq!(
+        app.designer_schematic()[armour_slot]
+            .fitted
+            .as_ref()
+            .unwrap()
+            .1,
+        1
+    );
+
+    // A different component will not stack on it, and neither will one the
+    // slot does not take at all.
+    let other_armour = DesignerDrag { item: 1, ..armour };
+    assert!(!app.designer_drop_on_slot(other_armour, armour_slot));
+    let engine = DesignerDrag {
+        category: slot::ENGINE,
+        ..armour
+    };
+    assert!(!app.designer_drop_on_slot(engine, armour_slot));
+
+    // More of the same stacks, up to the slot's capacity and no further.
+    let many = DesignerDrag {
+        count: 100,
+        ..armour
+    };
+    assert!(app.designer_drop_on_slot(many, armour_slot));
+    assert_eq!(
+        app.designer_schematic()[armour_slot]
+            .fitted
+            .as_ref()
+            .unwrap()
+            .1,
+        capacity
+    );
+    assert!(
+        !app.designer_drop_on_slot(armour, armour_slot),
+        "a full slot takes no more"
+    );
+
+    // Dragging back to the parts list takes one off.
+    assert!(app.designer_drop_on_list(DesignerDrag {
+        count: 1,
+        from_slot: Some(armour_slot),
+        ..armour
+    }));
+    assert_eq!(
+        app.designer_schematic()[armour_slot]
+            .fitted
+            .as_ref()
+            .unwrap()
+            .1,
+        capacity - 1
+    );
+}
+
+/// Dropping an engine back on the list removes the whole stack, whatever the
+/// drag was carrying.
+#[test]
+fn an_engine_comes_off_all_at_once() {
+    let mut app = a_game();
+    app.open_designer();
+    app.designer.as_mut().expect("open").view = DesignView::Hulls;
+    let scout = app
+        .designer_hulls()
+        .iter()
+        .position(|h| h.name == "Scout")
+        .expect("a Scout");
+    app.designer.as_mut().expect("open").selected = scout;
+    app.designer_copy();
+
+    let engine_slot = app
+        .designer_schematic()
+        .iter()
+        .position(|s| s.allowed & slot::ENGINE != 0)
+        .expect("an engine slot");
+    app.designer_drop_on_slot(
+        DesignerDrag {
+            category: slot::ENGINE,
+            item: 1,
+            count: 1,
+            from_slot: None,
+        },
+        engine_slot,
+    );
+    assert!(app.designer_schematic()[engine_slot].fitted.is_some());
+
+    app.designer_drop_on_list(DesignerDrag {
+        category: slot::ENGINE,
+        item: 1,
+        count: 1,
+        from_slot: Some(engine_slot),
+    });
+    assert!(
+        app.designer_schematic()[engine_slot].fitted.is_none(),
+        "one drag takes the whole engine stack off"
+    );
+}
+
+/// What Ctrl and Shift do to a drag.
+#[test]
+fn the_modifier_keys_change_how_many_are_dragged() {
+    // From the parts list.
+    assert_eq!(App::designer_drag_count(None, 1, false, false), 1);
+    assert_eq!(App::designer_drag_count(None, 1, false, true), 4);
+    assert_eq!(App::designer_drag_count(None, 1, true, false), 100);
+
+    // Off a slot holding ten.
+    assert_eq!(App::designer_drag_count(Some(0), 10, false, false), 1);
+    assert_eq!(App::designer_drag_count(Some(0), 10, false, true), 4);
+    assert_eq!(App::designer_drag_count(Some(0), 10, true, false), 10);
+    // Shift never takes more than is there.
+    assert_eq!(App::designer_drag_count(Some(0), 3, false, true), 3);
+}
+
+/// A design ships have been built to cannot be edited, and deleting it warns
+/// first and then destroys them.
+#[test]
+fn deleting_a_design_destroys_its_ships() {
+    let mut app = a_game();
+    app.open_designer();
+
+    // Find a starting design the player actually has ships of.
+    let (index, slot) = {
+        let game = app.game.as_ref().expect("game");
+        let used: Vec<usize> = (0..16)
+            .filter(|s| game.designs[0].get(*s).is_some_and(|d| d.hull_id >= 0))
+            .collect();
+        let flown = used
+            .iter()
+            .position(|slot| {
+                let slot = u8::try_from(*slot).unwrap();
+                game.fleets
+                    .iter()
+                    .filter(|f| f.owner == 0)
+                    .any(|f| f.stacks.iter().any(|s| s.design == slot && s.count > 0))
+            })
+            .expect("the player starts with ships");
+        (flown, used[flown])
+    };
+    app.designer.as_mut().expect("open").selected = index;
+
+    // Ships exist, so Edit is refused but Delete is offered.
+    assert!(!app.designer_can_edit());
+    assert!(app.designer_can_delete());
+    let warning = app
+        .designer_delete_warning()
+        .expect("it warns before destroying ships");
+    assert!(warning.contains("destroyed"), "{warning}");
+
+    let before = app.game.as_ref().expect("game").fleets.len();
+    app.designer_delete();
+
+    let game = app.game.as_ref().expect("game");
+    assert_eq!(game.designs[0][slot].hull_id, -1, "the slot is free again");
+    let slot = u8::try_from(slot).unwrap();
+    assert!(
+        !game
+            .fleets
+            .iter()
+            .any(|f| f.owner == 0 && f.stacks.iter().any(|s| s.design == slot)),
+        "every ship built to it is gone"
+    );
+    assert!(game.fleets.len() <= before);
+    assert!(!app.designer_list().contains(&String::new()));
+}
+
+/// Copying one of the player's own designs numbers the copy, and copying is
+/// refused once all sixteen slots are full.
+#[test]
+fn copying_stops_at_sixteen_designs() {
+    let mut app = a_game();
+    app.open_designer();
+
+    let first = app.designer_list()[0].clone();
+    app.designer_copy();
+    let copy = app
+        .designer
+        .as_ref()
+        .expect("open")
+        .editing
+        .as_ref()
+        .expect("editing")
+        .design
+        .name
+        .clone();
+    assert_eq!(copy, format!("{first} (2)"));
+    app.designer_cancel();
+
+    // Fill every slot, then Copy is greyed out — which is the manual's
+    // "Stars! will gray the Copy Selected Design button" (p. 9-6).
+    {
+        let game = app.game.as_mut().expect("game");
+        let template = game.designs[0]
+            .iter()
+            .find(|d| d.hull_id >= 0)
+            .cloned()
+            .expect("a design");
+        game.designs[0].resize(26, template.clone());
+        for slot in 0..16 {
+            game.designs[0][slot] = template.clone();
+        }
+    }
+    assert_eq!(app.designer_list().len(), 16);
+    assert!(!app.designer_can_copy());
+}
+
+/// The cost panel shows the miniaturised price, and a starbase's is half what
+/// the hull table says.
+#[test]
+fn the_cost_panel_shows_what_it_would_really_cost() {
+    let mut app = a_game();
+    app.open_designer();
+    app.designer.as_mut().expect("open").view = DesignView::Hulls;
+
+    let rows = app.designer_cost_rows();
+    let labels: Vec<&str> = rows.iter().map(|(l, _)| l.as_str()).collect();
+    assert_eq!(
+        labels,
+        vec!["Ironium", "Boranium", "Germanium", "Resources", "Mass"]
+    );
+
+    let stats = app.designer_stat_rows();
+    let labels: Vec<&str> = stats.iter().map(|(l, _)| l.as_str()).collect();
+    assert!(labels.contains(&"Max Fuel:"), "{labels:?}");
+    assert!(labels.contains(&"Armor:"), "{labels:?}");
+    assert!(labels.contains(&"Shields:"), "{labels:?}");
+
+    // The Orbital Fort is listed at 80 resources. It requires no technology at
+    // all, so miniaturisation measures a Jack of All Trades' three starting
+    // levels and takes 12% off — 80 becomes 70 — and the starbase halving then
+    // makes it 35.
+    app.designer.as_mut().expect("open").starbase = true;
+    app.designer.as_mut().expect("open").selected = 0;
+    let fort = app
+        .designer_hulls()
+        .iter()
+        .position(|h| h.name == "Orbital Fort")
+        .expect("an Orbital Fort");
+    app.designer.as_mut().expect("open").selected = fort;
+    assert_eq!(stars_core::components::STARBASE_HULLS[0].resource_cost, 80);
+    let rows = app.designer_cost_rows();
+    let resources = rows
+        .iter()
+        .find(|(l, _)| l == "Resources")
+        .map(|(_, v)| v.clone())
+        .expect("a resource cost");
+    assert_eq!(resources, "35");
+    // and a starbase has no mass row, because it never moves.
+    assert!(!rows.iter().any(|(l, _)| l == "Mass"));
+}
+
+/// A foreign design can only be copied if its hull is one the player could
+/// build for themselves.
+#[test]
+fn a_foreign_design_needs_a_hull_you_can_build() {
+    let mut app = a_game();
+    app.open_designer();
+    app.designer.as_mut().expect("open").view = DesignView::Enemy;
+
+    let enemy = app.designer_enemy_designs();
+    assert!(!enemy.is_empty(), "the opponent has designs of its own");
+    // Each entry names its owner, so the list is not just design names.
+    let list = app.designer_list();
+    assert_eq!(list.len(), enemy.len());
+    let opponent = app.player_name(enemy[0].0);
+    assert!(list[0].starts_with(&opponent), "{:?}", list[0]);
+
+    // Copying is offered only for hulls this player can build. Whatever the
+    // answer, it must agree with the hull list.
+    let buildable: Vec<&str> = app.designer_hulls().iter().map(|h| h.name).collect();
+    for (index, _) in enemy.iter().enumerate() {
+        app.designer.as_mut().expect("open").selected = index;
+        let design = app.designer_subject().expect("a design");
+        let hull = App::designer_hull(&design).expect("a hull");
+        assert_eq!(
+            app.designer_can_copy(),
+            buildable.contains(&hull.name),
+            "{} on a {}",
+            design.name,
+            hull.name
+        );
+    }
+}

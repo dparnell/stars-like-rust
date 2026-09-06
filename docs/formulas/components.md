@@ -1,6 +1,6 @@
 # Data: Component Tables
 
-- **Status:** verified (engines, armour, shields, scanners, planetary, beams, torpedoes); hulls and stock designs not yet transcribed
+- **Status:** verified (engines, armour, shields, scanners, planetary, beams, torpedoes, hulls); stock designs not yet transcribed
 - **Ghidra addresses:** see the table below
 - **Manual reference:** the Technology Browser chapters describe every component
 - **Uses RNG:** no
@@ -19,9 +19,9 @@ engines, scanner range needs scanners, and build cost needs all of them.
 | `rgplanetary` | `1008:16b8` | 15 | yes |
 | `rgtorp` | `1008:2180` | 12 | yes |
 | `rgbeam` | `1008:2450` | 24 | yes |
-| `rghuldef` | — | 32 | no |
+| `rghuldef` | `1008:29f0` | 32 | yes |
 | `rgshdefT` | — | 22 | no |
-| `rghuldefSB` | — | 5 | no |
+| `rghuldefSB` | `1008:4872` | 5 | yes |
 | `rgshdefSBT` | — | 4 | no |
 
 ## Layout
@@ -73,9 +73,25 @@ transcription agrees. Four entries are covered, one per structure shape
 (engine, armour, beam, planetary), together with the table lengths and the
 negative-range convention.
 
+## Hulls
+
+A hull is a `HULDEF`, 143 bytes: a `HUL` (the shared header plus `wtEmpty`,
+`resCost`, `rgwtOreCost`, `ibmp`, `wtCargoMax`, `wtFuelMax`, `dp`, sixteen
+`HS` slots and `chs`), then a packed word at `+0x7B` carrying the battle
+category, `wrcCargo` at `+0x7D` and `rgbrc[16]` at `+0x7F`.
+
+The last two are **presentation**, but recovering them is what makes the ship
+designer's schematic possible: they say where each slot and the cargo space sit
+on the designer's grid. See `../ui/ship-design.md`, and
+`../vectors/hull-schematics.json` for all 37 of them.
+
+Two figures are stored in units the game converts before showing them:
+`wtCargoMax` is `0xFFFF` on the three starbases with an unlimited dock, and a
+**starbase's costs are stored doubled** — see `design.md`.
+
 ## Open questions
 
-- Hulls (`rghuldef`, 32) and the stock ship and starbase designs are not
-  transcribed; they are needed for ship design and combat.
+- The stock ship and starbase designs (`rgshdefT`, `rgshdefSBT`) are not
+  transcribed.
 - `grfAbilities` bit meanings are only partly known: bit 0 marks a ramscoop on
   an engine. The rest await the ship-design work.

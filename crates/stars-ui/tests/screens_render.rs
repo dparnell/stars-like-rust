@@ -366,3 +366,72 @@ fn a_new_game_can_be_saved_and_reopened() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The Ship and Starbase Designer, in both of its faces and all four views.
+///
+/// It is a dialog rather than a screen, so it gets its own pass: the browser
+/// over designs, hulls and enemy hulls, and then the editor with its parts
+/// list and schematic, each laid out for real.
+#[test]
+fn the_designer_draws_in_both_modes() {
+    use stars_core::newgame::{NewGame, NewPlayer, Size};
+    use stars_core::{opponents, Race};
+
+    let mut app = App::new();
+    app.new_game(&NewGame {
+        name: "Designer".to_string(),
+        size: Size::Small,
+        players: vec![
+            NewPlayer::human(Race::humanoid()),
+            opponents::opponent(1, 1).expect("an opponent").as_player(),
+        ],
+        ..NewGame::default()
+    })
+    .expect("creates the game");
+
+    let frame = |app: &mut App| {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                stars_ui::views::designer::view(app, ui);
+            });
+        });
+    };
+
+    app.open_designer();
+    for starbase in [false, true] {
+        for view in stars_ui::DesignView::ALL {
+            let designer = app.designer.as_mut().expect("open");
+            designer.starbase = starbase;
+            designer.view = view;
+            designer.selected = 0;
+            // Every entry of every list, so no hull's schematic goes undrawn.
+            let count = app.designer_list().len().max(1);
+            for index in 0..count {
+                app.designer.as_mut().expect("open").selected = index;
+                frame(&mut app);
+            }
+        }
+    }
+
+    // The editor, on a copied hull, with each parts filter in turn.
+    let designer = app.designer.as_mut().expect("open");
+    designer.starbase = false;
+    designer.view = stars_ui::DesignView::Hulls;
+    designer.selected = 0;
+    app.designer_copy();
+    assert!(app.designer.as_ref().expect("open").editing.is_some());
+    for filter in 0..app.designer_filters().len() {
+        app.designer.as_mut().expect("open").filter = filter;
+        frame(&mut app);
+    }
+
+    // And the complaint an engineless design draws.
+    app.designer_ok();
+    assert!(app.designer.as_ref().expect("open").complaint.is_some());
+    frame(&mut app);
+
+    app.close_designer();
+    assert!(app.designer.is_none());
+    frame(&mut app);
+}

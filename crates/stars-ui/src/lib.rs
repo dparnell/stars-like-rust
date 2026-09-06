@@ -36,6 +36,6 @@ pub mod vcr;
 pub mod views;
 
 pub use app::{
-    distance_text, App, FindResult, ScanOverlays, ScanView, Screen, Selection, StatusBar,
-    SurveyBar, SurveySubject,
+    distance_text, App, DesignView, Designer, DesignerDrag, Editing, FindResult, PartRow,
+    ScanOverlays, ScanView, SchematicSlot, Screen, Selection, StatusBar, SurveyBar, SurveySubject,
 };

@@ -546,7 +546,12 @@ fn ships_of(state: &GameState, player: usize, slot: usize) -> u32 {
 }
 
 /// Build a design's type-26 record.
-fn design_record(design: &ShipDesign, number: u8, starbase: bool, built: u32) -> DesignRecord {
+///
+/// Also the body of a `rtLogShDef` order (`LogChangeShDef`), which embeds the
+/// same record after its header word — so a client that lets the player change
+/// a design writes one of these into the order log.
+#[must_use]
+pub fn design_record(design: &ShipDesign, number: u8, starbase: bool, built: u32) -> DesignRecord {
     DesignRecord {
         full_design: true,
         transferred: false,

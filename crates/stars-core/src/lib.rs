@@ -65,6 +65,7 @@ pub mod newgame;
 pub mod opponents;
 pub mod orders;
 pub mod packet;
+pub mod parts;
 pub mod patrol;
 pub mod planet;
 pub mod population;

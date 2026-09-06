@@ -1435,7 +1435,58 @@ disagree.
     word `Fleet`, so `Fleet7` loses its digit too and finds nothing. The test
     asserts that.
 
-43. **What is still missing to call it playable.** Every waypoint task is now
+43. ~~**The ship design screen.**~~ **Done.** The Ship and Starbase Designer
+    (`ShipBuilder`, `10c8:008c`; `SlotDlg`, `10c8:0550`), spec in
+    `docs/ui/ship-design.md`.
+
+    One dialog with two faces — a browser over designs and hulls, and an editor
+    over one design — with the two radio groups, all four views, the dropdown's
+    four different fillings, Copy / Edit / Delete and exactly when each is
+    enabled, and the sixteen-ship, ten-starbase limits.
+
+    Three things came out of the binary that this project did not have at all:
+
+    - **The schematic is data, not code.** Each hull carries `rgbrc[16]` at
+      `HULDEF+0x7F`, one byte per slot — low nibble the column, high nibble the
+      row on a 32-pixel grid — and `wrcCargo` at `+0x7D` for the hold.
+      `UpdateSlotGlobals` just multiplies. All 37 hulls are now transcribed
+      into `Hull::slot_pos` / `Hull::cargo_pos`, recorded in
+      `docs/vectors/hull-schematics.json`, and every hull comes out in its own
+      shape.
+    - **What a design really costs.** `GetTruePartCost` miniaturises every
+      component and the hull against the player's own tech — 4% a level to a
+      floor of 25%, or 5% to 20% with Bleeding Edge Technology, which pays for
+      it by charging double until you are past every requirement. Then a
+      starbase gets a fifth off for Improved Starbases and is **halved**,
+      because the hull table stores starbase costs doubled: the Orbital Fort is
+      listed at 80 resources and built for 40. `ShipDesign::cost` was the list
+      price and nothing corrected it.
+    - **Who may build what.** `FLookupPart` is a long table of racial gates,
+      now in `crates/stars-core/src/parts.rs` and pinned by a test that checks
+      every reserved component from both sides. Two of them the reconstruction
+      had **backwards**: Hyper Expansion cannot build a stargate *at all* (the
+      manual says so on p. 6-10, and the reconstruction reads it as HE's
+      exclusive), and the Mine Dispenser 50 is denied to War Monger rather than
+      reserved for it.
+
+    A design also reaches the host the way the original sends it: not by
+    rewriting the state file but as an `rtLogShDef` order in the `.xN`, which
+    the replay side already understood. Wiring that up turned up a **bug in
+    the replay**: `SHDEF.det` packs the design slot as a five-bit `ishdef` and
+    a starbase design lives at 16..=25, so its top bit is set — and that same
+    bit is what the embedded record calls its "starbase" flag. `set_design` was
+    reading the header's slot *and* adding sixteen for a starbase, which put
+    every edited starbase design in slot 32 and up. No fixture could have shown
+    it: ships only ever use 0..=15.
+
+    `IDropPart` is reproduced whole, Ctrl and Shift included, along with its
+    two oddities: an engine slot fills completely whatever the drag was
+    carrying, and dropping an engine back on the list takes the whole stack
+    off. So is the one visual quirk — the dock is drawn round for the Space
+    Dock and the Death Star and square for the Space Station and the Ultra
+    Station, which the binary really does decide with two equality tests.
+
+44. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -1452,6 +1503,9 @@ disagree.
       the game does not either; the order log does.
     - **The scanner's remaining tools**: the design and enemy-class filters,
       and clicking one spot repeatedly to cycle through what is on it.
+    - **The designer's remaining numbers**: `LComputePower` for a design's
+      `Rating:`, and the cloak, jammer and initiative rows; and `SHDEF.cBuilt`,
+      so the plaque's second figure is real.
     - **Waypoint tasks from the map**: a leg can be dragged out, but the task
       it carries is still set from the Fleets screen.
     - **`PLANET.turn`**, the stamp saying when a planet was last seen, which

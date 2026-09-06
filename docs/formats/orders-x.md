@@ -301,6 +301,17 @@ and, when present, the embedded design via
 [`DesignRecord`](../../crates/stars-formats/src/design.rs) (a bare *delete* is
 just the 2-byte header, no design). In exodus every design change is owned by
 player 6 (`iPlr = 5`) and carries `mdChg = 1` when a design body is present.
+`LogChangeShDef` (`log.c`) confirms the two modes: **1** when a design follows,
+**0** for a delete.
+
+**`ishdef` is the whole slot.** `SHDEF.det` packs it as
+`det:8, fInclude:1, fFree:1, ishdef:5, fGift:1`, and a starbase design lives at
+16..=25 — so its top bit is set. `LogChangeShDef` writes that entire five-bit
+field into the header word, while the embedded record's `design_number` carries
+only the low four and what the record calls its "starbase" flag *is* the fifth
+bit. So the slot is read from the header alone; adding the starbase offset to
+it a second time put every edited starbase design in slot 32 and up, which no
+ship fixture could reveal because ships only ever use 0..=15.
 
 ### Production-queue change (`RTCHGPRODQ`, id 29)
 

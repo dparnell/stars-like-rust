@@ -1,0 +1,348 @@
+{
+  "_comment": [
+    "Where every hull's slots and cargo space sit on the ship designer's",
+    "schematic. Read out of rghuldef (1008:29f0, 32 entries) and rghuldefSB",
+    "(1008:4872, 5 entries): HULDEF.chs at +0x7A, HULDEF.wrcCargo at +0x7D and",
+    "HULDEF.rgbrc[16] at +0x7F. A rgbrc byte is a cell on a 32-pixel grid --",
+    "low nibble the column, high nibble the row -- and a slot is two cells",
+    "square. wrcCargo packs two such bytes: the high byte is the cargo space's",
+    "top-left cell, the low byte its bottom-right; ffff means the hull has no",
+    "hold. See docs/ui/ship-design.md and UpdateSlotGlobals (10c8:6528)."
+  ],
+  "source": "rghuldef @ 1008:29f0 and rghuldefSB @ 1008:4872 in stars.2.7j.exe",
+  "cases": [
+    {
+      "table": "HULLS",
+      "index": 0,
+      "name": "Small Freighter",
+      "address": "1008:29f0",
+      "chs": 3,
+      "wrcCargo": "3355",
+      "rgbrc": "31373500000000000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 1,
+      "name": "Medium Freighter",
+      "address": "1008:2a7f",
+      "chs": 3,
+      "wrcCargo": "3256",
+      "rgbrc": "30383600000000000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 2,
+      "name": "Large Freighter",
+      "address": "1008:2b0e",
+      "chs": 3,
+      "wrcCargo": "2266",
+      "rgbrc": "30264600000000000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 3,
+      "name": "Super Freighter",
+      "address": "1008:2b9d",
+      "chs": 4,
+      "wrcCargo": "2288",
+      "rgbrc": "40284868000000000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 4,
+      "name": "Scout",
+      "address": "1008:2c2c",
+      "chs": 3,
+      "wrcCargo": "ffff",
+      "rgbrc": "32363400000000000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 5,
+      "name": "Frigate",
+      "address": "1008:2cbb",
+      "chs": 4,
+      "wrcCargo": "ffff",
+      "rgbrc": "31373533000000000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 6,
+      "name": "Destroyer",
+      "address": "1008:2d4a",
+      "chs": 7,
+      "wrcCargo": "ffff",
+      "rgbrc": "42157546442363000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 7,
+      "name": "Cruiser",
+      "address": "1008:2dd9",
+      "chs": 7,
+      "wrcCargo": "ffff",
+      "rgbrc": "31234315553735000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 8,
+      "name": "Battle Cruiser",
+      "address": "1008:2e68",
+      "chs": 7,
+      "wrcCargo": "ffff",
+      "rgbrc": "31234315553735000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 9,
+      "name": "Battleship",
+      "address": "1008:2ef7",
+      "chs": 11,
+      "wrcCargo": "ffff",
+      "rgbrc": "30382614540262463422420000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 10,
+      "name": "Dreadnought",
+      "address": "1008:2f86",
+      "chs": 13,
+      "wrcCargo": "ffff",
+      "rgbrc": "40206012723252246444365648000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 11,
+      "name": "Privateer",
+      "address": "1008:3015",
+      "chs": 5,
+      "wrcCargo": "4367",
+      "rgbrc": "41375725650000000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 12,
+      "name": "Rogue",
+      "address": "1008:30a4",
+      "chs": 9,
+      "wrcCargo": "3376",
+      "rgbrc": "41466648147426127200000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 13,
+      "name": "Galleon",
+      "address": "1008:3133",
+      "chs": 8,
+      "wrcCargo": "3276",
+      "rgbrc": "40137315753656480000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 14,
+      "name": "Mini-Colony Ship",
+      "address": "1008:31c2",
+      "chs": 2,
+      "wrcCargo": "3456",
+      "rgbrc": "32360000000000000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 15,
+      "name": "Colony Ship",
+      "address": "1008:3251",
+      "chs": 2,
+      "wrcCargo": "3456",
+      "rgbrc": "32360000000000000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 16,
+      "name": "Mini Bomber",
+      "address": "1008:32e0",
+      "chs": 2,
+      "wrcCargo": "ffff",
+      "rgbrc": "33350000000000000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 17,
+      "name": "B-17 Bomber",
+      "address": "1008:336f",
+      "chs": 4,
+      "wrcCargo": "ffff",
+      "rgbrc": "31333537000000000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 18,
+      "name": "Stealth Bomber",
+      "address": "1008:33fe",
+      "chs": 5,
+      "wrcCargo": "ffff",
+      "rgbrc": "32244426460000000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 19,
+      "name": "B-52 Bomber",
+      "address": "1008:348d",
+      "chs": 7,
+      "wrcCargo": "ffff",
+      "rgbrc": "31135325453733000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 20,
+      "name": "Midget Miner",
+      "address": "1008:351c",
+      "chs": 2,
+      "wrcCargo": "ffff",
+      "rgbrc": "33350000000000000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 21,
+      "name": "Mini-Miner",
+      "address": "1008:35ab",
+      "chs": 4,
+      "wrcCargo": "ffff",
+      "rgbrc": "32362444000000000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 22,
+      "name": "Miner",
+      "address": "1008:363a",
+      "chs": 6,
+      "wrcCargo": "ffff",
+      "rgbrc": "31372325434500000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 23,
+      "name": "Maxi-Miner",
+      "address": "1008:36c9",
+      "chs": 6,
+      "wrcCargo": "ffff",
+      "rgbrc": "31372325434500000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 24,
+      "name": "Ultra-Miner",
+      "address": "1008:3758",
+      "chs": 6,
+      "wrcCargo": "ffff",
+      "rgbrc": "31372325434500000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 25,
+      "name": "Fuel Transport",
+      "address": "1008:37e7",
+      "chs": 2,
+      "wrcCargo": "ffff",
+      "rgbrc": "33350000000000000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 26,
+      "name": "Super-Fuel Xport",
+      "address": "1008:3876",
+      "chs": 3,
+      "wrcCargo": "ffff",
+      "rgbrc": "32343600000000000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 27,
+      "name": "Mini Mine Layer",
+      "address": "1008:3905",
+      "chs": 4,
+      "wrcCargo": "ffff",
+      "rgbrc": "32244436000000000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 28,
+      "name": "Super Mine Layer",
+      "address": "1008:3994",
+      "chs": 6,
+      "wrcCargo": "ffff",
+      "rgbrc": "31234335274700000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 29,
+      "name": "Nubian",
+      "address": "1008:3a23",
+      "chs": 13,
+      "wrcCargo": "ffff",
+      "rgbrc": "40206012723252246444365648000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 30,
+      "name": "Mini Morph",
+      "address": "1008:3ab2",
+      "chs": 7,
+      "wrcCargo": "2466",
+      "rgbrc": "30322646381252000000000000000000"
+    },
+    {
+      "table": "HULLS",
+      "index": 31,
+      "name": "Meta Morph",
+      "address": "1008:3b41",
+      "chs": 7,
+      "wrcCargo": "2466",
+      "rgbrc": "30322646381252000000000000000000"
+    },
+    {
+      "table": "STARBASE_HULLS",
+      "index": 0,
+      "name": "Orbital Fort",
+      "address": "1008:4872",
+      "chs": 5,
+      "wrcCargo": "ffff",
+      "rgbrc": "44244664420000000000000000000000"
+    },
+    {
+      "table": "STARBASE_HULLS",
+      "index": 1,
+      "name": "Space Dock",
+      "address": "1008:4901",
+      "chs": 8,
+      "wrcCargo": "4466",
+      "rgbrc": "22144147742666620000000000000000"
+    },
+    {
+      "table": "STARBASE_HULLS",
+      "index": 2,
+      "name": "Space Station",
+      "address": "1008:4990",
+      "chs": 12,
+      "wrcCargo": "4466",
+      "rgbrc": "42050358508564832430463800000000"
+    },
+    {
+      "table": "STARBASE_HULLS",
+      "index": 3,
+      "name": "Ultra Station",
+      "address": "1008:4a1f",
+      "chs": 16,
+      "wrcCargo": "4466",
+      "rgbrc": "24504258622646038338646630220585"
+    },
+    {
+      "table": "STARBASE_HULLS",
+      "index": 4,
+      "name": "Death Star",
+      "address": "1008:4aae",
+      "chs": 16,
+      "wrcCargo": "4466",
+      "rgbrc": "14604168622647028228746620220686"
+    }
+  ]
+}
