@@ -317,7 +317,11 @@ pub struct Hull {
     pub armor: u16,
     /// Base battle initiative.
     pub initiative: u8,
-    /// Hull category, used for battle targeting.
+    /// Which of the eight classes the hull belongs to — the low nibble but
+    /// one of the packed word at `+0x7B`.
+    ///
+    /// This is what the scanner's Enemy Ship Class filter selects on; see
+    /// [`crate::design::ShipClass`], which names the eight.
     pub category: u8,
     /// How many of [`Hull::slots`] are real.
     pub slot_count: u8,

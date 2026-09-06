@@ -263,7 +263,9 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 }
             }
             if app.scan_overlays.ship_counts {
-                let ships: i32 = fleet.stacks.iter().map(|s| s.count).sum();
+                // The two ship filters narrow this: the design filter on this
+                // player's own fleets, the class filter on everybody else's.
+                let ships = app.filtered_ship_count(fleet);
                 painter.text(
                     at + Vec2::new(9.0, -9.0),
                     egui::Align2::LEFT_BOTTOM,

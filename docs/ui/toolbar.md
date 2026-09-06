@@ -1,7 +1,6 @@
 # The scanner's toolbar
 
-Status: **recovered and reimplemented**, less the two ship filters, which are
-drawn but not wired.
+Status: **recovered and reimplemented**.
 
 `TbWndProc` (`1068:0000`) and `DrawToolbar` (`1068:06f0`). A single row above
 the scanner holding **eighteen buttons and one combo box**, hidden and shown
@@ -83,25 +82,59 @@ The manual explains what it is for (p. 5-13): the overlay is drawn as though
 every scanner were only that effective, so a player can see how close a ship
 with matching cloaking would get.
 
+## The two ship filters
+
+Buttons 12/13 and 14/15 are each a toggle with a menu hung off it, and the
+thing to get right is that **they apply to different fleets**. `CshOfFleet`
+(`1058:4b4a`), which is what counts the ships the Ship Count overlay writes:
+
+* the **Ship Design filter** (`0x200`, mask `grbitScanShip`) narrows only *this
+  player's own* fleets, and picks by **design slot** — bit `n` is design `n`;
+* the **Enemy Ship Class filter** (`0x800`, mask `grbitScanEShip`) narrows only
+  *everybody else's*, and picks by the hull's **class**, which it reads from
+  `(huldef.wFlags >> 10) & 0xf` — the field this project transcribes as
+  `Hull::category`;
+* a fleet neither applies to is counted whole.
+
+So the two never fight over the same fleet, and turning both on filters your
+ships one way and theirs another at the same time.
+
+The eight classes are Colony, Freighter, Scout, Warship, Utility, Bomber, Miner
+and Fuel Transport, and every ship hull falls in one; see
+[`stars_core::design::ShipClass`]. A **starbase** stores category 0, which
+would read as a colony ship, so it is refused rather than misfiled.
+
+Both menus open with the same three commands — all, invert, none — then a rule,
+then the entries. The design menu lists only the slots that hold a design,
+skipping any whose `fFree` bit is set, and **each entry keeps its own slot's
+bit**: emptying a design does not renumber the others. Both menus are built
+from the same three strings in the original, so the enemy one is headed "All
+Designs" too.
+
+One touch worth keeping: **ticking something while the overlay is off turns the
+overlay on**, because there is no sense in choosing a design and seeing nothing
+change. Unticking the last one does *not* turn it off again, and the "none"
+command does not either — the original only ever switches it on.
+
 ## What is reproduced
 
 The row and its exact layout — every gap, every width, the combo where the
 table puts it — the eighteen pictures out of the game's own bitmap when a copy
 of the original has been found, the pressed look and its one-pixel nudge, the
-radio group, every overlay toggle this project models, the zoom menu with the
-nine sizes the original offers, and the combo's parsing and clamping.
+radio group, every overlay toggle this project models, both ship filters and
+their menus, the zoom menu with the nine sizes the original offers, and the
+combo's parsing and clamping.
 
 Without the game's pictures each button falls back to a short label, so the
 toolbar works either way.
 
 ## What is not
 
-* **The two ship filters** (12/13 and 14/15). They are drawn, because a hole in
-  the row would misrepresent the toolbar worse than a button that says it is
-  not wired, but neither the design filter nor the enemy class filter is
-  implemented — the scanner does not yet filter what it draws by design.
 * The **minefield menu** behind button 8, which offers all/none and a toggle
   per owner. The button toggles the overlay whole.
+* The filters narrow the **ship counts**; the manual also says they narrow
+  which planets get orbit rings, and this project does not draw orbit rings.
+* Neither mask is kept in `stars.ini`, where the original keeps both.
 * **Tooltips** are egui's rather than the original's `ShowTooltip`.
 * **View (Toolbar)** to hide the row: this frontend has no View menu.
 * The scanner-coverage overlay does not yet **vary** with the percentage; the

@@ -206,6 +206,12 @@ pub struct ScanOverlays {
     pub ship_counts: bool,
     /// `Idle Fleets Filter`: show only the fleets with nothing to do.
     pub idle_fleets: bool,
+    /// `Ship Design Filter`: count only the chosen designs, in this player's
+    /// own fleets (`grbitScan & 0x200`).
+    pub ship_design_filter: bool,
+    /// `Enemy Ship Class Filter`: count only the chosen classes, in everybody
+    /// else's fleets (`grbitScan & 0x800`).
+    pub enemy_class_filter: bool,
 }
 
 /// What the survey pane is looking at.
@@ -261,6 +267,12 @@ pub struct App {
     pub scan_view: ScanView,
     /// The scanner's overlays and filters.
     pub scan_overlays: ScanOverlays,
+    /// Which of this player's sixteen design slots the Ship Design filter
+    /// counts (`grbitScanShip`), a bit each.
+    pub scan_design_filter: u16,
+    /// Which of the eight ship classes the Enemy Ship Class filter counts
+    /// (`grbitScanEShip`), a bit each.
+    pub scan_class_filter: u8,
     /// What the toolbar's coverage combo holds, in percent
     /// (`vpctRadarView`). The overlay is drawn as though every scanner were
     /// only this effective, which is how a player sees what a cloaked ship
@@ -6292,31 +6304,21 @@ impl App {
             Button::IdleFleets => self.scan_overlays.idle_fleets,
             Button::PlanetNames => self.scan_overlays.names,
             Button::ShipCount => self.scan_overlays.ship_counts,
-            // The two filters this project does not model yet, and the three
-            // that are momentary in the original as well.
-            Button::ShipDesignFilter
-            | Button::EnemyClassFilter
-            | Button::ShipDesignMenu
-            | Button::EnemyClassMenu
-            | Button::Zoom => false,
+            Button::ShipDesignFilter => self.scan_overlays.ship_design_filter,
+            Button::EnemyClassFilter => self.scan_overlays.enemy_class_filter,
+            // The menus and Zoom are momentary in the original too.
+            Button::ShipDesignMenu | Button::EnemyClassMenu | Button::Zoom => false,
         }
     }
 
-    /// Whether pressing a toolbar button does anything yet.
+    /// Whether pressing a toolbar button does anything.
     ///
-    /// The two ship filters and their menus are drawn, because leaving a hole
-    /// in the row would be a worse lie than a button that says it is not
-    /// wired, but they are not implemented — see `docs/ui/toolbar.md`.
+    /// Everything on the row is wired now; this is kept because the view asks
+    /// it, and because a button that cannot act should say so rather than look
+    /// broken.
     #[must_use]
-    pub fn toolbar_enabled(&self, button: crate::toolbar::Button) -> bool {
-        use crate::toolbar::Button;
-        !matches!(
-            button,
-            Button::ShipDesignFilter
-                | Button::ShipDesignMenu
-                | Button::EnemyClassFilter
-                | Button::EnemyClassMenu
-        )
+    pub fn toolbar_enabled(&self, _button: crate::toolbar::Button) -> bool {
+        true
     }
 
     /// Press a toolbar button.
@@ -6350,10 +6352,14 @@ impl App {
                     self.scan_zoom + 1
                 };
             }
-            Button::ShipDesignFilter
-            | Button::ShipDesignMenu
-            | Button::EnemyClassFilter
-            | Button::EnemyClassMenu => {}
+            Button::ShipDesignFilter => {
+                self.scan_overlays.ship_design_filter = !self.scan_overlays.ship_design_filter;
+            }
+            Button::EnemyClassFilter => {
+                self.scan_overlays.enemy_class_filter = !self.scan_overlays.enemy_class_filter;
+            }
+            // The two menus do their work through the calls below.
+            Button::ShipDesignMenu | Button::EnemyClassMenu => {}
         }
     }
 
@@ -6361,5 +6367,174 @@ impl App {
     /// what was typed into it.
     pub fn set_scan_coverage(&mut self, text: &str) {
         self.scan_coverage_pct = crate::toolbar::coverage_from_text(text);
+    }
+}
+
+// --- The scanner's two ship filters ---------------------------------------
+
+/// What one of the two filter menus offers, besides its three commands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FilterEntry {
+    /// Which bit it is.
+    pub bit: u8,
+    /// What to write beside the tick.
+    pub name: String,
+    /// Whether it is ticked.
+    pub on: bool,
+}
+
+impl App {
+    /// The designs the Ship Design filter's menu lists.
+    ///
+    /// `ExecuteButton` walks all sixteen slots and skips any whose `fFree` bit
+    /// is set — an empty slot — so the menu is the designs that exist, and the
+    /// bit each toggles is its **slot**, not its position in the menu.
+    #[must_use]
+    pub fn design_filter_entries(&self) -> Vec<FilterEntry> {
+        let me = self.local_player();
+        self.game
+            .as_ref()
+            .and_then(|game| game.designs.get(me))
+            .map(|designs| {
+                designs
+                    .iter()
+                    .enumerate()
+                    .take(16)
+                    .filter(|(_, design)| design.hull_id >= 0)
+                    .map(|(slot, design)| FilterEntry {
+                        bit: u8::try_from(slot).unwrap_or(0),
+                        name: design.name.clone(),
+                        on: self.scan_design_filter & (1 << slot) != 0,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The eight classes the Enemy Ship Class filter's menu lists.
+    #[must_use]
+    pub fn class_filter_entries(&self) -> Vec<FilterEntry> {
+        stars_core::design::ShipClass::ALL
+            .iter()
+            .map(|class| FilterEntry {
+                bit: class.index(),
+                name: class.name().to_string(),
+                on: self.scan_class_filter & (1 << class.index()) != 0,
+            })
+            .collect()
+    }
+
+    /// Turn one design on or off in the filter.
+    ///
+    /// Ticking something while the overlay is **off** turns the overlay on,
+    /// which is what the original does — there is no point choosing a design
+    /// and seeing nothing change. Unticking does not turn it off again.
+    pub fn toggle_design_filter(&mut self, slot: u8) {
+        self.scan_design_filter ^= 1 << slot;
+        if self.scan_design_filter & (1 << slot) != 0 {
+            self.scan_overlays.ship_design_filter = true;
+        }
+    }
+
+    /// The menu's three commands: all, invert, none.
+    pub fn design_filter_command(&mut self, command: FilterCommand) {
+        self.scan_design_filter = command.apply(self.scan_design_filter, u16::MAX);
+        if self.scan_design_filter != 0 {
+            self.scan_overlays.ship_design_filter = true;
+        }
+    }
+
+    /// Turn one class on or off in the enemy filter.
+    pub fn toggle_class_filter(&mut self, class: u8) {
+        self.scan_class_filter ^= 1 << class;
+        if self.scan_class_filter & (1 << class) != 0 {
+            self.scan_overlays.enemy_class_filter = true;
+        }
+    }
+
+    /// The enemy menu's three commands.
+    pub fn class_filter_command(&mut self, command: FilterCommand) {
+        self.scan_class_filter = command.apply(self.scan_class_filter, u8::MAX);
+        if self.scan_class_filter != 0 {
+            self.scan_overlays.enemy_class_filter = true;
+        }
+    }
+
+    /// How many ships of a fleet the scanner counts, with the filters applied.
+    ///
+    /// `CshOfFleet` (`1058:4b4a`) puts the two filters on **different fleets**,
+    /// which is the thing to get right: the design filter looks only at this
+    /// player's own fleets and picks by design slot, and the class filter looks
+    /// only at everybody else's and picks by the hull's class. A fleet that
+    /// neither filter applies to is counted whole.
+    #[must_use]
+    pub fn filtered_ship_count(&self, fleet: &stars_core::fleet::Fleet) -> i32 {
+        let me = self.local_player();
+        let mine = usize::try_from(fleet.owner).is_ok_and(|owner| owner == me);
+        let whole = || fleet.stacks.iter().map(|stack| stack.count).sum();
+
+        if self.scan_overlays.ship_design_filter && mine {
+            return fleet
+                .stacks
+                .iter()
+                .filter(|stack| self.scan_design_filter & (1 << u16::from(stack.design)) != 0)
+                .map(|stack| stack.count)
+                .sum();
+        }
+        if self.scan_overlays.enemy_class_filter && !mine {
+            let Some(designs) = usize::try_from(fleet.owner)
+                .ok()
+                .and_then(|owner| self.game.as_ref()?.designs.get(owner))
+            else {
+                return 0;
+            };
+            return fleet
+                .stacks
+                .iter()
+                .filter(|stack| stack.count > 0)
+                .filter(|stack| {
+                    designs
+                        .get(usize::from(stack.design))
+                        .and_then(stars_core::design::ShipDesign::ship_class)
+                        .is_some_and(|class| self.scan_class_filter & (1 << class.index()) != 0)
+                })
+                .map(|stack| stack.count)
+                .sum();
+        }
+        whole()
+    }
+}
+
+/// The three commands both filter menus begin with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilterCommand {
+    /// Tick everything.
+    All,
+    /// Tick what is not ticked and untick what is.
+    Invert,
+    /// Untick everything.
+    None,
+}
+
+impl FilterCommand {
+    /// The three, in the menu's order, with the words the game uses. The
+    /// design menu spells the first and last "All Designs" and "No Designs";
+    /// the enemy menu uses the same three strings.
+    pub const ALL: [(FilterCommand, &'static str); 3] = [
+        (FilterCommand::All, "All Designs"),
+        (FilterCommand::Invert, "Invert Filter"),
+        (FilterCommand::None, "No Designs"),
+    ];
+
+    /// Apply it to a mask, given which bits that mask uses.
+    fn apply<T>(self, mask: T, full: T) -> T
+    where
+        T: std::ops::BitXor<Output = T> + Default,
+    {
+        match self {
+            FilterCommand::All => full,
+            FilterCommand::Invert => mask ^ full,
+            FilterCommand::None => T::default(),
+        }
     }
 }

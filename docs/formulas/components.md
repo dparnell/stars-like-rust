@@ -125,6 +125,18 @@ Two figures are stored in units the game converts before showing them:
 `wtCargoMax` is `0xFFFF` on the three starbases with an unlimited dock, and a
 **starbase's costs are stored doubled** — see `design.md`.
 
+## A hull's class
+
+The packed word at `+0x7B` of a `HULDEF` carries, in `(w >> 10) & 0xf`, which
+of **eight classes** the hull belongs to: Colony, Freighter, Scout, Warship,
+Utility, Bomber, Miner, Fuel Transport. It is transcribed as `Hull::category`
+and named by [`stars_core::design::ShipClass`].
+
+Its visible use is the scanner's Enemy Ship Class filter, which counts an
+opponent's ships by it — see `../ui/toolbar.md`. Every one of the thirty-two
+ship hulls falls in a class; all five **starbase** hulls store `0`, which would
+read as a colony ship, so a starbase is refused a class rather than misfiled.
+
 ## Open questions
 
 - The stock ship and starbase designs (`rgshdefT`, `rgshdefSBT`) are not

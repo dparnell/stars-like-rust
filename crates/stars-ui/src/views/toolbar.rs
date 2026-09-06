@@ -31,8 +31,11 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) -> bool {
                 Item::Button(button) => {
                     let (clicked, response) = draw_button(app, ui, button);
                     acted |= clicked;
-                    if button == Button::Zoom {
-                        acted |= zoom_menu(app, ui, &response, clicked);
+                    match button {
+                        Button::Zoom => acted |= zoom_menu(app, ui, &response, clicked),
+                        Button::ShipDesignMenu => acted |= filter_menu(app, ui, &response, false),
+                        Button::EnemyClassMenu => acted |= filter_menu(app, ui, &response, true),
+                        _ => {}
                     }
                 }
             }
@@ -128,9 +131,13 @@ fn draw_button(app: &mut App, ui: &mut egui::Ui, button: Button) -> (bool, egui:
     } else {
         format!("{} — not wired up yet", button.name())
     });
-    // Zoom opens a menu rather than doing anything itself, so the caller
-    // handles it.
-    if response.clicked() && button != Button::Zoom {
+    // The three buttons that open a menu do nothing themselves; the caller
+    // handles them.
+    let opens_a_menu = matches!(
+        button,
+        Button::Zoom | Button::ShipDesignMenu | Button::EnemyClassMenu
+    );
+    if response.clicked() && !opens_a_menu {
         app.toolbar_click(button);
         return (true, response);
     }
@@ -211,5 +218,73 @@ fn short_label(button: Button) -> &'static str {
         Button::EnemyClassFilter => "Enmy",
         Button::Zoom => "Zoom",
         Button::ShipCount => "123",
+    }
+}
+
+/// One of the two ship filters' menus: three commands, a rule, then a tick per
+/// entry.
+///
+/// Both menus are built from the same three strings in the original, so the
+/// enemy one says "All Designs" too. That is the game's own wording reused,
+/// not a slip here.
+fn filter_menu(app: &mut App, ui: &mut egui::Ui, response: &egui::Response, enemy: bool) -> bool {
+    let id = ui.make_persistent_id(if enemy {
+        "toolbar-class-filter"
+    } else {
+        "toolbar-design-filter"
+    });
+    if response.clicked() {
+        ui.memory_mut(|memory| memory.toggle_popup(id));
+    }
+
+    let entries = if enemy {
+        app.class_filter_entries()
+    } else {
+        app.design_filter_entries()
+    };
+    let mut command = None;
+    let mut toggled = None;
+    egui::popup::popup_below_widget(
+        ui,
+        id,
+        response,
+        egui::popup::PopupCloseBehavior::CloseOnClick,
+        |ui| {
+            ui.set_min_width(140.0);
+            for (which, label) in crate::FilterCommand::ALL {
+                if ui.button(label).clicked() {
+                    command = Some(which);
+                }
+            }
+            ui.separator();
+            if entries.is_empty() {
+                ui.label(egui::RichText::new("no designs yet").weak().small());
+            }
+            for entry in &entries {
+                if ui.selectable_label(entry.on, &entry.name).clicked() {
+                    toggled = Some(entry.bit);
+                }
+            }
+        },
+    );
+
+    match (command, toggled) {
+        (Some(command), _) => {
+            if enemy {
+                app.class_filter_command(command);
+            } else {
+                app.design_filter_command(command);
+            }
+            true
+        }
+        (_, Some(bit)) => {
+            if enemy {
+                app.toggle_class_filter(bit);
+            } else {
+                app.toggle_design_filter(bit);
+            }
+            true
+        }
+        _ => false,
     }
 }

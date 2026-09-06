@@ -71,6 +71,8 @@ fn every_scanner_view_draws() {
         fleet_paths: true,
         ship_counts: true,
         idle_fleets: true,
+        ship_design_filter: true,
+        enemy_class_filter: true,
     };
     draw(&mut app, Screen::Galaxy);
 }

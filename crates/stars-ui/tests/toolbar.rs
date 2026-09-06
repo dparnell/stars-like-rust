@@ -223,32 +223,25 @@ fn the_views_replace_each_other_and_the_rest_toggle() {
     );
 }
 
-/// The two ship filters are drawn but do nothing yet, and say so.
+/// Every button on the row is wired, the two ship filters included.
 #[test]
-fn the_two_ship_filters_are_not_wired_up() {
+fn every_button_is_wired() {
     let mut app = a_game();
-    for button in [
-        Button::ShipDesignFilter,
-        Button::ShipDesignMenu,
-        Button::EnemyClassFilter,
-        Button::EnemyClassMenu,
-    ] {
-        assert!(!app.toolbar_enabled(button), "{}", button.name());
-        assert!(!app.toolbar_down(button));
-        app.toolbar_click(button);
-        assert!(!app.toolbar_down(button), "and pressing does nothing");
-    }
-    // Everything else is live.
     for button in Button::ALL {
-        if !matches!(
-            button,
-            Button::ShipDesignFilter
-                | Button::ShipDesignMenu
-                | Button::EnemyClassFilter
-                | Button::EnemyClassMenu
-        ) {
-            assert!(app.toolbar_enabled(button), "{}", button.name());
-        }
+        assert!(app.toolbar_enabled(button), "{}", button.name());
+    }
+    // The two filter toggles behave like the other overlays.
+    for filter in [Button::ShipDesignFilter, Button::EnemyClassFilter] {
+        assert!(!app.toolbar_down(filter));
+        app.toolbar_click(filter);
+        assert!(app.toolbar_down(filter), "{}", filter.name());
+        app.toolbar_click(filter);
+        assert!(!app.toolbar_down(filter), "{}", filter.name());
+    }
+    // The two menus never show pressed; they open a menu instead.
+    for menu in [Button::ShipDesignMenu, Button::EnemyClassMenu] {
+        app.toolbar_click(menu);
+        assert!(!app.toolbar_down(menu), "{}", menu.name());
     }
 }
 

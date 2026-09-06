@@ -635,3 +635,86 @@ pub fn copied_name(name: &str) -> String {
     }
     format!("{name} (2)")
 }
+
+/// The eight classes a hull belongs to.
+///
+/// Every hull carries one in the packed word at `+0x7B` of its `HULDEF`,
+/// transcribed as [`crate::components::Hull::category`]. It is what the
+/// scanner's **Enemy Ship Class filter** selects on — `CshOfFleet`
+/// (`1058:4b4a`) compares `(huldef.wFlags >> 10) & 0xf` against the bit the
+/// player ticked — and the names are the game's own, from the eight
+/// consecutive strings the filter's menu is built from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ShipClass {
+    /// Colony ships.
+    Colony = 0,
+    /// Freighters.
+    Freighter = 1,
+    /// Scouts, frigates and destroyers.
+    Scout = 2,
+    /// Cruisers and up.
+    Warship = 3,
+    /// Privateers, mine layers, and the hulls that fit no other box.
+    Utility = 4,
+    /// Bombers.
+    Bomber = 5,
+    /// Mining ships.
+    Miner = 6,
+    /// The two tankers.
+    FuelTransport = 7,
+}
+
+impl ShipClass {
+    /// All eight, in the order the filter's menu lists them.
+    pub const ALL: [ShipClass; 8] = [
+        ShipClass::Colony,
+        ShipClass::Freighter,
+        ShipClass::Scout,
+        ShipClass::Warship,
+        ShipClass::Utility,
+        ShipClass::Bomber,
+        ShipClass::Miner,
+        ShipClass::FuelTransport,
+    ];
+
+    /// The name the game gives it.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            ShipClass::Colony => "Colony",
+            ShipClass::Freighter => "Freighter",
+            ShipClass::Scout => "Scout",
+            ShipClass::Warship => "Warship",
+            ShipClass::Utility => "Utility",
+            ShipClass::Bomber => "Bomber",
+            ShipClass::Miner => "Miner",
+            ShipClass::FuelTransport => "Fuel Transport",
+        }
+    }
+
+    /// Its number, which is the bit the filter uses.
+    #[must_use]
+    pub fn index(self) -> u8 {
+        self as u8
+    }
+
+    /// The class a hull's stored category names.
+    #[must_use]
+    pub fn from_category(category: u8) -> Option<ShipClass> {
+        Self::ALL.get(usize::from(category)).copied()
+    }
+}
+
+impl ShipDesign {
+    /// Which class this design's hull puts it in.
+    ///
+    /// `None` for an empty design slot, and for a **starbase**: every starbase
+    /// hull stores category 0, which would otherwise read as a colony ship.
+    #[must_use]
+    pub fn ship_class(&self) -> Option<ShipClass> {
+        if self.hull_id < 0 || self.hull_id >= 32 {
+            return None;
+        }
+        ShipClass::from_category(self.hull()?.category)
+    }
+}

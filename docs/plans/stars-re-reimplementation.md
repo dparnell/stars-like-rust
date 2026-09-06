@@ -1886,7 +1886,34 @@ disagree.
     misrepresent the toolbar worse than a button that says it is not
     implemented.
 
-58. **What is still missing to call it playable.** Every waypoint task is now
+58. ~~**The scanner's two ship filters.**~~ **Done.** The buttons the toolbar
+    drew but could not act on. Spec in `docs/ui/toolbar.md`.
+
+    The thing to get right is that **they apply to different fleets**.
+    `CshOfFleet` (`1058:4b4a`) is where both live: the Ship Design filter
+    narrows only *this player's own* fleets and picks by design **slot**, and
+    the Enemy Ship Class filter narrows only *everybody else's* and picks by
+    the hull's **class**. A fleet neither applies to is counted whole. So the
+    two never contend over the same fleet, and both on at once filters your
+    ships one way and theirs another.
+
+    The class comes from `(huldef.wFlags >> 10) & 0xf` — the field this project
+    already transcribed as `Hull::category` and had labelled "used for battle
+    targeting", which nothing in the codebase actually did with it. Its real
+    and visible use is this filter, and its eight values are the eight class
+    names the filter's menu is built from: Colony, Freighter, Scout, Warship,
+    Utility, Bomber, Miner, Fuel Transport. Every ship hull falls in one. All
+    five starbase hulls store `0`, which would read as a colony ship, so a
+    starbase is refused a class rather than misfiled.
+
+    Both menus open with all / invert / none, then a rule, then the entries.
+    The design menu lists only the slots holding a design — the original skips
+    any whose `fFree` bit is set — and **each entry keeps its own slot's bit**,
+    so emptying a design does not renumber the others. Ticking something while
+    the overlay is off **turns the overlay on**; unticking the last one does
+    not turn it off again, and neither does "none".
+
+59. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -1901,9 +1928,10 @@ disagree.
       scaling and shield absorption.
     - A loaded state file still cannot carry structural fleet changes back —
       the game does not either; the order log does.
-    - **The scanner's remaining tools**: the design and enemy-class filters,
-      which now have buttons but no behaviour; the minefield button's per-owner
-      menu; and clicking one spot repeatedly to cycle through what is on it.
+    - **The scanner's remaining tools**: the minefield button's per-owner menu,
+      orbit rings (which the two ship filters would narrow as well as the ship
+      counts), and clicking one spot repeatedly to cycle through what is on
+      it.
     - **The designer's remaining numbers**: `LComputePower` for a design's
       `Rating:`, and the cloak, jammer and initiative rows; and `SHDEF.cBuilt`,
       so the plaque's second figure is real.
