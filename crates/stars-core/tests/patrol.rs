@@ -32,6 +32,7 @@ fn fleet(id: u16, owner: i16, at: Point, task: u8) -> Fleet {
     Fleet {
         name: None,
         repeat_orders: false,
+        direction: None,
         id,
         owner,
         position: at,

@@ -1993,7 +1993,41 @@ disagree.
     tests assumed an empty selection and ran a step ahead of the code
     throughout.
 
-62. **What is still missing to call it playable.** Every waypoint task is now
+62. ~~**The fleet arrow orientation.**~~ **Done.** Spec in
+    `docs/ui/scanner.md`. A fleet is one of eight arrows out of `hbmpScanShip`
+    — a 16-by-72 sheet of two columns of eight, nine pixels across at life size
+    and seven once zoomed out.
+
+    `GetScanFleetOrientation` (`1058:978c`) looks in **different places
+    depending on whose fleet it is**: your own along its next waypoint, and
+    only when that leg has a warp set; anybody else's from the direction
+    recorded with the sighting, which a fleet seen at a distance has instead of
+    waypoints. `GetDxDyOrientation` (`1058:987c`) then quantises the angle to
+    an octant, anticlockwise from south-west.
+
+    Three things came out of it.
+
+    The routine uses **two different π constants** — seven digits added to the
+    angle, ten digits divided by — and they are transcribed as they stand. The
+    decompiler had lost the arithmetic entirely; it came from the disassembly,
+    and the constants from the automatic data segment, which is segment 37 and
+    not the one the code segment's other reads go through.
+
+    **A fleet going nowhere gets arrow 0, the same picture as one heading
+    south-west.** The index is set to zero before the angle is looked at, and
+    the original never tells the two apart.
+
+    And the direction bytes a partial fleet carries are **biased by `0x7f`**,
+    where this project had them typed as two's-complement `i8` — a different
+    number for every byte from `0x80` up. The fixtures look at first as though
+    they disagree, because `0x00` is 21% of all such bytes and would be a
+    strong westward heading under a bias; filtering to the fleets whose
+    direction is actually *valid* drops `0x00` out of the top ten entirely, so
+    the spike is the unset field and the bias stands. The record now keeps the
+    raw byte and applies the bias in an accessor, which round-trips byte-exact
+    as before.
+
+63. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -2009,8 +2043,7 @@ disagree.
     - A loaded state file still cannot carry structural fleet changes back —
       the game does not either; the order log does.
     - **Player Colors**, which is recovered but has no menu item here to turn
-      it on, and `GetScanFleetOrientation` — every fleet is drawn as the same
-      mark rather than an arrow pointing where it is going.
+      it on.
     - **`stars.ini` does not keep the scanner's settings** between sessions —
       the view, the overlays, the three filter masks and the coverage. Their
       defaults are honoured; the saving is not.

@@ -72,6 +72,57 @@ planet stored near `y = 0` appears at the *bottom* of the scanner.
 There is also a `Scanner Effective %` slider (`vpctRadarView`) and a
 `Zoom Menu`.
 
+## Which way a fleet's arrow points
+
+A fleet is drawn as one of **eight arrows** out of `hbmpScanShip` (id 88), a
+16-by-72 sheet holding two columns of eight: nine pixels across in the
+right-hand column and seven in the left, the smaller used once the scanner is
+zoomed out past life size.
+
+`GetScanFleetOrientation` (`1058:978c`) finds the direction, and **where it
+looks depends on whose fleet it is**:
+
+* **your own** — the next waypoint, and only when that leg has a warp set. A
+  fleet with no orders, or one whose next leg is unset, has no course;
+* **anybody else's** — the direction recorded with the sighting, which counts
+  only when the `fdirValid` flag is set and the recorded warp is non-zero. A
+  fleet seen at a distance has no waypoints to read, which is why this field
+  exists at all.
+
+`GetDxDyOrientation` (`1058:987c`) then turns the vector into an octant:
+`(atan2(dy, dx) + π) × 4 / π + 0.5`, truncated, then `(9 - n & 7) & 7` to put
+them in the sheet's order — anticlockwise from south-west:
+
+| 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|
+| SW | W | NW | N | NE | E | SE | S |
+
+Two details are worth keeping. The routine uses **two different π constants** —
+a seven-digit one added to the angle and a ten-digit one divided by — and both
+are transcribed as they stand rather than folded into one, because that is what
+the executable holds. And **a fleet going nowhere gets arrow 0**, which is the
+same picture as one heading south-west: the index is set to zero before the
+angle is looked at, and the original never tells the two apart.
+
+The arrow is blitted **through a mask**, so its colour comes from the pen
+rather than the bitmap; this project uploads the one-bit sheet as a stencil and
+tints it, which is the same idea. Without the game's own sheet a fleet is the
+small square this project drew before.
+
+### The direction is stored biased, not signed
+
+The two bytes a partial fleet record carries are **biased by `0x7f`** — the
+value meant is `byte - 0x7f`. This project had them typed as two's-complement
+`i8`, which is a different number for every byte from `0x80` up.
+
+`io.c` copies them into `FLEET.dirFltX`/`dirFltY` untouched and
+`GetScanFleetOrientation` reads them back as `(dirLong & 0xff) - 0x7f`, so the
+code settles it on its own. The fixtures look at first as though they disagree —
+`0x00` is far and away the commonest byte, 21% of all of them, which under a
+bias would be a strong westward heading. It is not a heading at all: filter to
+the fleets whose direction is actually valid and `0x00` drops out of the top
+ten entirely. The spike is the **unset** field.
+
 ## Orbit rings
 
 A planet with fleets in orbit is drawn with a ring round it, and the ring's
@@ -255,9 +306,7 @@ else's fleet is prefixed with their race name.
 
 ## What else the window does
 
-Named here because it is the scanner's and is not reproduced:
-`GetScanFleetOrientation`, which way a fleet's arrow points — this project
-draws every fleet as the same small mark.
+Everything the scanner does is now reproduced or recorded above.
 
 ## What this project does
 
@@ -267,8 +316,9 @@ Reproduced: the nine zoom steps with the original's shift arithmetic; the y
 flip; all six views and their names; the names, scanner coverage, mine fields,
 fleet paths, ship counts and idle-fleets overlays; the **orbit rings**, in the
 game's own three colours and narrowed by the ship filters as the original
-narrows them; click-to-select, and **clicking the same spot again** to walk
-what is on it; and
+narrows them; the **fleet arrows**, in all eight directions and from both
+sources; click-to-select, and **clicking the same spot again** to walk what is
+on it; and
 **waypoint dragging** — adding a leg, moving one, dropping one, and the warp the
 client suggests, both halves of it. Every edit writes the order record the real
 client writes, so a host replaying the log reaches the same orders. And the

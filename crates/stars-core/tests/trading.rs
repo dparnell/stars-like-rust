@@ -37,6 +37,7 @@ fn a_fleet(at: Point) -> Fleet {
     Fleet {
         name: None,
         repeat_orders: false,
+        direction: None,
         id: 1,
         owner: 0,
         position: at,

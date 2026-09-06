@@ -1164,6 +1164,7 @@ fn starting_ships(
                 fleets.push(Fleet {
                     name: None,
                     repeat_orders: false,
+                    direction: None,
                     id: next_fleet,
                     owner,
                     position: Point::new(x, y),

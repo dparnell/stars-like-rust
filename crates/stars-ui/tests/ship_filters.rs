@@ -45,6 +45,7 @@ fn fleet(owner: i16, stacks: &[(u8, i32)]) -> Fleet {
         waypoints: Vec::new(),
         name: None,
         repeat_orders: false,
+        direction: None,
     }
 }
 

@@ -27,6 +27,9 @@ pub struct Art {
     decoded: HashMap<Name, Option<Image>>,
     /// Sheets already uploaded.
     textures: HashMap<Name, egui::TextureHandle>,
+    /// Monochrome sheets uploaded as **stencils** — the drawn part opaque and
+    /// the rest clear, so the caller can tint it.
+    stencils: HashMap<Name, egui::TextureHandle>,
     /// Where it came from, for the frontend to show.
     pub source: String,
 }
@@ -52,6 +55,7 @@ impl Art {
             executable,
             decoded: HashMap::new(),
             textures: HashMap::new(),
+            stencils: HashMap::new(),
             source: source.to_string(),
         })
     }
@@ -207,4 +211,66 @@ pub fn draw_with(art: Option<&mut Art>, ui: &mut egui::Ui, cell: Cell, size: f32
     };
     ui.add(image);
     true
+}
+
+impl Art {
+    /// A rectangle of a **monochrome** sheet, as a stencil to be tinted.
+    ///
+    /// The game's one-bit sheets are not pictures: they are shapes, blitted
+    /// through a mask so that the colour comes from the pen rather than the
+    /// bitmap — `SRCAND` then `SRCPAINT` with the text colour set. Drawn as
+    /// they are stored, they would be black-and-white squares.
+    ///
+    /// This turns one into a texture whose **drawn part is opaque white and
+    /// whose ground is clear**, so `.tint(colour)` finishes the job. The
+    /// "drawn part" is the black pixel: in a one-bit bitmap the shape is index
+    /// zero and the ground is index one.
+    #[allow(clippy::too_many_arguments)]
+    pub fn stencil_at(
+        &mut self,
+        ctx: &egui::Context,
+        name: &Name,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        size: egui::Vec2,
+    ) -> Option<egui::Image<'_>> {
+        if !self.stencils.contains_key(name) {
+            let image = self.sheet(name)?;
+            let pixels: Vec<u8> = image
+                .pixels
+                .chunks(4)
+                .flat_map(|p| {
+                    let drawn = p[0] == 0 && p[1] == 0 && p[2] == 0;
+                    let alpha = if drawn { 0xff } else { 0x00 };
+                    [0xff, 0xff, 0xff, alpha]
+                })
+                .collect();
+            let colour = egui::ColorImage::from_rgba_unmultiplied(
+                [image.width as usize, image.height as usize],
+                &pixels,
+            );
+            let handle = ctx.load_texture(
+                format!("stars-stencil-{name:?}"),
+                colour,
+                egui::TextureOptions::NEAREST,
+            );
+            self.stencils.insert(name.clone(), handle);
+        }
+        let handle = self.stencils.get(name)?;
+        let sheet = handle.size_vec2();
+        if x + width > sheet.x as u32 || y + height > sheet.y as u32 {
+            return None;
+        }
+        let uv = egui::Rect::from_min_max(
+            egui::pos2(x as f32 / sheet.x, y as f32 / sheet.y),
+            egui::pos2((x + width) as f32 / sheet.x, (y + height) as f32 / sheet.y),
+        );
+        Some(
+            egui::Image::new((handle.id(), size))
+                .uv(uv)
+                .fit_to_exact_size(size),
+        )
+    }
 }

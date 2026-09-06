@@ -109,10 +109,17 @@ pub struct FleetRecord {
     pub waypoint_count: Option<u8>,
     /// Per-design damage, full fleets only (empty when undamaged).
     pub damage: Vec<ShipDamage>,
-    /// Movement direction x component (partial fleets only), two's-complement.
-    pub delta_x: Option<i8>,
-    /// Movement direction y component (partial fleets only), two's-complement.
-    pub delta_y: Option<i8>,
+    /// Movement direction x component (partial fleets only), **as stored**.
+    ///
+    /// The byte is **biased by `0x7f`**, not two's-complement: the value meant
+    /// is `byte - 0x7f`. `io.c` copies these two bytes into `FLEET.dirFltX` and
+    /// `dirFltY` untouched, and `GetScanFleetOrientation` (`1058:978c`) reads
+    /// them back as `(dirLong & 0xff) - 0x7f`. Use [`Self::direction`], which
+    /// applies the bias and the validity flags together.
+    pub delta_x: Option<u8>,
+    /// Movement direction y component (partial fleets only), **as stored** —
+    /// see [`Self::delta_x`].
+    pub delta_y: Option<u8>,
     /// Warp speed estimate (partial fleets only).
     pub warp: Option<u8>,
     /// Total mass estimate, in kilotons (partial fleets only).
@@ -302,9 +309,9 @@ impl FleetRecord {
             index += 1;
         } else if type_id != 16 {
             // Partial fleet (rtFleetB/C): direction + mass estimate.
-            let dx = *data.get(index)? as i8;
+            let dx = *data.get(index)?;
             index += 1;
-            let dy = *data.get(index)? as i8;
+            let dy = *data.get(index)?;
             index += 1;
             let warp_byte = *data.get(index)?;
             index += 1; // warp/flags byte
@@ -413,8 +420,8 @@ impl FleetRecord {
             out.push(self.battle_plan.unwrap_or(0));
             out.push(self.waypoint_count.unwrap_or(0));
         } else if type_id != 16 {
-            out.push(self.delta_x.unwrap_or(0) as u8);
-            out.push(self.delta_y.unwrap_or(0) as u8);
+            out.push(self.delta_x.unwrap_or(0));
+            out.push(self.delta_y.unwrap_or(0));
             out.push((self.warp.unwrap_or(0) & 0x0F) | (self.warp_high << 4));
             out.push(self.partial_unused);
             out.extend_from_slice(&self.mass.unwrap_or(0).to_le_bytes());
@@ -454,6 +461,33 @@ pub fn fleet_records(file: &StarsFile) -> Vec<FleetRecord> {
             FleetRecord::decode(&b.data, type_id)
         })
         .collect()
+}
+
+impl FleetRecord {
+    /// Which way a fleet seen at a distance is heading, if it is known to be.
+    ///
+    /// Only the partial forms carry this — a player's own fleets are described
+    /// in full and their course is read from their waypoints instead. Two
+    /// things gate it, both from `GetScanFleetOrientation` (`1058:978c`): the
+    /// **`fdirValid`** flag, which is bit 0 of [`Self::warp_high`], and a
+    /// non-zero [`Self::warp`]. Without both, the stored bytes mean nothing —
+    /// and in this repository's fixtures they are then almost always zero,
+    /// which is what makes `0x00` far and away the commonest byte overall
+    /// while being unremarkable among the fleets that really are moving.
+    ///
+    /// The components are **biased by `0x7f`**, so the vector is
+    /// `(x - 0x7f, y - 0x7f)`. It is a direction and not a distance: its length
+    /// varies, so nothing should be read into the magnitude.
+    #[must_use]
+    pub fn direction(&self) -> Option<(i16, i16)> {
+        if self.warp? == 0 || self.warp_high & 1 == 0 {
+            return None;
+        }
+        Some((
+            i16::from(self.delta_x?) - 0x7f,
+            i16::from(self.delta_y?) - 0x7f,
+        ))
+    }
 }
 
 #[cfg(test)]

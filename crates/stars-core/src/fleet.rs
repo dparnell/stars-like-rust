@@ -116,6 +116,14 @@ pub struct Fleet {
     /// so that reading and writing a file, and replaying an order that changes
     /// it, do not lose it.
     pub repeat_orders: bool,
+    /// Which way a fleet seen at a distance is heading, when that is known.
+    ///
+    /// Only fleets described in **part** carry this — another player's, seen
+    /// by scanner. A player's own fleets are described in full and their
+    /// course is read from their waypoints instead, so this is `None` for
+    /// them. See [`stars_formats::FleetRecord::direction`], which applies the
+    /// bias and the validity flags.
+    pub direction: Option<(i16, i16)>,
 }
 
 impl Fleet {
@@ -366,6 +374,7 @@ mod primary_tests {
             waypoints: Vec::new(),
             name: None,
             repeat_orders: false,
+            direction: None,
         }
     }
 

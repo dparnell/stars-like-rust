@@ -3930,6 +3930,7 @@ mod tests {
         game.fleets.push(stars_core::fleet::Fleet {
             name: None,
             repeat_orders: false,
+            direction: None,
             id: 1,
             owner: 0,
             position: stars_core::movement::Point::new(0, 0),
@@ -6858,5 +6859,97 @@ impl App {
         }
         self.select_object(next);
         true
+    }
+}
+
+// --- Which way a fleet is pointing ----------------------------------------
+
+/// The sheet the fleet arrows come out of (`hbmpScanShip`, id 88): eight
+/// arrows stacked, at 9 pixels in the right-hand column and 7 in the left.
+pub const ARROW_SHEET: u16 = 88;
+
+/// The π `GetDxDyOrientation` **adds** to the angle.
+///
+/// It is a less precise π than the one it then divides by — seven digits
+/// against ten. Both are transcribed as the executable holds them rather than
+/// folded into `std::f64::consts::PI`: they are two different numbers in the
+/// original, and a transcription that tidied them into one would no longer be
+/// a transcription.
+#[allow(
+    clippy::approx_constant,
+    reason = "the executable's own seven-digit pi, not an approximation of ours"
+)]
+const ARROW_PI_ADDED: f64 = 3.1415927;
+/// The π it **divides** by.
+#[allow(
+    clippy::approx_constant,
+    reason = "the executable's own ten-digit pi, kept apart from the one above"
+)]
+const ARROW_PI_DIVISOR: f64 = 3.141592654;
+
+/// Which of the eight arrows points along `(dx, dy)`.
+///
+/// `GetDxDyOrientation` (`1058:987c`) turns the angle into an octant:
+/// `(atan2(dy, dx) + π) × 4 / π + 0.5`, truncated, and then `(9 - n & 7) & 7`
+/// to put the sprites in the order the sheet has them. The result runs
+/// anticlockwise from south-west:
+///
+/// | | | | | | | | |
+/// |-|-|-|-|-|-|-|-|
+/// | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+/// | SW | W | NW | N | NE | E | SE | S |
+///
+/// **A fleet going nowhere gets arrow 0 as well**, which is the same picture
+/// as one heading south-west. The original sets the index to zero before it
+/// looks at the angle at all and never distinguishes the two.
+#[must_use]
+pub fn fleet_arrow(dx: i16, dy: i16) -> u8 {
+    if dx == 0 && dy == 0 {
+        return 0;
+    }
+    let angle = f64::from(dy).atan2(f64::from(dx));
+    let scaled = (angle + ARROW_PI_ADDED) * 4.0 / ARROW_PI_DIVISOR + 0.5;
+    // `ftol` truncates toward zero, and the value here is never negative.
+    let n = scaled as i64;
+    u8::try_from((9 - (n & 7)) & 7).unwrap_or(0)
+}
+
+impl App {
+    /// Which way a fleet's arrow points on the map.
+    ///
+    /// `GetScanFleetOrientation` (`1058:978c`) has two sources and picks by
+    /// **whose fleet it is**. A player's own is read from its next waypoint,
+    /// and only when the leg has a warp set; anybody else's comes from the
+    /// direction stored with the sighting, which is only meaningful when the
+    /// fleet was seen moving. Either way a fleet with no known course gets
+    /// arrow 0.
+    #[must_use]
+    pub fn fleet_arrow_of(&self, fleet: &stars_core::fleet::Fleet) -> u8 {
+        let me = self.local_player();
+        let mine = usize::try_from(fleet.owner).is_ok_and(|owner| owner == me);
+        let (dx, dy) = if mine {
+            match fleet.waypoints.get(1).filter(|leg| leg.warp > 0) {
+                Some(leg) => (
+                    leg.position.x - fleet.position.x,
+                    leg.position.y - fleet.position.y,
+                ),
+                None => (0, 0),
+            }
+        } else {
+            fleet.direction.unwrap_or((0, 0))
+        };
+        fleet_arrow(dx, dy)
+    }
+
+    /// Where that arrow sits in the sheet, and how big it is.
+    ///
+    /// The right-hand column holds the 9-pixel arrows and the left the
+    /// 7-pixel ones; the scanner uses the smaller once it is zoomed out past
+    /// life size.
+    #[must_use]
+    pub fn fleet_arrow_cell(&self, arrow: u8) -> (u32, u32, u32) {
+        let side: u32 = if self.scan_zoom < 0 { 7 } else { 9 };
+        let x = if self.scan_zoom < 0 { 0 } else { 7 };
+        (x, u32::from(arrow) * side, side)
     }
 }

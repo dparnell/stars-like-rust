@@ -24,6 +24,7 @@
 
 use egui::{Color32, Pos2, Rect, Sense, Stroke, Vec2};
 
+use crate::app as stars_ui_arrow;
 use crate::app::ScanObject;
 use crate::views::{colonists, player_colour};
 use crate::OrbitRing;
@@ -249,6 +250,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     }
 
     // Fleets, as small marks offset from their planet so they do not hide it.
+    let mut to_arrow: Vec<(egui::Pos2, u8, Color32)> = Vec::new();
     if let Some(game) = app.game.as_ref() {
         for (index, fleet) in game.fleets.iter().enumerate() {
             if fleet.stacks.is_empty() {
@@ -269,12 +271,10 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 }
             }
             let colour = player_colour(fleet.owner);
-            let size = Vec2::splat(3.0);
-            painter.rect_filled(
-                Rect::from_center_size(at + Vec2::new(6.0, -6.0), size),
-                0.0,
-                colour,
-            );
+            // The mark, which the original draws as an arrow pointing the way
+            // the fleet is going. Gathered here and drawn after the loop,
+            // because tinting the game's own stencil needs the app mutably.
+            to_arrow.push((at + Vec2::new(6.0, -6.0), app.fleet_arrow_of(fleet), colour));
             // Where it is going, leg by leg.
             if app.scan_overlays.fleet_paths && fleet.waypoints.len() > 1 {
                 let mut from = at;
@@ -312,6 +312,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             }
         }
     }
+    fleet_arrows(app, ui, &to_arrow);
 
     // The measuring tape: a right-drag from anywhere to anywhere, snapping to
     // whatever it passes over (`FHandleMeasuringTape`, `1058:9974`). Shift
@@ -508,6 +509,52 @@ fn orbit_rings(app: &mut App, ui: &mut egui::Ui, rings: &[(egui::Pos2, OrbitRing
                 side as f32 / 2.0,
                 Stroke::new(1.0_f32, Color32::from_rgb(r, g, b)),
             );
+        }
+    }
+}
+
+/// Draw the fleet marks gathered while the fleets were drawn.
+///
+/// `GetScanFleetOrientation` picks one of eight arrows for the way the fleet
+/// is heading, and the original blits it **through a mask** so the colour
+/// comes from the pen rather than the bitmap — which is why this tints a
+/// stencil rather than drawing the picture. Without the game's own sheet it
+/// falls back to the small square this project drew before.
+fn fleet_arrows(app: &mut App, ui: &mut egui::Ui, arrows: &[(egui::Pos2, u8, Color32)]) {
+    if arrows.is_empty() {
+        return;
+    }
+    let ctx = ui.ctx().clone();
+    let painter = ui.painter().clone();
+    for (at, arrow, colour) in arrows {
+        let (x, y, side) = app.fleet_arrow_cell(*arrow);
+        let drawn = app
+            .art
+            .as_mut()
+            .and_then(|art| {
+                art.stencil_at(
+                    &ctx,
+                    &stars_formats::resources::Name::Id(stars_ui_arrow::ARROW_SHEET),
+                    x,
+                    y,
+                    side,
+                    side,
+                    egui::vec2(side as f32, side as f32),
+                )
+            })
+            .map(|image| {
+                let half = side as f32 / 2.0;
+                image.tint(*colour).paint_at(
+                    ui,
+                    Rect::from_min_size(
+                        *at - Vec2::new(half, half),
+                        egui::vec2(side as f32, side as f32),
+                    ),
+                );
+            })
+            .is_some();
+        if !drawn {
+            painter.rect_filled(Rect::from_center_size(*at, Vec2::splat(3.0)), 0.0, *colour);
         }
     }
 }

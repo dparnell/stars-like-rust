@@ -944,6 +944,7 @@ mod tests {
         Fleet {
             name: None,
             repeat_orders: false,
+            direction: None,
             id,
             owner,
             position: Point::new(0, 0),

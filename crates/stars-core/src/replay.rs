@@ -694,6 +694,7 @@ fn new_fleet(state: &mut GameState, player: usize, id: u16, beside: usize) -> Op
         }],
         name: None,
         repeat_orders: false,
+        direction: None,
     };
     state.fleets.push(fleet);
     Some(state.fleets.len() - 1)
@@ -946,6 +947,7 @@ mod tests {
         state.fleets.push(Fleet {
             name: None,
             repeat_orders: false,
+            direction: None,
             id: 3,
             owner: 0,
             position: Point::new(1100, 1200),

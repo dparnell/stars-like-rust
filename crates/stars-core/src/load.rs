@@ -273,6 +273,9 @@ pub fn fleet_from_record(record: &FleetRecord) -> Option<Fleet> {
     Some(Fleet {
         name: None,
         repeat_orders: record.repeat_orders,
+        // Only a fleet described in part carries one; a player's own course
+        // comes from its waypoints.
+        direction: record.direction(),
         waypoints: Vec::new(),
         id: record.id,
         owner: i16::from(record.owner),

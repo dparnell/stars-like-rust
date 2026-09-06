@@ -611,6 +611,7 @@ fn add_ships_to_orbiting_fleet(
     state.fleets.push(crate::fleet::Fleet {
         name: None,
         repeat_orders: false,
+        direction: None,
         id,
         owner,
         position,
@@ -1773,6 +1774,7 @@ fn give_trader_ship(
     let mut fleet = Fleet {
         name: None,
         repeat_orders: false,
+        direction: None,
         id,
         owner: owner_id,
         position: at,

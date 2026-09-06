@@ -41,6 +41,7 @@ fn fleet(owner: i16, at: Point, orbiting: Option<u16>) -> Fleet {
         waypoints: Vec::new(),
         name: None,
         repeat_orders: false,
+        direction: None,
     }
 }
 

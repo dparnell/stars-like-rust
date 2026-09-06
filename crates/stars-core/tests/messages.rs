@@ -48,6 +48,7 @@ fn a_game() -> GameState {
     state.fleets = vec![Fleet {
         name: None,
         repeat_orders: false,
+        direction: None,
         id: 1,
         owner: 0,
         position: Point::new(1000, 1000),
