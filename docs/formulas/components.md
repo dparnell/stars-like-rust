@@ -36,7 +36,14 @@ Every component begins with the same header, then adds its own fields:
 | 0x28 | 2 | `cMass` — kT |
 | 0x2A | 2 | `resCost` — resources to build |
 | 0x2C | 6 | `rgwtOreCost[3]` — ironium, boranium, germanium |
-| 0x32 | 2 | `ibmp` — bitmap index (presentation only) |
+| 0x32 | 2 | `ibmp` — which of the game's component pictures it is drawn with |
+
+`ibmp` is at `0x32` in **every** one of the sixteen part tables and in both
+hull tables — it is the last field of the shared header — and it is
+transcribed as each structure's `picture`. It indexes the seven sheets of
+64-pixel cells the original blits from; see `../formats/resources.md` for how
+they are tiled. All 239 values in this build are in `0..=209`, none negative,
+and every one of them lands on a cell that is really there.
 
 Type-specific tails: engines add `grfAbilities` and `rgcFuelUsed[12]`; armour
 and shields add `dp`; scanners add `dRange` and `grfAbilities`; planetary items
@@ -64,6 +71,15 @@ session scratchpad rather than the repo because it is a one-shot import, but
 the parsing rule is simple enough to rewrite: find `<TYPE> <name>[N] = {`,
 split the top-level `{...}` entries, and read `.field = value` pairs.
 
+## The terraforming names carry a "±"
+
+The twenty terraforming modules are named `Total Terraform ±3` and so on: the
+sign is part of the name in the executable and says the module moves a value
+**either way** rather than only up. An earlier import of these tables dropped
+the character — it is `0xB1` in the executable's own encoding — and all twenty
+were wrong until the pictures were imported and every name was held against
+the binary again.
+
 ## Verification
 
 `crates/stars-core/tests/component_tables.rs` decodes raw bytes read out of
@@ -72,6 +88,17 @@ split the top-level `{...}` entries, and read `.field = value` pairs.
 transcription agrees. Four entries are covered, one per structure shape
 (engine, armour, beam, planetary), together with the table lengths and the
 negative-range convention.
+
+Two whole-table checks sit beside them. Every component's `picture` must land
+on a cell that really exists, which is what says these values and the sheet
+geometry in `stars_formats::resources::art` agree; and the terraforming names
+must keep their sign.
+
+The picture import itself was checked a stronger way, and it is the way to
+check any future one: the values were read out of the binary at `+0x32` for all
+239 entries of all sixteen tables, and each was matched to its row **by the
+name beside it** before being written in. That is what caught the missing
+`±` — 219 names agreed exactly and 20 differed by one character.
 
 ## Hulls
 

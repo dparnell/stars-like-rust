@@ -123,9 +123,12 @@ used, so this does not guess: the crop fails and the caller draws nothing.
 * **Race emblems** — `PLAYER.logo`, `0..32`, straight into the sheet.
 * **Planets** — the planet's own id: `iOffset = (id + 8) % 28`, so a planet
   keeps one face for the whole game and neighbours do not share one.
-* **Component pictures** — the `ibmp` field of a component's table entry, which
-  this project's component tables do not yet carry. Until they do, the
-  arithmetic is implemented and tested but nothing asks it for a component.
+* **Component pictures** — the `ibmp` field of a component's table entry,
+  transcribed as `picture` in `stars_core::components`. All 239 of them are in
+  `0..=209`. Ten land on the last, narrow sheet and **every one of those is in
+  its left half**, which confirms from the other side that the sheet really is
+  four cells wide and that the cells this refuses to name are cells the game
+  never asks for.
 * **Ships** — a design's hull picture, not yet recovered.
 
 ## Source

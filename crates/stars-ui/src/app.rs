@@ -4039,6 +4039,8 @@ pub struct PartRow {
     pub name: String,
     /// Mass of one, in kT.
     pub mass: i32,
+    /// Which of the game's component pictures it is drawn with (`ibmp`).
+    pub picture: u16,
 }
 
 /// One slot of the schematic, ready to draw.
@@ -4694,6 +4696,7 @@ impl App {
                 item: p.item,
                 name: p.name.to_string(),
                 mass: p.mass,
+                picture: p.picture,
             })
             .collect()
     }

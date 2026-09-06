@@ -94,13 +94,13 @@ The modeless window, the seventeen-entry dropdown and its order, the walk with
 its wrap and its two filtering modes including the Mystery Trader distinction,
 the panel's costs, mass, per-kind figures, and the technology requirements
 marked met or not against the player's own levels — plus a note for every
-condition the player fails.
+condition the player fails, and the component's own picture.
 
 ## What is not
 
-* **The component's picture.** The sheets it is blitted from are now read and
-  tiled — `docs/formats/resources.md` — but a component is found in them by its
-  `ibmp`, and the component tables here do not yet carry that field.
+* Nothing of the panel: the component's **picture** is drawn too, out of the
+  game's own sheets when a copy of the original has been found —
+  `docs/formats/resources.md`.
 * The original's **prose**, as above.
 * The **hover help** the Research dialog's benefits list shares with this
   panel, which puts up a component's details from `rghsFutureTech`.

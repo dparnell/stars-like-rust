@@ -32,7 +32,10 @@ fn word(b: &[u8], at: usize) -> i16 {
 }
 
 /// Decode the header every component shares.
-fn header(b: &[u8]) -> (i16, [i8; 6], String, i16, u16, [i16; 3]) {
+///
+/// It ends at `ibmp`, the picture index, at `+0x32` — the same offset in every
+/// one of the sixteen part tables and in both hull tables.
+fn header(b: &[u8]) -> (i16, [i8; 6], String, i16, u16, [i16; 3], u16) {
     let id = word(b, 0);
     let mut tech = [0i8; 6];
     for (i, t) in tech.iter_mut().enumerate() {
@@ -43,7 +46,17 @@ fn header(b: &[u8]) -> (i16, [i8; 6], String, i16, u16, [i16; 3]) {
     let mass = word(b, 0x28);
     let resource_cost = u16::from_le_bytes([b[0x2a], b[0x2b]]);
     let ore = [word(b, 0x2c), word(b, 0x2e), word(b, 0x30)];
-    (id, tech, name, mass, resource_cost, ore)
+    let picture = word(b, 0x32);
+    assert!(picture >= 0, "a picture index is never negative");
+    (
+        id,
+        tech,
+        name,
+        mass,
+        resource_cost,
+        ore,
+        u16::try_from(picture).expect("checked just above"),
+    )
 }
 
 #[test]
@@ -57,7 +70,7 @@ fn tables_match_the_bytes_in_the_binary() {
         let index = usize::try_from(case["index"].as_u64().unwrap()).unwrap();
         let table = case["table"].as_str().unwrap();
         let expect = &case["expect"];
-        let (id, tech, name, mass, resource_cost, ore) = header(&b);
+        let (id, tech, name, mass, resource_cost, ore, picture) = header(&b);
         let where_ = format!("{table}[{index}] at {}", case["address"].as_str().unwrap());
 
         // The vector's own decoded fields must agree with the raw bytes, so a
@@ -68,6 +81,11 @@ fn tables_match_the_bytes_in_the_binary() {
             "{where_}: id"
         );
         assert_eq!(name, expect["name"].as_str().unwrap(), "{where_}: name");
+        assert_eq!(
+            i64::from(picture),
+            expect["picture"].as_i64().unwrap(),
+            "{where_}: picture"
+        );
 
         match table {
             "ENGINES" => {
@@ -77,6 +95,7 @@ fn tables_match_the_bytes_in_the_binary() {
                 assert_eq!(e.tech, tech, "{where_}");
                 assert_eq!(e.mass, mass, "{where_}");
                 assert_eq!(e.resource_cost, resource_cost, "{where_}");
+                assert_eq!(e.picture, picture, "{where_}: picture");
                 assert_eq!(e.ore_cost, ore, "{where_}");
                 assert_eq!(e.abilities, word(&b, 0x34), "{where_}");
                 for (i, fuel) in e.fuel_used.iter().enumerate() {
@@ -90,6 +109,7 @@ fn tables_match_the_bytes_in_the_binary() {
                     (id, name.as_str(), tech, mass)
                 );
                 assert_eq!(a.resource_cost, resource_cost, "{where_}");
+                assert_eq!(a.picture, picture, "{where_}: picture");
                 assert_eq!(a.ore_cost, ore, "{where_}");
                 assert_eq!(a.dp, word(&b, 0x34), "{where_}: dp");
             }
@@ -100,6 +120,7 @@ fn tables_match_the_bytes_in_the_binary() {
                     (id, name.as_str(), tech, mass)
                 );
                 assert_eq!(w.resource_cost, resource_cost, "{where_}");
+                assert_eq!(w.picture, picture, "{where_}: picture");
                 assert_eq!(w.ore_cost, ore, "{where_}");
                 assert_eq!(w.range_max, word(&b, 0x34), "{where_}: range");
                 assert_eq!(w.dp, word(&b, 0x36), "{where_}: damage");
@@ -113,6 +134,7 @@ fn tables_match_the_bytes_in_the_binary() {
                     (id, name.as_str(), tech, mass)
                 );
                 assert_eq!(p.resource_cost, resource_cost, "{where_}");
+                assert_eq!(p.picture, picture, "{where_}: picture");
                 assert_eq!(p.ore_cost, ore, "{where_}");
                 assert_eq!(p.ability, word(&b, 0x34), "{where_}: ability");
             }
@@ -177,4 +199,79 @@ fn the_best_planetary_scanner_advances_with_electronics() {
     let snooper = best_planetary_scanner(&[3, 0, 0, 0, 10, 3]).expect("Snooper 320X");
     assert_eq!(snooper.name, "Snooper 320X");
     assert_eq!(snooper.ability, -320);
+}
+
+/// Every component's picture lands on a cell that is really in the sheet it
+/// names.
+///
+/// This is what says the sheet geometry in `stars_formats::resources::art` and
+/// the `ibmp` values here agree. The last sheet is half as wide as its
+/// siblings, so its right-hand columns are cells that do not exist — and the
+/// point of this test is that **nothing ever asks for one**: the ten
+/// components that land on that sheet are all in its left half.
+#[test]
+fn every_component_picture_is_a_real_cell() {
+    use stars_core::components::slot;
+    use stars_core::parts::part;
+    use stars_formats::resources::art;
+
+    // The sheets, and how wide each is in cells. Only the last is narrow.
+    let columns = |resource: u16| if resource == 506 { 4 } else { 8 };
+
+    let mut checked = 0;
+    let mut on_the_narrow_sheet = 0;
+    for category in [
+        slot::ENGINE,
+        slot::SCANNER,
+        slot::SHIELD,
+        slot::ARMOR,
+        slot::BEAM,
+        slot::TORPEDO,
+        slot::BOMB,
+        slot::MINING,
+        slot::MINES,
+        slot::SPECIAL_SB,
+        slot::SPECIAL_E,
+        slot::SPECIAL_M,
+        slot::TERRA,
+        slot::PLANETARY,
+        slot::HULL,
+        slot::SB_HULL,
+    ] {
+        for item in 0..64 {
+            let Some(p) = part(category, item) else { break };
+            let cell = art::component(p.picture)
+                .unwrap_or_else(|| panic!("{} has no picture cell", p.name));
+            assert_eq!((cell.width, cell.height), (64, 64), "{}", p.name);
+            assert!(
+                cell.x / 64 < columns(cell.resource),
+                "{} is off the edge of sheet {}",
+                p.name,
+                cell.resource
+            );
+            assert!(cell.y / 64 < 4, "{}", p.name);
+            if cell.resource == 506 {
+                on_the_narrow_sheet += 1;
+            }
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 239, "every component in every table");
+    assert_eq!(
+        on_the_narrow_sheet, 10,
+        "and ten of them share the last sheet"
+    );
+}
+
+/// The terraforming modules are named with a "±", which says the module moves
+/// a value either way rather than only up.
+#[test]
+fn the_terraforming_names_keep_their_sign() {
+    use stars_core::components::TERRAFORMING;
+    assert_eq!(TERRAFORMING[0].name, "Total Terraform ±3");
+    assert_eq!(TERRAFORMING[8].name, "Gravity Terraform ±3");
+    assert!(
+        TERRAFORMING.iter().all(|t| t.name.contains('±')),
+        "all twenty of them"
+    );
 }

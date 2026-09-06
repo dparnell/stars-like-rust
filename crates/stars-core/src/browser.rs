@@ -102,6 +102,8 @@ pub struct Detail {
     pub stats: Vec<(String, String)>,
     /// What stands between this player and building it.
     pub notes: Vec<String>,
+    /// Which of the game's component pictures it is drawn with (`ibmp`).
+    pub picture: u16,
     /// Whether they can build it now.
     pub availability: Availability,
 }
@@ -144,6 +146,7 @@ pub fn detail(who: &Builder<'_>, category: u16, item: usize) -> Option<Detail> {
             cost.minerals[2],
             cost.resources,
         ],
+        picture: part.picture,
         // A planetary installation is never carried, so it has no mass to
         // speak of and the panel leaves the line out.
         mass: (category != slot::PLANETARY).then_some(part.mass),
@@ -429,4 +432,15 @@ pub fn first(who: &Builder<'_>, within: Option<u16>, buildable_only: bool) -> Op
         return Some((category, 0));
     }
     step(who, within, (category, 0), true, buildable_only)
+}
+
+/// Where a component's picture sits in the game's own sheets.
+///
+/// `DrawComponent` blits it 64 pixels square out of `rghdibInventory`, indexed
+/// by the component's `ibmp`. `None` when the picture is one of the cells that
+/// is not there — the last sheet is half as wide as its siblings — which no
+/// component in this executable's tables actually asks for.
+#[must_use]
+pub fn picture(detail: &Detail) -> Option<stars_formats::resources::art::Cell> {
+    stars_formats::resources::art::component(detail.picture)
 }

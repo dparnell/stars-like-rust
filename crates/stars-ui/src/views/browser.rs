@@ -64,6 +64,15 @@ fn detail(app: &mut App, ui: &mut egui::Ui) {
         return;
     };
 
+    // The component's own picture, when the game's pictures have been found.
+    // The original draws it 64 pixels square beside the figures.
+    if let Some(cell) = stars_core::browser::picture(&detail) {
+        ui.horizontal_top(|ui| {
+            crate::art::draw(app, ui, cell, 64.0);
+            ui.add_space(4.0);
+        });
+    }
+
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(detail.name).strong());
         ui.label(

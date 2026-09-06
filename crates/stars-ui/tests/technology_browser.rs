@@ -169,6 +169,16 @@ fn the_panel_reports_cost_requirements_and_stats() {
     assert!(detail.mass.is_some());
     assert!(detail.cost.iter().any(|c| *c > 0));
 
+    // And it knows which of the game's pictures to draw it with, whether or
+    // not a copy of the original has been found to draw it from.
+    let cell = stars_core::browser::picture(&detail).expect("a picture cell");
+    assert_eq!((cell.width, cell.height), (64, 64));
+    assert!(
+        stars_formats::resources::art::COMPONENT_SHEETS.contains(&cell.resource),
+        "{}",
+        cell.resource
+    );
+
     // A planetary installation is never carried, so it has no mass line.
     let planetary = stars_core::browser::CATEGORIES
         .iter()

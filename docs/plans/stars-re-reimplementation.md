@@ -1787,15 +1787,33 @@ disagree.
     that are not there; nothing in the binary says which of those are used, so
     the crop fails and the caller draws nothing rather than this guessing.
 
-    In use so far: the **planet's face** in the planet pane, picked as the
-    original picks it from the planet's own id, `(id + 8) % 28`, so a planet
-    keeps one face all game and neighbours do not share one; and the **race
-    emblem** on the Players screen, straight from `PLAYER.logo`. The component
-    pictures are implemented and tested but nothing asks for one yet: they are
-    indexed by a component's `ibmp`, which this project's component tables do
-    not carry.
+    In use: the **planet's face** in the planet pane, picked as the original
+    picks it from the planet's own id, `(id + 8) % 28`, so a planet keeps one
+    face all game and neighbours do not share one; the **race emblem** on the
+    Players screen, straight from `PLAYER.logo`; and the **component picture**
+    in the Technology Browser and beside every part in the ship designer's
+    list.
 
-55. **What is still missing to call it playable.** Every waypoint task is now
+55. ~~**`ibmp` in the component tables.**~~ **Done.** The field sits at `+0x32`
+    in every one of the sixteen part tables and in both hull tables — the last
+    field of the shared header — so all 239 values were read straight out of
+    our own binary rather than out of the reconstructed C, and each was matched
+    to its row **by the name beside it** before being written in. That is the
+    method to repeat for any future import, and it earned its keep at once: 219
+    names agreed exactly and 20 differed by one character, because an earlier
+    import had dropped the `±` from every terraforming module's name. `Total
+    Terraform ±3` says the module moves a value either way rather than only up,
+    so the sign is meaning and not decoration. Those names are now right.
+
+    The values confirm the sheet geometry from the other side. All 239 are in
+    `0..=209`, none negative. Ten land on the last sheet — the narrow one, four
+    cells wide rather than eight — and **every one of those ten is in its left
+    half**, so the cells `art::component` declines to name are cells the game
+    never asks for. Both facts are held by a whole-table test.
+
+    The Technology Browser and the ship designer's parts list now draw them.
+
+56. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -1824,9 +1842,7 @@ disagree.
     - **The two Commands entries that still have no dialog of their own**:
       Battle Plans (F6) and Change Password. Both are editable, but from the
       Players screen rather than from the dialog the original opens.
-    - **`ibmp` in the component tables**, which is all that stands between the
-      recovered component-picture sheets and the Technology Browser and
-      designer drawing them.
+
 
 #### Saving is not re-encoding
 

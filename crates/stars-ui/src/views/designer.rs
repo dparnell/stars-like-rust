@@ -326,10 +326,19 @@ fn part_row(app: &mut App, ui: &mut egui::Ui, part: &PartRow, index: usize) {
         .as_ref()
         .is_some_and(|d| d.selected_part == Some(index));
     let label = format!("{}  {}kT", part.name, part.mass);
-    if ui
-        .selectable_label(selected, egui::RichText::new(label).small())
-        .clicked()
-    {
+    let cell = stars_formats::resources::art::component(part.picture);
+    let mut clicked = false;
+    ui.horizontal(|ui| {
+        // The original lists a part with its picture beside it, at half the
+        // size the browser shows.
+        if let Some(cell) = cell {
+            crate::art::draw(app, ui, cell, 32.0);
+        }
+        clicked = ui
+            .selectable_label(selected, egui::RichText::new(label).small())
+            .clicked();
+    });
+    if clicked {
         if let Some(designer) = app.designer.as_mut() {
             designer.selected_part = Some(index);
         }

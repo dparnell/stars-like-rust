@@ -64,6 +64,8 @@ pub struct Part {
     pub resource_cost: i32,
     /// Minerals to build one: ironium, boranium, germanium.
     pub ore_cost: [i32; 3],
+    /// Which of the game's component pictures it is drawn with (`ibmp`).
+    pub picture: u16,
 }
 
 /// Look one component up by category and index, without asking who is building
@@ -85,6 +87,7 @@ pub fn part(category: u16, item: usize) -> Option<Part> {
                     i32::from(p.ore_cost[1]),
                     i32::from(p.ore_cost[2]),
                 ],
+                picture: p.picture,
             }
         }};
     }
