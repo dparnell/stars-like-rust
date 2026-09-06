@@ -356,6 +356,9 @@ pub struct BuildOutcome {
     /// Whether the item stopped because minerals ran out rather than
     /// resources. An auto-build item blocked this way banks nothing.
     pub mineral_blocked: bool,
+    /// How many units of mineral alchemy were performed on this item's behalf
+    /// — nothing unless there was auto alchemy in front of it in the queue.
+    pub alchemised: i32,
     /// How the year went for this item, which is what decides whether the
     /// queue carries on behind it.
     pub status: BuildStatus,
@@ -422,12 +425,18 @@ impl BuildStatus {
 /// `count` is what the item is allowed to build this year — for an auto-build
 /// item that is its cap, not the "up to N" the player typed — and the outcome's
 /// [`BuildStatus`] says whether the queue carries on behind it.
+///
+/// `alchemy` is what one unit of mineral alchemy costs in resources — 100, or
+/// 25 with the trait — and is `Some` only when the queue entry immediately
+/// before this one is **auto alchemy**. It turns resources into the minerals
+/// this item is short of; see [`Alchemy`].
 pub fn build_item(
     cost: ItemCost,
     count: i32,
     completion_pct: i32,
     available: &mut [i32; COST_PARTS],
     auto_build: bool,
+    alchemy: Option<i32>,
 ) -> BuildOutcome {
     let unit = [
         cost.minerals[0],
@@ -441,6 +450,7 @@ pub fn build_item(
     let mut built = 0;
     let mut remaining = count.max(0);
     let mut pct = completion_pct;
+    let mut alchemised = 0;
 
     loop {
         if remaining == 0 {
@@ -449,6 +459,7 @@ pub fn build_item(
                 remaining,
                 completion_pct: pct,
                 mineral_blocked: false,
+                alchemised,
                 status: status_of(auto_build, built, remaining, false),
             };
         }
@@ -467,8 +478,17 @@ pub fn build_item(
 
         // Not affordable: work out how much of it can be paid for, taking the
         // most constrained of the four.
+        //
+        // Two flags come out of this, and they are not opposites. `short_of_a
+        // _mineral` is **sticky**: it records that a mineral was, at some
+        // point, the tightest input so far, and it is what decides whether an
+        // auto-build item gives up. `resources_bind` says resources were the
+        // tightest in the end, and it is what says alchemy cannot help —
+        // alchemy is paid for in resources.
         let mut best = 100;
-        let mut mineral_blocked = false;
+        let mut short_of_a_mineral = false;
+        let mut resources_bind = false;
+        let mut shortfall = 0;
         for i in 0..COST_PARTS {
             if unit[i] <= 0 {
                 continue;
@@ -491,34 +511,74 @@ pub fn build_item(
             }
             if share < best {
                 best = share;
-                mineral_blocked = i < 3;
+                shortfall = (unit[i] - paid[i]) - available[i];
+                if i == 3 {
+                    resources_bind = true;
+                } else {
+                    short_of_a_mineral = true;
+                }
             }
         }
 
-        if mineral_blocked && auto_build {
+        if short_of_a_mineral && auto_build {
             // An auto-build item does not part-pay for something it cannot
-            // finish for want of minerals.
+            // finish for want of minerals — unless there is alchemy in front
+            // of it, in which case it goes straight to asking for some.
+            if alchemy.is_none() {
+                return BuildOutcome {
+                    built,
+                    remaining,
+                    completion_pct: pct,
+                    mineral_blocked: true,
+                    alchemised,
+                    status: status_of(auto_build, built, remaining, true),
+                };
+            }
+        } else {
+            for i in 0..COST_PARTS {
+                let add = unit[i] * best / 100 - paid[i];
+                available[i] -= add;
+                paid[i] += add;
+            }
+            pct = best;
+            // Alchemy is bought with resources, so it is no help at all when
+            // resources are what ran out.
+            if alchemy.is_none() || resources_bind {
+                return BuildOutcome {
+                    built,
+                    remaining,
+                    completion_pct: pct,
+                    mineral_blocked: short_of_a_mineral,
+                    alchemised,
+                    status: status_of(auto_build, built, remaining, false),
+                };
+            }
+        }
+
+        // Alchemy: turn resources into the minerals this item is short of, up
+        // to the shortfall and no further. Every unit gives one kT of each of
+        // the three.
+        let each = alchemy.unwrap_or(0).max(1);
+        let bought = (available[3] / each).min(shortfall).max(0);
+        if bought > 0 {
+            for mineral in available.iter_mut().take(3) {
+                *mineral += bought;
+            }
+            available[3] -= each * bought;
+            alchemised += bought;
+        }
+        if bought != shortfall {
+            // It could not make up the whole gap, so there is no point going
+            // round again.
             return BuildOutcome {
                 built,
                 remaining,
                 completion_pct: pct,
-                mineral_blocked: true,
-                status: status_of(auto_build, built, remaining, true),
+                mineral_blocked: short_of_a_mineral,
+                alchemised,
+                status: status_of(auto_build, built, remaining, false),
             };
         }
-
-        for i in 0..COST_PARTS {
-            let add = unit[i] * best / 100 - paid[i];
-            available[i] -= add;
-            paid[i] += add;
-        }
-        return BuildOutcome {
-            built,
-            remaining,
-            completion_pct: best,
-            mineral_blocked,
-            status: status_of(auto_build, built, remaining, false),
-        };
     }
 }
 
@@ -1069,6 +1129,8 @@ pub fn eta(
 
         let mut queue = std::mem::take(&mut pl.queue);
         let end = queue.len().saturating_sub(1);
+        let alchemy_cost = planetary_item_cost(item::ALCHEMY, race, false).map(|c| c.resources);
+        let mut alchemy: Option<i32> = None;
         // The index is the point: it says whether this is the entry being
         // asked about and whether it is the last in the queue.
         #[allow(clippy::needless_range_loop)]
@@ -1090,6 +1152,7 @@ pub fn eta(
                             last: -1,
                         };
                     }
+                    alchemy = alchemy_cost;
                     continue;
                 }
                 wanted = ALCHEMY_FLAT_OUT;
@@ -1115,7 +1178,14 @@ pub fn eta(
                 wanted = wanted.min(auto_build_cap(&pl, race, tech, designs, entry.item));
             }
 
-            let outcome = build_item(cost, wanted, entry.completion, &mut available, auto);
+            let outcome = build_item(
+                cost,
+                wanted,
+                entry.completion,
+                &mut available,
+                auto,
+                alchemy.take(),
+            );
 
             if i == index {
                 if outcome.built > 0 && first == 0 {

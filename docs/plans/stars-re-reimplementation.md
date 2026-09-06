@@ -1572,11 +1572,29 @@ disagree.
     terraforming rule — it only acts while the planet is not both growing and
     habitable, which is precisely what makes it the minimum.
 
-    Not done, and written down: alchemy's actual **top-up**, the block at the
-    end of `CBuildProdItem` that turns resources into just enough minerals to
-    unblock the item behind it.
+47. ~~**Alchemy's top-up.**~~ **Done.** The block that closes
+    `CBuildProdItem`: when the entry in front of an item is auto alchemy and
+    the item is short of a **mineral**, resources are turned into minerals to
+    make up the gap — one kT of each of the three for 100 resources, 25 with
+    the trait — up to the shortfall and no further, and then the build is
+    retried.
 
-47. **What is still missing to call it playable.** Every waypoint task is now
+    Two details that are easy to get backwards, both now pinned by tests. It is
+    **no help when resources are what ran out**, since resources are what
+    alchemy costs; the original decides that with two flags that are not
+    opposites, one sticky ("a mineral was at some point the tightest input")
+    and one final ("resources were the tightest in the end"). And an
+    **auto-build** item short of minerals, which is normally passed over
+    silently, asks for the top-up instead — and if the top-up cannot cover the
+    gap it then reports as ordinarily blocked, which *stops* the queue where
+    without the alchemy in front it would not have.
+
+    Reading it at all depended on noticing that Ghidra binds
+    `CBuildProdItem`'s parameters one slot out: what it calls `fCalcOnly` is
+    really `fAlchemy`. Taken at face value the whole top-up is unreachable
+    code.
+
+48. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

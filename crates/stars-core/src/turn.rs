@@ -1980,6 +1980,10 @@ fn run_queue(
     let mut completed: Vec<(u16, i32)> = Vec::new();
     let mut queue = std::mem::take(&mut planet.queue);
     let last = queue.len().saturating_sub(1);
+    // What one unit of alchemy costs, and whether the entry just passed over
+    // was auto alchemy — which is what lets the next item ask for some.
+    let alchemy_cost = planetary_item_cost(item::ALCHEMY, race, false).map(|c| c.resources);
+    let mut alchemy: Option<i32> = None;
 
     // The index is the point: it says whether the entry is the last in the
     // queue, which is what decides how auto alchemy behaves.
@@ -1990,6 +1994,7 @@ fn run_queue(
         let alchemy_last =
             !queue[index].ship && queue[index].item == item::AUTO_ALCHEMY && index == last;
         if !queue[index].ship && queue[index].item == item::AUTO_ALCHEMY && !alchemy_last {
+            alchemy = alchemy_cost;
             continue;
         }
 
@@ -2022,7 +2027,11 @@ fn run_queue(
                 entry.completion,
                 available,
                 false,
+                alchemy.take(),
             );
+            if outcome.alchemised > 0 {
+                completed.push((item::ALCHEMY, outcome.alchemised));
+            }
             if outcome.built > 0 {
                 ships_built.push((slot, outcome.built));
             }
@@ -2052,7 +2061,17 @@ fn run_queue(
             entry.count
         };
 
-        let outcome = build_item(cost, wanted, entry.completion, available, auto);
+        let outcome = build_item(
+            cost,
+            wanted,
+            entry.completion,
+            available,
+            auto,
+            alchemy.take(),
+        );
+        if outcome.alchemised > 0 {
+            completed.push((item::ALCHEMY, outcome.alchemised));
+        }
         if outcome.built > 0 {
             match item::auto_builds(entry.item).unwrap_or(entry.item) {
                 item::MINE => planet.mines += i16::try_from(outcome.built).unwrap_or(0),

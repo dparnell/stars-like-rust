@@ -130,8 +130,8 @@ now agree, which they did not before:
   item that cannot finish does not stop it — the manual's "auto-build items
   that require only resources will continue to be produced" (p. 7-1).
 * **Auto alchemy** stands aside unless it is the last item in the queue, and
-  lends a hand to whatever follows it; as the last item it runs flat out, its
-  count overwritten with 1020.
+  lends a hand to whatever follows it — see below; as the last item it runs
+  flat out, its count overwritten with 1020.
 
 A third, which the estimate depends on and which was wrong here: an auto-build
 item's `up to N` is a **target, not a countdown**. It is clamped to the year's
@@ -144,6 +144,45 @@ it could ever hold; maximum terraforming to how much is left; and **minimum**
 terraforming to the same but only while the planet is not both growing and
 habitable — which is exactly what makes it the minimum. Packets need a mass
 driver and something on the surface to fling.
+
+## Alchemy's top-up
+
+The block that closes `CBuildProdItem`. When the entry immediately before the
+one being built is **auto alchemy**, and the item is short of a **mineral**,
+resources are turned into minerals to make up the gap:
+
+```
+each   = 100 resources, or 25 with the Mineral Alchemy trait
+bought = min(resources / each, the shortfall)
+        -> bought kT of ironium, boranium AND germanium
+        -> each * bought resources spent
+if bought covered the whole shortfall: try to build again
+```
+
+Three things fall out of that and are worth stating plainly:
+
+* it buys **up to the shortfall and no further** — the manual's "if you already
+  have enough minerals, Mineral Alchemy isn't needed and doesn't happen"
+  (p. 7-9);
+* it is no help at all when **resources** are what ran out, because alchemy is
+  bought with resources. The original works this out with two flags that are
+  not opposites: one records that a mineral was at some point the tightest
+  input, the other that resources were the tightest in the end;
+* every unit makes one kT of **all three** minerals, so unblocking a factory's
+  germanium leaves ironium and boranium on the surface as well.
+
+An **auto-build** item short of minerals normally banks nothing and gives up;
+with alchemy in front of it, it asks for the top-up first instead. If the
+alchemy still cannot cover the gap, the item reports as ordinarily blocked —
+which **stops the queue**, where without the alchemy in front it would merely
+have been passed over. That is what the binary does, and it is easy to get
+backwards.
+
+Reading the parameters correctly is what this hangs on: Ghidra binds
+`CBuildProdItem`'s arguments one slot out — its `fCalcOnly` is really
+`fAlchemy`, and its `pmdStatus` is really `rgRes` — so on the face of it the
+whole top-up looks unreachable. It is reached exactly when there is alchemy in
+front.
 
 ## Reading the queue
 
@@ -214,11 +253,6 @@ In `crates/stars-core/src/production.rs`:
 ## What is not reproduced
 
 * **Templates** beyond the default one, and the `<Customize>` editor.
-* **Alchemy's help.** Auto alchemy standing in front of an item is modelled as
-  far as standing aside and reading `As Needed`, but the *top-up* it performs —
-  `CBuildProdItem`'s closing block, which turns resources into just enough
-  minerals to unblock the item behind it — is not. Until it is, an alchemy row
-  in front of a mineral-starved item does nothing for it.
 * The estimate is recomputed from scratch for every row on every frame, as the
   original recomputes it whenever it refills the list. It costs about a
   millisecond for a seven-row queue in a debug build, which is affordable; a

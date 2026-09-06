@@ -147,6 +147,15 @@ Auto alchemy is the other special case: in front of another item it stands
 aside and marks the next item as alchemy-assisted; as the last item in the
 queue it runs flat out, with its count overwritten by 1020.
 
+**What "assisted" means**: if the item is short of a *mineral*, resources are
+turned into minerals to make up the gap — one kT of each of the three for 100
+resources, or 25 with the Mineral Alchemy trait — up to the shortfall and no
+further, and then the build is retried. It is no help when *resources* are what
+ran out, since that is what alchemy is bought with. An auto-build item short of
+minerals, which would normally bank nothing and be passed over, asks for the
+top-up first; if the top-up cannot cover the gap it reports as ordinarily
+blocked and the queue stops behind it.
+
 Both rules are shared with the year estimate the Production dialog shows, which
 is why they live in `production.rs`. See `../ui/production.md`.
 

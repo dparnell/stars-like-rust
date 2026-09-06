@@ -228,7 +228,7 @@ fn building_completes_whole_units_then_banks_the_rest() {
 
     // Plenty of everything: build all three outright.
     let mut have = [0, 0, 100, 100];
-    let out = build_item(factory, 3, 0, &mut have, false);
+    let out = build_item(factory, 3, 0, &mut have, false, None);
     assert_eq!(out.built, 3);
     assert_eq!(out.remaining, 0);
     assert_eq!(
@@ -239,7 +239,7 @@ fn building_completes_whole_units_then_banks_the_rest() {
 
     // Enough for one and part of another: the remainder is banked.
     let mut have = [0, 0, 100, 15];
-    let out = build_item(factory, 3, 0, &mut have, false);
+    let out = build_item(factory, 3, 0, &mut have, false, None);
     assert_eq!(out.built, 1);
     assert_eq!(out.remaining, 2);
     assert!(
@@ -250,12 +250,12 @@ fn building_completes_whole_units_then_banks_the_rest() {
 
     // Carrying that progress forward finishes it more cheaply.
     let mut have = [0, 0, 100, 6];
-    let out = build_item(factory, 1, 50, &mut have, false);
+    let out = build_item(factory, 1, 50, &mut have, false, None);
     assert_eq!(out.built, 1, "half-paid, so 5 more resources finishes it");
 
     // An auto-build item blocked on minerals banks nothing.
     let mut have = [0, 0, 1, 100];
-    let out = build_item(factory, 2, 0, &mut have, true);
+    let out = build_item(factory, 2, 0, &mut have, true, None);
     assert_eq!(out.built, 0);
     assert!(out.mineral_blocked);
     assert_eq!(out.completion_pct, 0, "auto-build does not part-pay");
@@ -263,7 +263,7 @@ fn building_completes_whole_units_then_banks_the_rest() {
 
     // The same shortage on a manual item does part-pay.
     let mut have = [0, 0, 1, 100];
-    let out = build_item(factory, 2, 0, &mut have, false);
+    let out = build_item(factory, 2, 0, &mut have, false, None);
     assert!(out.completion_pct > 0, "a manual item banks what it can");
     assert!(have[2] < 1 || have[3] < 100, "and spends something");
 }
@@ -772,21 +772,21 @@ fn the_queue_stops_where_the_original_stops() {
 
     // An ordinary item that finishes: the queue carries on.
     let mut have = [0, 0, 0, 100];
-    let outcome = build_item(cost, 3, 0, &mut have, false);
+    let outcome = build_item(cost, 3, 0, &mut have, false, None);
     assert_eq!(outcome.built, 3);
     assert_eq!(outcome.status, BuildStatus::Complete);
     assert!(!outcome.status.stops_the_queue());
 
     // One that builds some but not all: the queue stops behind it.
     let mut have = [0, 0, 0, 25];
-    let outcome = build_item(cost, 5, 0, &mut have, false);
+    let outcome = build_item(cost, 5, 0, &mut have, false, None);
     assert_eq!(outcome.built, 2);
     assert_eq!(outcome.status, BuildStatus::Some);
     assert!(outcome.status.stops_the_queue());
 
     // One that cannot build even one: likewise.
     let mut have = [0, 0, 0, 3];
-    let outcome = build_item(cost, 5, 0, &mut have, false);
+    let outcome = build_item(cost, 5, 0, &mut have, false, None);
     assert_eq!(outcome.built, 0);
     assert_eq!(outcome.status, BuildStatus::Blocked);
     assert!(outcome.status.stops_the_queue());
@@ -794,7 +794,7 @@ fn the_queue_stops_where_the_original_stops() {
     // An auto-build item with nothing to do is skipped, and does not stop
     // anything.
     let mut have = [0, 0, 0, 100];
-    let outcome = build_item(cost, 0, 0, &mut have, true);
+    let outcome = build_item(cost, 0, 0, &mut have, true, None);
     assert_eq!(outcome.status, BuildStatus::SkippedAuto);
     assert!(!outcome.status.stops_the_queue());
 
@@ -806,7 +806,7 @@ fn the_queue_stops_where_the_original_stops() {
         resources: 10,
     };
     let mut have = [0, 0, 1, 100];
-    let outcome = build_item(mineral, 3, 0, &mut have, true);
+    let outcome = build_item(mineral, 3, 0, &mut have, true, None);
     assert!(outcome.mineral_blocked);
     assert_eq!(outcome.status, BuildStatus::NoneAuto);
     assert!(!outcome.status.stops_the_queue());
@@ -977,4 +977,128 @@ fn the_estimate_reads_the_way_the_game_writes_it() {
     // A ship is never "Unknown", whatever its slot number.
     assert_eq!(e(100, 100).text(3, true), "Never");
     assert_eq!(e(5, 20).mark(item::FACTORY, false), EtaMark::Ordinary);
+}
+
+/// Auto alchemy in front of an item turns resources into the minerals it is
+/// short of.
+///
+/// `CBuildProdItem`'s closing block: up to the shortfall and no further, one
+/// kT of each mineral for a hundred resources — twenty-five with the trait —
+/// and only when a **mineral** is what ran out, because alchemy is bought with
+/// resources.
+#[test]
+fn alchemy_tops_up_the_minerals_the_next_item_needs() {
+    use stars_core::production::{build_item, BuildStatus, ItemCost};
+
+    // Something that wants four germanium and ten resources.
+    let factory = ItemCost {
+        minerals: [0, 0, 4],
+        resources: 10,
+    };
+
+    // Without alchemy in front, a planet with no germanium part-pays and
+    // stops.
+    let mut have = [0, 0, 0, 1000];
+    let out = build_item(factory, 1, 0, &mut have, false, None);
+    assert_eq!(out.built, 0);
+    assert_eq!(out.alchemised, 0);
+    assert!(out.status.stops_the_queue());
+
+    // With alchemy in front, the four germanium are bought for 400 resources
+    // and the factory is built.
+    let mut have = [0, 0, 0, 1000];
+    let out = build_item(factory, 1, 0, &mut have, false, Some(100));
+    assert_eq!(out.built, 1);
+    assert_eq!(out.alchemised, 4, "four kT of each mineral");
+    assert_eq!(out.status, BuildStatus::Complete);
+    // 400 on alchemy and 10 on the factory; the ironium and boranium alchemy
+    // also made are left on the surface.
+    assert_eq!(have[3], 1000 - 400 - 10);
+    assert_eq!(have[0], 4);
+    assert_eq!(have[1], 4);
+    assert_eq!(have[2], 0, "the germanium went into the factory");
+
+    // The Mineral Alchemy trait makes it four times cheaper.
+    let mut have = [0, 0, 0, 1000];
+    let out = build_item(factory, 1, 0, &mut have, false, Some(25));
+    assert_eq!(out.built, 1);
+    assert_eq!(have[3], 1000 - 100 - 10);
+
+    // Alchemy is bought with resources, so it is no help when resources are
+    // what ran out.
+    let mut have = [0, 0, 0, 5];
+    let out = build_item(factory, 1, 0, &mut have, false, Some(100));
+    assert_eq!(out.built, 0);
+    assert_eq!(out.alchemised, 0, "no resources to alchemise with");
+
+    // It buys only as much as the item is short of, and stops when it cannot
+    // make up the whole gap.
+    let mut have = [0, 0, 0, 250];
+    let out = build_item(factory, 1, 0, &mut have, false, Some(100));
+    assert_eq!(out.built, 0, "two kT is not the four it needed");
+    assert_eq!(out.alchemised, 2);
+    assert!(have[3] < 250);
+}
+
+/// The same thing through a whole turn: an auto-alchemy row in front of a
+/// mineral-starved item unblocks it.
+#[test]
+fn a_turn_runs_alchemy_for_the_item_behind_it() {
+    use stars_core::production::{item, QueueItem};
+    use stars_core::rng::Rng;
+    use stars_core::{generate_turn, GameState, Player};
+
+    let race = Race::humanoid();
+    // A planet with plenty of people and no minerals at all: it earns
+    // resources but can mine nothing.
+    let build = |queue: Vec<QueueItem>| -> (i16, i32) {
+        let mut planet = Planet::unowned(0);
+        planet.owner = Some(0);
+        planet.env = race.env_center;
+        planet.pop = 25_000;
+        planet.factories = 100;
+        planet.mines = 0;
+        planet.min_conc = [0, 0, 0];
+        planet.surface_min = [0, 0, 0];
+        planet.queue = queue;
+
+        let mut state = GameState::new(1);
+        state.planets = vec![planet];
+        state.players = vec![Player::new(race.clone())];
+        let mut rng = Rng::randomize(7);
+        generate_turn(&mut state, &mut rng);
+        (
+            state.planets[0].factories,
+            state.planets[0].surface_min.iter().sum(),
+        )
+    };
+
+    let factories = || QueueItem {
+        count: 5,
+        item: item::FACTORY,
+        ship: false,
+        completion: 0,
+    };
+    let alchemy = || QueueItem {
+        count: 1,
+        item: item::AUTO_ALCHEMY,
+        ship: false,
+        completion: 0,
+    };
+
+    // No germanium and no alchemy: nothing gets built.
+    let (without, _) = build(vec![factories()]);
+    assert_eq!(without, 100, "no germanium, no factories");
+
+    // Auto alchemy in front of it: the germanium is made and the factories go
+    // up.
+    let (with, _) = build(vec![alchemy(), factories()]);
+    assert!(
+        with > without,
+        "alchemy should have unblocked the factories: {with} vs {without}"
+    );
+
+    // Alchemy *behind* the item is no help — it only assists what follows it.
+    let (behind, _) = build(vec![factories(), alchemy()]);
+    assert_eq!(behind, without, "alchemy only helps what comes after it");
 }
