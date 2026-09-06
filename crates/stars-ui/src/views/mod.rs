@@ -6,6 +6,7 @@
 //! testable through that state rather than through the widgets.
 
 pub mod battles;
+pub mod browser;
 pub mod designer;
 pub mod fleet;
 pub mod fleets;

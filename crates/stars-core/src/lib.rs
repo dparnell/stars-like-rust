@@ -51,6 +51,7 @@ pub mod advantage;
 pub mod ai;
 pub mod battle;
 pub mod bombing;
+pub mod browser;
 pub mod components;
 pub mod design;
 pub mod fleet;

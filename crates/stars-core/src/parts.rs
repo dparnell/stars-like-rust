@@ -227,15 +227,53 @@ pub fn availability(who: &Builder<'_>, category: u16, item: usize) -> Availabili
     tech_status(&p.tech, &who.levels, who.researching)
 }
 
-/// The trait gate: everything `FLookupPart` decides before it reaches the tech
-/// check.
-fn forbidden(who: &Builder<'_>, category: u16, item: usize) -> bool {
-    let prt = who.race.prt();
-    let is = |p: Prt| prt == Some(p);
-    let has = |bit: u32| who.race.has_lrt(bit);
+/// One thing a component asks of the race that builds it.
+///
+/// `FLookupPart` states these as a long run of conditions; naming them lets
+/// the Technology Browser explain *why* something is out of reach using the
+/// same list the gate is enforced from, so the two cannot drift apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Requirement {
+    /// Only this primary racial trait may build it.
+    Prt(Prt),
+    /// Only a race with one of these two may build it.
+    EitherPrt(Prt, Prt),
+    /// This primary racial trait may **not** build it.
+    NotPrt(Prt),
+    /// It needs this lesser racial trait.
+    Lrt(u32),
+    /// This lesser racial trait rules it out.
+    NotLrt(u32),
+    /// The Mystery Trader has to hand it over first.
+    Trader(u16),
+}
 
-    if hidden_by_trader(who.trader_parts, category, item) {
-        return true;
+impl Requirement {
+    /// Whether this race satisfies it.
+    #[must_use]
+    pub fn met(self, race: &Race, trader_parts: u16) -> bool {
+        match self {
+            Requirement::Prt(p) => race.prt() == Some(p),
+            Requirement::EitherPrt(a, b) => race.prt() == Some(a) || race.prt() == Some(b),
+            Requirement::NotPrt(p) => race.prt() != Some(p),
+            Requirement::Lrt(bit) => race.has_lrt(bit),
+            Requirement::NotLrt(bit) => !race.has_lrt(bit),
+            Requirement::Trader(bit) => trader_parts & bit != 0,
+        }
+    }
+}
+
+/// Everything `FLookupPart` (`1008:524e`) asks of a race before it reaches the
+/// technology check.
+///
+/// A component with no entries here is open to everybody.
+#[must_use]
+pub fn requirements(category: u16, item: usize) -> Vec<Requirement> {
+    use Requirement::{EitherPrt, Lrt, NotLrt, NotPrt, Prt as Needs, Trader};
+
+    let mut out = Vec::new();
+    if let Some(bit) = trader_gift(category, item) {
+        out.push(Trader(bit));
     }
 
     match category {
@@ -243,79 +281,196 @@ fn forbidden(who: &Builder<'_>, category: u16, item: usize) -> bool {
             // The Settler's Delight is Hyper Expansion's alone; the ramscoops
             // go with the trait that allows them; and the Interspace-10 exists
             // only as the consolation prize for a race that has none.
-            (item == 0 && !is(Prt::He))
-                || ((10..=15).contains(&item) && has(lrt::NO_RAMSCOOPS))
-                || ((item == 15 || item == 2) && !has(lrt::IFE))
-                || (item == 7 && !has(lrt::NO_RAMSCOOPS))
+            if item == 0 {
+                out.push(Needs(Prt::He));
+            }
+            if (10..=15).contains(&item) {
+                out.push(NotLrt(lrt::NO_RAMSCOOPS));
+            }
+            if item == 15 || item == 2 {
+                out.push(Lrt(lrt::IFE));
+            }
+            if item == 7 {
+                out.push(Lrt(lrt::NO_RAMSCOOPS));
+            }
         }
         slot::SCANNER => {
-            (matches!(item, 7 | 8 | 12) && has(lrt::NO_ADV_SCANNER))
-                || (matches!(item, 5 | 6 | 14) && !is(Prt::Ss))
+            if matches!(item, 7 | 8 | 12) {
+                out.push(NotLrt(lrt::NO_ADV_SCANNER));
+            }
+            if matches!(item, 5 | 6 | 14) {
+                out.push(Needs(Prt::Ss));
+            }
         }
-        slot::SHIELD => (item == 4 && !is(Prt::Ss)) || (item == 3 && !is(Prt::Is)),
-        slot::ARMOR => (item == 7 && !is(Prt::Ss)) || (item == 6 && !is(Prt::Is)),
-        slot::BEAM => (item == 2 && !is(Prt::Is)) || (matches!(item, 14 | 16) && !is(Prt::Wm)),
-        slot::BOMB => ((10..=14).contains(&item) && is(Prt::Is)) || (item == 9 && !is(Prt::Ca)),
+        slot::SHIELD => {
+            if item == 4 {
+                out.push(Needs(Prt::Ss));
+            }
+            if item == 3 {
+                out.push(Needs(Prt::Is));
+            }
+        }
+        slot::ARMOR => {
+            if item == 7 {
+                out.push(Needs(Prt::Ss));
+            }
+            if item == 6 {
+                out.push(Needs(Prt::Is));
+            }
+        }
+        slot::BEAM => {
+            if item == 2 {
+                out.push(Needs(Prt::Is));
+            }
+            if matches!(item, 14 | 16) {
+                out.push(Needs(Prt::Wm));
+            }
+        }
+        slot::BOMB => {
+            if (10..=14).contains(&item) {
+                out.push(NotPrt(Prt::Is));
+            }
+            if item == 9 {
+                out.push(Needs(Prt::Ca));
+            }
+        }
         slot::MINING => {
-            (matches!(item, 0 | 2 | 3 | 4 | 5) && has(lrt::OBRM))
-                || (matches!(item, 0 | 5) && !has(lrt::ARM))
-                || (item == 7 && !is(Prt::Ca))
+            if matches!(item, 0 | 2 | 3 | 4 | 5) {
+                out.push(NotLrt(lrt::OBRM));
+            }
+            if matches!(item, 0 | 5) {
+                out.push(Lrt(lrt::ARM));
+            }
+            if item == 7 {
+                out.push(Needs(Prt::Ca));
+            }
         }
         slot::MINES => {
-            (matches!(item, 0 | 2 | 3 | 4 | 5 | 6 | 8 | 9) && !is(Prt::Sd))
-                || (item == 7 && !is(Prt::Sd) && !is(Prt::Is))
-                || (item == 1 && is(Prt::Wm))
+            if matches!(item, 0 | 2 | 3 | 4 | 5 | 6 | 8 | 9) {
+                out.push(Needs(Prt::Sd));
+            }
+            if item == 7 {
+                out.push(EitherPrt(Prt::Sd, Prt::Is));
+            }
+            if item == 1 {
+                out.push(NotPrt(Prt::Wm));
+            }
         }
         slot::SPECIAL_SB => {
             if item < 7 {
                 // Stargates. Hyper Expansion may not build one at all; every
                 // race but Interstellar Traveler is held to the first four,
                 // minus the second.
-                is(Prt::He) || (!is(Prt::It) && (item == 1 || item > 3))
-            } else {
+                out.push(NotPrt(Prt::He));
+                if item == 1 || item > 3 {
+                    out.push(Needs(Prt::It));
+                }
+            } else if !matches!(item, 9 | 12) {
                 // Mass drivers, bar the two everybody gets.
-                !matches!(item, 9 | 12) && !is(Prt::Pp)
+                out.push(Needs(Prt::Pp));
             }
         }
-        slot::SB_HULL => (matches!(item, 1 | 3) && !has(lrt::ISB)) || (item == 4 && !is(Prt::Ar)),
-        slot::SPECIAL_E => {
-            // The designer also drops the Tachyon Detector and the
-            // Anti-matter Generator from a starbase's list
-            // (`FillBuildPartsLB`).
-            (who.starbase && matches!(item, 15 | 16))
-                || (matches!(item, 0 | 3) && !is(Prt::Ss))
-                || (matches!(item, 8 | 11 | 15) && !is(Prt::Is))
-                || (item == 13 && !is(Prt::He))
-                || (item == 14 && !is(Prt::Sd))
-                || (item == 16 && !is(Prt::It))
+        slot::SB_HULL => {
+            if matches!(item, 1 | 3) {
+                out.push(Lrt(lrt::ISB));
+            }
+            if item == 4 {
+                out.push(Needs(Prt::Ar));
+            }
         }
-        slot::SPECIAL_M => (item == 0 && is(Prt::Ar)) || (item == 1 && !is(Prt::Ar)),
-        slot::TERRA => item < 8 && !has(lrt::TT),
+        slot::SPECIAL_E => {
+            if matches!(item, 0 | 3) {
+                out.push(Needs(Prt::Ss));
+            }
+            if matches!(item, 8 | 11 | 15) {
+                out.push(Needs(Prt::Is));
+            }
+            if item == 13 {
+                out.push(Needs(Prt::He));
+            }
+            if item == 14 {
+                out.push(Needs(Prt::Sd));
+            }
+            if item == 16 {
+                out.push(Needs(Prt::It));
+            }
+        }
+        slot::SPECIAL_M => {
+            if item == 0 {
+                out.push(NotPrt(Prt::Ar));
+            }
+            if item == 1 {
+                out.push(Needs(Prt::Ar));
+            }
+        }
+        slot::TERRA => {
+            if item < 8 {
+                out.push(Lrt(lrt::TT));
+            }
+        }
         slot::HULL => {
-            (matches!(item, 14 | 31) && !is(Prt::He))
-                || (matches!(item, 3 | 25) && !is(Prt::Is))
-                || (matches!(item, 20 | 22 | 23 | 24) && has(lrt::OBRM))
-                || (matches!(item, 20 | 22 | 24) && !has(lrt::ARM))
-                || (matches!(item, 8 | 10) && !is(Prt::Wm))
-                || (matches!(item, 12 | 18) && !is(Prt::Ss))
-                || (matches!(item, 27 | 28) && !is(Prt::Sd))
+            if matches!(item, 14 | 31) {
+                out.push(Needs(Prt::He));
+            }
+            if matches!(item, 3 | 25) {
+                out.push(Needs(Prt::Is));
+            }
+            if matches!(item, 20 | 22 | 23 | 24) {
+                out.push(NotLrt(lrt::OBRM));
+            }
+            if matches!(item, 20 | 22 | 24) {
+                out.push(Lrt(lrt::ARM));
+            }
+            if matches!(item, 8 | 10) {
+                out.push(Needs(Prt::Wm));
+            }
+            if matches!(item, 12 | 18) {
+                out.push(Needs(Prt::Ss));
+            }
+            if matches!(item, 27 | 28) {
+                out.push(Needs(Prt::Sd));
+            }
         }
         slot::PLANETARY => {
             let penetrating = PLANETARY.get(item).is_some_and(|p| p.ability < 0);
-            (item < 9 && penetrating && has(lrt::NO_ADV_SCANNER))
-                || (item < 9 && is(Prt::Ar))
-                || ((10..=13).contains(&item) && is(Prt::Ar))
-                || ((11..=13).contains(&item) && is(Prt::Wm))
+            if item < 9 && penetrating {
+                out.push(NotLrt(lrt::NO_ADV_SCANNER));
+            }
+            if item < 9 {
+                out.push(NotPrt(Prt::Ar));
+            }
+            if (10..=13).contains(&item) {
+                out.push(NotPrt(Prt::Ar));
+            }
+            if (11..=13).contains(&item) {
+                out.push(NotPrt(Prt::Wm));
+            }
         }
-        _ => false,
+        _ => {}
     }
+    out
+}
+
+/// The trait gate: everything `FLookupPart` decides before it reaches the tech
+/// check.
+fn forbidden(who: &Builder<'_>, category: u16, item: usize) -> bool {
+    // The designer also drops the Tachyon Detector and the Anti-matter
+    // Generator from a starbase's list (`FillBuildPartsLB`) — a rule about
+    // that list rather than about the component, so it is not a requirement.
+    if who.starbase && category == slot::SPECIAL_E && matches!(item, 15 | 16) {
+        return true;
+    }
+    requirements(category, item)
+        .into_iter()
+        .any(|need| !need.met(who.race, who.trader_parts))
 }
 
 /// The twelve components a Mystery Trader hands out, and nobody else has
-/// (`FShouldPartBeHidden`, `research.c`). Until the trader has given a player
-/// the matching bit, the part is not in the list at all.
-fn hidden_by_trader(trader_parts: u16, category: u16, item: usize) -> bool {
-    let needs = match (category, item) {
+/// (`FShouldPartBeHidden`, `research.c`) — and which bit of
+/// [`crate::wormhole::part`] unlocks each. Until the trader has given a player
+/// that bit, the component is not in any list at all.
+fn trader_gift(category: u16, item: usize) -> Option<u16> {
+    Some(match (category, item) {
         (slot::ENGINE, 8) => trader::ENGINE,
         (slot::SHIELD, 6) => trader::SHIELD,
         (slot::ARMOR, 9) => trader::ARMOR,
@@ -328,9 +483,8 @@ fn hidden_by_trader(trader_parts: u16, category: u16, item: usize) -> bool {
         (slot::SPECIAL_M, 9) => trader::JUMPGATE,
         (slot::HULL, 30) => trader::HULL,
         (slot::PLANETARY, 14) => trader::GENESIS,
-        _ => return false,
-    };
-    trader_parts & needs == 0
+        _ => return None,
+    })
 }
 
 /// How far the player is from a component's tech requirement (`TechStatus`).

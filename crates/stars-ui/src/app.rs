@@ -277,6 +277,9 @@ pub struct App {
     pub production: Option<Production>,
     /// The Research dialog, while it is open.
     pub research_dialog: Option<ResearchDialog>,
+    /// The Technology Browser, while it is open (`hwndBrowser`). Modeless in
+    /// the original, so it sits alongside whatever else is on screen.
+    pub browser: Option<Browser>,
     /// The player's production templates, slots 1..3 — the `<Customize>`
     /// dialog's, which the original keeps in `stars.ini`. Slot 0 is filled in
     /// from the player's own default queue; see [`App::production_templates`].
@@ -5849,5 +5852,135 @@ impl App {
         }
         out.push((NextField::Lowest, "<Lowest field>".to_string()));
         out
+    }
+}
+
+// --- The Technology Browser ----------------------------------------------
+
+/// What the Technology Browser is showing.
+///
+/// The original keeps this in globals — `vpartBrowser`, the dropdown and the
+/// checkbox — and the window is **modeless**, so it stays open while the
+/// player does other things.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Browser {
+    /// The category the dropdown is on: an index into
+    /// [`stars_core::browser::CATEGORIES`], where `0` is **All**.
+    pub category: usize,
+    /// The component being shown, as `(category flag, index)`.
+    pub showing: (u16, usize),
+    /// Whether to walk only what the player can build now.
+    pub buildable_only: bool,
+}
+
+impl App {
+    /// Open the Technology Browser (`BrowserDlg`, F2).
+    ///
+    /// It opens on the first armour, which is where `BrowserDlg` starts when
+    /// it has nothing remembered (`vpartBrowser.grhst = hstArmor`).
+    pub fn open_browser(&mut self) {
+        if self.browser.is_some() {
+            return;
+        }
+        self.browser = Some(Browser {
+            category: 0,
+            showing: (stars_core::components::slot::ARMOR, 0),
+            buildable_only: false,
+        });
+    }
+
+    /// Close it.
+    pub fn close_browser(&mut self) {
+        self.browser = None;
+    }
+
+    /// Who is browsing, for the costs and the requirements.
+    #[must_use]
+    fn browser_builder(&self) -> Option<stars_core::parts::Builder<'_>> {
+        let game = self.game.as_ref()?;
+        let player = game.players.get(self.local_player())?;
+        Some(stars_core::parts::Builder::player(player))
+    }
+
+    /// The category the dropdown is limiting the walk to, or `None` for
+    /// **All**.
+    #[must_use]
+    fn browser_within(&self) -> Option<u16> {
+        let browser = self.browser?;
+        stars_core::browser::CATEGORIES
+            .get(browser.category)
+            .map(|(flag, _)| *flag)
+            .filter(|flag| *flag != 0)
+    }
+
+    /// What the panel shows about the component in view.
+    #[must_use]
+    pub fn browser_detail(&self) -> Option<stars_core::browser::Detail> {
+        let browser = self.browser?;
+        let who = self.browser_builder()?;
+        stars_core::browser::detail(&who, browser.showing.0, browser.showing.1)
+    }
+
+    /// **Prev** and **Next**: walk the catalogue.
+    pub fn browser_step(&mut self, forward: bool) {
+        let Some(browser) = self.browser else {
+            return;
+        };
+        let within = self.browser_within();
+        let Some(who) = self.browser_builder() else {
+            return;
+        };
+        let next = stars_core::browser::step(
+            &who,
+            within,
+            browser.showing,
+            forward,
+            browser.buildable_only,
+        );
+        if let (Some(next), Some(browser)) = (next, self.browser.as_mut()) {
+            browser.showing = next;
+        }
+    }
+
+    /// Choose a category. The panel moves to the first component in it that
+    /// the current filter will stop at.
+    pub fn browser_set_category(&mut self, category: usize) {
+        let Some(browser) = self.browser.as_mut() else {
+            return;
+        };
+        browser.category = category.min(stars_core::browser::CATEGORIES.len() - 1);
+        let buildable_only = browser.buildable_only;
+        let within = self.browser_within();
+        let Some(who) = self.browser_builder() else {
+            return;
+        };
+        let first = stars_core::browser::first(&who, within, buildable_only);
+        if let (Some(first), Some(browser)) = (first, self.browser.as_mut()) {
+            browser.showing = first;
+        }
+    }
+
+    /// Turn the "only what I can build" filter on or off, moving off a
+    /// component the filter no longer allows.
+    pub fn browser_set_buildable_only(&mut self, only: bool) {
+        let Some(browser) = self.browser.as_mut() else {
+            return;
+        };
+        browser.buildable_only = only;
+        if !only {
+            return;
+        }
+        let showing = browser.showing;
+        let within = self.browser_within();
+        let Some(who) = self.browser_builder() else {
+            return;
+        };
+        if stars_core::parts::availability(&who, showing.0, showing.1).is_available() {
+            return;
+        }
+        let next = stars_core::browser::step(&who, within, showing, true, true);
+        if let (Some(next), Some(browser)) = (next, self.browser.as_mut()) {
+            browser.showing = next;
+        }
     }
 }

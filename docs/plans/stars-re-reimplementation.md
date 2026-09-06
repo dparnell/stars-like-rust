@@ -1668,7 +1668,31 @@ disagree.
     would otherwise be made later — the assertion I first wrote was that the
     lists differed, and it failed.
 
-51. **What is still missing to call it playable.** Every waypoint task is now
+51. ~~**The Technology Browser.**~~ **Done.** `BrowserDlg` (`10d8:1ed8`), F2.
+    Spec in `docs/ui/technology-browser.md`. Modeless, one component at a
+    time, with the seventeen-entry category dropdown, Prev and Next walking
+    the whole catalogue with a wrap, the "only what I can build" filter, and
+    the panel's costs, mass, per-kind figures and technology requirements
+    marked red or not against the player's own levels.
+
+    Two things about the walk are worth keeping straight. Unfiltered, it stops
+    at a component a **racial trait** forbids — that is the point, since the
+    browser then explains why — but never at one the **Mystery Trader** has
+    not handed over, because the player has no way of knowing it exists. The
+    loop skips a disallowed component only when `FShouldPartBeHidden` agrees,
+    and that function is about the Trader alone.
+
+    The notes are **written rather than copied**. The original carries about a
+    hundred and fifty sentences for this, one per component per condition. The
+    project does not copy them, for the same reason it does not copy the
+    game's message text: they are authored prose, not data. Instead
+    `FLookupPart`'s gate has been restated as `parts::requirements` — a list of
+    named conditions, `Prt(Ss)`, `NotLrt(OBRM)`, `Trader(ENGINE)` — which
+    `forbidden` now evaluates and the browser turns into sentences of our own.
+    So the wording is ours and it cannot drift from the rule, because the rule
+    *is* that list.
+
+52. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

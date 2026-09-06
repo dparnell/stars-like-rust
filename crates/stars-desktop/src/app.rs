@@ -301,8 +301,33 @@ impl eframe::App for StarsApp {
 
         if self.app.game.is_some()
             && self.app.setup.is_none()
+            && ctx.input(|i| i.key_pressed(egui::Key::F2))
+        {
+            if self.app.browser.is_some() {
+                self.app.close_browser();
+            } else {
+                self.app.open_browser();
+            }
+        }
+
+        if self.app.game.is_some()
+            && self.app.setup.is_none()
             && ctx.input(|i| i.key_pressed(egui::Key::F5))
         {
+            // The browser is modeless in the original, so it sits alongside
+            // whatever else is open rather than blocking it.
+            if self.app.browser.is_some() {
+                let mut open = true;
+                egui::Window::new("Technology Browser")
+                    .open(&mut open)
+                    .resizable(true)
+                    .default_width(420.0)
+                    .show(ctx, |ui| stars_ui::views::browser::view(&mut self.app, ui));
+                if !open {
+                    self.app.close_browser();
+                }
+            }
+
             if self.app.research_dialog.is_some() {
                 self.app.research_cancel();
             } else {
@@ -399,6 +424,15 @@ impl eframe::App for StarsApp {
                     .clicked()
                 {
                     self.app.open_research();
+                }
+                if ui
+                    .add_enabled(
+                        self.app.game.is_some() && self.app.setup.is_none(),
+                        egui::Button::new("Technology Browser…").shortcut_text("F2"),
+                    )
+                    .clicked()
+                {
+                    self.app.open_browser();
                 }
                 ui.separator();
                 for screen in Screen::ALL {
