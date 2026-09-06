@@ -245,6 +245,31 @@ the game. `stars_formats::ProductionTemplate` reads and writes the text form,
 and the desktop shell keeps a `stars.ini` beside the save, rewriting only the
 `ZipOrders` keys it owns.
 
+### The blue diamond
+
+`DrawProductionDlg` puts a small raised blue diamond at the bottom left of the
+dialog — `dyArial8` square, at x = 6, with `Apply or define a production
+template` beside it — and remembers its rectangle in `rcProdDiamond`.
+`ProductionDlg` hit-tests that three ways:
+
+* **hovering** it swaps in `hcurArrowHelp`, the arrow with a question mark;
+* a **left** click puts up a balloon that tells you to use the other button:
+  *"Right click on the blue diamond to apply a production template to this
+  queue, or choose `<Customize>` to define a template based on the auto build
+  items in the current queue."*;
+* a **right** click brings up the menu — every template that has something in
+  it, a separator, then `<Customize>`.
+
+`DrawDiamond` (`1028:4b60`) draws the shape itself scanline by scanline, laying
+a highlight along the upper-left edges and a shadow along the lower-right
+before filling the middle, which is what makes it look raised.
+
+Choosing `<Customize>` copies the whole `ZIPPRODQ[4]` array first and puts it
+back if the dialog is cancelled — so **Cancel undoes an Import or a Delete**,
+not just a rename. The default queue goes back with it, and setting it to what
+it already was writes no order, which is the `memcmp` guard in
+`LogChangeZpq1`.
+
 ### `<Customize>`
 
 `ZipProdDlg` (`10d0:5490`). Four radio buttons, `0x431`…`0x434`, one per slot,
@@ -278,8 +303,9 @@ double-click doing the same as the button, the merge with a neighbouring row,
 next starbase, the *Contribute only leftover resources to research* checkbox,
 the cost panel against what the planet has on the surface, and a working copy
 that **Cancel** throws away and **OK** — or stepping to another planet — writes
-back. All four production templates, with `<Customize>`'s Import, Delete and
-Rename and the `stars.ini` encoding they persist in. Every queue row carries
+back. All four production templates, reached from the blue diamond exactly as
+the original reaches them, with `<Customize>`'s Import, Delete, Rename and its
+restoring Cancel, and the `stars.ini` encoding they persist in. Every queue row carries
 its year and its colour, in the dialog and in the
 planet pane's Production tile alike — the original fills both from the same
 routine, so an item that will practically never be built is red in both.
@@ -304,9 +330,6 @@ In `crates/stars-core/src/production.rs`:
 
 ## What is not reproduced
 
-* The **blue diamond**. The original hangs the template menu off a right-click
-  on a small diamond beside the queue; here the four templates and
-  `<Customize>` are a row of buttons.
 * The estimate is recomputed from scratch for every row on every frame, as the
   original recomputes it whenever it refills the list. It costs about a
   millisecond for a seven-row queue in a debug build, which is affordable; a

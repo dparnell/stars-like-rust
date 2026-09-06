@@ -386,11 +386,12 @@ fn the_dialog_draws() {
     frame(&mut app);
 
     // The <Customize> panel, on each slot in turn.
+    app.production_customize_open(0);
     for slot in 0..stars_formats::TEMPLATE_SLOTS {
-        app.customize_template = Some(slot);
+        app.production_customize_select(slot);
         frame(&mut app);
     }
-    app.customize_template = None;
+    app.production_customize_close(true);
 
     app.production_cancel();
     frame(&mut app);
@@ -476,8 +477,9 @@ fn a_template_replaces_only_the_auto_build_items() {
     app.production_add(5);
 
     // Import it into slot 1, then wipe the queue and apply it back.
-    app.customize_template = Some(1);
+    app.production_customize_open(1);
     app.production_import_template(1, "Colony");
+    app.production_customize_close(true);
     assert_eq!(app.production_template_name(1), "Colony");
     assert!(app.production_template_editable(1));
 
@@ -621,4 +623,67 @@ fn the_customize_panel_lists_the_template() {
             "Alchemy".to_string(),
         ]
     );
+}
+
+/// Cancelling `<Customize>` puts every template back as it was — the original
+/// copies the whole array before opening the dialog and restores it.
+#[test]
+fn cancelling_customize_undoes_an_import() {
+    let mut app = a_game();
+    app.open_production();
+    app.production_clear();
+
+    let index = app
+        .production_inventory()
+        .iter()
+        .position(|r| !r.ship && r.item == item::AUTO_MINE)
+        .expect("auto mines");
+    app.production.as_mut().expect("open").inventory_index = index;
+    app.production_add(10);
+
+    // Import into slot 1 and keep it.
+    app.production_customize_open(1);
+    app.production_import_template(1, "Keeper");
+    app.production_customize_close(true);
+    assert_eq!(app.production_template_name(1), "Keeper");
+
+    // Now import over it, delete another, and cancel.
+    let before_default = app.game.as_ref().expect("game").players[0]
+        .default_queue
+        .clone();
+    app.production_customize_open(1);
+    app.production_import_template(1, "Replaced");
+    app.production_import_template(0, "ignored");
+    app.production_customize_close(false);
+
+    assert_eq!(
+        app.production_template_name(1),
+        "Keeper",
+        "Cancel put the template back"
+    );
+    assert_eq!(
+        app.game.as_ref().expect("game").players[0].default_queue,
+        before_default,
+        "and the default queue with it"
+    );
+}
+
+/// Setting the default queue to what it already is writes no order, which is
+/// the `memcmp` guard in `LogChangeZpq1`.
+#[test]
+fn an_unchanged_default_queue_is_not_an_order() {
+    let mut app = a_game();
+    let queue = app.game.as_ref().expect("game").players[0]
+        .default_queue
+        .clone();
+    let before = app.orders.len();
+    app.set_default_queue(queue);
+    assert_eq!(app.orders.len(), before, "nothing changed");
+
+    let mut changed = app.game.as_ref().expect("game").players[0]
+        .default_queue
+        .clone();
+    changed.no_research = !changed.no_research;
+    app.set_default_queue(changed);
+    assert!(app.orders.len() > before, "something did");
 }

@@ -1621,7 +1621,28 @@ disagree.
     The manual's "three other templates" is the dialog's count, not the
     array's.
 
-49. **What is still missing to call it playable.** Every waypoint task is now
+49. ~~**The blue diamond.**~~ **Done.** The small control the manual keeps
+    telling you to right-click, and the last piece of the Production dialog.
+
+    `DrawProductionDlg` puts it at the bottom left — `dyArial8` square, at
+    x = 6 — with `Apply or define a production template` beside it, and
+    remembers its rectangle in `rcProdDiamond`. `ProductionDlg` hit-tests that
+    three ways: hovering swaps in the arrow-and-question-mark cursor, a **left**
+    click puts up a balloon that tells you to use the *other* button, and a
+    right click brings up the menu of templates with `<Customize>` under a
+    separator. `DrawDiamond` (`1028:4b60`) draws the shape scanline by
+    scanline, highlight along the upper-left edges and shadow along the
+    lower-right, which is what makes it look raised.
+
+    Reading it turned up one thing the templates commit had missed: choosing
+    `<Customize>` copies the whole `ZIPPRODQ[4]` array first and puts it back
+    if the dialog is cancelled, so **Cancel undoes an Import or a Delete** and
+    not merely a rename. The default queue goes back with it — and
+    `set_default_queue` now returns early when nothing changed, which is the
+    `memcmp` guard in `LogChangeZpq1` and is what stops the restore from
+    writing a pointless order.
+
+50. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

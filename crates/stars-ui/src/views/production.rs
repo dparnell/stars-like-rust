@@ -269,53 +269,131 @@ fn queue(app: &mut App, ui: &mut egui::Ui, step: i32) {
     }
 }
 
-/// The production templates.
+/// The production templates, reached from the **blue diamond**.
 ///
-/// The original hangs these off a right-click on a small blue diamond beside
-/// the queue; here they are a row of buttons, which is the same four choices
-/// plus `<Customize>`.
+/// `DrawProductionDlg` puts a small raised blue diamond at the bottom left of
+/// the dialog with `Apply or define a production template` beside it, remembers
+/// its rectangle in `rcProdDiamond`, and `ProductionDlg` hit-tests that:
+/// hovering shows the help cursor, a **left** click explains what to do, and a
+/// **right** click brings up the menu.
 fn templates(app: &mut App, ui: &mut egui::Ui) {
+    /// What the original says when the diamond is left-clicked.
+    const HELP: &str = "Right click on the blue diamond to apply a production template to \
+                        this queue, or choose <Customize> to define a template based on the \
+                        auto build items in the current queue.";
+
     let names: Vec<String> = (0..stars_formats::TEMPLATE_SLOTS)
         .map(|slot| app.production_template_name(slot))
         .collect();
+    let usable: Vec<bool> = app
+        .production_templates()
+        .iter()
+        .map(|t| t.queue.is_some())
+        .collect();
+
     let mut apply = None;
-    ui.horizontal_wrapped(|ui| {
-        ui.label(egui::RichText::new("Templates:").small());
-        for (slot, name) in names.iter().enumerate() {
-            let usable = app
-                .production_templates()
-                .get(slot)
-                .is_some_and(|t| t.queue.is_some());
-            if ui
-                .add_enabled(usable, egui::Button::new(egui::RichText::new(name).small()))
-                .on_hover_text(
-                    "Replaces every auto-build item in the queue with this template's, \
-                     and takes the research setting from it too.",
-                )
-                .clicked()
-            {
-                apply = Some(slot);
+    let mut customize = false;
+
+    ui.horizontal(|ui| {
+        let size = ui.text_style_height(&egui::TextStyle::Body);
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click());
+        diamond(ui, rect);
+        // The original swaps in the arrow-and-question-mark cursor over it.
+        let response = response.on_hover_cursor(egui::CursorIcon::Help);
+
+        // A left click only tells you to use the right button.
+        if response.clicked() {
+            ui.memory_mut(|m| m.open_popup(egui::Id::new("diamond-help")));
+        }
+        egui::popup_below_widget(
+            ui,
+            egui::Id::new("diamond-help"),
+            &response,
+            egui::PopupCloseBehavior::CloseOnClick,
+            |ui| {
+                ui.set_max_width(320.0);
+                ui.label(egui::RichText::new(HELP).small());
+            },
+        );
+
+        // The right button brings up the menu: every template that has
+        // something in it, then <Customize>.
+        response.context_menu(|ui| {
+            for (slot, name) in names.iter().enumerate() {
+                if !usable.get(slot).copied().unwrap_or(false) {
+                    continue;
+                }
+                if ui.button(name).clicked() {
+                    apply = Some(slot);
+                    ui.close_menu();
+                }
             }
-        }
-        if ui
-            .button(egui::RichText::new("<Customize>").small())
-            .clicked()
-        {
-            app.customize_template = Some(0);
-        }
+            ui.separator();
+            if ui.button("<Customize>").clicked() {
+                customize = true;
+                ui.close_menu();
+            }
+        });
+
+        ui.label(
+            egui::RichText::new("Apply or define a production template")
+                .small()
+                .strong(),
+        );
     });
+
     if let Some(slot) = apply {
         app.production_apply_template(slot);
     }
-
-    if app.customize_template.is_some() {
-        customize(app, ui);
+    if customize {
+        app.production_customize_open(0);
+    }
+    if app.production_customize_slot().is_some() {
+        customize_panel(app, ui);
     }
 }
 
+/// The diamond itself: a small raised blue lozenge.
+///
+/// `DrawDiamond` (`1028:4b60`) walks it scanline by scanline, laying a
+/// highlight along the upper-left edges and a shadow along the lower-right
+/// before filling the middle. This paints the same three pieces as polygons.
+fn diamond(ui: &egui::Ui, rect: egui::Rect) {
+    let painter = ui.painter();
+    let c = rect.center();
+    let w = rect.width() / 2.0;
+    let top = egui::pos2(c.x, rect.top());
+    let bottom = egui::pos2(c.x, rect.bottom());
+    let left = egui::pos2(c.x - w, c.y);
+    let right = egui::pos2(c.x + w, c.y);
+
+    painter.add(egui::Shape::convex_polygon(
+        vec![top, right, bottom, left],
+        egui::Color32::from_rgb(0x30, 0x60, 0xff),
+        egui::Stroke::NONE,
+    ));
+    // The highlight runs up the left side, the shadow down the right.
+    painter.line_segment(
+        [left, top],
+        egui::Stroke::new(1.0_f32, ui.visuals().widgets.inactive.fg_stroke.color),
+    );
+    painter.line_segment(
+        [top, right],
+        egui::Stroke::new(1.0_f32, ui.visuals().widgets.inactive.fg_stroke.color),
+    );
+    painter.line_segment(
+        [right, bottom],
+        egui::Stroke::new(1.0_f32, egui::Color32::from_gray(0x40)),
+    );
+    painter.line_segment(
+        [bottom, left],
+        egui::Stroke::new(1.0_f32, egui::Color32::from_gray(0x40)),
+    );
+}
+
 /// The `<Customize>` dialog (`ZipProdDlg`, `10d0:5490`), drawn inline.
-fn customize(app: &mut App, ui: &mut egui::Ui) {
-    let Some(mut slot) = app.customize_template else {
+fn customize_panel(app: &mut App, ui: &mut egui::Ui) {
+    let Some(mut slot) = app.production_customize_slot() else {
         return;
     };
     let names: Vec<String> = (0..stars_formats::TEMPLATE_SLOTS)
@@ -333,7 +411,7 @@ fn customize(app: &mut App, ui: &mut egui::Ui) {
                 ui.radio_value(&mut slot, index, egui::RichText::new(name).small());
             }
         });
-        app.customize_template = Some(slot);
+        app.production_customize_select(slot);
 
         // What the chosen template holds, and its research setting.
         let templates = app.production_templates();
@@ -378,7 +456,14 @@ fn customize(app: &mut App, ui: &mut egui::Ui) {
                 app.production_delete_template(slot);
             }
             if ui.button(egui::RichText::new("OK").small()).clicked() {
-                app.customize_template = None;
+                app.production_customize_close(true);
+            }
+            if ui
+                .button(egui::RichText::new("Cancel").small())
+                .on_hover_text("Puts every template back as it was.")
+                .clicked()
+            {
+                app.production_customize_close(false);
             }
         });
 

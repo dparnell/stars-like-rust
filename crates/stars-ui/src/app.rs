@@ -279,8 +279,13 @@ pub struct App {
     /// dialog's, which the original keeps in `stars.ini`. Slot 0 is filled in
     /// from the player's own default queue; see [`App::production_templates`].
     templates: Vec<stars_formats::ProductionTemplate>,
-    /// Which template slot the `<Customize>` dialog is on, while it is open.
-    pub customize_template: Option<usize>,
+    /// The `<Customize>` dialog while it is open: which slot it is on, and the
+    /// templates as they were when it opened.
+    ///
+    /// The original copies the whole `ZIPPRODQ[4]` array before opening the
+    /// dialog and puts it back if the dialog is cancelled, so **Cancel undoes
+    /// an Import or a Delete** as well as a rename.
+    customize: Option<(usize, Vec<stars_formats::ProductionTemplate>)>,
     /// Which message the pane is showing — the original's `iMsgCur`.
     ///
     /// `-1` means the pane is at the start of the list and showing nothing,
@@ -1559,6 +1564,12 @@ impl App {
         let Some(player) = self.game.as_mut().and_then(|g| g.players.get_mut(me)) else {
             return false;
         };
+        // `LogChangeZpq1` compares the working copy with the player's before
+        // writing anything, so setting it back to what it already was is not
+        // an order.
+        if player.default_queue == queue {
+            return true;
+        }
         player.default_queue = queue.clone();
 
         if self
@@ -5522,6 +5533,40 @@ impl App {
                 .production_templates()
                 .get(slot)
                 .is_some_and(|t| t.queue.is_some())
+    }
+
+    /// Open the `<Customize>` dialog, remembering what to put back if it is
+    /// cancelled.
+    pub fn production_customize_open(&mut self, slot: usize) {
+        self.customize = Some((slot, self.production_templates()));
+    }
+
+    /// Which slot `<Customize>` is on, if it is open.
+    #[must_use]
+    pub fn production_customize_slot(&self) -> Option<usize> {
+        self.customize.as_ref().map(|(slot, _)| *slot)
+    }
+
+    /// Move `<Customize>` to another slot.
+    pub fn production_customize_select(&mut self, slot: usize) {
+        if let Some((current, _)) = self.customize.as_mut() {
+            *current = slot;
+        }
+    }
+
+    /// Close `<Customize>`. `keep` is OK; anything else puts back the
+    /// templates as they were when it opened, the default queue included.
+    pub fn production_customize_close(&mut self, keep: bool) {
+        let Some((_, snapshot)) = self.customize.take() else {
+            return;
+        };
+        if keep {
+            return;
+        }
+        if let Some(default) = snapshot.first().and_then(|t| t.queue.clone()) {
+            self.set_default_queue(default);
+        }
+        self.templates = snapshot;
     }
 
     /// The templates as `stars.ini` would hold them: `(key, value)` pairs for
