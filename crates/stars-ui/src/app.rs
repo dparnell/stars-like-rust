@@ -273,6 +273,10 @@ pub struct App {
     /// Which of the eight ship classes the Enemy Ship Class filter counts
     /// (`grbitScanEShip`), a bit each.
     pub scan_class_filter: u8,
+    /// Whose minefields the overlay draws (`grbitScanMines`): a bit each for
+    /// yours, friends', neutrals' and enemies'. Unlike the two ship filters
+    /// this starts **full** — `stars.ini` defaults it to `0xf`.
+    pub scan_minefield_filter: u8,
     /// What the toolbar's coverage combo holds, in percent
     /// (`vpctRadarView`). The overlay is drawn as though every scanner were
     /// only this effective, which is how a player sees what a cloaked ship
@@ -429,7 +433,18 @@ impl App {
     pub fn new() -> Self {
         Self {
             warp: 7,
+            // The state the original starts in when `stars.ini` says nothing:
+            // `grbitScan` defaults to 0xe0 — the Normal view with scanner
+            // coverage, minefields and fleet paths already on — the coverage
+            // to 100%, and the minefield filter to all four.
             scan_coverage_pct: 100,
+            scan_minefield_filter: 0xf,
+            scan_overlays: ScanOverlays {
+                scanner_coverage: true,
+                minefields: true,
+                fleet_paths: true,
+                ..ScanOverlays::default()
+            },
             ..Self::default()
         }
     }
@@ -6299,7 +6314,12 @@ impl App {
             Button::NoPlayerInfo => self.scan_view == ScanView::NoPlayerInfo,
             Button::AddWaypoints => self.add_waypoints,
             Button::ScannerCoverage => self.scan_overlays.scanner_coverage,
-            Button::MineFields => self.scan_overlays.minefields,
+            // Pressed only when **all four** are being shown: a partial
+            // choice leaves the button up, which is how the original says the
+            // overlay is narrowed without opening the menu.
+            Button::MineFields => {
+                self.scan_overlays.minefields && self.scan_minefield_filter == 0xf
+            }
             Button::FleetPaths => self.scan_overlays.fleet_paths,
             Button::IdleFleets => self.scan_overlays.idle_fleets,
             Button::PlanetNames => self.scan_overlays.names,
@@ -6340,7 +6360,9 @@ impl App {
             Button::ScannerCoverage => {
                 self.scan_overlays.scanner_coverage = !self.scan_overlays.scanner_coverage;
             }
-            Button::MineFields => self.scan_overlays.minefields = !self.scan_overlays.minefields,
+            // Mine Fields opens a menu rather than toggling; the menu's
+            // result is what moves the overlay.
+            Button::MineFields => {}
             Button::FleetPaths => self.scan_overlays.fleet_paths = !self.scan_overlays.fleet_paths,
             Button::IdleFleets => self.scan_overlays.idle_fleets = !self.scan_overlays.idle_fleets,
             Button::PlanetNames => self.scan_overlays.names = !self.scan_overlays.names,
@@ -6536,5 +6558,75 @@ impl FilterCommand {
             FilterCommand::Invert => mask ^ full,
             FilterCommand::None => T::default(),
         }
+    }
+}
+
+// --- The scanner's minefield filter ---------------------------------------
+
+impl App {
+    /// The four groups the minefield menu offers, and which are ticked.
+    #[must_use]
+    pub fn minefield_filter_entries(&self) -> Vec<FilterEntry> {
+        stars_core::relations::Party::ALL
+            .iter()
+            .map(|party| FilterEntry {
+                bit: party.index(),
+                name: format!("Mine Fields of {}", party.name()),
+                on: self.scan_minefield_filter & (1 << party.index()) != 0,
+            })
+            .collect()
+    }
+
+    /// Opening the menu with the overlay off **empties the filter first**.
+    ///
+    /// `ExecuteButton` clears `grbitScanMines` before it builds the menu when
+    /// `grbitScan & 0x40` is clear, so a player who turned the overlay off and
+    /// comes back finds nothing ticked rather than whatever was ticked before.
+    pub fn open_minefield_menu(&mut self) {
+        if !self.scan_overlays.minefields {
+            self.scan_minefield_filter = 0;
+        }
+    }
+
+    /// Tick or untick one group.
+    pub fn toggle_minefield_filter(&mut self, party: u8) {
+        self.scan_minefield_filter ^= 1 << party;
+        self.sync_minefield_overlay();
+    }
+
+    /// The menu's two commands: all four, or none.
+    ///
+    /// There is no invert here — the minefield menu has two commands where the
+    /// ship filters' menus have three.
+    pub fn minefield_filter_command(&mut self, all: bool) {
+        self.scan_minefield_filter = if all { 0xf } else { 0 };
+        self.sync_minefield_overlay();
+    }
+
+    /// The overlay follows the filter exactly: empty turns it **off**, and
+    /// anything ticked turns it on.
+    ///
+    /// This is the opposite of the two ship filters, which only ever switch
+    /// themselves on — the minefield overlay is switched off again by
+    /// unticking the last group.
+    fn sync_minefield_overlay(&mut self) {
+        self.scan_overlays.minefields = self.scan_minefield_filter != 0;
+    }
+
+    /// Whether a minefield should be drawn, given whose it is.
+    #[must_use]
+    pub fn shows_minefield(&self, owner: i16) -> bool {
+        if !self.scan_overlays.minefields {
+            return false;
+        }
+        let me = self.local_player();
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        let Ok(owner) = usize::try_from(owner) else {
+            return false;
+        };
+        let party = stars_core::relations::party(game, me, owner);
+        self.scan_minefield_filter & (1 << party.index()) != 0
     }
 }

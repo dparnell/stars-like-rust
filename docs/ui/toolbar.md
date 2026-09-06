@@ -42,7 +42,7 @@ introduces them in:
 | 5 | No Player Information | view | `== 5` |
 | 6 | Add Waypoints Mode | mode | `& 0x10` |
 | 7 | Scanner Coverage | overlay, with the combo beside it | `& 0x20` |
-| 8 | Mine Fields | overlay, opens a menu | `& 0x40` and all four owners shown |
+| 8 | Mine Fields | **opens a menu**, does not toggle | `& 0x40` **and** all four groups shown |
 | 9 | Fleet Paths | overlay | `& 0x80` |
 | 11 | Planet Names | overlay | `& 0x400` |
 | 17 | Ship Count | overlay | `& 0x1000` |
@@ -81,6 +81,50 @@ it snaps to is `(100 - pct) / 10`, so it runs from 100% down in tens.
 The manual explains what it is for (p. 5-13): the overlay is drawn as though
 every scanner were only that effective, so a player can see how close a ship
 with matching cloaking would get.
+
+## The state it starts in
+
+`stars.ini` supplies the defaults, and `InitStuff` names them:
+
+| setting | default |
+|---------|---------|
+| `grbitScan` | `0xe0` — the Normal view, with **scanner coverage, mine fields and fleet paths already on** |
+| `grbitScanMines` | `0xf`, masked to four bits — every group shown |
+| `vpctRadarView` | `100`, capped there |
+| `grbitScanShip`, `grbitScanEShip` | `0` — both ship filters empty |
+
+There is a sanity check beside them: if `grbitScan & 0xc00f` is more than 5 —
+a view out of range, or one of the top two bits set — `grbitScan` and the
+design filter are both cleared.
+
+## The Mine Fields menu
+
+Button 8 **does not toggle**; it opens a menu. Two commands, a rule, then a
+tick for each of four groups — yours, friends', neutrals', enemies' — held in
+`grbitScanMines`, a bit each. The overlay's own bit is `0x40`.
+
+Three things about it differ from the two ship filters, and all three are the
+sort of detail that is invisible until you look:
+
+* **The overlay follows the filter exactly.** Unticking the last group turns
+  the overlay **off**, and ticking one turns it on. The ship filters only ever
+  switch themselves *on*; this one switches both ways.
+* **Opening the menu with the overlay off empties the filter first.**
+  `ExecuteButton` clears `grbitScanMines` before building the menu when
+  `grbitScan & 0x40` is clear, so a player who turned the overlay off and comes
+  back finds nothing ticked rather than their old choice.
+* **The button shows pressed only when all four are shown.** A narrowed menu
+  leaves it up, which is how the toolbar says the overlay is on but limited
+  without opening anything.
+
+There is no invert: this menu has two commands where the ship filters have
+three.
+
+The four groups are the ones the relations table gives — see
+[`stars_core::relations::Party`] — and they are the same grouping the manual
+gives the minefield colours by (p. 5-14): yours blue, friends yellow, enemies
+and neutrals red. The map shares a colour between the last two; the menu keeps
+them apart.
 
 ## The two ship filters
 
@@ -121,20 +165,21 @@ command does not either — the original only ever switches it on.
 The row and its exact layout — every gap, every width, the combo where the
 table puts it — the eighteen pictures out of the game's own bitmap when a copy
 of the original has been found, the pressed look and its one-pixel nudge, the
-radio group, every overlay toggle this project models, both ship filters and
-their menus, the zoom menu with the nine sizes the original offers, and the
-combo's parsing and clamping.
+radio group, every overlay toggle this project models, all three menus — mine
+fields and the two ship filters — the zoom menu with the nine sizes the
+original offers, the combo's parsing and clamping, and the state the toolbar
+starts in.
 
 Without the game's pictures each button falls back to a short label, so the
 toolbar works either way.
 
 ## What is not
 
-* The **minefield menu** behind button 8, which offers all/none and a toggle
-  per owner. The button toggles the overlay whole.
 * The filters narrow the **ship counts**; the manual also says they narrow
   which planets get orbit rings, and this project does not draw orbit rings.
-* Neither mask is kept in `stars.ini`, where the original keeps both.
+* None of the three masks is kept in `stars.ini`, nor the view, the overlays or
+  the coverage — the original keeps all of them there between sessions. The
+  defaults above are honoured; the saving is not.
 * **Tooltips** are egui's rather than the original's `ShowTooltip`.
 * **View (Toolbar)** to hide the row: this frontend has no View menu.
 * The scanner-coverage overlay does not yet **vary** with the percentage; the

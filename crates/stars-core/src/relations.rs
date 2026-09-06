@@ -107,3 +107,63 @@ pub fn others(state: &GameState, player: usize) -> Vec<usize> {
         .filter(|other| *other != player)
         .collect()
 }
+
+/// Which of four groups another player falls into, from one player's point of
+/// view.
+///
+/// This is the grouping the scanner colours minefields by — `MANUAL.PDF`
+/// p. 5-14: *"Your minefields are blue, friends are yellow, and enemies and
+/// neutrals are red"* — and the one its minefield menu offers a tick for each
+/// of. The last two share a colour on the map but are separate here, exactly
+/// as the menu separates them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Party {
+    /// The player themselves.
+    Yours = 0,
+    /// Somebody they have marked a friend.
+    Friends = 1,
+    /// Neither friend nor enemy.
+    Neutrals = 2,
+    /// Somebody they have marked an enemy.
+    Enemies = 3,
+}
+
+impl Party {
+    /// All four, in the order the minefield menu lists them.
+    pub const ALL: [Party; 4] = [
+        Party::Yours,
+        Party::Friends,
+        Party::Neutrals,
+        Party::Enemies,
+    ];
+
+    /// The name the menu gives it.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Party::Yours => "Yours",
+            Party::Friends => "Friends",
+            Party::Neutrals => "Neutrals",
+            Party::Enemies => "Enemies",
+        }
+    }
+
+    /// Its number, which is the bit the minefield filter uses.
+    #[must_use]
+    pub fn index(self) -> u8 {
+        self as u8
+    }
+}
+
+/// Which group `owner` falls into, seen by `player`.
+#[must_use]
+pub fn party(state: &GameState, player: usize, owner: usize) -> Party {
+    if player == owner {
+        return Party::Yours;
+    }
+    match regard(state, player, owner) {
+        Relation::Friend => Party::Friends,
+        Relation::Neutral => Party::Neutrals,
+        Relation::Enemy => Party::Enemies,
+    }
+}

@@ -1913,7 +1913,34 @@ disagree.
     the overlay is off **turns the overlay on**; unticking the last one does
     not turn it off again, and neither does "none".
 
-59. **What is still missing to call it playable.** Every waypoint task is now
+59. ~~**The Mine Fields menu.**~~ **Done.** The last of the toolbar's three
+    menus. Spec in `docs/ui/toolbar.md`.
+
+    Button 8 **does not toggle** — it opens a menu, which is the first thing to
+    get right. Two commands, a rule, then a tick for each of four groups
+    (yours, friends', neutrals', enemies') held in `grbitScanMines`, a bit
+    each. The groups are the relations table's, and the same grouping the
+    manual gives the minefield colours by on p. 5-14; the map shares a colour
+    between the last two, the menu keeps them apart.
+
+    Three things differ from the two ship filters, and all three are invisible
+    until you look. **The overlay follows the filter exactly**: unticking the
+    last group turns it off and ticking one turns it on, where the ship filters
+    only ever switch themselves on. **Opening the menu with the overlay off
+    empties the filter first**, so a player who turned it off and comes back
+    finds nothing ticked rather than their old choice. And **the button shows
+    pressed only when all four are shown**, which is how the toolbar says the
+    overlay is on but narrowed without opening anything. There is no invert
+    command here either: two where the ship filters have three.
+
+    Reading `InitStuff` for the filter's default turned up the rest of them,
+    and they are now the state the scanner starts in: `grbitScan` defaults to
+    `0xe0`, which is the Normal view with **scanner coverage, mine fields and
+    fleet paths already on**; the minefield mask to `0xf`; the coverage to
+    100%; and both ship filters to empty. This project had started with every
+    overlay off.
+
+60. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -1928,10 +1955,12 @@ disagree.
       scaling and shield absorption.
     - A loaded state file still cannot carry structural fleet changes back —
       the game does not either; the order log does.
-    - **The scanner's remaining tools**: the minefield button's per-owner menu,
-      orbit rings (which the two ship filters would narrow as well as the ship
-      counts), and clicking one spot repeatedly to cycle through what is on
-      it.
+    - **The scanner's remaining tools**: orbit rings (which the ship filters
+      would narrow as well as the ship counts), and clicking one spot
+      repeatedly to cycle through what is on it.
+    - **`stars.ini` does not keep the scanner's settings** between sessions —
+      the view, the overlays, the three filter masks and the coverage. Their
+      defaults are honoured; the saving is not.
     - **The designer's remaining numbers**: `LComputePower` for a design's
       `Rating:`, and the cloak, jammer and initiative rows; and `SHDEF.cBuilt`,
       so the plaque's second figure is real.

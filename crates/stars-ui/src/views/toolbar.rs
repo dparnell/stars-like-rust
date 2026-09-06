@@ -35,6 +35,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) -> bool {
                         Button::Zoom => acted |= zoom_menu(app, ui, &response, clicked),
                         Button::ShipDesignMenu => acted |= filter_menu(app, ui, &response, false),
                         Button::EnemyClassMenu => acted |= filter_menu(app, ui, &response, true),
+                        Button::MineFields => acted |= minefield_menu(app, ui, &response),
                         _ => {}
                     }
                 }
@@ -135,7 +136,7 @@ fn draw_button(app: &mut App, ui: &mut egui::Ui, button: Button) -> (bool, egui:
     // handles them.
     let opens_a_menu = matches!(
         button,
-        Button::Zoom | Button::ShipDesignMenu | Button::EnemyClassMenu
+        Button::Zoom | Button::ShipDesignMenu | Button::EnemyClassMenu | Button::MineFields
     );
     if response.clicked() && !opens_a_menu {
         app.toolbar_click(button);
@@ -283,6 +284,60 @@ fn filter_menu(app: &mut App, ui: &mut egui::Ui, response: &egui::Response, enem
             } else {
                 app.toggle_design_filter(bit);
             }
+            true
+        }
+        _ => false,
+    }
+}
+
+/// The Mine Fields menu: two commands, a rule, then a tick for each of the
+/// four groups.
+///
+/// Unlike the ship filters this menu has no invert, and the overlay follows
+/// the filter exactly — unticking the last group turns the overlay off.
+fn minefield_menu(app: &mut App, ui: &mut egui::Ui, response: &egui::Response) -> bool {
+    let id = ui.make_persistent_id("toolbar-minefield-menu");
+    if response.clicked() {
+        // Opening it with the overlay off empties the filter first, as the
+        // original empties it.
+        app.open_minefield_menu();
+        ui.memory_mut(|memory| memory.toggle_popup(id));
+    }
+
+    let entries = app.minefield_filter_entries();
+    let all_on = app.scan_minefield_filter == 0xf;
+    let none_on = app.scan_minefield_filter == 0;
+    let mut command = None;
+    let mut toggled = None;
+    egui::popup::popup_below_widget(
+        ui,
+        id,
+        response,
+        egui::popup::PopupCloseBehavior::CloseOnClick,
+        |ui| {
+            ui.set_min_width(170.0);
+            if ui.selectable_label(all_on, "All Mine Fields").clicked() {
+                command = Some(true);
+            }
+            if ui.selectable_label(none_on, "No Mine Fields").clicked() {
+                command = Some(false);
+            }
+            ui.separator();
+            for entry in &entries {
+                if ui.selectable_label(entry.on, &entry.name).clicked() {
+                    toggled = Some(entry.bit);
+                }
+            }
+        },
+    );
+
+    match (command, toggled) {
+        (Some(all), _) => {
+            app.minefield_filter_command(all);
+            true
+        }
+        (_, Some(bit)) => {
+            app.toggle_minefield_filter(bit);
             true
         }
         _ => false,

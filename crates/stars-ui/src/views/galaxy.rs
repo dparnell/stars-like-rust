@@ -78,6 +78,10 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     // which is exactly how the game draws one. It is an overlay of its own.
     if let Some(game) = app.game.as_ref().filter(|_| app.scan_overlays.minefields) {
         for field in &game.minefields {
+            // The menu behind the Mine Fields button chooses whose are drawn.
+            if !app.shows_minefield(field.owner) {
+                continue;
+            }
             let at = to_screen(f32::from(field.position.x), f32::from(field.position.y));
             #[allow(clippy::cast_possible_truncation)]
             let radius = field.radius() as f32 * scale;

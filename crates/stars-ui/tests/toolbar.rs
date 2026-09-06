@@ -201,9 +201,10 @@ fn the_views_replace_each_other_and_the_rest_toggle() {
     app.toolbar_click(Button::Population);
     assert!(app.toolbar_down(Button::Population));
 
+    // Mine Fields is not in this list: it opens a menu rather than toggling,
+    // and its own tests cover it.
     for overlay in [
         Button::PlanetNames,
-        Button::MineFields,
         Button::FleetPaths,
         Button::IdleFleets,
         Button::ShipCount,
@@ -238,7 +239,7 @@ fn every_button_is_wired() {
         app.toolbar_click(filter);
         assert!(!app.toolbar_down(filter), "{}", filter.name());
     }
-    // The two menus never show pressed; they open a menu instead.
+    // The menu buttons open a menu instead of acting themselves.
     for menu in [Button::ShipDesignMenu, Button::EnemyClassMenu] {
         app.toolbar_click(menu);
         assert!(!app.toolbar_down(menu), "{}", menu.name());
