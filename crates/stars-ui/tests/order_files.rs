@@ -1538,3 +1538,72 @@ fn the_measuring_tape_measures_and_snaps() {
 
     let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
 }
+
+/// Find takes you to a planet or a fleet, in the original's search order.
+#[test]
+fn find_takes_you_to_a_planet_or_a_fleet() {
+    use stars_ui::{FindResult, Screen};
+
+    let (mut app, host) = a_saved_game("find");
+    let (home, name) = {
+        let game = app.game.as_ref().expect("game");
+        let home = game
+            .planets
+            .iter()
+            .find(|p| p.homeworld && p.owner == Some(0))
+            .expect("a home world")
+            .id;
+        (home, app.planet_name(home))
+    };
+    assert!(!name.starts_with("Planet #"), "the universe named it");
+
+    // An exact planet name, whatever the case.
+    assert_eq!(app.find(&name), Some(FindResult::Planet(home)));
+    assert_eq!(app.selection.planet, Some(home));
+    assert_eq!(app.screen, Screen::Planets);
+    assert_eq!(
+        app.find(&name.to_uppercase()),
+        Some(FindResult::Planet(home)),
+        "case is ignored"
+    );
+
+    // The first few letters find it too, once nothing else matches exactly.
+    let stem: String = name.chars().take(3).collect();
+    assert!(matches!(app.find(&stem), Some(FindResult::Planet(_))));
+
+    // A fleet by number, three ways. The number the player types is the one
+    // they are shown, which is the stored id PLUS ONE — `PszGetFleetName`
+    // prints `(id & 0x1ff) + 1`, so a fleet stored as 0 is "#1" on screen.
+    let fleet_id = app.game.as_ref().expect("game").fleets[0].id;
+    let shown = fleet_id + 1;
+    assert!(
+        app.fleet_display_name(0).ends_with(&format!("#{shown}")),
+        "{}",
+        app.fleet_display_name(0)
+    );
+    for typed in [
+        format!("{shown}"),
+        format!("#{shown}"),
+        format!("Fleet #{shown}"),
+    ] {
+        app.selection.fleet = None;
+        assert_eq!(
+            app.find(&typed),
+            Some(FindResult::Fleet(0)),
+            "{typed} should find the fleet shown as #{shown}"
+        );
+        assert_eq!(app.screen, Screen::Fleets);
+    }
+
+    // And a quirk kept on purpose: the original skips six characters for the
+    // five-letter word "Fleet", so "Fleet7" loses its digit as well and finds
+    // nothing.
+    assert_eq!(app.find(&format!("Fleet{shown}")), None);
+
+    // Nothing at all, and nothing that matches.
+    assert_eq!(app.find(""), None);
+    assert_eq!(app.find("   "), None);
+    assert_eq!(app.find("Nowhere At All"), None);
+
+    let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
+}

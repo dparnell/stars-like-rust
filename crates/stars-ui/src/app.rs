@@ -113,6 +113,15 @@ pub struct Selection {
     pub fleet: Option<usize>,
 }
 
+/// What the Find dialog found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FindResult {
+    /// A planet, by id.
+    Planet(i16),
+    /// A fleet, by index into [`GameState::fleets`].
+    Fleet(usize),
+}
+
 /// What the scanner's status bar has to say.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct StatusBar {
@@ -143,6 +152,17 @@ pub enum ScanView {
     Population,
     /// The map with everybody's colours taken off.
     NoPlayerInfo,
+}
+
+impl SurveySubject {
+    /// The fleet this is looking at, if it is looking at one.
+    #[must_use]
+    pub fn fleet_index(self) -> Option<usize> {
+        match self {
+            Self::Fleet(index) => Some(index),
+            _ => None,
+        }
+    }
 }
 
 impl ScanView {
@@ -248,6 +268,8 @@ pub struct App {
     /// The measuring tape, while it is stretched: where it started and where
     /// its far end is now.
     pub measuring: Option<(stars_core::movement::Point, stars_core::movement::Point)>,
+    /// What the Find box holds.
+    pub find_text: String,
     /// Which message the pane is showing — the original's `iMsgCur`.
     ///
     /// `-1` means the pane is at the start of the list and showing nothing,
@@ -1877,6 +1899,163 @@ impl App {
             .collect()
     }
 
+    /// A fleet's name, as the game writes it (`PszGetFleetName`, `util.c`).
+    ///
+    /// A fleet the player has renamed shows that name. Otherwise it is named
+    /// for its **primary design** — the one it has most of — with a `+`
+    /// appended when it carries more than one design, and the number the player
+    /// sees, which is the stored id **plus one**. A fleet with no design at all
+    /// falls back to the word `Fleet`. Somebody else's fleet is prefixed with
+    /// their race name.
+    #[must_use]
+    pub fn fleet_display_name(&self, index: usize) -> String {
+        let Some(game) = self.game.as_ref() else {
+            return String::new();
+        };
+        let Some(fleet) = game.fleets.get(index) else {
+            return String::new();
+        };
+        let owner = usize::try_from(fleet.owner).ok();
+        let prefix = match owner {
+            Some(owner) if owner != self.local_player() => game.players.get(owner).map_or_else(
+                || format!("player {} ", owner + 1),
+                |p| format!("{} ", p.name),
+            ),
+            _ => String::new(),
+        };
+        if let Some(name) = &fleet.name {
+            return format!("{prefix}{name}");
+        }
+        // The design it has most of, and whether it is carrying more than one.
+        let primary = fleet
+            .stacks
+            .iter()
+            .filter(|s| s.count > 0)
+            .max_by_key(|s| s.count)
+            .map(|s| usize::from(s.design));
+        let mixed = fleet.stacks.iter().filter(|s| s.count > 0).count() > 1;
+        let class = primary
+            .and_then(|slot| {
+                owner
+                    .and_then(|o| game.designs.get(o))
+                    .and_then(|d| d.get(slot))
+            })
+            .filter(|d| d.hull_id >= 0 && !d.name.is_empty())
+            .map_or_else(|| "Fleet".to_string(), |d| d.name.clone());
+        let plus = if mixed { "+" } else { "" };
+        format!("{prefix}{class}{plus} #{}", fleet.id + 1)
+    }
+
+    // --- The Find dialog ---------------------------------------------------
+    //
+    // `FSelectSz` (`1058:945a`): type a name, get taken to it. See
+    // `docs/ui/scanner.md`.
+
+    /// Find a planet or a fleet by name and select it.
+    ///
+    /// The original's search order, which is not the obvious one:
+    ///
+    /// 1. an **exact** planet name wins outright;
+    /// 2. failing that, a **fleet** — by name, or by number, so `Fleet #7`,
+    ///    `#7` and `7` all find your own fleet 7;
+    /// 3. failing that, the first planet whose name **starts with** what was
+    ///    typed.
+    ///
+    /// So an exact fleet name beats a partial planet name, and every
+    /// comparison ignores case.
+    ///
+    /// Returns what it selected.
+    pub fn find(&mut self, text: &str) -> Option<FindResult> {
+        let typed = text.trim();
+        if typed.is_empty() {
+            return None;
+        }
+        let lower = typed.to_lowercase();
+
+        // Planets, in the order the game holds their names.
+        let mut prefix: Option<i16> = None;
+        let mut exact: Option<i16> = None;
+        if let Some(universe) = self.universe.as_ref() {
+            for planet in universe.planets_resolved() {
+                let Some(name) = planet.name else { continue };
+                let Ok(id) = i16::try_from(planet.id) else {
+                    continue;
+                };
+                let name = name.to_lowercase();
+                if name == lower {
+                    exact = Some(id);
+                    break;
+                }
+                if prefix.is_none() && name.starts_with(&lower) {
+                    prefix = Some(id);
+                }
+            }
+        }
+        if let Some(id) = exact {
+            self.selection.planet = Some(id);
+            self.screen = Screen::Planets;
+            return Some(FindResult::Planet(id));
+        }
+
+        // Fleets. "Fleet" at the front is skipped — and the original skips six
+        // characters for a five-letter word, taking the space with it, so
+        // `Fleet7` loses its digit too.
+        let mut rest = typed;
+        if lower.starts_with("fleet") {
+            rest = typed.get(6..).unwrap_or("");
+        }
+        let rest = rest.trim_start();
+        let rest = rest.strip_prefix('#').unwrap_or(rest).trim_start();
+        // A leading zero does not start a number: the original tests `> '0'`.
+        let numbered = rest
+            .starts_with(|c: char| ('1'..='9').contains(&c))
+            .then(|| {
+                rest.chars()
+                    .take_while(char::is_ascii_digit)
+                    .collect::<String>()
+                    .parse::<u16>()
+                    .ok()
+            })
+            .flatten()
+            .filter(|n| *n <= 512);
+
+        let me = self.local_player();
+        let found = self.game.as_ref().and_then(|game| {
+            if let Some(number) = numbered {
+                // The number the player types is the one they are shown,
+                // which is the stored id **plus one** — `PszGetFleetName`
+                // prints `(id & 0x1ff) + 1` — so the original subtracts one
+                // before looking the fleet up.
+                let id = number.wrapping_sub(1);
+                if let Some(index) = game
+                    .fleets
+                    .iter()
+                    .position(|f| f.id == id && usize::try_from(f.owner).is_ok_and(|o| o == me))
+                {
+                    return Some(index);
+                }
+            }
+            game.fleets.iter().position(|f| {
+                f.name
+                    .as_ref()
+                    .is_some_and(|name| name.to_lowercase() == lower)
+            })
+        });
+        if let Some(index) = found {
+            self.selection.fleet = Some(index);
+            self.screen = Screen::Fleets;
+            return Some(FindResult::Fleet(index));
+        }
+
+        // And last, the planet whose name merely starts the same way.
+        if let Some(id) = prefix {
+            self.selection.planet = Some(id);
+            self.screen = Screen::Planets;
+            return Some(FindResult::Planet(id));
+        }
+        None
+    }
+
     // --- The measuring tape ------------------------------------------------
     //
     // `FHandleMeasuringTape` (`1058:9974`): a right-drag across the map, with
@@ -1933,17 +2112,11 @@ impl App {
                 consider(self.planet_name(planet.id), p);
             }
         }
-        for fleet in &game.fleets {
+        for (index, fleet) in game.fleets.iter().enumerate() {
             if fleet.stacks.is_empty() {
                 continue;
             }
-            consider(
-                fleet
-                    .name
-                    .clone()
-                    .unwrap_or_else(|| format!("Fleet #{}", fleet.id)),
-                fleet.position,
-            );
+            consider(self.fleet_display_name(index), fleet.position);
         }
         for field in &game.minefields {
             consider(format!("Mine Field #{}", field.id), field.position);
@@ -2480,16 +2653,7 @@ impl App {
         match self.survey_subject() {
             SurveySubject::DeepSpace => "Deep Space".to_string(),
             SurveySubject::Planet(_) => format!("{} Summary", self.planet_pane_title()),
-            SurveySubject::Fleet(index) => {
-                let name = self
-                    .game
-                    .as_ref()
-                    .and_then(|g| g.fleets.get(index))
-                    .map_or_else(String::new, |f| {
-                        f.name.clone().unwrap_or_else(|| format!("Fleet #{}", f.id))
-                    });
-                format!("{name} Summary")
-            }
+            SurveySubject::Fleet(index) => format!("{} Summary", self.fleet_display_name(index)),
         }
     }
 

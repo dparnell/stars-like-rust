@@ -1410,7 +1410,32 @@ disagree.
     The scanner now has a **status bar** as well, which it did not before: what
     is under the point, its coordinates, and the tape's distance.
 
-42. **What is still missing to call it playable.** Every waypoint task is now
+42. ~~**The Find dialog.**~~ **Done.** Type a planet or fleet name and be
+    taken to it. Same spec.
+
+    `FSelectSz` searches in an order that is not the obvious one: an **exact
+    planet name** wins outright; failing that a **fleet**, by name or by
+    number; and only failing both, the first planet whose name **starts with**
+    what was typed. So an exact fleet name beats a partial planet name. The
+    fleet half has its own grammar — `Fleet`, spaces, `#`, spaces, then a digit
+    1 to 9 — so `Fleet #7`, `#7` and `7` all find the same fleet and a leading
+    zero is not a number at all.
+
+    Writing the test turned up something this project had wrong in three panes.
+    `PszGetFleetName` prints `"%s%s #%d"` with **`(id & 0x1ff) + 1`**: the
+    number the player sees is the stored id PLUS ONE, and the name is the
+    fleet's **primary design**, with a `+` when it carries more than one, the
+    owner's race in front when it is not yours, and the bare word `Fleet` only
+    when there is no design at all. A fleet stored as 0 is `Long Range Scout
+    #1` on screen, not `Fleet #0`. The fleet pane, the survey pane and the
+    scanner all said the latter; they now share one `fleet_display_name` that
+    follows the original.
+
+    Kept deliberately: the original skips **six** characters for the five-letter
+    word `Fleet`, so `Fleet7` loses its digit too and finds nothing. The test
+    asserts that.
+
+43. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -1425,9 +1450,8 @@ disagree.
       scaling and shield absorption.
     - A loaded state file still cannot carry structural fleet changes back —
       the game does not either; the order log does.
-    - **The scanner's remaining tools**: the Find dialog, the design and
-      enemy-class filters, and clicking one spot repeatedly to cycle through
-      what is on it.
+    - **The scanner's remaining tools**: the design and enemy-class filters,
+      and clicking one spot repeatedly to cycle through what is on it.
     - **Waypoint tasks from the map**: a leg can be dragged out, but the task
       it carries is still set from the Fleets screen.
     - **`PLANET.turn`**, the stamp saying when a planet was last seen, which

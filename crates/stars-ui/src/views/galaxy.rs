@@ -432,6 +432,25 @@ fn toolbar(app: &mut App, ui: &mut egui::Ui) {
         if ui.small_button("+").on_hover_text("Zoom Menu").clicked() {
             app.scan_zoom_by(1);
         }
+        ui.separator();
+        // The Find dialog, which the original opens from the menu: type a
+        // planet or fleet name and be taken to it.
+        let mut text = std::mem::take(&mut app.find_text);
+        let entered = ui
+            .add(
+                egui::TextEdit::singleline(&mut text)
+                    .desired_width(90.0)
+                    .hint_text("Find…"),
+            )
+            .on_hover_text("Find a planet or fleet by name, or a fleet by number")
+            .lost_focus()
+            && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        let clicked = ui.small_button("Find").clicked();
+        app.find_text = text;
+        if entered || clicked {
+            let typed = app.find_text.clone();
+            app.find(&typed);
+        }
     });
 }
 

@@ -60,10 +60,10 @@ fn summary(app: &App, ui: &mut egui::Ui) {
         });
         return;
     };
-    let name = fleet
-        .name
-        .clone()
-        .unwrap_or_else(|| format!("Fleet #{}", fleet.id));
+    let name = app
+        .survey_subject()
+        .fleet_index()
+        .map_or_else(String::new, |index| app.fleet_display_name(index));
     let ships: i32 = fleet.stacks.iter().map(|s| s.count).sum();
     let owner = fleet.owner;
     let position = fleet.position;
