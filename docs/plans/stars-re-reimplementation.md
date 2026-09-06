@@ -1380,7 +1380,37 @@ disagree.
     comfortable leg to somebody else's planet, the ram-scoop and stargate
     special cases, and the AI's own ceiling.
 
-41. **What is still missing to call it playable.** Every waypoint task is now
+41. ~~**The measuring tape.**~~ **Done.** A right-drag across the scanner,
+    with the status bar saying what is at the far end and how far away it is.
+    Same spec.
+
+    The end **snaps** to whatever is nearest — the original re-runs
+    `FFindNearestObject` on every mouse move — and **Shift** widens what it
+    catches. Nothing is drawn until the pointer has moved more than two units,
+    so a stray right-click leaves no mark.
+
+    The prize is `PszGetDistance` (`1038:3f00`), which is four lines and has a
+    bug in it worth keeping:
+
+        hundredths = (long)(distance * 100 + 0.5)
+        print "%ld.%ld l.y."  with  hundredths / 100  and  hundredths % 100
+
+    The remainder is printed with `%ld` and so carries **no leading zero**:
+    three and five hundredths of a light year reads `3.5`, and twenty and two
+    hundredths reads `20.2`. That is the game's wording and this reproduces it,
+    quirk and all, with the test asserting `20.2` for a distance of 20.02.
+
+    Worth noting how that was settled. The community reconstruction has
+    `d = (int32_t)DGetDistance(...)` with no scaling, which would print a
+    250-light-year gap as `2.50`. The binary loads two constants and does
+    `distance * 100 + 0.5` before the conversion; reading the two doubles at
+    `DS:0x1cc2` and `DS:0x1cba` confirmed them as 100.0 and 0.5. Four
+    instructions, and neither of them in the reconstruction.
+
+    The scanner now has a **status bar** as well, which it did not before: what
+    is under the point, its coordinates, and the tape's distance.
+
+42. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -1395,8 +1425,9 @@ disagree.
       scaling and shield absorption.
     - A loaded state file still cannot carry structural fleet changes back —
       the game does not either; the order log does.
-    - **The scanner's remaining tools**: the measuring tape, the Find dialog,
-      and the design and enemy-class filters.
+    - **The scanner's remaining tools**: the Find dialog, the design and
+      enemy-class filters, and clicking one spot repeatedly to cycle through
+      what is on it.
     - **Waypoint tasks from the map**: a leg can be dragged out, but the task
       it carries is still set from the Fleets screen.
     - **`PLANET.turn`**, the stamp saying when a planet was last seen, which

@@ -35,4 +35,7 @@ pub mod app;
 pub mod vcr;
 pub mod views;
 
-pub use app::{App, ScanOverlays, ScanView, Screen, Selection, SurveyBar, SurveySubject};
+pub use app::{
+    distance_text, App, ScanOverlays, ScanView, Screen, Selection, StatusBar, SurveyBar,
+    SurveySubject,
+};

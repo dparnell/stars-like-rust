@@ -275,6 +275,41 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         }
     }
 
+    // The measuring tape: a right-drag from anywhere to anywhere, snapping to
+    // whatever it passes over (`FHandleMeasuringTape`, `1058:9974`). Shift
+    // widens what it snaps to.
+    {
+        let to_galaxy = |p: Pos2| -> (i16, i16) {
+            #[allow(clippy::cast_possible_truncation)]
+            let x = (min_x + (p.x - rect.left() - margin) / scale) as i16;
+            #[allow(clippy::cast_possible_truncation)]
+            let y = (max_y - (p.y - rect.top() - margin) / scale) as i16;
+            (x, y)
+        };
+        let wide = ui.input(|i| i.modifiers.shift);
+        if response.drag_started_by(egui::PointerButton::Secondary) {
+            if let Some(p) = response.interact_pointer_pos() {
+                let (x, y) = to_galaxy(p);
+                app.measure_from(x, y);
+            }
+        }
+        if response.dragged_by(egui::PointerButton::Secondary) {
+            if let Some(p) = response.interact_pointer_pos() {
+                let (x, y) = to_galaxy(p);
+                app.measure_to(x, y, wide);
+            }
+        }
+        if response.drag_stopped_by(egui::PointerButton::Secondary) {
+            app.measure_end();
+        }
+    }
+    if let Some((from, to)) = app.measuring {
+        let a = to_screen(f32::from(from.x), f32::from(from.y));
+        let b = to_screen(f32::from(to.x), f32::from(to.y));
+        painter.line_segment([a, b], Stroke::new(1.0_f32, Color32::from_gray(230)));
+        painter.circle_stroke(b, 4.0, Stroke::new(1.0_f32, Color32::from_gray(230)));
+    }
+
     // Add Way Points Mode: the map gives orders instead of selecting. A drag
     // that starts on one of the selected fleet's waypoints moves it; anything
     // else appends a leg (`FHandleWayPointDrag`, `1058:8176`).
@@ -313,6 +348,23 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         }
     } else if let Some(id) = clicked {
         app.selection.planet = Some(id);
+    }
+
+    // The status bar the original keeps along the bottom of the scanner: what
+    // is there, where it is, and how far the tape is stretched.
+    {
+        let bar = app.status_bar();
+        let mut text = format!("{}   x: {}   y: {}", bar.name, bar.x, bar.y);
+        if let Some(distance) = bar.distance {
+            text.push_str(&format!("   {distance}"));
+        }
+        painter.text(
+            rect.left_bottom() + Vec2::new(8.0, -24.0),
+            egui::Align2::LEFT_BOTTOM,
+            text,
+            egui::FontId::proportional(11.0),
+            Color32::from_gray(190),
+        );
     }
 
     // A short legend for the selected planet, drawn over the map.

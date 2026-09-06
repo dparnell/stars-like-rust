@@ -1478,3 +1478,63 @@ fn waypoints_are_dragged_onto_the_map() {
 
     let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
 }
+
+/// The measuring tape reports a distance the way the original words it, and
+/// snaps its far end to whatever is under the pointer.
+#[test]
+fn the_measuring_tape_measures_and_snaps() {
+    use stars_core::movement::Point;
+    use stars_ui::distance_text;
+
+    // The original works in hundredths of a light year, rounded to nearest,
+    // and prints them with `%ld.%ld`.
+    assert_eq!(
+        distance_text(Point::new(0, 0), Point::new(100, 0)),
+        "100.0 l.y."
+    );
+    assert_eq!(
+        distance_text(Point::new(0, 0), Point::new(3, 4)),
+        "5.0 l.y.",
+        "a 3-4-5 triangle"
+    );
+    // And the quirk that comes with `%ld.%ld`: the hundredths carry no leading
+    // zero, so 20.02 light years reads "20.2".
+    let d = distance_text(Point::new(0, 0), Point::new(20, 1));
+    assert_eq!(
+        d, "20.2 l.y.",
+        "20.0249… rounds to 20.02 and prints as 20.2"
+    );
+
+    let (mut app, host) = a_saved_game("tape");
+    let (home, at) = {
+        let game = app.game.as_ref().expect("game");
+        let home = game
+            .planets
+            .iter()
+            .find(|p| p.homeworld && p.owner == Some(0))
+            .expect("a home world");
+        (home.id, home.position.expect("a position"))
+    };
+
+    // Stretched from a point fifty light years off, the far end snaps onto the
+    // planet and the bar names it.
+    app.measure_from(at.x - 50, at.y);
+    app.measure_to(at.x + 3, at.y, false);
+    let bar = app.status_bar();
+    assert_eq!(bar.name, app.planet_name(home), "it snapped to the planet");
+    assert_eq!((bar.x, bar.y), (at.x, at.y));
+    assert_eq!(bar.distance.as_deref(), Some("50.0 l.y."));
+
+    // Let go and the tape stops reporting a distance.
+    app.measure_end();
+    assert!(app.status_bar().distance.is_none());
+
+    // Far from anything, the end does not snap and the bar says so.
+    app.measure_from(at.x, at.y);
+    app.measure_to(at.x + 400, at.y + 400, false);
+    let bar = app.status_bar();
+    assert_eq!(bar.name, "Deep Space");
+    assert_eq!((bar.x, bar.y), (at.x + 400, at.y + 400));
+
+    let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
+}

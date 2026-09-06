@@ -106,13 +106,54 @@ light years, warp 9 and warp 8 both arrive in two years and warp 7 does not, so
 the answer is warp 8; at ninety-eight it is warp 7. A leg the fleet can take
 through a stargate is warp 11, the pseudo-warp that means "use the gate".
 
+## The measuring tape
+
+A **right-drag** across the map stretches a rubber-band line, drawn in XOR so
+it can be rubbed out again, and the status bar reports what is at the far end
+and how far that is (`FHandleMeasuringTape`, `1058:9974`). Three details:
+
+* the far end **snaps** to whatever is nearest — the original re-runs
+  `FFindNearestObject` on every mouse move and moves the end onto what it
+  finds;
+* holding **Shift** widens the search mask from `0x4f` to `0x8f`, so the tape
+  catches more;
+* nothing is drawn until the pointer has moved **more than two units** from
+  where it started, which stops a stray right-click leaving a mark.
+
+### The status bar
+
+`DrawScannerSBar` (`1058:62d8`) draws two rows along the bottom of the scanner,
+each cell in its own sunken frame (`DrawLockLight`). The top row — only when the
+window is wider than 359 pixels — carries the object's **id**, its **x** and its
+**y**, then its **name**: a planet's, a fleet's, an object's, `Deep Space
+Waypoint`, or the tape's own `Deep Space`. The bottom row carries the
+**distance**, and when the caller has not supplied a second point it adds
+`from <name>` — the selected object.
+
+### How a distance is worded
+
+`PszGetDistance` (`1038:3f00`) is small and worth transcribing exactly:
+
+```
+hundredths = (long)(distance * 100 + 0.5)      round to nearest hundredth
+print "%ld.%ld l.y."   with  hundredths / 100  and  hundredths % 100
+```
+
+(The wide form is `%ld.%ld Light Years`; which one is used depends on the font
+height, not the window.)
+
+That format carries a **quirk that is the game's, and is kept here**: the
+remainder is printed with `%ld` and so has **no leading zero**. Three and five
+hundredths of a light year reads `3.5`, and twenty and two hundredths reads
+`20.2`. The reconstruction drops both the `× 100` and the `+ 0.5`; the binary
+has them, in two loaded constants at `DS:0x1cc2` and `DS:0x1cba`.
+
 ## What else the window does
 
 Named here because they are the scanner's, and are not reproduced:
-`FHandleMeasuringTape` (measuring a distance), `FGetNextObjHere` (clicking the
-same spot again to cycle through everything on it), `FindDlg` (the Find dialog),
-`DrawScannerSBar` (the scale bar), `DrawLockLight`, and
-`GetScanFleetOrientation` (which way a fleet's arrow points).
+`FGetNextObjHere` (clicking the same spot again to cycle through everything on
+it), `FindDlg` (the Find dialog), and `GetScanFleetOrientation` (which way a
+fleet's arrow points).
 
 ## What this project does
 
@@ -123,7 +164,9 @@ flip; all six views and their names; the names, scanner coverage, mine fields,
 fleet paths, ship counts and idle-fleets overlays; click-to-select; and
 **waypoint dragging** — adding a leg, moving one, dropping one, and the warp the
 client suggests, both halves of it. Every edit writes the order record the real
-client writes, so a host replaying the log reaches the same orders.
+client writes, so a host replaying the log reaches the same orders. And the
+**measuring tape**, with its snapping, its Shift, its status bar and the
+original's wording of a distance down to the missing leading zero.
 
 Not reproduced in the warp rule: the push *up* for a comfortable leg to
 somebody else's planet, which needs the fuel model applied leg by leg; the
@@ -133,5 +176,6 @@ Not reproduced: the artwork — the original draws planets, fleets and objects a
 bitmaps where this draws dots and marks, and the mineral views as small wedges
 where this colours the dot by whichever mineral reads highest; scrolling with
 `xScanTop`/`yScanTop` (the map is fitted to the panel and zoomed about its
-centre); the design and enemy-class filters; the measuring tape; the Find
-dialog; the scale bar; and cycling through objects at one point.
+centre); the design and enemy-class filters; the Find dialog; the status bar's
+sunken cells and its two-row layout, which is one line here; and cycling
+through objects at one point.

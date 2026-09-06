@@ -113,6 +113,19 @@ pub struct Selection {
     pub fleet: Option<usize>,
 }
 
+/// What the scanner's status bar has to say.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct StatusBar {
+    /// What is there: a planet, a fleet, an object, or `Deep Space`.
+    pub name: String,
+    /// Where it is.
+    pub x: i16,
+    /// Where it is.
+    pub y: i16,
+    /// How far that is from the other end of the tape, when one is stretched.
+    pub distance: Option<String>,
+}
+
 /// The scanner's six views, named as the original's toolbar names them
 /// (`idsNormalView` and the five after it).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -232,6 +245,9 @@ pub struct App {
     pub add_waypoints: bool,
     /// Which waypoint a drag is moving, while one is under way.
     pub dragging_waypoint: Option<usize>,
+    /// The measuring tape, while it is stretched: where it started and where
+    /// its far end is now.
+    pub measuring: Option<(stars_core::movement::Point, stars_core::movement::Point)>,
     /// Which message the pane is showing — the original's `iMsgCur`.
     ///
     /// `-1` means the pane is at the start of the list and showing nothing,
@@ -1861,6 +1877,136 @@ impl App {
             .collect()
     }
 
+    // --- The measuring tape ------------------------------------------------
+    //
+    // `FHandleMeasuringTape` (`1058:9974`): a right-drag across the map, with
+    // the scanner's status bar reporting what is under the far end and how far
+    // away it is. See `docs/ui/scanner.md`.
+
+    /// Start measuring from a point, as pressing the right button does.
+    pub fn measure_from(&mut self, x: i16, y: i16) {
+        self.measuring = Some((
+            stars_core::movement::Point::new(x, y),
+            stars_core::movement::Point::new(x, y),
+        ));
+    }
+
+    /// Drag the far end of the tape.
+    ///
+    /// The end **snaps** to the nearest object — the original re-runs
+    /// `FFindNearestObject` on every mouse move and moves the end onto whatever
+    /// it finds. `wide` is the Shift key, which widens what counts.
+    pub fn measure_to(&mut self, x: i16, y: i16, wide: bool) {
+        let Some((from, _)) = self.measuring else {
+            return;
+        };
+        let at = stars_core::movement::Point::new(x, y);
+        let snapped = self.nearest_object(at, if wide { 24.0 } else { 8.0 });
+        self.measuring = Some((from, snapped.map_or(at, |(_, p)| p)));
+    }
+
+    /// Let go of the tape.
+    pub fn measure_end(&mut self) {
+        self.measuring = None;
+    }
+
+    /// The nearest thing to a point, within `reach`, and where it is.
+    ///
+    /// `FFindNearestObject` (`1038:…`) searches planets, fleets and space
+    /// objects together; this searches the same three, nearest first.
+    #[must_use]
+    pub fn nearest_object(
+        &self,
+        at: stars_core::movement::Point,
+        reach: f64,
+    ) -> Option<(String, stars_core::movement::Point)> {
+        let game = self.game.as_ref()?;
+        let mut best: Option<(f64, String, stars_core::movement::Point)> = None;
+        let mut consider = |name: String, p: stars_core::movement::Point| {
+            let d = stars_core::movement::distance(p, at);
+            if d <= reach && best.as_ref().is_none_or(|(b, _, _)| d < *b) {
+                best = Some((d, name, p));
+            }
+        };
+        for planet in game.planets.iter().chain(game.known_planets.iter()) {
+            if let Some(p) = planet.position {
+                consider(self.planet_name(planet.id), p);
+            }
+        }
+        for fleet in &game.fleets {
+            if fleet.stacks.is_empty() {
+                continue;
+            }
+            consider(
+                fleet
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| format!("Fleet #{}", fleet.id)),
+                fleet.position,
+            );
+        }
+        for field in &game.minefields {
+            consider(format!("Mine Field #{}", field.id), field.position);
+        }
+        for packet in &game.packets {
+            consider(format!("Mineral Packet #{}", packet.id), packet.position);
+        }
+        for hole in &game.wormholes {
+            consider(format!("Wormhole #{}", hole.id), hole.position);
+        }
+        for trader in &game.traders {
+            consider("Mystery Trader".to_string(), trader.position);
+        }
+        best.map(|(_, name, p)| (name, p))
+    }
+
+    /// A planet's name, or a stand-in when the universe file is not to hand.
+    #[must_use]
+    pub fn planet_name(&self, id: i16) -> String {
+        self.universe
+            .as_ref()
+            .and_then(|u| {
+                u.planets_resolved()
+                    .into_iter()
+                    .find(|p| i16::try_from(p.id).is_ok_and(|p| p == id))
+                    .and_then(|p| p.name)
+            })
+            .map_or_else(|| format!("Planet #{id}"), ToString::to_string)
+    }
+
+    /// What the scanner's status bar says: what is under the point, where it
+    /// is, and — while the tape is stretched — how far that is from the other
+    /// end (`DrawScannerSBar`, `1058:62d8`).
+    ///
+    /// The four cells are the original's: the object's id, its x, its y, and
+    /// its name, with the distance on a second line.
+    #[must_use]
+    pub fn status_bar(&self) -> StatusBar {
+        // While measuring, the bar follows the tape; otherwise the selection.
+        let (from, at) = match self.measuring {
+            Some((from, at)) => (Some(from), at),
+            None => {
+                let at = self
+                    .pane_fleet()
+                    .map(|f| f.position)
+                    .or_else(|| self.pane_planet().and_then(|p| p.position));
+                match at {
+                    Some(at) => (None, at),
+                    None => return StatusBar::default(),
+                }
+            }
+        };
+        let found = self.nearest_object(at, 0.5);
+        StatusBar {
+            name: found
+                .as_ref()
+                .map_or_else(|| "Deep Space".to_string(), |(name, _)| name.clone()),
+            x: at.x,
+            y: at.y,
+            distance: from.map(|from| distance_text(from, at)),
+        }
+    }
+
     // --- Waypoint dragging -------------------------------------------------
     //
     // `FAddWayPoint` (`1058:7504`) and `FHandleWayPointDrag` (`1058:8176`):
@@ -3140,6 +3286,22 @@ fn task_name(task: u8) -> &'static str {
         stars_formats::task::TRANSFER => "Transfer Fleet",
         _ => "(no task here)",
     }
+}
+
+/// A distance in the words the game uses (`PszGetDistance`, `1038:3f00`).
+///
+/// The original works in **hundredths of a light year, rounded to nearest** —
+/// `(long)(distance * 100 + 0.5)` — and then prints the whole and the remainder
+/// with `%ld.%ld`.
+///
+/// That format has a quirk worth keeping, because it is the game's: the
+/// remainder carries **no leading zero**, so three and five hundredths of a
+/// light year reads `3.5`, not `3.05`.
+#[must_use]
+pub fn distance_text(from: stars_core::movement::Point, to: stars_core::movement::Point) -> String {
+    #[allow(clippy::cast_possible_truncation)]
+    let hundredths = (stars_core::movement::distance(from, to) * 100.0 + 0.5) as i64;
+    format!("{}.{} l.y.", hundredths / 100, hundredths % 100)
 }
 
 #[cfg(test)]
