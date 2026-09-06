@@ -4261,7 +4261,11 @@ impl App {
                 })
                 .collect(),
             name: hull.name.to_string(),
-            picture: 0,
+            // A hull's own `ibmp` is the base of its group of four ship
+            // pictures, so a fresh design starts on the first of them. Zero
+            // here would have given every design the Small Freighter's
+            // picture, whatever it was built on.
+            picture: u8::try_from(hull.picture).unwrap_or(0),
             stored_armor: if hull.id >= 32 { 1000 } else { 0 },
         }
     }
@@ -4915,17 +4919,21 @@ impl App {
     }
 
     /// Step the design's picture along, which is what the two arrows under it
-    /// do. Ships have thirty-two pictures and starbases five.
+    /// do.
+    ///
+    /// Every hull owns **four** pictures and the arrows walk those four and no
+    /// others: `BuildDlg` splits the index into a base and a variant, steps
+    /// the variant with `(iCur + 4 ± 1) & 3` so it wraps, and puts the base
+    /// back untouched. The choice can therefore never wander onto another
+    /// hull's ship.
     pub fn designer_next_picture(&mut self, forward: bool) {
-        let count: u8 = if self.designer.as_ref().is_some_and(|d| d.starbase) {
-            5
-        } else {
-            32
-        };
+        use stars_formats::resources::art::PICTURES_PER_HULL;
+        let step = if forward { 1 } else { PICTURES_PER_HULL - 1 };
         if let Some(editing) = self.designer.as_mut().and_then(|d| d.editing.as_mut()) {
-            let picture = i32::from(editing.design.picture);
-            let step = if forward { 1 } else { i32::from(count) - 1 };
-            editing.design.picture = u8::try_from((picture + step) % i32::from(count)).unwrap_or(0);
+            let picture = u16::from(editing.design.picture);
+            let base = picture - picture % PICTURES_PER_HULL;
+            let variant = (picture % PICTURES_PER_HULL + step) % PICTURES_PER_HULL;
+            editing.design.picture = u8::try_from(base + variant).unwrap_or(0);
         }
     }
 
@@ -6218,5 +6226,37 @@ impl App {
     pub fn planet_picture(&self, planet: i16) -> Option<stars_formats::resources::art::Cell> {
         let index = u16::try_from(i32::from(planet) + 8).ok()? % 28;
         stars_formats::resources::art::planet(index)
+    }
+}
+
+// --- Ship pictures --------------------------------------------------------
+
+impl App {
+    /// The picture the fleet in the pane is drawn with, and how many different
+    /// designs it holds.
+    ///
+    /// `DrawFleetBitmap` takes the fleet's **primary** design — see
+    /// [`stars_core::fleet::primary_design`] — and blits that design's own
+    /// picture, so a fleet looks like whatever most of it is.
+    #[must_use]
+    pub fn fleet_picture(&self) -> Option<(stars_formats::resources::art::Cell, usize)> {
+        use stars_formats::resources::art;
+        let game = self.game.as_ref()?;
+        let fleet = self.pane_fleet()?;
+        let owner = usize::try_from(fleet.owner).ok()?;
+        let designs = game.designs.get(owner)?;
+        let primary = stars_core::fleet::primary_design(fleet, designs)?;
+        let picture = u16::from(designs.get(primary.design)?.picture);
+        Some((art::ship(picture, art::ShipSize::Large), primary.distinct))
+    }
+
+    /// The race emblem of whoever owns the fleet in the pane.
+    #[must_use]
+    pub fn fleet_emblem(
+        &self,
+        size: stars_formats::resources::art::EmblemSize,
+    ) -> Option<stars_formats::resources::art::Cell> {
+        let owner = usize::try_from(self.pane_fleet()?.owner).ok()?;
+        self.emblem_of(owner, size)
     }
 }

@@ -490,3 +490,72 @@ fn a_foreign_design_needs_a_hull_you_can_build() {
         );
     }
 }
+
+/// A hull owns four pictures, and the two arrows walk those four and no
+/// others.
+///
+/// `BuildDlg` splits the index into a base and a variant, steps the variant
+/// with `(iCur + 4 ± 1) & 3`, and puts the base back — so the choice wraps
+/// inside the hull's own group and can never land on another hull's ship.
+#[test]
+fn the_arrows_spin_between_a_hull_s_own_four_pictures() {
+    use stars_formats::resources::art;
+
+    let mut app = a_game();
+    app.open_designer();
+    app.designer.as_mut().expect("open").view = DesignView::Hulls;
+    let scout = app
+        .designer_hulls()
+        .iter()
+        .position(|h| h.name == "Scout")
+        .expect("a Scout");
+    app.designer.as_mut().expect("open").selected = scout;
+    let base = u16::from(
+        app.designer_hulls()[scout]
+            .picture
+            .try_into()
+            .unwrap_or(u8::MAX),
+    );
+    assert_eq!(base % art::PICTURES_PER_HULL, 0, "a hull starts a group");
+
+    // A fresh design starts on the first of its hull's four, not on zero —
+    // zero would be the Small Freighter whatever was copied.
+    app.designer_copy();
+    let picture = |app: &App| {
+        u16::from(
+            app.designer
+                .as_ref()
+                .expect("open")
+                .editing
+                .as_ref()
+                .expect("editing")
+                .design
+                .picture,
+        )
+    };
+    assert_eq!(picture(&app), base);
+
+    // Four steps forward comes back to where it started, and every one stays
+    // inside the group.
+    let mut seen = Vec::new();
+    for _ in 0..4 {
+        seen.push(picture(&app));
+        app.designer_next_picture(true);
+    }
+    assert_eq!(seen, vec![base, base + 1, base + 2, base + 3]);
+    assert_eq!(picture(&app), base, "and round again");
+
+    // Backwards wraps the other way rather than running off the bottom.
+    app.designer_next_picture(false);
+    assert_eq!(picture(&app), base + 3);
+
+    // Whatever the arrows do, the picture is always one of this hull's four,
+    // and always in the same column of the same sheet.
+    let column = art::ship(base, art::ShipSize::Large);
+    for _ in 0..9 {
+        app.designer_next_picture(true);
+        let cell = art::ship(picture(&app), art::ShipSize::Large);
+        assert_eq!(cell.resource, column.resource);
+        assert_eq!(cell.x, column.x);
+    }
+}

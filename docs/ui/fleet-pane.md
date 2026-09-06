@@ -75,7 +75,18 @@ distance over the square of the warp and the fuel estimate from the engine's own
 model; the waypoint task; fuel and cargo; the composition; and the fleets-here
 tile shared with the planet pane.
 
-Not reproduced: the fleet picture and its owner's emblem, the mining rate row,
-the fuel and cargo *gauges* (the figures are given as text), and the three
-buttons — Battle Plans, Jettison and Xfer — whose dialogs this project does not
-have.
+The fleet picture is drawn from the game's own ship sheets when a copy of the
+original has been found — see `../formats/resources.md` — with the owner's race
+emblem over its bottom-left corner, as `DrawFleetBitmap` overlays it.
+
+Which ship stands for the fleet is `IshdefPrimaryFromLpfl` (`1038:3e1c`): the
+design with the most ships, compared strictly so a tie stays with the earlier
+design slot. One twist, and it is narrow — a **fuel transport**, hull 25 or 26,
+has its count docked by one once chosen, so it loses a tie it would otherwise
+have won and nothing more. A tanker that really is the most numerous ship still
+holds the picture. A fleet of more than one design is marked `+n` beside the
+picture rather than drawn as all of them.
+
+Not reproduced: the mining rate row, the fuel and cargo *gauges* (the figures
+are given as text), and the three buttons — Battle Plans, Jettison and Xfer —
+whose dialogs this project does not have.

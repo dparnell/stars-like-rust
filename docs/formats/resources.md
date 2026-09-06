@@ -113,6 +113,15 @@ others.
 **Ships run down the columns, not across them.** `((i & 0x1f) >> 2) << 6` is
 the column and `i & 3` the row, so pictures 0 to 3 are one column.
 
+**There are exactly 148 ship pictures, and the hulls own them four at a
+time.** `DrawFleetBitmap` reduces its index modulo `0x94` before looking
+anything up, and 148 is not arbitrary: it is the thirty-two ship hulls and five
+starbase hulls with **four pictures apiece**. Every hull's own `ibmp` is a
+multiple of four — 0, 4, 8, … 144 — and between them the thirty-seven cover
+every picture there is. So a hull's four are exactly one column of one sheet,
+and the modulo is what keeps the narrow fifth sheet in bounds: its five columns
+are the last twenty pictures.
+
 **The last sheet of a set is narrower**: component sheet 506 is 256 wide rather
 than 512, and ship sheet 556 is 320. Indices in their right-hand halves name
 cells that are not there. Nothing in the binary says which of those are ever
@@ -129,7 +138,21 @@ used, so this does not guess: the crop fails and the caller draws nothing.
   its left half**, which confirms from the other side that the sheet really is
   four cells wide and that the cells this refuses to name are cells the game
   never asks for.
-* **Ships** — a design's hull picture, not yet recovered.
+* **Ships** — a **design's** own picture, which is its hull's base plus the
+  one of the four its owner chose. `BuildDlg` spins between them with a pair
+  of arrows: it splits the index into base and variant, steps the variant with
+  `(iCur + 4 ± 1) & 3`, and puts the base back, so the choice wraps inside the
+  hull's own group and can never land on another hull's ship.
+
+  A **fleet** is drawn as its *primary* design — `IshdefPrimaryFromLpfl`
+  (`1038:3e1c`), the design with the most ships, comparing strictly so a tie
+  stays with the earlier slot. One twist: a **fuel transport**, hull 25 or 26,
+  has its count docked by one once chosen, which costs it a tie and nothing
+  more. A tanker that really is the most numerous ship still holds the picture.
+
+  The owner's **race emblem** is blitted over the ship's bottom-left corner —
+  16 pixels on the 64-pixel picture, 8 on the 32-pixel one — from the medium
+  and small emblem sheets.
 
 ## Source
 

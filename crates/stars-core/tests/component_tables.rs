@@ -202,20 +202,18 @@ fn the_best_planetary_scanner_advances_with_electronics() {
 }
 
 /// Every component's picture lands on a cell that is really in the sheet it
-/// names.
+/// names — and a hull's names a different sheet altogether.
 ///
 /// This is what says the sheet geometry in `stars_formats::resources::art` and
-/// the `ibmp` values here agree. The last sheet is half as wide as its
-/// siblings, so its right-hand columns are cells that do not exist — and the
-/// point of this test is that **nothing ever asks for one**: the ten
-/// components that land on that sheet are all in its left half.
+/// the `ibmp` values here agree. Two separate index spaces meet in the same
+/// field, so the test is in two halves.
 #[test]
 fn every_component_picture_is_a_real_cell() {
     use stars_core::components::slot;
     use stars_core::parts::part;
     use stars_formats::resources::art;
 
-    // The sheets, and how wide each is in cells. Only the last is narrow.
+    // Only the last component sheet is narrow: four cells across, not eight.
     let columns = |resource: u16| if resource == 506 { 4 } else { 8 };
 
     let mut checked = 0;
@@ -235,8 +233,6 @@ fn every_component_picture_is_a_real_cell() {
         slot::SPECIAL_M,
         slot::TERRA,
         slot::PLANETARY,
-        slot::HULL,
-        slot::SB_HULL,
     ] {
         for item in 0..64 {
             let Some(p) = part(category, item) else { break };
@@ -256,11 +252,65 @@ fn every_component_picture_is_a_real_cell() {
             checked += 1;
         }
     }
-    assert_eq!(checked, 239, "every component in every table");
+    assert_eq!(checked, 202, "every component that is not a hull");
     assert_eq!(
         on_the_narrow_sheet, 10,
         "and ten of them share the last sheet"
     );
+}
+
+/// A hull's picture is the base of its **own group of four** in the ship
+/// sheets, and between them the thirty-seven hulls account for every one of
+/// the 148 pictures there are.
+///
+/// That is the arithmetic `DrawFleetBitmap` relies on when it reduces an index
+/// modulo 148, and it is what the designer's spin buttons walk: they change
+/// the low two bits and nothing else, so a hull's four are its own.
+#[test]
+fn the_hulls_own_the_ship_pictures_four_at_a_time() {
+    use stars_core::components::slot;
+    use stars_core::parts::part;
+    use stars_formats::resources::art;
+
+    let mut bases = Vec::new();
+    for category in [slot::HULL, slot::SB_HULL] {
+        for item in 0..64 {
+            let Some(p) = part(category, item) else { break };
+            assert_eq!(
+                p.picture % art::PICTURES_PER_HULL,
+                0,
+                "{} does not start a group of four",
+                p.name
+            );
+            assert!(p.picture < art::SHIP_PICTURES, "{}", p.name);
+            bases.push(p.picture);
+
+            // All four of its pictures are real cells, and all four are in the
+            // one column: that is what makes the designer's spin coherent.
+            let column = art::ship(p.picture, art::ShipSize::Large);
+            for variant in 0..4u8 {
+                let index = art::hull_picture(p.picture, variant);
+                assert_eq!(index, p.picture + u16::from(variant), "{}", p.name);
+                let cell = art::ship(index, art::ShipSize::Large);
+                assert_eq!(cell.resource, column.resource, "{}", p.name);
+                assert_eq!(cell.x, column.x, "{} stays in its column", p.name);
+                assert_eq!(cell.y, u32::from(variant) * 64, "{}", p.name);
+                // And the half-size sheet holds the same picture again.
+                let small = art::ship(index, art::ShipSize::Small);
+                assert_eq!((small.width, small.height), (32, 32));
+                assert_eq!((small.x, small.y), (cell.x / 2, cell.y / 2), "{}", p.name);
+            }
+            // Spinning past either end comes back round inside the four.
+            assert_eq!(art::hull_picture(p.picture, 4), p.picture);
+        }
+    }
+
+    assert_eq!(bases.len(), 37, "thirty-two ship hulls and five starbases");
+    bases.sort_unstable();
+    bases.dedup();
+    assert_eq!(bases.len(), 37, "no two hulls share a group");
+    let want: Vec<u16> = (0..37).map(|i| i * art::PICTURES_PER_HULL).collect();
+    assert_eq!(bases, want, "and between them they cover all 148 pictures");
 }
 
 /// The terraforming modules are named with a "±", which says the module moves

@@ -215,19 +215,40 @@ fn ships_and_planets_are_indexed_differently() {
     let Some(exe) = executable() else { return };
 
     // Ships: four to a column, so 0..4 is the first column.
-    let first = art::ship(0, ShipSize::Large).expect("ship 0");
-    let second = art::ship(1, ShipSize::Large).expect("ship 1");
+    let first = art::ship(0, ShipSize::Large);
+    let second = art::ship(1, ShipSize::Large);
     assert_eq!((first.x, first.y), (0, 0));
     assert_eq!((second.x, second.y), (0, 64), "down, not across");
-    assert_eq!(art::ship(4, ShipSize::Large).map(|c| c.x), Some(64));
-    assert_eq!(
-        art::ship(32, ShipSize::Large).map(|c| c.resource),
-        Some(553)
-    );
-    assert_eq!(art::ship(5 * 32, ShipSize::Large), None);
+    assert_eq!(art::ship(4, ShipSize::Large).x, 64);
+    assert_eq!(art::ship(32, ShipSize::Large).resource, 553);
     // And the small sheet is the same index at half the size.
-    let small = art::ship(1, ShipSize::Small).expect("ship 1, small");
+    let small = art::ship(1, ShipSize::Small);
     assert_eq!((small.resource, small.x, small.y), (557, 0, 32));
+
+    // There are 148 pictures and the index wraps, exactly as
+    // `DrawFleetBitmap` wraps it, so nothing can land off the end of the
+    // narrow fifth sheet — its five columns are the last twenty pictures.
+    assert_eq!(art::SHIP_PICTURES, 148);
+    let last = art::ship(147, ShipSize::Large);
+    assert_eq!((last.resource, last.x, last.y), (556, 256, 192));
+    assert_eq!(art::ship(148, ShipSize::Large), first, "and round again");
+    let narrow = bitmap(&exe, Name::Id(556));
+    assert_eq!(
+        (narrow.width, narrow.height),
+        (320, 256),
+        "five columns wide"
+    );
+    for index in 0..art::SHIP_PICTURES {
+        for (size, side) in [(ShipSize::Large, 64), (ShipSize::Small, 32)] {
+            let cell = art::ship(index, size);
+            let picture = bitmap(&exe, cell.name());
+            assert!(
+                picture.crop(cell.x, cell.y, side, side).is_some(),
+                "ship {index} on sheet {}",
+                cell.resource
+            );
+        }
+    }
 
     // Planets: seven across, and the rows run up the decoded picture.
     let sheet = bitmap(&exe, Name::Id(art::PLANET_SHEET));

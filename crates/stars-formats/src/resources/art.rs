@@ -149,6 +149,19 @@ pub const SHIP_SHEETS: [u16; 5] = [552, 553, 554, 555, 556];
 /// The same five at half size (`rghdibShipsT`, ids 557 to 561).
 pub const SHIP_SHEETS_SMALL: [u16; 5] = [557, 558, 559, 560, 561];
 
+/// How many ship pictures there are.
+///
+/// `DrawFleetBitmap` reduces every index it is given modulo this before
+/// looking anything up, and the number is not arbitrary: it is the thirty-two
+/// ship hulls and five starbase hulls, **four pictures apiece**. The sheets
+/// hold exactly that many — four of eight columns by four rows, and a fifth
+/// only five columns wide, so `4 × 32 + 20 = 148`.
+pub const SHIP_PICTURES: u16 = 148;
+
+/// How many pictures each hull owns, which the ship designer lets the player
+/// spin between.
+pub const PICTURES_PER_HULL: u16 = 4;
+
 /// A ship's picture, at 64 pixels or at 32.
 ///
 /// `DibBlt(…, 0x40, 0x40, rghdibShips[i >> 5], ((i & 0x1f) >> 2) << 6,
@@ -157,26 +170,36 @@ pub const SHIP_SHEETS_SMALL: [u16; 5] = [557, 558, 559, 560, 561];
 /// columns: four pictures a column, eight columns, thirty-two a sheet. The row
 /// counts from the bottom, which for four rows is `i & 3` from the top.
 ///
-/// The last sheet of each set is narrower than the others — 320 pixels rather
-/// than 512, and 160 rather than 256 — so the top of its index range names
-/// cells that are not there, and cropping catches it.
+/// The index is taken modulo [`SHIP_PICTURES`] first, exactly as
+/// `DrawFleetBitmap` does — so every index names a picture and this cannot
+/// fail. That modulo is also what keeps the narrow fifth sheet in bounds: its
+/// last column is the last four pictures there are.
 #[must_use]
-pub fn ship(index: u16, size: ShipSize) -> Option<Cell> {
-    let sheets = match size {
-        ShipSize::Large => &SHIP_SHEETS,
-        ShipSize::Small => &SHIP_SHEETS_SMALL,
+pub fn ship(index: u16, size: ShipSize) -> Cell {
+    let index = index % SHIP_PICTURES;
+    let (sheets, cell) = match size {
+        ShipSize::Large => (&SHIP_SHEETS, 64),
+        ShipSize::Small => (&SHIP_SHEETS_SMALL, 32),
     };
-    let cell = match size {
-        ShipSize::Large => 64,
-        ShipSize::Small => 32,
-    };
-    Some(Cell {
-        resource: *sheets.get(usize::from(index >> 5))?,
+    Cell {
+        resource: sheets[usize::from(index >> 5)],
         x: u32::from((index & 0x1f) >> 2) * cell,
         y: u32::from(index & 3) * cell,
         width: cell,
         height: cell,
-    })
+    }
+}
+
+/// Which picture a hull is drawn with, given which of its four is wanted.
+///
+/// A hull's own `ibmp` is the **base** of its group of four — every one of the
+/// thirty-seven is a multiple of four — and a design keeps the one its owner
+/// chose in the low two bits of its own copy. `BuildDlg` spins between them
+/// with a pair of arrow buttons: `iCur = (iCur + 4 ± 1) & 3`, so the choice
+/// wraps within the hull's own four and never wanders into another hull's.
+#[must_use]
+pub fn hull_picture(base: u16, variant: u8) -> u16 {
+    base - base % PICTURES_PER_HULL + u16::from(variant) % PICTURES_PER_HULL
 }
 
 /// Which of the two ship sheets to take a picture from.

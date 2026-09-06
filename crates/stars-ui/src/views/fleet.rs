@@ -53,7 +53,11 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
 }
 
 /// The tallest tile: the fleet itself, which the original draws as a picture.
-fn summary(app: &App, ui: &mut egui::Ui) {
+///
+/// `DrawFleetBitmap` blits the primary design's ship 64 pixels square with the
+/// owner's race emblem over its bottom-left corner. Without the game's own
+/// pictures the tile is the same words without the ship.
+fn summary(app: &mut App, ui: &mut egui::Ui) {
     let Some(fleet) = app.pane_fleet() else {
         tile(ui, "Fleet", |ui| {
             ui.label(egui::RichText::new("no fleet selected").weak().small());
@@ -67,7 +71,35 @@ fn summary(app: &App, ui: &mut egui::Ui) {
     let ships: i32 = fleet.stacks.iter().map(|s| s.count).sum();
     let owner = fleet.owner;
     let position = fleet.position;
+    let picture = app.fleet_picture();
+    let emblem = app.fleet_emblem(stars_formats::resources::art::EmblemSize::Medium);
     tile(ui, &name, |ui| {
+        if let Some((cell, distinct)) = picture {
+            ui.horizontal_top(|ui| {
+                let corner = ui.cursor().min;
+                if crate::art::draw(app, ui, cell, 64.0) {
+                    if let Some(emblem) = emblem {
+                        let ctx = ui.ctx().clone();
+                        if let Some(art) = app.art.as_mut() {
+                            if let Some(image) = art.sprite(&ctx, emblem, 16.0) {
+                                image.paint_at(
+                                    ui,
+                                    egui::Rect::from_min_size(
+                                        corner + egui::vec2(0.0, 48.0),
+                                        egui::vec2(16.0, 16.0),
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                    // The original marks a mixed fleet beside the picture
+                    // rather than drawing every design in it.
+                    if distinct > 1 {
+                        ui.label(egui::RichText::new(format!("+{}", distinct - 1)).small());
+                    }
+                }
+            });
+        }
         ui.label(egui::RichText::new(format!("player {}", owner + 1)).small());
         ui.label(egui::RichText::new(format!("{ships} ships")).small());
         ui.label(egui::RichText::new(format!("({}, {})", position.x, position.y)).small());

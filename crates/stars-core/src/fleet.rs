@@ -272,3 +272,160 @@ impl Fleet {
         })
     }
 }
+
+/// Which design a fleet is drawn as, and how many different ones it holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Primary {
+    /// The owner's design slot whose picture stands for the fleet.
+    pub design: usize,
+    /// How many of the sixteen slots the fleet has any ships in, which is what
+    /// the original counts to decide how many extra marks to draw beside the
+    /// picture.
+    pub distinct: usize,
+}
+
+/// The design whose picture stands for a fleet.
+///
+/// `IshdefPrimaryFromLpfl` (`1038:3e1c`) walks the sixteen design slots in
+/// order and keeps the one with the most ships, comparing strictly — so a tie
+/// stays with the slot that got there first.
+///
+/// There is one twist. When the design it has just chosen is a **fuel
+/// transport** — hull 25 or 26 — its count is docked by one, which lowers the
+/// bar the *following* slots have to clear. The effect is narrow and worth
+/// stating exactly: a tanker **loses a tie** it would otherwise have won, and
+/// nothing more. A tanker that is genuinely the most numerous ship still holds
+/// the picture; a tanker merely level with the warships beside it does not.
+///
+/// Returns `None` for a fleet with no ships in it, which is what the
+/// original's out-of-range `16` means.
+#[must_use]
+pub fn primary_design(fleet: &Fleet, designs: &[crate::design::ShipDesign]) -> Option<Primary> {
+    let mut best: Option<usize> = None;
+    let mut beat = 0i32;
+    let mut distinct = 0;
+    for slot in 0..16u8 {
+        let count: i32 = fleet
+            .stacks
+            .iter()
+            .filter(|stack| stack.design == slot)
+            .map(|stack| stack.count)
+            .sum();
+        if count <= 0 {
+            continue;
+        }
+        distinct += 1;
+        if beat < count {
+            best = Some(usize::from(slot));
+            beat = count;
+            // A tanker holds the picture less firmly than anything else.
+            if designs
+                .get(usize::from(slot))
+                .is_some_and(|design| matches!(design.hull_id, 25 | 26))
+            {
+                beat -= 1;
+            }
+        }
+    }
+    best.map(|design| Primary { design, distinct })
+}
+
+#[cfg(test)]
+mod primary_tests {
+    use super::*;
+    use crate::design::ShipDesign;
+
+    fn design(hull_id: i16) -> ShipDesign {
+        ShipDesign {
+            hull_id,
+            slots: Vec::new(),
+            name: String::new(),
+            picture: 0,
+            stored_armor: 0,
+        }
+    }
+
+    fn fleet(stacks: &[(u8, i32)]) -> Fleet {
+        Fleet {
+            id: 1,
+            owner: 0,
+            position: Point::new(0, 0),
+            orbiting: None,
+            stacks: stacks
+                .iter()
+                .map(|(design, count)| ShipStack {
+                    design: *design,
+                    count: *count,
+                    damaged_pct: 0,
+                    damage_pct: 0,
+                })
+                .collect(),
+            cargo: Cargo::default(),
+            battle_plan: 0,
+            warp: None,
+            waypoints: Vec::new(),
+            name: None,
+            repeat_orders: false,
+        }
+    }
+
+    /// The most numerous design holds the picture, and a tie goes to the
+    /// earlier slot because the comparison is strict.
+    #[test]
+    fn the_commonest_design_holds_the_picture() {
+        let designs = [design(4), design(6), design(9)];
+        let f = fleet(&[(0, 3), (1, 7), (2, 2)]);
+        let primary = primary_design(&f, &designs).expect("a design");
+        assert_eq!(primary.design, 1);
+        assert_eq!(primary.distinct, 3);
+
+        let tie = fleet(&[(0, 5), (2, 5)]);
+        assert_eq!(
+            primary_design(&tie, &designs).map(|p| p.design),
+            Some(0),
+            "a tie stays with the first"
+        );
+    }
+
+    /// A fuel transport loses a tie it would otherwise have won, because the
+    /// original docks its count by one once it has been chosen. That is the
+    /// whole of the rule: it is a tie-break, not a ban.
+    #[test]
+    fn a_tanker_loses_a_tie() {
+        for tanker in [25, 26] {
+            let designs = [design(tanker), design(10)];
+
+            // Level with the dreadnoughts, the tanker gives way — where any
+            // other design in slot 0 would have kept it.
+            let level = fleet(&[(0, 6), (1, 6)]);
+            assert_eq!(
+                primary_design(&level, &designs).map(|p| p.design),
+                Some(1),
+                "hull {tanker} yields the tie"
+            );
+            let ordinary = [design(4), design(10)];
+            assert_eq!(
+                primary_design(&level, &ordinary).map(|p| p.design),
+                Some(0),
+                "where a freighter would have kept it"
+            );
+
+            // A single ship clear and it holds the picture: the decrement
+            // costs it a tie and nothing more.
+            let ahead = fleet(&[(0, 6), (1, 5)]);
+            assert_eq!(
+                primary_design(&ahead, &designs).map(|p| p.design),
+                Some(0),
+                "hull {tanker} keeps it when it really is the most numerous"
+            );
+        }
+    }
+
+    /// A fleet with nothing in it has no picture.
+    #[test]
+    fn an_empty_fleet_has_no_primary() {
+        let designs = [design(4)];
+        assert_eq!(primary_design(&fleet(&[]), &designs), None);
+        assert_eq!(primary_design(&fleet(&[(0, 0)]), &designs), None);
+    }
+}

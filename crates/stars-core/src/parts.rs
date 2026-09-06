@@ -68,6 +68,35 @@ pub struct Part {
     pub picture: u16,
 }
 
+/// Where a part's picture sits in the game's own sheets.
+///
+/// **A hull is not drawn like a component.** Everything else's `ibmp` indexes
+/// the seven sheets of component pictures, but a hull's indexes the ship
+/// pictures — its value is the base of the hull's own group of four, and the
+/// four are what the designer's spin buttons choose between. The two index
+/// spaces overlap, so a hull drawn as a component shows some other part
+/// altogether.
+///
+/// `variant` picks among a hull's four and is ignored for anything else; pass
+/// a design's own `picture` low bits, or zero for the hull as the catalogue
+/// lists it.
+#[must_use]
+pub fn picture_cell(
+    category: u16,
+    picture: u16,
+    variant: u8,
+) -> Option<stars_formats::resources::art::Cell> {
+    use stars_formats::resources::art;
+    if category == slot::HULL || category == slot::SB_HULL {
+        Some(art::ship(
+            art::hull_picture(picture, variant),
+            art::ShipSize::Large,
+        ))
+    } else {
+        art::component(picture)
+    }
+}
+
 /// Look one component up by category and index, without asking who is building
 /// it.
 #[must_use]

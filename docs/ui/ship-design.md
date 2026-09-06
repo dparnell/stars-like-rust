@@ -240,10 +240,18 @@ warning, and the cost and statistics panel with true costs.
 
 ## What is not
 
-* **The game's bitmaps.** Every slot, every part in the list and the hull
-  picture itself is a blit in the original. Here a slot names the categories it
-  accepts, a part is a row of text, and the picture is a box with the picture
-  number in it — which is what the two arrows under it actually change.
+* **The slot pictures.** A slot is a blit in the original; here it names the
+  categories it accepts. The **hull picture** and the **parts list** are drawn
+  from the game's own sheets when a copy of the original has been found — see
+  `../formats/resources.md` — and fall back to a box with the picture number in
+  it, and to plain rows, when it has not.
+
+  The two arrows under the hull picture are real: every hull owns **four**
+  pictures and `BuildDlg` walks those four. It splits the index into the hull's
+  base and a variant, steps the variant with `(iCur + 4 ± 1) & 3`, and puts the
+  base back, so the choice wraps inside the hull's own group and can never land
+  on another hull's ship. A new design starts on the first of its hull's four —
+  which is why a hull's `ibmp` is a *base*, not a picture.
 * `Rating:` — `LComputePower`, which has not been read yet — and the
   `Cloak/Jam` and `Initiative/Moves` rows, which need `PctCloakFromHuldef`,
   `PctJammerFromHul` and `InitFromHuldef`.

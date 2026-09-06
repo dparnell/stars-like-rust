@@ -40,10 +40,19 @@ Every component begins with the same header, then adds its own fields:
 
 `ibmp` is at `0x32` in **every** one of the sixteen part tables and in both
 hull tables — it is the last field of the shared header — and it is
-transcribed as each structure's `picture`. It indexes the seven sheets of
-64-pixel cells the original blits from; see `../formats/resources.md` for how
-they are tiled. All 239 values in this build are in `0..=209`, none negative,
-and every one of them lands on a cell that is really there.
+transcribed as each structure's `picture`.
+
+**It does not mean the same thing for a hull.** A component's `ibmp` indexes
+the seven sheets of 64-pixel component pictures; a **hull's** indexes the ship
+pictures instead, and its value is the base of that hull's own group of four.
+The two index spaces overlap, so a hull drawn as a component shows some other
+part altogether. `stars_core::parts::picture_cell` is the one place that
+decides between them. See `../formats/resources.md`.
+
+Of the 239 values in this build, the 202 that are components are in `0..=209`,
+none negative, and every one lands on a cell that is really there. The 37 that
+are hulls are the multiples of four from 0 to 144, one group each, covering all
+148 ship pictures between them.
 
 Type-specific tails: engines add `grfAbilities` and `rgcFuelUsed[12]`; armour
 and shields add `dp`; scanners add `dRange` and `grfAbilities`; planetary items

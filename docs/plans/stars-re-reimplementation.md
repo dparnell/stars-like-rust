@@ -1813,7 +1813,46 @@ disagree.
 
     The Technology Browser and the ship designer's parts list now draw them.
 
-56. **What is still missing to call it playable.** Every waypoint task is now
+56. ~~**The ship pictures for hulls.**~~ **Done.** And it corrected three
+    things, two of them mine from the commit before.
+
+    A hull's `ibmp` is **not** a component-picture index. It indexes the ship
+    sheets, and its value is the *base* of that hull's own group of four. The
+    two index spaces overlap, so the browser and the designer had been drawing
+    every hull as some unrelated component since `ibmp` went in;
+    `parts::picture_cell` is now the one place that decides between them, and
+    the whole-table test that had quietly asserted the wrong premise now checks
+    each space on its own terms.
+
+    The arithmetic proves itself. `DrawFleetBitmap` reduces its index modulo
+    `0x94`, and 148 is thirty-two ship hulls and five starbase hulls with four
+    pictures apiece; the hull bases are the multiples of four from 0 to 144, one
+    group each, covering every picture exactly once. That also explains the
+    narrow fifth sheet — its five columns are the last twenty pictures — and
+    the modulo is what keeps an index off its missing sixth column.
+
+    The designer's two arrows were wrong too: they cycled an absolute 0..32 for
+    ships and 0..5 for starbases, a guess made before any of this was known.
+    `BuildDlg` splits the index into base and variant, steps the variant with
+    `(iCur + 4 ± 1) & 3`, and puts the base back, so the choice wraps inside the
+    hull's own four. And a fresh design was starting at picture 0 — the Small
+    Freighter, whatever hull it had been copied from — where it should start on
+    its own hull's base.
+
+    A fleet is drawn as its **primary** design, `IshdefPrimaryFromLpfl`
+    (`1038:3e1c`): the most numerous, compared strictly so a tie stays with the
+    earlier slot, except that a **fuel transport** has its count docked by one
+    once chosen. That costs it a tie and nothing more — a tanker that really is
+    the most numerous ship keeps the picture — which is a narrower rule than it
+    first looks, and a test with an ordinary freighter as the control pins the
+    difference.
+
+    Drawing them: the ship in the designer with its spin arrows, the fleet in
+    the fleet pane, both with the owner's race emblem over the bottom-left
+    corner as the original overlays it, and a `+n` beside a fleet of more than
+    one design.
+
+57. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

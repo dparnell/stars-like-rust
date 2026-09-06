@@ -326,7 +326,7 @@ fn part_row(app: &mut App, ui: &mut egui::Ui, part: &PartRow, index: usize) {
         .as_ref()
         .is_some_and(|d| d.selected_part == Some(index));
     let label = format!("{}  {}kT", part.name, part.mass);
-    let cell = stars_formats::resources::art::component(part.picture);
+    let cell = stars_core::parts::picture_cell(part.category, part.picture, 0);
     let mut clicked = false;
     ui.horizontal(|ui| {
         // The original lists a part with its picture beside it, at half the
@@ -379,26 +379,55 @@ fn name_field(app: &mut App, ui: &mut egui::Ui) {
 
 /// The hull picture, with the two arrows under it while editing.
 ///
-/// The original blits one of the game's ship bitmaps; there are none here, so
-/// the picture is the hull's name and its number, which is what the arrows
-/// actually change.
+/// `DrawFleetBitmap` blits the ship 64 pixels square in a sunken frame, with
+/// the owner's race emblem over its bottom-left corner, and the arrows spin
+/// between the four pictures the hull owns. Without a copy of the original to
+/// read the bitmaps out of, the frame holds the picture's number instead —
+/// which is still what the arrows change.
 fn picture(app: &mut App, ui: &mut egui::Ui, editing: bool) {
     let Some(design) = app.designer_subject() else {
         return;
     };
     let hull = App::designer_hull(&design);
+    let ship = stars_formats::resources::art::ship(
+        u16::from(design.picture),
+        stars_formats::resources::art::ShipSize::Large,
+    );
+    let emblem = app.emblem_of(
+        app.local_player(),
+        stars_formats::resources::art::EmblemSize::Medium,
+    );
     ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(72.0, 48.0), egui::Sense::hover());
-        let painter = ui.painter();
-        painter.rect_filled(rect, 2.0, ui.visuals().faint_bg_color);
-        painter.rect_stroke(rect, 2.0, ui.visuals().widgets.noninteractive.bg_stroke);
-        painter.text(
-            rect.center(),
-            egui::Align2::CENTER_CENTER,
-            format!("#{}", design.picture),
-            egui::FontId::proportional(14.0),
-            ui.visuals().weak_text_color(),
-        );
+        if app.has_art() {
+            // The emblem sits over the ship's bottom-left corner, as the
+            // original overlays it: sixteen pixels on the sixty-four.
+            let corner = ui.cursor().min;
+            crate::art::draw(app, ui, ship, 64.0);
+            if let Some(emblem) = emblem {
+                let ctx = ui.ctx().clone();
+                if let Some(art) = app.art.as_mut() {
+                    if let Some(image) = art.sprite(&ctx, emblem, 16.0) {
+                        let at = egui::Rect::from_min_size(
+                            corner + egui::vec2(0.0, 48.0),
+                            egui::vec2(16.0, 16.0),
+                        );
+                        image.paint_at(ui, at);
+                    }
+                }
+            }
+        } else {
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(72.0, 48.0), egui::Sense::hover());
+            let painter = ui.painter();
+            painter.rect_filled(rect, 2.0, ui.visuals().faint_bg_color);
+            painter.rect_stroke(rect, 2.0, ui.visuals().widgets.noninteractive.bg_stroke);
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                format!("#{}", design.picture),
+                egui::FontId::proportional(14.0),
+                ui.visuals().weak_text_color(),
+            );
+        }
         ui.vertical(|ui| {
             ui.label(
                 egui::RichText::new(hull.map_or("", |h| h.name))

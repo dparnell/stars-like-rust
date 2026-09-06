@@ -434,13 +434,13 @@ pub fn first(who: &Builder<'_>, within: Option<u16>, buildable_only: bool) -> Op
     step(who, within, (category, 0), true, buildable_only)
 }
 
-/// Where a component's picture sits in the game's own sheets.
+/// Where the component in view is drawn from.
 ///
-/// `DrawComponent` blits it 64 pixels square out of `rghdibInventory`, indexed
-/// by the component's `ibmp`. `None` when the picture is one of the cells that
-/// is not there — the last sheet is half as wide as its siblings — which no
-/// component in this executable's tables actually asks for.
+/// A component's picture is 64 pixels square out of `rghdibInventory`, indexed
+/// by its `ibmp`; a **hull's** comes out of the ship sheets instead, which is
+/// a different index space entirely — see [`crate::parts::picture_cell`]. The
+/// browser shows a hull as the catalogue lists it, so the first of its four.
 #[must_use]
 pub fn picture(detail: &Detail) -> Option<stars_formats::resources::art::Cell> {
-    stars_formats::resources::art::component(detail.picture)
+    crate::parts::picture_cell(detail.category, detail.picture, 0)
 }
