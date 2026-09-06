@@ -24,6 +24,7 @@
 
 use egui::{Color32, Pos2, Rect, Sense, Stroke, Vec2};
 
+use crate::app::ScanObject;
 use crate::views::{colonists, player_colour};
 use crate::OrbitRing;
 use crate::{App, ScanView};
@@ -71,7 +72,11 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     };
 
     let selected = app.selection.planet;
-    let mut clicked: Option<i16> = None;
+    // What the pointer landed on: where it is in galaxy units, and which
+    // planet or fleet was hit. The scanner needs the point rather than the
+    // object, because clicking the same point again cycles through everything
+    // on it.
+    let mut clicked: Option<(i16, i16, Option<i16>, Option<usize>)> = None;
     let pointer = response.interact_pointer_pos();
 
     // Minefields first, so they lie under the planets rather than over them. A
@@ -201,7 +206,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         }
         if let Some(p) = pointer {
             if (p - at).length() <= radius + 6.0 {
-                clicked = Some(planet.id);
+                clicked = Some((position.x, position.y, Some(planet.id), None));
             }
         }
     }
@@ -245,7 +250,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
 
     // Fleets, as small marks offset from their planet so they do not hide it.
     if let Some(game) = app.game.as_ref() {
-        for fleet in &game.fleets {
+        for (index, fleet) in game.fleets.iter().enumerate() {
             if fleet.stacks.is_empty() {
                 continue;
             }
@@ -254,6 +259,15 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 continue;
             }
             let at = to_screen(f32::from(fleet.position.x), f32::from(fleet.position.y));
+            // A fleet's own mark is clickable, but a planet under the pointer
+            // wins: the planet comes first in the cycle too.
+            if clicked.is_none() {
+                if let Some(p) = pointer {
+                    if (p - (at + Vec2::new(6.0, -6.0))).length() <= 5.0 {
+                        clicked = Some((fleet.position.x, fleet.position.y, None, Some(index)));
+                    }
+                }
+            }
             let colour = player_colour(fleet.owner);
             let size = Vec2::splat(3.0);
             painter.rect_filled(
@@ -370,8 +384,19 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 app.add_waypoint(x, y);
             }
         }
-    } else if let Some(id) = clicked {
-        app.selection.planet = Some(id);
+    } else if let Some((x, y, planet, fleet)) = clicked {
+        // Clicking the spot already selected steps to the next thing on it;
+        // clicking a new one selects what is there. A planet or fleet that
+        // takes no part in the cycle — anybody else's — is still selectable,
+        // which is what the plain selection below is for.
+        if !app.scan_click(x, y) {
+            if let Some(id) = planet {
+                app.selection.planet = Some(id);
+                app.selection.on_fleet = false;
+            } else if let Some(index) = fleet {
+                app.select_object(ScanObject::Fleet(index));
+            }
+        }
     }
 
     // The status bar the original keeps along the bottom of the scanner: what

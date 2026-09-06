@@ -99,6 +99,32 @@ they apply there. That is what `MANUAL.PDF` p. 5-15 means by "only those planets
 orbited by the selected ships will have orbit rings". The **fleet paths**
 overlay is gated on the same count, so the filters narrow that too.
 
+## Clicking the same spot again
+
+The first click on a spot selects what is there. **Clicking it again steps to
+the next thing on it** — `FGetNextObjHere` (`1058:909c`), reached from the
+left-click handler only when the point clicked is the point already selected.
+
+The cycle is the planet, then each fleet in fleet order, then round to the
+planet. Two restrictions make it narrower than it looks, and both come from the
+same place:
+
+* it is called with **`fOnlyOurs`**, so another player's fleets are not in the
+  cycle;
+* it returns to the planet only when `sel.pl.iPlayer == idPlayer`, so **another
+  player's planet is not either** — where there is no planet of your own the
+  cycle wraps straight back to the first fleet.
+
+A spot can therefore be crowded and still cycle through nothing. Clicking one
+of those things still *selects* it; it just does not take part in the walk.
+
+Two smaller rules fall out of the same function. If the walk comes back to what
+was already selected it reports no change rather than re-selecting it — so a
+spot holding one thing stays put when clicked again. And selecting a fleet
+keeps the planet it orbits, because `sel` holds both and the status bar names
+the planet whichever is in front; the **pane** follows the selection, so
+cycling swaps between the planet's tiles and the fleet's as it goes.
+
 ## Player colours
 
 `grbitScan & 0x2000` is **Player Colors**, the View menu's own item — the one
@@ -229,9 +255,9 @@ else's fleet is prefixed with their race name.
 
 ## What else the window does
 
-Named here because they are the scanner's, and are not reproduced:
-`FGetNextObjHere` (clicking the same spot again to cycle through everything on
-it), and `GetScanFleetOrientation` (which way a fleet's arrow points).
+Named here because it is the scanner's and is not reproduced:
+`GetScanFleetOrientation`, which way a fleet's arrow points — this project
+draws every fleet as the same small mark.
 
 ## What this project does
 
@@ -241,7 +267,8 @@ Reproduced: the nine zoom steps with the original's shift arithmetic; the y
 flip; all six views and their names; the names, scanner coverage, mine fields,
 fleet paths, ship counts and idle-fleets overlays; the **orbit rings**, in the
 game's own three colours and narrowed by the ship filters as the original
-narrows them; click-to-select; and
+narrows them; click-to-select, and **clicking the same spot again** to walk
+what is on it; and
 **waypoint dragging** — adding a leg, moving one, dropping one, and the warp the
 client suggests, both halves of it. Every edit writes the order record the real
 client writes, so a host replaying the log reaches the same orders. And the

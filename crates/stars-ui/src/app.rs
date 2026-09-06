@@ -112,6 +112,13 @@ pub struct Selection {
     pub planet: Option<i16>,
     /// The selected fleet, as an index into [`GameState::fleets`].
     pub fleet: Option<usize>,
+    /// Which of the two the scanner has in front — the original's `sel.grobj`,
+    /// which is one thing rather than two.
+    ///
+    /// The scanner keeps both because a fleet in orbit is at a planet and the
+    /// status bar wants the planet either way; this says which one clicking
+    /// last landed on, and so which pane is showing.
+    pub on_fleet: bool,
 }
 
 /// What the Find dialog found.
@@ -506,6 +513,7 @@ impl App {
         self.selection = Selection {
             planet: state.planets.first().map(|p| p.id),
             fleet: (!state.fleets.is_empty()).then_some(0),
+            on_fleet: false,
         };
         self.vcr = None;
         self.playing = false;
@@ -809,6 +817,7 @@ impl App {
                 .or_else(|| state.planets.first())
                 .map(|p| p.id),
             fleet: (!state.fleets.is_empty()).then_some(0),
+            on_fleet: false,
         };
         self.game = Some(state);
         self.universe = Some(universe);
@@ -2752,7 +2761,12 @@ impl App {
     /// What the survey pane is summarising.
     #[must_use]
     pub fn survey_subject(&self) -> SurveySubject {
-        if self.screen == Screen::Fleets {
+        // The Fleets screen is always about a fleet; the scanner is about
+        // whichever of the two was last clicked, so that cycling through the
+        // things at one spot swaps the pane as it goes.
+        if self.screen == Screen::Fleets
+            || (self.screen == Screen::Galaxy && self.selection.on_fleet)
+        {
             if let Some(index) = self.selection.fleet {
                 if self.game.as_ref().is_some_and(|g| index < g.fleets.len()) {
                     return SurveySubject::Fleet(index);
@@ -6703,5 +6717,146 @@ impl App {
                 Some((planet, ring))
             })
             .collect()
+    }
+}
+
+// --- Clicking the same spot again -----------------------------------------
+
+/// One thing the scanner can have selected at a point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanObject {
+    /// A planet, by id.
+    Planet(i16),
+    /// A fleet, by index into `GameState::fleets`.
+    Fleet(usize),
+}
+
+impl App {
+    /// Everything of the player's **own** at a point, in the order the scanner
+    /// cycles them: the planet first, then their fleets in fleet order.
+    ///
+    /// `FGetNextObjHere` (`1058:909c`) is called with `fOnlyOurs` set, so
+    /// another player's fleets are not in the cycle; and it only returns to the
+    /// planet when the planet is this player's own, so somebody else's planet
+    /// is not either. A spot can therefore hold plenty and still cycle through
+    /// nothing.
+    #[must_use]
+    pub fn objects_at(&self, x: i16, y: i16) -> Vec<ScanObject> {
+        let me = self.local_player();
+        let Some(game) = self.game.as_ref() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        if let Some(planet) = game
+            .planets
+            .iter()
+            .chain(game.known_planets.iter())
+            .find(|planet| planet.position == Some(stars_core::movement::Point::new(x, y)))
+        {
+            if planet.owner == i16::try_from(me).ok() {
+                out.push(ScanObject::Planet(planet.id));
+            }
+        }
+        for (index, fleet) in game.fleets.iter().enumerate() {
+            if fleet.position.x == x
+                && fleet.position.y == y
+                && usize::try_from(fleet.owner).is_ok_and(|owner| owner == me)
+            {
+                out.push(ScanObject::Fleet(index));
+            }
+        }
+        out
+    }
+
+    /// What the scanner has selected, as one object.
+    #[must_use]
+    pub fn selected_object(&self) -> Option<ScanObject> {
+        if self.selection.on_fleet {
+            if let Some(index) = self.selection.fleet {
+                return Some(ScanObject::Fleet(index));
+            }
+        }
+        self.selection.planet.map(ScanObject::Planet)
+    }
+
+    /// Where an object is, in galaxy units.
+    #[must_use]
+    pub fn object_position(&self, object: ScanObject) -> Option<stars_core::movement::Point> {
+        let game = self.game.as_ref()?;
+        match object {
+            ScanObject::Planet(id) => {
+                game.planets
+                    .iter()
+                    .chain(game.known_planets.iter())
+                    .find(|planet| planet.id == id)?
+                    .position
+            }
+            ScanObject::Fleet(index) => Some(game.fleets.get(index)?.position),
+        }
+    }
+
+    /// Select one thing the scanner found.
+    pub fn select_object(&mut self, object: ScanObject) {
+        match object {
+            ScanObject::Planet(id) => {
+                self.selection.planet = Some(id);
+                self.selection.on_fleet = false;
+            }
+            ScanObject::Fleet(index) => {
+                self.selection.fleet = Some(index);
+                self.selection.on_fleet = true;
+                // The scanner keeps the planet under a fleet in orbit, because
+                // the status bar names it whichever is in front.
+                if let Some(planet) = self
+                    .game
+                    .as_ref()
+                    .and_then(|game| game.fleets.get(index))
+                    .and_then(|fleet| fleet.orbiting)
+                {
+                    if let Ok(id) = i16::try_from(planet) {
+                        self.selection.planet = Some(id);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The scanner's left click, at a galaxy point.
+    ///
+    /// A new spot selects what is on it. **The spot already selected advances
+    /// to the next thing there**, which is what clicking the same place twice
+    /// does in the original, and wraps round to the planet at the end. Nothing
+    /// changes when the spot holds only the one thing.
+    ///
+    /// Returns whether the selection moved.
+    pub fn scan_click(&mut self, x: i16, y: i16) -> bool {
+        let here = self.objects_at(x, y);
+        if here.is_empty() {
+            return false;
+        }
+        let at = stars_core::movement::Point::new(x, y);
+        let same_spot = self
+            .selected_object()
+            .and_then(|object| self.object_position(object))
+            .is_some_and(|position| position == at);
+
+        let next = if same_spot {
+            let current = self.selected_object();
+            let index = here.iter().position(|object| Some(*object) == current);
+            match index {
+                // Round to the next, and back to the planet at the end.
+                Some(index) => here[(index + 1) % here.len()],
+                // Selected here but not one of the things that cycle — take
+                // the first, as the original takes the first fleet.
+                None => here[0],
+            }
+        } else {
+            here[0]
+        };
+        if Some(next) == self.selected_object() {
+            return false;
+        }
+        self.select_object(next);
+        true
     }
 }

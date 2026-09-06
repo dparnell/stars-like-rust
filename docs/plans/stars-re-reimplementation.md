@@ -1968,7 +1968,32 @@ disagree.
     `1058:4bf4`** — the name and the address were both wrong, in the docs and in
     two source comments. Fixed everywhere.
 
-61. **What is still missing to call it playable.** Every waypoint task is now
+61. ~~**Clicking the same spot again.**~~ **Done.** Spec in
+    `docs/ui/scanner.md`. `FGetNextObjHere` (`1058:909c`), reached from the
+    left-click handler only when the point clicked is the point already
+    selected: the cycle is the planet, then each fleet in fleet order, then
+    round to the planet.
+
+    Two restrictions make it narrower than it looks. It is called with
+    **`fOnlyOurs`**, so another player's fleets are not in the cycle; and it
+    returns to the planet only when the planet is this player's own, so
+    another player's planet is not either. A spot can be crowded and still
+    cycle through nothing — clicking one of those things still selects it, it
+    just takes no part in the walk.
+
+    The scanner had no fleet hit-testing at all before this, only planets, so
+    that went in with it. And `Selection` now records **which of the two is in
+    front** — the original's `sel.grobj` is one thing where ours was two
+    independent options — which is what lets the pane swap between the planet's
+    tiles and the fleet's as the cycle goes round.
+
+    Writing the tests turned up that the first click on a freshly opened game's
+    homeworld is correctly a **no-op**: it is already the selection, and the
+    walk reports no change rather than re-selecting it. My first draft of the
+    tests assumed an empty selection and ran a step ahead of the code
+    throughout.
+
+62. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -1983,9 +2008,9 @@ disagree.
       scaling and shield absorption.
     - A loaded state file still cannot carry structural fleet changes back —
       the game does not either; the order log does.
-    - **The scanner's remaining tools**: clicking one spot repeatedly to cycle
-      through what is on it, and Player Colors, which is recovered but has no
-      menu item here to turn it on.
+    - **Player Colors**, which is recovered but has no menu item here to turn
+      it on, and `GetScanFleetOrientation` — every fleet is drawn as the same
+      mark rather than an arrow pointing where it is going.
     - **`stars.ini` does not keep the scanner's settings** between sessions —
       the view, the overlays, the three filter masks and the coverage. Their
       defaults are honoured; the saving is not.
