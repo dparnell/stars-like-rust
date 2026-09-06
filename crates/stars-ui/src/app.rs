@@ -261,6 +261,11 @@ pub struct App {
     pub scan_view: ScanView,
     /// The scanner's overlays and filters.
     pub scan_overlays: ScanOverlays,
+    /// What the toolbar's coverage combo holds, in percent
+    /// (`vpctRadarView`). The overlay is drawn as though every scanner were
+    /// only this effective, which is how a player sees what a cloaked ship
+    /// would get away with — `MANUAL.PDF` p. 5-13.
+    pub scan_coverage_pct: u8,
     /// `Add Way Points Mode`: whether clicking the map gives the selected
     /// fleet orders instead of selecting what is under the pointer.
     pub add_waypoints: bool,
@@ -412,6 +417,7 @@ impl App {
     pub fn new() -> Self {
         Self {
             warp: 7,
+            scan_coverage_pct: 100,
             ..Self::default()
         }
     }
@@ -6258,5 +6264,102 @@ impl App {
     ) -> Option<stars_formats::resources::art::Cell> {
         let owner = usize::try_from(self.pane_fleet()?.owner).ok()?;
         self.emblem_of(owner, size)
+    }
+}
+
+// --- The scanner's toolbar ------------------------------------------------
+
+impl App {
+    /// Whether a toolbar button is showing as pressed.
+    ///
+    /// `FIsButtonDown` (`1068:0c3a`) reads `grbitScan`: the six views are a
+    /// radio group in its low four bits and the rest are single bits. The two
+    /// filter menus and Zoom are momentary and never show pressed.
+    #[must_use]
+    pub fn toolbar_down(&self, button: crate::toolbar::Button) -> bool {
+        use crate::toolbar::Button;
+        match button {
+            Button::Normal => self.scan_view == ScanView::Normal,
+            Button::SurfaceMinerals => self.scan_view == ScanView::SurfaceMineral,
+            Button::MineralConcentration => self.scan_view == ScanView::MineralConcentration,
+            Button::PlanetValue => self.scan_view == ScanView::PlanetValue,
+            Button::Population => self.scan_view == ScanView::Population,
+            Button::NoPlayerInfo => self.scan_view == ScanView::NoPlayerInfo,
+            Button::AddWaypoints => self.add_waypoints,
+            Button::ScannerCoverage => self.scan_overlays.scanner_coverage,
+            Button::MineFields => self.scan_overlays.minefields,
+            Button::FleetPaths => self.scan_overlays.fleet_paths,
+            Button::IdleFleets => self.scan_overlays.idle_fleets,
+            Button::PlanetNames => self.scan_overlays.names,
+            Button::ShipCount => self.scan_overlays.ship_counts,
+            // The two filters this project does not model yet, and the three
+            // that are momentary in the original as well.
+            Button::ShipDesignFilter
+            | Button::EnemyClassFilter
+            | Button::ShipDesignMenu
+            | Button::EnemyClassMenu
+            | Button::Zoom => false,
+        }
+    }
+
+    /// Whether pressing a toolbar button does anything yet.
+    ///
+    /// The two ship filters and their menus are drawn, because leaving a hole
+    /// in the row would be a worse lie than a button that says it is not
+    /// wired, but they are not implemented — see `docs/ui/toolbar.md`.
+    #[must_use]
+    pub fn toolbar_enabled(&self, button: crate::toolbar::Button) -> bool {
+        use crate::toolbar::Button;
+        !matches!(
+            button,
+            Button::ShipDesignFilter
+                | Button::ShipDesignMenu
+                | Button::EnemyClassFilter
+                | Button::EnemyClassMenu
+        )
+    }
+
+    /// Press a toolbar button.
+    ///
+    /// A view replaces whichever view was on, as the original replaces the low
+    /// four bits of `grbitScan`; everything else toggles. Zoom steps the
+    /// scanner in, wrapping round at the far end, which is what clicking the
+    /// magnifying glass does.
+    pub fn toolbar_click(&mut self, button: crate::toolbar::Button) {
+        use crate::toolbar::Button;
+        match button {
+            Button::Normal => self.scan_view = ScanView::Normal,
+            Button::SurfaceMinerals => self.scan_view = ScanView::SurfaceMineral,
+            Button::MineralConcentration => self.scan_view = ScanView::MineralConcentration,
+            Button::PlanetValue => self.scan_view = ScanView::PlanetValue,
+            Button::Population => self.scan_view = ScanView::Population,
+            Button::NoPlayerInfo => self.scan_view = ScanView::NoPlayerInfo,
+            Button::AddWaypoints => self.add_waypoints = !self.add_waypoints,
+            Button::ScannerCoverage => {
+                self.scan_overlays.scanner_coverage = !self.scan_overlays.scanner_coverage;
+            }
+            Button::MineFields => self.scan_overlays.minefields = !self.scan_overlays.minefields,
+            Button::FleetPaths => self.scan_overlays.fleet_paths = !self.scan_overlays.fleet_paths,
+            Button::IdleFleets => self.scan_overlays.idle_fleets = !self.scan_overlays.idle_fleets,
+            Button::PlanetNames => self.scan_overlays.names = !self.scan_overlays.names,
+            Button::ShipCount => self.scan_overlays.ship_counts = !self.scan_overlays.ship_counts,
+            Button::Zoom => {
+                self.scan_zoom = if self.scan_zoom >= 4 {
+                    -4
+                } else {
+                    self.scan_zoom + 1
+                };
+            }
+            Button::ShipDesignFilter
+            | Button::ShipDesignMenu
+            | Button::EnemyClassFilter
+            | Button::EnemyClassMenu => {}
+        }
+    }
+
+    /// Set the coverage the combo holds, reading it the way the original reads
+    /// what was typed into it.
+    pub fn set_scan_coverage(&mut self, text: &str) {
+        self.scan_coverage_pct = crate::toolbar::coverage_from_text(text);
     }
 }

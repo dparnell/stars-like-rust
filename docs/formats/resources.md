@@ -98,6 +98,7 @@ single number, blitted out of with `DibBlt`.
 | ships, small (`rghdibShipsT`) | 557–561 | 32 | the same index, half size |
 | planets (`hdibPlanets`) | 112 | 64 | 7 across, 4 down, 28 in all |
 | race emblems (`hdibRaces` / `T` / `X`) | 133 / 80 / 79 | 32 / 16 / 8 | 8 across, 4 down, 32 in all |
+| the toolbar (`hdibToolbar`) | 178 | 24 × 23 | 18 across, one row |
 
 Two things about that table are easy to get wrong and are worth stating.
 
@@ -138,6 +139,8 @@ used, so this does not guess: the crop fails and the caller draws nothing.
   its left half**, which confirms from the other side that the sheet really is
   four cells wide and that the cells this refuses to name are cells the game
   never asks for.
+* **The toolbar** — the button's own index. See `../ui/toolbar.md`: the row's
+  order comes from a 29-entry table, not from the indices.
 * **Ships** — a **design's** own picture, which is its hull's base plus the
   one of the four its owner chose. `BuildDlg` spins between them with a pair
   of arrows: it splits the index into base and variant, steps the variant with

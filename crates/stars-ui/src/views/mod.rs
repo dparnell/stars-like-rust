@@ -21,6 +21,7 @@ pub mod relations;
 pub mod research;
 pub mod score;
 pub mod survey;
+pub mod toolbar;
 
 use crate::{App, Screen};
 

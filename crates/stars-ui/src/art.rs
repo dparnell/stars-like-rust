@@ -97,6 +97,15 @@ impl Art {
         self.textures.get(name)
     }
 
+    /// One cell of a sheet, drawn at its own size.
+    ///
+    /// For a cell that is not square — the toolbar's buttons are 24 by 23 —
+    /// this is what keeps it from being stretched.
+    pub fn sprite_rect(&mut self, ctx: &egui::Context, cell: Cell) -> Option<egui::Image<'_>> {
+        let size = egui::vec2(cell.width as f32, cell.height as f32);
+        self.sprite_sized(ctx, cell, size)
+    }
+
     /// One cell of a sheet, as something to put in a `ui`.
     ///
     /// `None` when the picture is missing or the cell falls outside it — which
@@ -106,6 +115,16 @@ impl Art {
         ctx: &egui::Context,
         cell: Cell,
         size: f32,
+    ) -> Option<egui::Image<'_>> {
+        self.sprite_sized(ctx, cell, egui::vec2(size, size))
+    }
+
+    /// One cell of a sheet at a size of the caller's choosing.
+    fn sprite_sized(
+        &mut self,
+        ctx: &egui::Context,
+        cell: Cell,
+        size: egui::Vec2,
     ) -> Option<egui::Image<'_>> {
         let name = cell.name();
         let handle = self.texture(ctx, &name)?;
@@ -121,9 +140,9 @@ impl Art {
             ),
         );
         Some(
-            egui::Image::new((handle.id(), egui::vec2(size, size)))
+            egui::Image::new((handle.id(), size))
                 .uv(uv)
-                .fit_to_exact_size(egui::vec2(size, size)),
+                .fit_to_exact_size(size),
         )
     }
 }

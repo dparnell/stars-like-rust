@@ -1852,7 +1852,41 @@ disagree.
     corner as the original overlays it, and a `+n` beside a fleet of more than
     one design.
 
-57. **What is still missing to call it playable.** Every waypoint task is now
+57. ~~**The scanner's toolbar.**~~ **Done.** Spec in `docs/ui/toolbar.md`.
+    `DrawToolbar` (`1068:06f0`) walks a table of 29 signed bytes — a button
+    index, or a gap, or the coverage combo — and that table lives in the
+    toolbar's **own code segment** at offset 0, which is why the decompiler
+    renders the read as a load from nowhere. It came out of the disassembly,
+    where the instruction is `MOV AL, byte ptr CS:[BX + 0x0]`.
+
+    The buttons are **not in the order they appear**: the table interleaves
+    them. Laying them out through it is what makes the row readable — and what
+    comes out is exactly the order `MANUAL.PDF` pp. 5-12..5-15 introduces them
+    in, which is what identifies the ones whose 24-pixel pictures are ambiguous
+    on their own. Two are pinned independently by `ExecuteButton`: the
+    minefield button by the per-owner menu it opens, and the design-filter menu
+    by its list of the player's own sixteen designs. Between them they fix both
+    ends of the row.
+
+    The six views are a radio group rather than toggles — `grbitScan` keeps the
+    chosen one in its low four bits, and `ExecuteButton` replaces those bits
+    and leaves every overlay alone — so pressing the view already showing does
+    nothing. The coverage combo is *editable*: it takes the leading digits,
+    insists the rest is nothing or a `%`, and clamps to 2..100.
+
+    The row is drawn from the game's own toolbar bitmap, 18 cells of 24 by 23
+    in a single row, with the pressed look and its one-pixel nudge; without a
+    copy of the original each button falls back to a short label.
+
+    Two things did not survive the change, both deliberately. The project's own
+    approximation of a toolbar is gone, and with it the **Find box** it carried
+    — the original keeps Find in the View menu, so it moved to the frontend's
+    menu bar rather than misrepresent what the toolbar holds. And the **two
+    ship filters** are drawn but not wired: a hole in the row would
+    misrepresent the toolbar worse than a button that says it is not
+    implemented.
+
+58. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -1868,7 +1902,8 @@ disagree.
     - A loaded state file still cannot carry structural fleet changes back —
       the game does not either; the order log does.
     - **The scanner's remaining tools**: the design and enemy-class filters,
-      and clicking one spot repeatedly to cycle through what is on it.
+      which now have buttons but no behaviour; the minefield button's per-owner
+      menu; and clicking one spot repeatedly to cycle through what is on it.
     - **The designer's remaining numbers**: `LComputePower` for a design's
       `Rating:`, and the cloak, jammer and initiative rows; and `SHDEF.cBuilt`,
       so the plaque's second figure is real.

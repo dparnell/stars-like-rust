@@ -634,6 +634,29 @@ impl eframe::App for StarsApp {
                         self.app.screen = screen;
                     }
                 }
+                // Find lives in the original's View menu, not on the
+                // scanner's toolbar, so it sits in this frontend's own menu
+                // bar rather than cluttering the toolbar with a control the
+                // original does not have there.
+                if self.app.game.is_some() && self.app.setup.is_none() {
+                    ui.separator();
+                    let mut text = std::mem::take(&mut self.app.find_text);
+                    let field = ui.add(
+                        egui::TextEdit::singleline(&mut text)
+                            .desired_width(110.0)
+                            .hint_text("Find…  (Ctrl+F)"),
+                    );
+                    let entered =
+                        field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    self.app.find_text = text;
+                    if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F)) {
+                        field.request_focus();
+                    }
+                    if entered {
+                        let typed = self.app.find_text.clone();
+                        self.app.find(&typed);
+                    }
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let mut status = self.app.status_line();
                     if self.app.dirty {

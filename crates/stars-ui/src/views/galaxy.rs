@@ -44,7 +44,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         return;
     };
 
-    toolbar(app, ui);
+    crate::views::toolbar::view(app, ui);
     ui.separator();
 
     let available = ui.available_size();
@@ -386,83 +386,6 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             egui::FontId::proportional(13.0),
             Color32::from_gray(220),
         );
-    }
-}
-
-/// The scanner's toolbar: the six views, the overlays and the zoom.
-///
-/// The original lays these out as bitmap buttons across the top of the map;
-/// the names here are its own (`idsNormalView` and the strings after it).
-fn toolbar(app: &mut App, ui: &mut egui::Ui) {
-    ui.horizontal_wrapped(|ui| {
-        // The views are exclusive: one is showing at a time.
-        for view in ScanView::ALL {
-            let on = app.scan_view == view;
-            if ui
-                .selectable_label(on, short_name(view))
-                .on_hover_text(view.name())
-                .clicked()
-            {
-                app.scan_view = view;
-            }
-        }
-        ui.separator();
-        let overlays = &mut app.scan_overlays;
-        ui.toggle_value(&mut overlays.names, "names")
-            .on_hover_text("Planet Names Overlay");
-        ui.toggle_value(&mut overlays.scanner_coverage, "range")
-            .on_hover_text("Scanner Coverage Overlay");
-        ui.toggle_value(&mut overlays.minefields, "mines")
-            .on_hover_text("Mine Fields Overlay");
-        ui.toggle_value(&mut overlays.fleet_paths, "paths")
-            .on_hover_text("Fleet Paths Overlay");
-        ui.toggle_value(&mut overlays.ship_counts, "counts")
-            .on_hover_text("Ship Counts Overlay");
-        ui.toggle_value(&mut overlays.idle_fleets, "idle")
-            .on_hover_text("Idle Fleets Filter");
-        ui.separator();
-        ui.toggle_value(&mut app.add_waypoints, "add wp")
-            .on_hover_text("Add Way Points Mode: click the map to give the selected fleet a leg");
-        ui.separator();
-        // Nine steps, from a quarter size to four times.
-        if ui.small_button("−").on_hover_text("Zoom Menu").clicked() {
-            app.scan_zoom_by(-1);
-        }
-        ui.label(format!("{}%", app.scan_zoom_percent()));
-        if ui.small_button("+").on_hover_text("Zoom Menu").clicked() {
-            app.scan_zoom_by(1);
-        }
-        ui.separator();
-        // The Find dialog, which the original opens from the menu: type a
-        // planet or fleet name and be taken to it.
-        let mut text = std::mem::take(&mut app.find_text);
-        let entered = ui
-            .add(
-                egui::TextEdit::singleline(&mut text)
-                    .desired_width(90.0)
-                    .hint_text("Find…"),
-            )
-            .on_hover_text("Find a planet or fleet by name, or a fleet by number")
-            .lost_focus()
-            && ui.input(|i| i.key_pressed(egui::Key::Enter));
-        let clicked = ui.small_button("Find").clicked();
-        app.find_text = text;
-        if entered || clicked {
-            let typed = app.find_text.clone();
-            app.find(&typed);
-        }
-    });
-}
-
-/// A short label for a view, since the original's buttons are icons.
-fn short_name(view: ScanView) -> &'static str {
-    match view {
-        ScanView::Normal => "normal",
-        ScanView::SurfaceMineral => "surface",
-        ScanView::MineralConcentration => "concentration",
-        ScanView::PlanetValue => "value",
-        ScanView::Population => "population",
-        ScanView::NoPlayerInfo => "no players",
     }
 }
 

@@ -33,6 +33,7 @@
 
 pub mod app;
 pub mod art;
+pub mod toolbar;
 pub mod vcr;
 pub mod views;
 
