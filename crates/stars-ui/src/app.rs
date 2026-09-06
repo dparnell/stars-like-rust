@@ -280,6 +280,14 @@ pub struct App {
     /// The Technology Browser, while it is open (`hwndBrowser`). Modeless in
     /// the original, so it sits alongside whatever else is on screen.
     pub browser: Option<Browser>,
+    /// The Score sheet, while it is open (`hwndScoreXDlg`, F10).
+    pub score_sheet: Option<ScoreSheet>,
+    /// What the Score sheet was last set to.
+    ///
+    /// The original keeps the face and the timeline's figure in `gd`, which
+    /// outlives the dialog, so closing and reopening the sheet comes back to
+    /// the same view.
+    score_settings: ScoreSheet,
     /// The player's production templates, slots 1..3 — the `<Customize>`
     /// dialog's, which the original keeps in `stars.ini`. Slot 0 is filled in
     /// from the player's own default queue; see [`App::production_templates`].
@@ -441,6 +449,13 @@ impl App {
         let universe = find_universe(path);
         if let Some(universe) = &universe {
             state.apply_universe(universe);
+        }
+        // The Score sheet's timeline lives in the `.hN` beside the save. The
+        // player file is read again afterwards so that its own row — this
+        // year's, which the history file does not have yet — wins the tie.
+        if let Some(history) = find_history(path) {
+            state.read_scores(&history);
+            state.read_scores(&file);
         }
 
         let header = &file.latest_segment().header;
@@ -3452,6 +3467,24 @@ fn find_universe(path: &Path) -> Option<Universe> {
     None
 }
 
+/// Find the `.hN` history file that belongs with a player file.
+///
+/// Stars! keeps a player's score year by year in a history file named for the
+/// game and numbered for the player, beside their `.mN`. Nothing else in this
+/// engine needs it — it is the Score sheet's timeline and nothing more — so a
+/// missing one is not an error.
+fn find_history(path: &Path) -> Option<StarsFile> {
+    let extension = path.extension()?.to_str()?;
+    let number = extension
+        .strip_prefix('m')
+        .or(extension.strip_prefix('M'))?;
+    if number.is_empty() || !number.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let bytes = std::fs::read(path.with_extension(format!("h{number}"))).ok()?;
+    StarsFile::decode(&bytes).ok()
+}
+
 /// Group a number with commas, as `CommaFormatLong` does for the planet pane's
 /// population figure.
 fn comma_format(value: i64) -> String {
@@ -5982,5 +6015,84 @@ impl App {
         if let (Some(next), Some(browser)) = (next, self.browser.as_mut()) {
             browser.showing = next;
         }
+    }
+}
+
+// --- The Score sheet ------------------------------------------------------
+
+/// What the Score sheet is showing.
+///
+/// `ScoreXDlg` (`1108:0f66`) is **modeless** and keeps both of these in `gd`,
+/// so they survive the window being closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScoreSheet {
+    /// Which of the three faces the button has cycled to.
+    pub face: stars_core::scoresheet::Face,
+    /// Which figure the timeline draws (`gd.iCurGraph`).
+    pub graph: stars_core::scoresheet::Stat,
+}
+
+impl Default for ScoreSheet {
+    fn default() -> Self {
+        Self {
+            face: stars_core::scoresheet::Face::Scores,
+            graph: stars_core::scoresheet::Stat::Score,
+        }
+    }
+}
+
+impl App {
+    /// Open the Score sheet (Reports (Score), F10).
+    ///
+    /// It comes back to whatever it was showing when it was last closed.
+    pub fn open_score_sheet(&mut self) {
+        if self.score_sheet.is_some() {
+            return;
+        }
+        self.score_sheet = Some(self.score_settings);
+    }
+
+    /// Close it.
+    pub fn close_score_sheet(&mut self) {
+        self.score_sheet = None;
+    }
+
+    /// Turn to the next face, which is what the sheet's one button does.
+    pub fn score_next_face(&mut self) {
+        let Some(sheet) = self.score_sheet.as_mut() else {
+            return;
+        };
+        sheet.face = sheet.face.next();
+        self.score_settings = *sheet;
+    }
+
+    /// Choose which figure the timeline draws.
+    ///
+    /// The original offers this as a popup menu on the graph's title, which is
+    /// why the title takes a hand cursor.
+    pub fn score_set_graph(&mut self, graph: stars_core::scoresheet::Stat) {
+        let Some(sheet) = self.score_sheet.as_mut() else {
+            return;
+        };
+        sheet.graph = graph;
+        self.score_settings = *sheet;
+    }
+
+    /// The scoreboard, a row per player.
+    #[must_use]
+    pub fn score_standings(&self) -> Vec<stars_core::score::Standing> {
+        self.game
+            .as_ref()
+            .map(stars_core::scoresheet::standings)
+            .unwrap_or_default()
+    }
+
+    /// The victory report's lines.
+    #[must_use]
+    pub fn score_conditions(&self) -> Vec<stars_core::scoresheet::Condition> {
+        self.game
+            .as_ref()
+            .map(stars_core::scoresheet::conditions)
+            .unwrap_or_default()
     }
 }

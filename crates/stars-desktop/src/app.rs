@@ -314,24 +314,48 @@ impl eframe::App for StarsApp {
             && self.app.setup.is_none()
             && ctx.input(|i| i.key_pressed(egui::Key::F5))
         {
-            // The browser is modeless in the original, so it sits alongside
-            // whatever else is open rather than blocking it.
-            if self.app.browser.is_some() {
-                let mut open = true;
-                egui::Window::new("Technology Browser")
-                    .open(&mut open)
-                    .resizable(true)
-                    .default_width(420.0)
-                    .show(ctx, |ui| stars_ui::views::browser::view(&mut self.app, ui));
-                if !open {
-                    self.app.close_browser();
-                }
-            }
-
             if self.app.research_dialog.is_some() {
                 self.app.research_cancel();
             } else {
                 self.app.open_research();
+            }
+        }
+
+        if self.app.game.is_some()
+            && self.app.setup.is_none()
+            && ctx.input(|i| i.key_pressed(egui::Key::F10))
+        {
+            if self.app.score_sheet.is_some() {
+                self.app.close_score_sheet();
+            } else {
+                self.app.open_score_sheet();
+            }
+        }
+
+        // Both of these are modeless in the original, so they sit alongside
+        // whatever else is open rather than blocking it — and they are drawn
+        // every frame, not only on the one their key was pressed.
+        if self.app.browser.is_some() {
+            let mut open = true;
+            egui::Window::new("Technology Browser")
+                .open(&mut open)
+                .resizable(true)
+                .default_width(420.0)
+                .show(ctx, |ui| stars_ui::views::browser::view(&mut self.app, ui));
+            if !open {
+                self.app.close_browser();
+            }
+        }
+
+        if self.app.score_sheet.is_some() {
+            let mut open = true;
+            egui::Window::new("Score")
+                .open(&mut open)
+                .resizable(true)
+                .default_width(520.0)
+                .show(ctx, |ui| stars_ui::views::score::view(&mut self.app, ui));
+            if !open {
+                self.app.close_score_sheet();
             }
         }
 
@@ -433,6 +457,15 @@ impl eframe::App for StarsApp {
                     .clicked()
                 {
                     self.app.open_browser();
+                }
+                if ui
+                    .add_enabled(
+                        self.app.game.is_some() && self.app.setup.is_none(),
+                        egui::Button::new("Score…").shortcut_text("F10"),
+                    )
+                    .clicked()
+                {
+                    self.app.open_score_sheet();
                 }
                 ui.separator();
                 for screen in Screen::ALL {

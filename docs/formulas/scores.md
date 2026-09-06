@@ -128,6 +128,17 @@ with a universe file in which every condition is switched off; the settings
 those games were played with are not in the corpus, so their rows are skipped
 rather than explained away.
 
+A win also sets `fWinner`, bit 14 of the scoreboard row, and the Score sheet
+draws that player's name in blue — see `docs/formats/score.md` for the rest of
+the word and `docs/ui/score-sheet.md` for what the sheet does with it.
+
+One later fixture does show a condition met, which the paragraph above could
+not: `fixtures/games/no-random-events/2500/Game.m1` is a public-scores game at
+year 2500 in which player 3 leads at 1,542 points with bit 12 set — the highest
+score after enough years. It is a comparative condition, so it is one this end
+could not have checked from a player file anyway, but it is the first row in the
+corpus with any condition set at all.
+
 Who has won is worked out; **telling the players is not**, since messages are
 not modelled.
 

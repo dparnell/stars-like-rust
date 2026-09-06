@@ -706,6 +706,11 @@ impl GameState {
             report.fleets_loaded += 1;
         }
 
+        // The scoreboard the host wrote. It is read rather than recomputed:
+        // a player file describes only its own player's planets and fleets,
+        // so every other row in it is knowledge this end cannot derive.
+        state.read_scores(file);
+
         (state, report)
     }
 }

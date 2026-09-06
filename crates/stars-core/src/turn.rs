@@ -529,6 +529,9 @@ pub fn generate_turn_with_orders(
 
     state.turn += 1;
     report.year = state.year();
+    // The scoreboard is stamped with the year just finished, so it is filled
+    // in after the turn has been counted.
+    crate::score::update_standings(state, &report.scores, &report.victory, &report.winners);
     report
 }
 

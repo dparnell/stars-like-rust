@@ -79,6 +79,7 @@ pub mod rng;
 pub mod save;
 pub mod scanning;
 pub mod score;
+pub mod scoresheet;
 pub mod startup;
 pub mod terraform;
 pub mod turn;
@@ -330,6 +331,16 @@ pub struct GameState {
     /// 374 of the fixture files carry two and some carry three. Each trades
     /// separately, and each remembers on its own who has already been.
     pub traders: Vec<crate::wormhole::MysteryTrader>,
+    /// The scoreboard, one row per player, as the file carries it.
+    ///
+    /// The host writes these; a client only reads them. What one player is
+    /// told about another is entirely the host's choice — see
+    /// [`crate::score::Standing`] — so this is **not** recomputed on load.
+    pub standings: Vec<crate::score::Standing>,
+    /// Every player's score year by year, from the `.hN` history file, in turn
+    /// order. Indexed by player; empty for a player the file says nothing
+    /// about.
+    pub timeline: Vec<Vec<crate::score::Year>>,
     /// Any space object none of the above covers, exactly as the file held
     /// it.
     ///
@@ -398,6 +409,8 @@ impl GameState {
             packets: Vec::new(),
             wormholes: Vec::new(),
             traders: Vec::new(),
+            standings: Vec::new(),
+            timeline: Vec::new(),
             other_things: Vec::new(),
         }
     }

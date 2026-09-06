@@ -285,3 +285,188 @@ pub fn scores(state: &GameState) -> Vec<PlayerScore> {
     }
     out
 }
+
+/// One row of the scoreboard, as a file carries it.
+///
+/// The host works the figures out and writes a `SCOREX` per player into every
+/// player's file; the client only ever reads them. That matters for the score
+/// sheet: what one player sees of another is whatever the host chose to tell
+/// them, not something the client can recompute — a player file describes only
+/// its own planets and fleets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Standing {
+    /// Which player the row is about.
+    pub player: usize,
+    /// `fValid`: the row carries figures. A file holds a row for every player
+    /// but fills in only the ones this player may see, so a row without this
+    /// is an empty column rather than a player with nothing.
+    pub known: bool,
+    /// `fWinner`: this player has met enough conditions to win.
+    pub winner: bool,
+    /// Rank, `1` for the leader.
+    pub rank: u16,
+    /// The victory conditions met, as the block's flag bits — `1 << 6` for
+    /// planets through `1 << 12`. See [`crate::victory`].
+    pub victory: u16,
+    /// The figures themselves.
+    pub score: PlayerScore,
+}
+
+impl Standing {
+    /// Read a row out of a decoded score block.
+    ///
+    /// The three ship counts are stored packed ([`pack`]), and the sheet shows
+    /// them unpacked — `DrawScoreReport` (`1108:1e0c`) calls `LUnpackWord` on
+    /// exactly those three rows and no other.
+    #[must_use]
+    pub fn from_record(record: &stars_formats::ScoreRecord) -> Self {
+        Self {
+            player: usize::from(record.player_id),
+            known: record.known,
+            winner: record.winner,
+            rank: record.rank,
+            victory: record.victory.bits() << 6,
+            score: PlayerScore {
+                score: i32::try_from(record.score).unwrap_or(i32::MAX),
+                rank: record.rank,
+                resources: i32::try_from(record.resources).unwrap_or(i32::MAX),
+                planets: i32::from(record.planets),
+                starbases: i32::from(record.starbases),
+                unarmed_ships: unpack(record.unarmed_ships),
+                escort_ships: unpack(record.escort_ships),
+                capital_ships: unpack(record.capital_ships),
+                tech_levels: i32::from(record.tech_levels),
+            },
+        }
+    }
+}
+
+/// One year of one player's timeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Year {
+    /// The turn the row describes: `0` is the year the game began.
+    pub turn: u16,
+    /// What that player's row said that year.
+    pub score: PlayerScore,
+}
+
+/// How many years of timeline a player's file keeps.
+///
+/// `io.c` allocates `0x978` bytes for each player's history, which is 101 rows
+/// of 24, and drops the oldest once that many have been read.
+pub const TIMELINE_YEARS: usize = 101;
+
+impl GameState {
+    /// Read a file's score blocks into the scoreboard and the timeline.
+    ///
+    /// A `.mN` carries the current standings; the `.hN` beside it carries the
+    /// years behind them. Both are type-45 blocks and `io.c` reads them
+    /// through the same arm, telling them apart by `fHistory`:
+    ///
+    /// * a row **without** it is the current standing. It replaces that
+    ///   player's row on the sheet **and** is filed into the timeline under
+    ///   the game's own turn — which is why the timeline reaches this year
+    ///   even though the history file stops at the last one;
+    /// * a row **with** it carries the turn it belongs to.
+    ///
+    /// Rows are kept in turn order with one row per turn per player: a second
+    /// row for a turn already there replaces it, which is what makes reading
+    /// the history and then the player file idempotent. Only the most recent
+    /// [`TIMELINE_YEARS`] survive.
+    ///
+    /// Call it for each file that has something to say; the merge is
+    /// order-independent.
+    pub fn read_scores(&mut self, file: &stars_formats::StarsFile) {
+        let latest = file.latest_segment();
+        for record in file
+            .segment_blocks(latest)
+            .iter()
+            .filter(|block| block.block_type() == stars_formats::block::BlockType::PlayerScores)
+            .filter_map(|block| stars_formats::ScoreRecord::decode(&block.data))
+        {
+            self.record_score(&record);
+        }
+    }
+
+    /// File one score block, as [`GameState::read_scores`] describes.
+    fn record_score(&mut self, record: &stars_formats::ScoreRecord) {
+        let standing = Standing::from_record(record);
+        let player = standing.player;
+        if !record.history {
+            if self.standings.len() <= player {
+                self.standings.resize_with(player + 1, Standing::default);
+                for (index, row) in self.standings.iter_mut().enumerate() {
+                    row.player = index;
+                }
+            }
+            self.standings[player] = standing;
+        }
+
+        let turn = record
+            .turn()
+            .unwrap_or_else(|| u16::try_from(self.turn).unwrap_or(0));
+        if self.timeline.len() <= player {
+            self.timeline.resize_with(player + 1, Vec::new);
+        }
+        let years = &mut self.timeline[player];
+        let year = Year {
+            turn,
+            score: standing.score,
+        };
+        match years.binary_search_by_key(&turn, |y| y.turn) {
+            Ok(at) => years[at] = year,
+            Err(at) => years.insert(at, year),
+        }
+        if years.len() > TIMELINE_YEARS {
+            years.remove(0);
+        }
+    }
+}
+
+/// Put a freshly generated year's scoreboard into the game state.
+///
+/// The host does this at the end of the year, and the row it writes is stamped
+/// with the **new** turn — the fixtures show it plainly: `Game.h1` at year
+/// 2450 holds turns 1 to 49 and the `Game.m1` beside it holds the row for turn
+/// 50. So this runs after the year has been counted.
+///
+/// Every row is marked known, because the host knows everything. Which of them
+/// a given player is allowed to see is a question for whoever writes that
+/// player's file, not for the simulation.
+pub fn update_standings(
+    state: &mut GameState,
+    scores: &[PlayerScore],
+    met: &[crate::victory::Met],
+    winners: &[usize],
+) {
+    state.standings = scores
+        .iter()
+        .enumerate()
+        .map(|(player, score)| Standing {
+            player,
+            known: true,
+            winner: winners.contains(&player),
+            rank: score.rank,
+            victory: met.get(player).map_or(0, |m| m.bits),
+            score: *score,
+        })
+        .collect();
+    let turn = u16::try_from(state.turn).unwrap_or(0);
+    if state.timeline.len() < state.standings.len() {
+        state.timeline.resize_with(state.standings.len(), Vec::new);
+    }
+    for standing in &state.standings {
+        let years = &mut state.timeline[standing.player];
+        let year = Year {
+            turn,
+            score: standing.score,
+        };
+        match years.binary_search_by_key(&turn, |y| y.turn) {
+            Ok(at) => years[at] = year,
+            Err(at) => years.insert(at, year),
+        }
+        if years.len() > TIMELINE_YEARS {
+            years.remove(0);
+        }
+    }
+}

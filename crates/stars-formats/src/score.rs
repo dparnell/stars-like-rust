@@ -37,14 +37,48 @@ pub struct VictoryConditions {
     pub highest_score: bool,
 }
 
+impl VictoryConditions {
+    /// The flags as the block packs them, `1 << 0` for the planet condition
+    /// through `1 << 6` — that is, shifted down from bit 6 of the first word.
+    ///
+    /// The order is the one the game's own condition table is in, so a bit
+    /// here is `1 << condition` for the constants in [`crate::victory`], with
+    /// `TECH_FIELDS` — which is a second value for the tech condition rather
+    /// than a condition of its own — left out.
+    #[must_use]
+    pub fn bits(self) -> u16 {
+        u16::from(self.owns_planets)
+            | u16::from(self.attains_tech) << 1
+            | u16::from(self.exceeds_score) << 2
+            | u16::from(self.exceeds_second_place) << 3
+            | u16::from(self.production_capacity) << 4
+            | u16::from(self.capital_ships) << 5
+            | u16::from(self.highest_score) << 6
+    }
+}
+
 /// A decoded player-scores record (type-45 block).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScoreRecord {
-    /// Player id (0-based), low 4 bits of the first word.
+    /// Player id (0-based), low **five** bits of the first word
+    /// (`SCOREX.iPlayer:5`).
     pub player_id: u8,
+    /// `fValid`, bit 5: the row carries figures. A player file holds a row for
+    /// every player but fills in only the ones this player is allowed to see,
+    /// so a row without this bit is a blank column on the score sheet rather
+    /// than a player with nothing.
+    pub known: bool,
     /// Victory conditions this player has met.
     pub victory: VictoryConditions,
-    /// Overall rank (1 = leader).
+    /// `fWinner`, bit 14: this player has met enough conditions to win.
+    /// `UpdatePlayerScores` (`10b8:6258`) sets it, and the score sheet draws
+    /// the name blue.
+    pub winner: bool,
+    /// `fHistory`, bit 15: the row is one year of a `.hN` file's timeline
+    /// rather than the current standing. On such a row [`Self::rank`] is the
+    /// **turn** the row describes — see [`Self::turn`].
+    pub history: bool,
+    /// Overall rank (1 = leader) — or, on a history row, the turn.
     pub rank: u16,
     /// Total score.
     pub score: u32,
@@ -85,7 +119,7 @@ impl ScoreRecord {
             return None;
         }
         let word0 = read16(data, 0);
-        let player_id = (word0 & 0x0F) as u8;
+        let player_id = (word0 & 0x1F) as u8;
         // Victory-condition bits begin at bit 6 of the first word.
         let vc = word0 >> 6;
         let victory = VictoryConditions {
@@ -99,7 +133,10 @@ impl ScoreRecord {
         };
         Some(Self {
             player_id,
+            known: word0 & (1 << 5) != 0,
             victory,
+            winner: word0 & (1 << 14) != 0,
+            history: word0 & (1 << 15) != 0,
             rank: read16(data, 2),
             score: read32(data, 4),
             resources: read32(data, 8),
@@ -110,6 +147,16 @@ impl ScoreRecord {
             capital_ships: read16(data, 20),
             tech_levels: read16(data, 22),
         })
+    }
+
+    /// The turn this row describes, on a history row.
+    ///
+    /// The second word of a score block is a union: a rank on the current
+    /// standing a `.mN` carries, and the turn on the rows a `.hN` keeps. Only
+    /// `fHistory` tells the two apart.
+    #[must_use]
+    pub fn turn(self) -> Option<u16> {
+        self.history.then_some(self.rank)
     }
 }
 
@@ -168,6 +215,52 @@ mod tests {
         d[1] |= 1 << 0; // word0 high byte bit0 == overall bit 8 == VC bit 2
         let s = ScoreRecord::decode(&d).unwrap();
         assert!(s.victory.exceeds_score);
+    }
+
+    /// The rest of the first word: five bits of player, then the flags the
+    /// score sheet reads.
+    #[test]
+    fn decodes_the_flags_around_the_player_id() {
+        let mut d = sample();
+        // player 17, valid, winner, and a history row: 0x11 | 0x20 | 0x4000
+        // | 0x8000.
+        d[0..2].copy_from_slice(&0xC031u16.to_le_bytes());
+        d[2..4].copy_from_slice(&37u16.to_le_bytes());
+        let s = ScoreRecord::decode(&d).unwrap();
+        assert_eq!(s.player_id, 17, "five bits, not four");
+        assert!(s.known);
+        assert!(s.winner);
+        assert!(s.history);
+        assert_eq!(s.turn(), Some(37), "the second word is a turn here");
+
+        // Without `fHistory` the same word is a rank.
+        d[0..2].copy_from_slice(&0x0020u16.to_le_bytes());
+        let s = ScoreRecord::decode(&d).unwrap();
+        assert!(!s.history);
+        assert!(!s.winner);
+        assert_eq!(s.turn(), None);
+        assert_eq!(s.rank, 37);
+    }
+
+    /// The flags pack back into the order the game's condition table is in.
+    #[test]
+    fn victory_bits_pack_in_condition_order() {
+        assert_eq!(VictoryConditions::default().bits(), 0);
+        let all = VictoryConditions {
+            owns_planets: true,
+            attains_tech: true,
+            exceeds_score: true,
+            exceeds_second_place: true,
+            production_capacity: true,
+            capital_ships: true,
+            highest_score: true,
+        };
+        assert_eq!(all.bits(), 0x7F);
+        let one = VictoryConditions {
+            highest_score: true,
+            ..VictoryConditions::default()
+        };
+        assert_eq!(one.bits(), 1 << 6);
     }
 
     #[test]

@@ -18,6 +18,7 @@ pub mod planets;
 pub mod players;
 pub mod production;
 pub mod research;
+pub mod score;
 pub mod survey;
 
 use crate::{App, Screen};
@@ -69,29 +70,15 @@ fn empty(app: &mut App, ui: &mut egui::Ui) {
 
 /// The colour a player's things are drawn in.
 ///
-/// Sixteen players, so sixteen hues far enough apart to tell at a glance.
+/// The game's own sixteen (`rgcrPlrHistory`) — see
+/// [`stars_core::scoresheet::PLAYER_COLOURS`]. `MANUAL.PDF` p. 5-16 sends a
+/// player to the Score sheet's history graph to find out which colour is
+/// theirs, so these are the colours that answer has to match.
 #[must_use]
 pub fn player_colour(player: i16) -> egui::Color32 {
-    const PALETTE: [egui::Color32; 16] = [
-        egui::Color32::from_rgb(0x4f, 0xa3, 0xff),
-        egui::Color32::from_rgb(0xff, 0x6b, 0x6b),
-        egui::Color32::from_rgb(0x5a, 0xd6, 0x8a),
-        egui::Color32::from_rgb(0xff, 0xd1, 0x54),
-        egui::Color32::from_rgb(0xc9, 0x7b, 0xff),
-        egui::Color32::from_rgb(0x4a, 0xd9, 0xd9),
-        egui::Color32::from_rgb(0xff, 0x9e, 0x4a),
-        egui::Color32::from_rgb(0xa3, 0xbf, 0x5a),
-        egui::Color32::from_rgb(0xf0, 0x7a, 0xc0),
-        egui::Color32::from_rgb(0x8f, 0x9d, 0xff),
-        egui::Color32::from_rgb(0x6f, 0xd0, 0x4f),
-        egui::Color32::from_rgb(0xd6, 0xb0, 0x70),
-        egui::Color32::from_rgb(0x70, 0xc4, 0xff),
-        egui::Color32::from_rgb(0xe0, 0x60, 0x9c),
-        egui::Color32::from_rgb(0x9a, 0xd8, 0xc0),
-        egui::Color32::from_rgb(0xbb, 0xbb, 0xbb),
-    ];
-    let index = usize::try_from(player).unwrap_or(0) % PALETTE.len();
-    PALETTE[index]
+    let index = usize::try_from(player).unwrap_or(0);
+    let [r, g, b] = stars_core::scoresheet::player_colour(index);
+    egui::Color32::from_rgb(r, g, b)
 }
 
 /// A population figure, in the units players expect.

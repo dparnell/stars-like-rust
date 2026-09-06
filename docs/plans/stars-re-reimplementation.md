@@ -1692,7 +1692,38 @@ disagree.
     So the wording is ours and it cannot drift from the rule, because the rule
     *is* that list.
 
-52. **What is still missing to call it playable.** Every waypoint task is now
+52. ~~**The Score sheet.**~~ **Done.** `ScoreXDlg` (`1108:0f66`), F10. Spec in
+    `docs/ui/score-sheet.md`. Modeless, and one window with **three faces**
+    cycled by a single button, not three dialogs: the scoreboard
+    (`DrawScoreReport`), the victory conditions (`DrawVCReport`) and the
+    timeline (`DrawHistoryReport`).
+
+    The figures are **read, not recomputed**. The host writes a `SCOREX` per
+    player into every player's file and the client only reads them, for a
+    reason worth stating: a player file describes only its own player's planets
+    and fleets, so every other row in it is knowledge this end cannot derive.
+    Three flags decide how a row is used — `fValid` (the row carries figures at
+    all, which is what makes a game without Public Player Scores show blank
+    columns rather than zeroes), `fWinner`, and `fHistory` (a past year, whose
+    second word is a turn rather than a rank). The timeline is merged the way
+    `io.c` merges it: one row per turn in turn order, at most a hundred and one,
+    with the player file's own row filed under the current turn — which is how
+    the graph reaches this year from a history file that stops at the last one.
+
+    The victory sentences are **written rather than copied**, as the Technology
+    Browser's notes were; the structure and the numbers are the original's,
+    including the planet condition's percentage-to-count conversion and the
+    off-by-one that comes of the tech condition taking two of the ten settings.
+
+    Two things came out of it beyond the sheet. The **player colours** are now
+    the game's own sixteen (`rgcrPlrHistory`, `1120:002e`) rather than an
+    invented palette — `MANUAL.PDF` p. 5-16 sends a player to this very graph
+    to find out which colour is theirs, so they had to match. And the desktop
+    frontend was drawing the Technology Browser's window **inside** its F5
+    handler, so the modeless window only appeared on the frame that key was
+    pressed; both modeless windows are now drawn every frame.
+
+53. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -1716,6 +1747,8 @@ disagree.
       it carries is still set from the Fleets screen.
     - **`PLANET.turn`**, the stamp saying when a planet was last seen, which
       the survey pane wants for its report-age line.
+    - **The Score sheet's remaining trimmings**: the player names as rotated
+      column headers, and the tutorial hooks every one of its buttons calls.
 
 #### Saving is not re-encoding
 

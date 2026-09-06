@@ -40,6 +40,28 @@ const BIT: [u16; 8] = [
     1 << 12, // highest score after so many years
 ];
 
+/// The scoreboard flag for one condition, or `0` for the two that are settings
+/// rather than conditions.
+#[must_use]
+pub fn bit(condition: usize) -> u16 {
+    BIT.get(condition).copied().unwrap_or(0)
+}
+
+/// Whether the game is playing for a condition (`GetVCCheck`).
+#[must_use]
+pub fn active(settings: &[u8; victory::COUNT], condition: usize) -> bool {
+    Settings(settings).active(condition)
+}
+
+/// What a condition is set to (`GetVCVal`).
+///
+/// The byte in the file is a **slider position**, not the threshold; this is
+/// the threshold it stands for.
+#[must_use]
+pub fn value(settings: &[u8; victory::COUNT], condition: usize) -> i32 {
+    Settings(settings).value(condition)
+}
+
 /// Which victory conditions a player meets.
 ///
 /// Each is only counted toward a win when the game is **using** it, but the
