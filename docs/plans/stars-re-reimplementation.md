@@ -1756,7 +1756,46 @@ disagree.
     screen's own relations rows, which duplicated the editor, now show the
     table and open the dialog instead.
 
-54. **What is still missing to call it playable.** Every waypoint task is now
+54. ~~**The game's own pictures.**~~ **Done.** Spec in
+    `docs/formats/resources.md`. `stars.exe` is a 16-bit NE executable and
+    everything the original draws is a bitmap in its resource table —
+    thirty-eight of them, 2.37 MB of the 4.2 MB file.
+
+    **Nothing is extracted into this repository.** The pictures are read out of
+    a copy of the original at run time, from whatever the player already has,
+    which is the same rule that keeps the game's message text and the
+    Technology Browser's component prose out of the source: this project
+    transcribes data, not authored content. The frontend looks for a copy —
+    `STARS_EXE`, then beside the save, then the working directory and `binary/`
+    — and File > *Use the original's pictures…* points it at one by hand.
+    Finding none, every screen draws exactly as it did before. **The pictures
+    are an improvement and never a requirement**, and each test that uses them
+    has a twin that runs without them.
+
+    Two layers, both pure functions over bytes: `resources` walks the NE
+    resource table, and `read_dib` decodes one bitmap to RGBA. The game uses 1,
+    4 and 8 bits a pixel, none compressed, all stored bottom-up and turned the
+    right way up once, here.
+
+    The catalogue comes out of `InitStuff`, which loads every one of them in a
+    single run; the sheet geometry comes from the `DibBlt` that draws each.
+    Three things about that were worth the care. The sheets **do not agree on
+    which way round the index runs** — the planets are the one whose rows count
+    up the decoded picture rather than down it. **Ships run down the columns**,
+    four to a column, not across. And **the last sheet of each set is
+    narrower** than its siblings, so the top of its index range names cells
+    that are not there; nothing in the binary says which of those are used, so
+    the crop fails and the caller draws nothing rather than this guessing.
+
+    In use so far: the **planet's face** in the planet pane, picked as the
+    original picks it from the planet's own id, `(id + 8) % 28`, so a planet
+    keeps one face all game and neighbours do not share one; and the **race
+    emblem** on the Players screen, straight from `PLAYER.logo`. The component
+    pictures are implemented and tested but nothing asks for one yet: they are
+    indexed by a component's `ibmp`, which this project's component tables do
+    not carry.
+
+55. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -1785,6 +1824,9 @@ disagree.
     - **The two Commands entries that still have no dialog of their own**:
       Battle Plans (F6) and Change Password. Both are editable, but from the
       Players screen rather than from the dialog the original opens.
+    - **`ibmp` in the component tables**, which is all that stands between the
+      recovered component-picture sheets and the Technology Browser and
+      designer drawing them.
 
 #### Saving is not re-encoding
 

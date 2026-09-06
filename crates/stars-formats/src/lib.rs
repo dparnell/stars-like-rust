@@ -68,6 +68,7 @@ pub mod player;
 pub mod production;
 pub mod race;
 pub mod records;
+pub mod resources;
 pub mod score;
 pub mod strings;
 pub mod thing;

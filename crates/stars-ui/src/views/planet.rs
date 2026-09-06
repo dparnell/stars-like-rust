@@ -137,7 +137,23 @@ fn tile(ui: &mut egui::Ui, title: &str, body: impl FnOnce(&mut egui::Ui)) {
 /// anybody has been.
 fn summary(app: &mut App, ui: &mut egui::Ui) {
     let title = app.planet_pane_title();
+    // The planet's own face, when the game's pictures have been found. The
+    // original draws it 64 pixels square in a sunken frame at the top of the
+    // pane, and picks it from the planet's id, so a planet keeps the same face
+    // all game.
+    let picture = app
+        .pane_planet()
+        .map(|planet| planet.id)
+        .and_then(|id| app.planet_picture(id));
     tile(ui, &title, |ui| {
+        if let Some(cell) = picture {
+            egui::Frame::none()
+                .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+                .inner_margin(1.0)
+                .show(ui, |ui| {
+                    crate::art::draw(app, ui, cell, 64.0);
+                });
+        }
         let Some(planet) = app.pane_planet() else {
             ui.label(egui::RichText::new("no planet selected").weak().small());
             return;

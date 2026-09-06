@@ -285,6 +285,11 @@ pub struct App {
     /// The Player Relations dialog, while it is open: which player its
     /// listbox has selected.
     pub relations_dialog: Option<usize>,
+    /// The game's own pictures, when a copy of the original executable has
+    /// been found to read them out of. Everything that draws one falls back to
+    /// drawing without it, so this being `None` costs nothing but the
+    /// pictures.
+    pub art: Option<crate::art::Art>,
     /// What the Score sheet was last set to.
     ///
     /// The original keeps the face and the timeline's figure in `gd`, which
@@ -6168,5 +6173,47 @@ impl App {
     /// buttons do.
     pub fn set_regard(&mut self, toward: usize, relation: stars_core::relations::Relation) -> bool {
         self.set_relations(toward, relation.value())
+    }
+}
+
+// --- The game's own pictures ----------------------------------------------
+
+impl App {
+    /// Read the pictures out of a copy of the original executable.
+    ///
+    /// # Errors
+    ///
+    /// A message suitable for showing to the player.
+    pub fn load_art(&mut self, executable: Vec<u8>, source: &str) -> Result<(), String> {
+        self.art = Some(crate::art::Art::open(executable, source)?);
+        Ok(())
+    }
+
+    /// Whether the game's own pictures are available.
+    #[must_use]
+    pub fn has_art(&self) -> bool {
+        self.art.is_some()
+    }
+
+    /// The cell a race's emblem sits in, for [`crate::art::draw`].
+    #[must_use]
+    pub fn emblem_of(
+        &self,
+        player: usize,
+        size: stars_formats::resources::art::EmblemSize,
+    ) -> Option<stars_formats::resources::art::Cell> {
+        let logo = self.game.as_ref()?.players.get(player)?.logo;
+        stars_formats::resources::art::emblem(logo, size)
+    }
+
+    /// The cell a planet's picture sits in.
+    ///
+    /// `PaintPlanetPane` picks it from the planet's own id —
+    /// `(id + 8) % 28` — so every planet keeps the same face all game and
+    /// neighbouring planets do not share one.
+    #[must_use]
+    pub fn planet_picture(&self, planet: i16) -> Option<stars_formats::resources::art::Cell> {
+        let index = u16::try_from(i32::from(planet) + 8).ok()? % 28;
+        stars_formats::resources::art::planet(index)
     }
 }

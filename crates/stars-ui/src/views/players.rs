@@ -107,9 +107,18 @@ fn attack_who(value: u8) -> String {
 
 /// Draw the player screen.
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
-    let Some(game) = app.game.as_ref() else {
+    if app.game.is_none() {
         return;
-    };
+    }
+    // The emblems are drawn out of the game's own pictures, which needs the
+    // app mutably; the rest of this reads the game. Taking them out for the
+    // duration keeps the two apart.
+    let mut art = app.art.take();
+    let emblems: Vec<Option<stars_formats::resources::art::Cell>> =
+        (0..app.game.as_ref().map_or(0, |game| game.players.len()))
+            .map(|player| app.emblem_of(player, stars_formats::resources::art::EmblemSize::Large))
+            .collect();
+    let game = app.game.as_ref().expect("checked just above");
     let mut research: Option<(usize, u8)> = None;
     let mut open_relations = false;
     let mut default_queue: Option<stars_formats::DefaultQueue> = None;
@@ -127,10 +136,15 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 .iter()
                 .filter(|p| p.owner == Some(owner))
                 .count();
-            ui.colored_label(
-                player_colour(owner),
-                egui::RichText::new(format!("player {index}")).heading(),
-            );
+            ui.horizontal(|ui| {
+                if let Some(Some(cell)) = emblems.get(index) {
+                    crate::art::draw_with(art.as_mut(), ui, *cell, 32.0);
+                }
+                ui.colored_label(
+                    player_colour(owner),
+                    egui::RichText::new(format!("player {index}")).heading(),
+                );
+            });
             egui::Grid::new(format!("player_{index}"))
                 .num_columns(2)
                 .spacing([16.0, 2.0])
@@ -278,6 +292,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         }
     });
 
+    app.art = art;
     if let Some(text) = password {
         app.set_password(&text);
         password_box.clear();

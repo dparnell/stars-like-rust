@@ -98,7 +98,9 @@ condition the player fails.
 
 ## What is not
 
-* **The component's picture**, which is a blit of one of the game's bitmaps.
+* **The component's picture.** The sheets it is blitted from are now read and
+  tiled — `docs/formats/resources.md` — but a component is found in them by its
+  `ibmp`, and the component tables here do not yet carry that field.
 * The original's **prose**, as above.
 * The **hover help** the Research dialog's benefits list shares with this
   panel, which puts up a component's details from `rghsFutureTech`.

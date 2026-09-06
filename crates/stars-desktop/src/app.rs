@@ -25,10 +25,80 @@ impl StarsApp {
                 app.error = Some(e);
             }
         }
-        Self {
+        let mut this = Self {
             app,
             written: Vec::new(),
+        };
+        this.find_art(None);
+        this
+    }
+
+    /// Look for a copy of the original executable and read its pictures.
+    ///
+    /// Failing costs nothing: every screen that draws one of these pictures
+    /// draws perfectly well without it. The order is the one that will find
+    /// the right file with the least surprise — an explicit `STARS_EXE` first,
+    /// then beside whatever save was just opened, then the working directory
+    /// and a `binary` under it, which is where a checkout of this project keeps
+    /// its own copy.
+    fn find_art(&mut self, beside: Option<&Path>) {
+        if self.app.has_art() {
+            return;
         }
+        let mut roots: Vec<PathBuf> = Vec::new();
+        if let Ok(explicit) = std::env::var("STARS_EXE") {
+            let path = PathBuf::from(explicit);
+            if let Some(art) = read_art(&path) {
+                self.load_art(&path, art);
+                return;
+            }
+            if let Some(dir) = path.parent() {
+                roots.push(dir.to_path_buf());
+            }
+        }
+        if let Some(dir) = beside.and_then(Path::parent) {
+            roots.push(dir.to_path_buf());
+            if let Some(up) = dir.parent() {
+                roots.push(up.to_path_buf());
+            }
+        }
+        roots.push(PathBuf::from("."));
+        roots.push(PathBuf::from("binary"));
+
+        for root in roots {
+            let Ok(entries) = std::fs::read_dir(&root) else {
+                continue;
+            };
+            let mut found: Vec<PathBuf> = entries
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.extension()
+                        .and_then(|e| e.to_str())
+                        .is_some_and(|e| e.eq_ignore_ascii_case("exe"))
+                })
+                .filter(|path| {
+                    path.file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n.to_ascii_lowercase().starts_with("stars"))
+                })
+                .collect();
+            // A deterministic order, so a directory holding several copies
+            // always gives the same one.
+            found.sort();
+            for path in found {
+                if let Some(bytes) = read_art(&path) {
+                    self.load_art(&path, bytes);
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Hand a candidate to the app, keeping the failure quiet.
+    fn load_art(&mut self, path: &Path, bytes: Vec<u8>) {
+        let name = path.display().to_string();
+        let _ = self.app.load_art(bytes, &name);
     }
 
     /// Write a generated game out as a complete set of files.
@@ -201,9 +271,45 @@ impl StarsApp {
                 self.app.error = Some(e);
             } else {
                 self.read_templates(&path);
+                // A game opened from its own directory may have the original
+                // sitting beside it, which is the likeliest place of all.
+                self.find_art(Some(&path));
             }
         }
     }
+}
+
+impl StarsApp {
+    /// Ask for a copy of the original to read the pictures out of.
+    fn pick_art(&mut self) {
+        let picked = rfd::FileDialog::new()
+            .set_title("Find a copy of the original Stars!")
+            .add_filter("Programs", &["exe"])
+            .pick_file();
+        let Some(path) = picked else { return };
+        match read_art(&path) {
+            Some(bytes) => {
+                let name = path.display().to_string();
+                if let Err(e) = self.app.load_art(bytes, &name) {
+                    self.app.error = Some(e);
+                }
+            }
+            None => {
+                self.app.error = Some(format!("cannot read {}", path.display()));
+            }
+        }
+    }
+}
+
+/// Read a candidate executable, refusing anything implausible before the whole
+/// file is pulled into memory.
+fn read_art(path: &Path) -> Option<Vec<u8>> {
+    let size = std::fs::metadata(path).ok()?.len();
+    // The real thing is about four megabytes, nearly all of it pictures.
+    if !(64 * 1024..64 * 1024 * 1024).contains(&size) {
+        return None;
+    }
+    std::fs::read(path).ok()
 }
 
 /// The `key = value` pairs of one section of a Windows profile file.
@@ -412,6 +518,32 @@ impl eframe::App for StarsApp {
                     {
                         ui.close_menu();
                         self.save_universe();
+                    }
+                    ui.separator();
+                    // The game's own pictures are read out of a copy of the
+                    // original executable. They are never required — every
+                    // screen draws without them — so this only ever says where
+                    // they came from, or offers to be pointed at one.
+                    match self.app.art.as_ref() {
+                        Some(art) => {
+                            ui.label(
+                                egui::RichText::new(format!("Pictures: {}", art.source))
+                                    .small()
+                                    .weak(),
+                            );
+                        }
+                        None => {
+                            if ui
+                                .button("Use the original's pictures…")
+                                .on_hover_text(
+                                    "Point this at a copy of the original stars.exe and                                      the planets, race emblems and other artwork are                                      read out of it. Nothing is copied anywhere.",
+                                )
+                                .clicked()
+                            {
+                                ui.close_menu();
+                                self.pick_art();
+                            }
+                        }
                     }
                     ui.separator();
                     if ui.button("Quit").clicked() {
