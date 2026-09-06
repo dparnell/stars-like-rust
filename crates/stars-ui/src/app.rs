@@ -282,6 +282,9 @@ pub struct App {
     pub browser: Option<Browser>,
     /// The Score sheet, while it is open (`hwndScoreXDlg`, F10).
     pub score_sheet: Option<ScoreSheet>,
+    /// The Player Relations dialog, while it is open: which player its
+    /// listbox has selected.
+    pub relations_dialog: Option<usize>,
     /// What the Score sheet was last set to.
     ///
     /// The original keeps the face and the timeline's figure in `gd`, which
@@ -6094,5 +6097,76 @@ impl App {
             .as_ref()
             .map(stars_core::scoresheet::conditions)
             .unwrap_or_default()
+    }
+}
+
+// --- Player Relations -----------------------------------------------------
+
+impl App {
+    /// Open the Player Relations dialog (`RelationsDlg`, Commands (Player
+    /// Relations), F7).
+    ///
+    /// It opens on the **first other player**, which is player 0 unless that
+    /// is you, and is refused outright in a single-player game — see
+    /// [`stars_core::relations::can_be_set`]. Returns whether it opened.
+    pub fn open_relations(&mut self) -> bool {
+        let me = self.local_player();
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        if !stars_core::relations::can_be_set(game) {
+            return false;
+        }
+        let Some(first) = stars_core::relations::others(game, me).first().copied() else {
+            return false;
+        };
+        self.relations_dialog = Some(first);
+        true
+    }
+
+    /// Close it. The order has already been written — the original logs on
+    /// the way out, but a change and a close leave the same single record
+    /// either way, because the record carries the whole table.
+    pub fn close_relations(&mut self) {
+        self.relations_dialog = None;
+    }
+
+    /// Choose which player the dialog is talking about.
+    pub fn relations_select(&mut self, player: usize) {
+        let me = self.local_player();
+        let is_other = self
+            .game
+            .as_ref()
+            .is_some_and(|game| player < game.players.len() && player != me);
+        if is_other && self.relations_dialog.is_some() {
+            self.relations_dialog = Some(player);
+        }
+    }
+
+    /// The players the dialog lists: everybody but the local player.
+    #[must_use]
+    pub fn relations_others(&self) -> Vec<usize> {
+        let me = self.local_player();
+        self.game
+            .as_ref()
+            .map(|game| stars_core::relations::others(game, me))
+            .unwrap_or_default()
+    }
+
+    /// How the local player regards one other.
+    #[must_use]
+    pub fn regard(&self, toward: usize) -> stars_core::relations::Relation {
+        let me = self.local_player();
+        self.game
+            .as_ref()
+            .map_or(stars_core::relations::Relation::Neutral, |game| {
+                stars_core::relations::regard(game, me, toward)
+            })
+    }
+
+    /// Set how the local player regards one other, as the dialog's radio
+    /// buttons do.
+    pub fn set_regard(&mut self, toward: usize, relation: stars_core::relations::Relation) -> bool {
+        self.set_relations(toward, relation.value())
     }
 }

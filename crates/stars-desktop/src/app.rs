@@ -323,6 +323,19 @@ impl eframe::App for StarsApp {
 
         if self.app.game.is_some()
             && self.app.setup.is_none()
+            && ctx.input(|i| i.key_pressed(egui::Key::F7))
+        {
+            if self.app.relations_dialog.is_some() {
+                self.app.close_relations();
+            } else {
+                // Refused outright in a single-player game, as the original
+                // refuses it: the menu item is there and does nothing.
+                self.app.open_relations();
+            }
+        }
+
+        if self.app.game.is_some()
+            && self.app.setup.is_none()
             && ctx.input(|i| i.key_pressed(egui::Key::F10))
         {
             if self.app.score_sheet.is_some() {
@@ -467,6 +480,15 @@ impl eframe::App for StarsApp {
                 {
                     self.app.open_score_sheet();
                 }
+                if ui
+                    .add_enabled(
+                        self.app.game.is_some() && self.app.setup.is_none(),
+                        egui::Button::new("Player Relations…").shortcut_text("F7"),
+                    )
+                    .clicked()
+                {
+                    self.app.open_relations();
+                }
                 ui.separator();
                 for screen in Screen::ALL {
                     let enabled = self.app.game.is_some() && self.app.setup.is_none();
@@ -602,6 +624,20 @@ impl eframe::App for StarsApp {
                 .show(ctx, |ui| stars_ui::views::research::view(&mut self.app, ui));
             if !open {
                 self.app.research_cancel();
+            }
+        }
+
+        if self.app.relations_dialog.is_some() {
+            let mut open = true;
+            egui::Window::new("Player Relations")
+                .open(&mut open)
+                .resizable(false)
+                .default_width(320.0)
+                .show(ctx, |ui| {
+                    stars_ui::views::relations::view(&mut self.app, ui)
+                });
+            if !open {
+                self.app.close_relations();
             }
         }
 

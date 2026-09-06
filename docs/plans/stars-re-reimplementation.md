@@ -1723,7 +1723,40 @@ disagree.
     handler, so the modeless window only appeared on the frame that key was
     pressed; both modeless windows are now drawn every frame.
 
-53. **What is still missing to call it playable.** Every waypoint task is now
+53. ~~**The Player Relations dialog.**~~ **Done.** `RelationsDlg`
+    (`10f0:0088`), Commands (Player Relations) or F7. Spec in
+    `docs/ui/player-relations.md`. A list of the other players beside three
+    radio buttons saying how this player regards whichever is selected, and
+    Close — there is no Cancel.
+
+    Several of the facts are in the **dialog resource** rather than the code,
+    so the template at file offset `0x347f40` was read directly. Two came out
+    of it. The radios are stacked **Friend, Neutral, Enemy** — that is the
+    order of their `y` coordinates — while their **values** are Neutral 0,
+    Friend 1, Enemy 2, because the handler stores `wParam - 0x7d4`; the
+    display order is not the value order. And the `Relation` group box is
+    drawn by hand in `WM_PAINT` from the first radio's rectangle to the last,
+    not laid out as a control.
+
+    The dialog is **refused outright in a single-player game** (`GAME.wCrap`
+    bit 2): the menu item stays enabled and choosing it returns. "Single
+    player" turns out to be narrower than "one human" — the fifteen-player
+    all-computer-players game is not one — and the refusal is not the same as
+    the table being unused. The tutorial is the one game in the fixtures whose
+    table is filled in, `[0, 2]`, and it is the one game whose dialog would
+    refuse to open; remote terraforming and the scanner's minefield filters
+    read it regardless, which is why closing the dialog invalidates the
+    scanner.
+
+    The order was already decoded. `LogChangeRelations` writes the **whole
+    table** and rewinds the log over a previous relations record, so a log
+    carries one. The original writes it on the way out under a dirty flag and
+    this writes it on each change, replacing the previous record; the file is
+    the same either way, and both halves of that are tested. The Players
+    screen's own relations rows, which duplicated the editor, now show the
+    table and open the dialog instead.
+
+54. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -1749,6 +1782,9 @@ disagree.
       the survey pane wants for its report-age line.
     - **The Score sheet's remaining trimmings**: the player names as rotated
       column headers, and the tutorial hooks every one of its buttons calls.
+    - **The two Commands entries that still have no dialog of their own**:
+      Battle Plans (F6) and Change Password. Both are editable, but from the
+      Players screen rather than from the dialog the original opens.
 
 #### Saving is not re-encoding
 

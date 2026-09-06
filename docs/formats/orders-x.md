@@ -530,6 +530,10 @@ each time, and `LogChangeRelations` rewinds the log when the record it is about
 to write follows another of the same kind, so a log never carries two and only
 the last state matters. Decoded by [`Relations`].
 
+Written by the Player Relations dialog — `docs/ui/player-relations.md` — which
+is refused outright in a single-player game, so this record can only come from
+a game with a host.
+
 ### Fleet split (`rtLogFleetSplit`, id 24)
 
 Two bytes: the object id of the fleet being split. It says nothing about what

@@ -111,7 +111,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         return;
     };
     let mut research: Option<(usize, u8)> = None;
-    let mut relations: Option<(usize, u8)> = None;
+    let mut open_relations = false;
     let mut default_queue: Option<stars_formats::DefaultQueue> = None;
     let mut plan_edit: Option<(usize, stars_formats::BattlePlanRecord)> = None;
     let mut plan_delete: Option<usize> = None;
@@ -239,25 +239,17 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                         });
                         ui.end_row();
 
-                        // The player whose orders this session records is the
-                        // only one whose relations it may change, because the
-                        // order carries that player's own table.
-                        for other in 0..game.players.len() {
-                            if other == me {
-                                continue;
+                        // Relations are set in their own dialog, which is
+                        // where the original sets them; this row says how they
+                        // stand and opens it.
+                        ui.label("relations");
+                        ui.horizontal(|ui| {
+                            ui.label(regards(game, me));
+                            if ui.button("Player Relations…").clicked() {
+                                open_relations = true;
                             }
-                            let now = player.relations.get(other).copied().unwrap_or(0);
-                            ui.label(format!("regards player {other}"));
-                            ui.horizontal(|ui| {
-                                for (value, word) in [(0u8, "neutral"), (1, "friend"), (2, "enemy")]
-                                {
-                                    if ui.selectable_label(now == value, word).clicked() {
-                                        relations = Some((other, value));
-                                    }
-                                }
-                            });
-                            ui.end_row();
-                        }
+                        });
+                        ui.end_row();
                     } else if !player.relations.is_empty() {
                         ui.label("relations");
                         let text: Vec<String> = player
@@ -300,10 +292,29 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     if let Some((player, pct)) = research {
         app.set_research(player, pct);
     }
-    if let Some((other, value)) = relations {
-        app.set_relations(other, value);
+    if open_relations {
+        app.open_relations();
     }
     if let Some(queue) = default_queue {
         app.set_default_queue(queue);
+    }
+}
+
+/// How the local player regards everybody else, in a line.
+fn regards(game: &stars_core::GameState, me: usize) -> String {
+    let text: Vec<String> = stars_core::relations::others(game, me)
+        .into_iter()
+        .map(|other| {
+            format!(
+                "{}: {}",
+                other,
+                stars_core::relations::regard(game, me, other).name()
+            )
+        })
+        .collect();
+    if text.is_empty() {
+        "nobody else".to_string()
+    } else {
+        text.join(", ")
     }
 }
