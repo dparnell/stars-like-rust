@@ -275,6 +275,12 @@ pub struct App {
     pub designer: Option<Designer>,
     /// The Production dialog, while it is open (`hwndProdDlg`).
     pub production: Option<Production>,
+    /// The player's production templates, slots 1..3 — the `<Customize>`
+    /// dialog's, which the original keeps in `stars.ini`. Slot 0 is filled in
+    /// from the player's own default queue; see [`App::production_templates`].
+    templates: Vec<stars_formats::ProductionTemplate>,
+    /// Which template slot the `<Customize>` dialog is on, while it is open.
+    pub customize_template: Option<usize>,
     /// Which message the pane is showing — the original's `iMsgCur`.
     ///
     /// `-1` means the pane is at the start of the list and showing nothing,
@@ -5382,5 +5388,176 @@ impl App {
                 (cost.resources * count).to_string(),
             ),
         ]
+    }
+}
+
+// --- Production templates ------------------------------------------------
+
+impl App {
+    /// The four production templates, filled in from the player's default
+    /// queue and whatever the frontend has loaded.
+    ///
+    /// Slot 0 is the **default**: it is the player's own `PLAYER.zpq1`, always
+    /// present, always called `<Default>`, and the only one that reaches the
+    /// host. The other three are the player's own, and in the original live in
+    /// `stars.ini` rather than in any save — see
+    /// [`stars_formats::ProductionTemplate`].
+    #[must_use]
+    pub fn production_templates(&self) -> Vec<stars_formats::ProductionTemplate> {
+        let mut out = self.templates.clone();
+        out.resize_with(stars_formats::TEMPLATE_SLOTS, Default::default);
+        out[0] = stars_formats::ProductionTemplate {
+            name: "<Default>".to_string(),
+            queue: self
+                .game
+                .as_ref()
+                .and_then(|g| g.players.get(self.local_player()))
+                .map(|p| p.default_queue.clone()),
+        };
+        out
+    }
+
+    /// What a template slot is called in the `<Customize>` dialog: its name,
+    /// or `<Unused 2>` for an empty one.
+    #[must_use]
+    pub fn production_template_name(&self, slot: usize) -> String {
+        let templates = self.production_templates();
+        match templates.get(slot).filter(|t| t.queue.is_some()) {
+            Some(template) if !template.name.is_empty() => template.name.clone(),
+            _ => format!("<Unused {}>", slot + 1),
+        }
+    }
+
+    /// Apply a template to the queue the Production dialog is editing.
+    ///
+    /// Every auto-build item in the queue is replaced by the template's, and
+    /// the planet's "contribute only leftover resources" flag is taken from it
+    /// too — which is why the manual tells you to set that checkbox before
+    /// importing (p. 7-5).
+    pub fn production_apply_template(&mut self, slot: usize) {
+        let templates = self.production_templates();
+        let Some(queue) = templates.get(slot).and_then(|t| t.queue.clone()) else {
+            return;
+        };
+        let prt = self
+            .game
+            .as_ref()
+            .and_then(|g| g.players.get(self.local_player()))
+            .and_then(|p| p.race.prt());
+        let Some(dialog) = self.production.as_mut() else {
+            return;
+        };
+        dialog.queue = stars_core::production::apply_template(&dialog.queue, &queue, prt);
+        dialog.no_research = queue.no_research;
+        dialog.queue_index = None;
+    }
+
+    /// **Import**: take the queue's auto-build items into a template slot.
+    ///
+    /// Importing into slot 0 changes the player's own default queue, which is
+    /// a real order and is logged as one.
+    pub fn production_import_template(&mut self, slot: usize, name: &str) {
+        let Some(dialog) = self.production.as_ref() else {
+            return;
+        };
+        let queue = stars_core::production::import_template(&dialog.queue, dialog.no_research);
+        if slot == 0 {
+            self.set_default_queue(queue);
+            return;
+        }
+        self.templates
+            .resize_with(stars_formats::TEMPLATE_SLOTS, Default::default);
+        let clipped: String = name
+            .chars()
+            .take(stars_formats::TEMPLATE_NAME_MAX)
+            .collect();
+        self.templates[slot] = stars_formats::ProductionTemplate {
+            name: if clipped.is_empty() {
+                format!("Custom #{slot}")
+            } else {
+                clipped
+            },
+            queue: Some(queue),
+        };
+        self.dirty = true;
+    }
+
+    /// **Rename**: change a template's name without touching its contents.
+    ///
+    /// The default cannot be renamed, which is why `EnableZipProdBtns` greys
+    /// both buttons for slot 0.
+    pub fn production_rename_template(&mut self, slot: usize, name: &str) {
+        if slot == 0 || slot >= stars_formats::TEMPLATE_SLOTS {
+            return;
+        }
+        self.templates
+            .resize_with(stars_formats::TEMPLATE_SLOTS, Default::default);
+        if self.templates[slot].queue.is_none() {
+            return;
+        }
+        self.templates[slot].name = name
+            .chars()
+            .take(stars_formats::TEMPLATE_NAME_MAX)
+            .collect();
+        self.dirty = true;
+    }
+
+    /// **Delete**: empty a template slot. The default cannot be deleted; the
+    /// only way to clear it is to import an empty queue over it.
+    pub fn production_delete_template(&mut self, slot: usize) {
+        if slot == 0 || slot >= stars_formats::TEMPLATE_SLOTS {
+            return;
+        }
+        self.templates
+            .resize_with(stars_formats::TEMPLATE_SLOTS, Default::default);
+        self.templates[slot] = stars_formats::ProductionTemplate::default();
+        self.dirty = true;
+    }
+
+    /// Whether a slot may be renamed or deleted (`EnableZipProdBtns`).
+    #[must_use]
+    pub fn production_template_editable(&self, slot: usize) -> bool {
+        (1..stars_formats::TEMPLATE_SLOTS).contains(&slot)
+            && self
+                .production_templates()
+                .get(slot)
+                .is_some_and(|t| t.queue.is_some())
+    }
+
+    /// The templates as `stars.ini` would hold them: `(key, value)` pairs for
+    /// the `ZipOrders` section.
+    ///
+    /// The original keeps them in that file rather than in a save, so a
+    /// frontend that wants them to outlive the session writes these.
+    #[must_use]
+    pub fn production_templates_ini(&self) -> Vec<(String, String)> {
+        let templates = self.production_templates();
+        (1..stars_formats::TEMPLATE_SLOTS)
+            .map(|slot| {
+                (
+                    stars_formats::ProductionTemplate::ini_key(slot),
+                    templates
+                        .get(slot)
+                        .map(stars_formats::ProductionTemplate::encode_ini)
+                        .unwrap_or_default(),
+                )
+            })
+            .collect()
+    }
+
+    /// Load the templates a frontend read out of `stars.ini`.
+    ///
+    /// Slot 0 is ignored: the default lives in the player block, not the file.
+    pub fn load_production_templates(&mut self, values: &[(String, String)]) {
+        self.templates
+            .resize_with(stars_formats::TEMPLATE_SLOTS, Default::default);
+        for slot in 1..stars_formats::TEMPLATE_SLOTS {
+            let key = stars_formats::ProductionTemplate::ini_key(slot);
+            let Some((_, value)) = values.iter().find(|(k, _)| *k == key) else {
+                continue;
+            };
+            self.templates[slot] =
+                stars_formats::ProductionTemplate::decode_ini(value).unwrap_or_default();
+        }
     }
 }

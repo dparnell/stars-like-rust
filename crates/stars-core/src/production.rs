@@ -1239,3 +1239,91 @@ pub fn eta(
         last: PASSES,
     }
 }
+
+/// Apply a production template to a planet's queue.
+///
+/// Every **auto-build** item already in the queue is dropped and the
+/// template's put in its place, at the end; the ordinary items keep their
+/// order and their progress. That is the manual's "all auto-build items
+/// currently in the queue are replaced with the list of items in the template"
+/// (p. 7-4).
+///
+/// The same two racial filters the default queue uses apply: Alternate Reality
+/// takes no mines, factories or defences, and a Claim Adjuster no terraforming
+/// — see [`crate::ground::template_allows`].
+///
+/// Source: `ProdCommandHandler`'s `0x816` arm (`10d0:1994`).
+#[must_use]
+pub fn apply_template(
+    queue: &[QueueItem],
+    template: &stars_formats::DefaultQueue,
+    prt: Option<crate::race::Prt>,
+) -> Vec<QueueItem> {
+    let mut out: Vec<QueueItem> = queue
+        .iter()
+        .filter(|entry| entry.ship || !item::is_auto(entry.item))
+        .copied()
+        .collect();
+    for entry in &template.items {
+        let id = u16::from(entry.item);
+        if !crate::ground::template_allows(prt, id) {
+            continue;
+        }
+        out.push(QueueItem {
+            count: i32::from(entry.count),
+            item: id,
+            ship: false,
+            completion: 0,
+        });
+    }
+    out
+}
+
+/// Take a planet's auto-build items into a template.
+///
+/// The `<Customize>` dialog's **Import** button: the queue's auto-build
+/// entries, in order, up to the twelve a template holds — nothing else, since
+/// a template can only carry the auto-build items.
+///
+/// Source: `ZipProdDlg`'s `0x816` arm (`10d0:5490`).
+#[must_use]
+pub fn import_template(queue: &[QueueItem], no_research: bool) -> stars_formats::DefaultQueue {
+    stars_formats::DefaultQueue {
+        no_research,
+        items: queue
+            .iter()
+            .filter(|entry| !entry.ship && item::is_auto(entry.item))
+            .take(stars_formats::DEFAULT_QUEUE_MAX)
+            .map(|entry| stars_formats::DefaultQueueItem {
+                item: u8::try_from(entry.item).unwrap_or(0) & 0x3f,
+                count: u16::try_from(entry.count).unwrap_or(0) & 0x03ff,
+            })
+            .collect(),
+    }
+}
+
+/// How the `<Customize>` dialog lists a template's contents
+/// (`FillZipProdLB`, `10d0:5e58`).
+///
+/// One line per entry — `Factories (100)` — except that an entry of exactly
+/// one, and auto alchemy whatever its count, are shown by name alone. An empty
+/// or unused template reads `<No Auto Build Orders>`.
+#[must_use]
+pub fn template_lines(template: Option<&stars_formats::DefaultQueue>) -> Vec<String> {
+    let Some(template) = template.filter(|t| !t.items.is_empty()) else {
+        return vec!["<No Auto Build Orders>".to_string()];
+    };
+    template
+        .items
+        .iter()
+        .map(|entry| {
+            let id = u16::from(entry.item);
+            let name = item_name(id);
+            if entry.count == 1 || id == item::AUTO_ALCHEMY {
+                name.to_string()
+            } else {
+                format!("{name} ({})", entry.count)
+            }
+        })
+        .collect()
+}

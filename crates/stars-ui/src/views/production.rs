@@ -89,6 +89,9 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     });
 
     ui.separator();
+    templates(app, ui);
+
+    ui.separator();
     cost(app, ui);
 
     ui.separator();
@@ -264,6 +267,139 @@ fn queue(app: &mut App, ui: &mut egui::Ui, step: i32) {
     if removed {
         app.production_remove(step);
     }
+}
+
+/// The production templates.
+///
+/// The original hangs these off a right-click on a small blue diamond beside
+/// the queue; here they are a row of buttons, which is the same four choices
+/// plus `<Customize>`.
+fn templates(app: &mut App, ui: &mut egui::Ui) {
+    let names: Vec<String> = (0..stars_formats::TEMPLATE_SLOTS)
+        .map(|slot| app.production_template_name(slot))
+        .collect();
+    let mut apply = None;
+    ui.horizontal_wrapped(|ui| {
+        ui.label(egui::RichText::new("Templates:").small());
+        for (slot, name) in names.iter().enumerate() {
+            let usable = app
+                .production_templates()
+                .get(slot)
+                .is_some_and(|t| t.queue.is_some());
+            if ui
+                .add_enabled(usable, egui::Button::new(egui::RichText::new(name).small()))
+                .on_hover_text(
+                    "Replaces every auto-build item in the queue with this template's, \
+                     and takes the research setting from it too.",
+                )
+                .clicked()
+            {
+                apply = Some(slot);
+            }
+        }
+        if ui
+            .button(egui::RichText::new("<Customize>").small())
+            .clicked()
+        {
+            app.customize_template = Some(0);
+        }
+    });
+    if let Some(slot) = apply {
+        app.production_apply_template(slot);
+    }
+
+    if app.customize_template.is_some() {
+        customize(app, ui);
+    }
+}
+
+/// The `<Customize>` dialog (`ZipProdDlg`, `10d0:5490`), drawn inline.
+fn customize(app: &mut App, ui: &mut egui::Ui) {
+    let Some(mut slot) = app.customize_template else {
+        return;
+    };
+    let names: Vec<String> = (0..stars_formats::TEMPLATE_SLOTS)
+        .map(|s| app.production_template_name(s))
+        .collect();
+
+    egui::Frame::group(ui.style()).show(ui, |ui| {
+        ui.label(
+            egui::RichText::new("Customize Production Templates")
+                .small()
+                .strong(),
+        );
+        ui.horizontal(|ui| {
+            for (index, name) in names.iter().enumerate() {
+                ui.radio_value(&mut slot, index, egui::RichText::new(name).small());
+            }
+        });
+        app.customize_template = Some(slot);
+
+        // What the chosen template holds, and its research setting.
+        let templates = app.production_templates();
+        let queue = templates.get(slot).and_then(|t| t.queue.as_ref());
+        for line in stars_core::production::template_lines(queue) {
+            ui.label(egui::RichText::new(line).small());
+        }
+        ui.label(
+            egui::RichText::new(if queue.is_some_and(|q| q.no_research) {
+                "Don't contribute to research"
+            } else {
+                "Contribute to research"
+            })
+            .small()
+            .weak(),
+        );
+
+        let editable = app.production_template_editable(slot);
+        ui.horizontal(|ui| {
+            if ui
+                .button(egui::RichText::new("Import").small())
+                .on_hover_text(
+                    "Takes the auto-build items out of this planet's queue, in order, \
+                     and makes them this template.",
+                )
+                .clicked()
+            {
+                let name = app.production_template_name(slot);
+                app.production_import_template(slot, &name);
+            }
+            if ui
+                .add_enabled(
+                    editable,
+                    egui::Button::new(egui::RichText::new("Delete").small()),
+                )
+                .on_disabled_hover_text(
+                    "The default template cannot be deleted. To empty it, import an \
+                     empty queue over it.",
+                )
+                .clicked()
+            {
+                app.production_delete_template(slot);
+            }
+            if ui.button(egui::RichText::new("OK").small()).clicked() {
+                app.customize_template = None;
+            }
+        });
+
+        // Renaming, for a slot that has one to rename.
+        if editable {
+            let mut name = app.production_template_name(slot);
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Name").small());
+                if ui
+                    .add(
+                        egui::TextEdit::singleline(&mut name)
+                            .desired_width(160.0)
+                            .char_limit(stars_formats::TEMPLATE_NAME_MAX),
+                    )
+                    .changed()
+                {
+                    app.production_rename_template(slot, &name);
+                }
+            });
+        }
+    });
 }
 
 /// What the selected item costs, against what the planet has on the surface.

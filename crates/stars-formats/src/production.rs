@@ -471,3 +471,150 @@ mod tests {
         assert!(ProductionQueueRecord::decode_change(&[0x01]).is_none());
     }
 }
+
+/// A named **production template** (`ZIPPRODQ`).
+///
+/// Four of these: a **default**, which is the same record the player block
+/// carries as `PLAYER.zpq1` and which is applied on its own to any planet the
+/// player settles or takes, and three the player applies by hand. Applying one
+/// replaces every auto-build item in a planet's queue with the template's,
+/// leaving the ordinary items where they are.
+///
+/// ```c
+/// typedef struct _zipprodq {
+///     char      szName[13]; /* +0x00 */
+///     uint8_t   fValid;     /* +0x0D */
+///     ZIPPRODQ1 zpq1;       /* +0x0E */
+/// } ZIPPRODQ;               /* size 40 */
+/// ```
+///
+/// They are **not** in a save file. The game keeps them in `stars.ini`, under
+/// the section `ZipOrders` and the keys `ZipOrdersP1`…`ZipOrdersP5`, in the
+/// text form [`ProductionTemplate::decode_ini`] reads — which is why they last
+/// for as long as the installation does rather than for as long as the game
+/// does. Only the default reaches the host, through the player block and the
+/// `rtLogPlayerZpq1` order.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProductionTemplate {
+    /// What the player has called it, up to twelve characters.
+    pub name: String,
+    /// Its contents. `None` for an empty slot (`fValid == 0`), which the game
+    /// shows as `<Unused 2>`.
+    pub queue: Option<DefaultQueue>,
+}
+
+/// How many template slots the `<Customize>` dialog shows: the default and
+/// three more (`ZipProdDlg`'s radio buttons `0x431`…`0x434`).
+pub const TEMPLATE_SLOTS: usize = 4;
+
+/// How many the `stars.ini` section carries.
+///
+/// The array is `ZIPPRODQ[5]` and both the reader and the writer walk all five,
+/// but the dialog only ever reaches the first four — so the fifth round-trips
+/// through the file without ever being usable.
+pub const TEMPLATE_INI_SLOTS: usize = 5;
+
+/// The longest name a template may have, which is its 13-byte field less the
+/// terminator.
+pub const TEMPLATE_NAME_MAX: usize = 12;
+
+impl ProductionTemplate {
+    /// Decode one `stars.ini` value.
+    ///
+    /// The encoding packs the whole record into printable letters: the first
+    /// character is the "no research" flag, the second the entry count, then
+    /// four characters per entry — the four nibbles of the `PRODQ1` word,
+    /// lowest first, each as `'a' + nibble` — and finally the name.
+    ///
+    /// Returns `None` for anything the game itself would reject: a value
+    /// shorter than three characters or longer than 64, a count above twelve,
+    /// a body that is not all in `'a'..='p'`, or a name of thirteen characters
+    /// or more.
+    ///
+    /// Two values are clamped rather than rejected, as `InitStars` clamps
+    /// them: a quantity above 1020 becomes **1**, and an item id above 6 —
+    /// which is to say anything that is not an auto-build item — becomes
+    /// **0**.
+    #[must_use]
+    pub fn decode_ini(text: &str) -> Option<Self> {
+        let bytes = text.as_bytes();
+        if bytes.len() <= 2 || bytes.len() >= 0x41 {
+            return None;
+        }
+        let count = usize::from(bytes[1].wrapping_sub(b'a'));
+        if count > DEFAULT_QUEUE_MAX {
+            return None;
+        }
+        let body = 2 + count * 4;
+        if bytes.len() < body || !bytes[..body].iter().all(|c| (b'a'..=b'p').contains(c)) {
+            return None;
+        }
+        let name = &text[body..];
+        if name.len() > TEMPLATE_NAME_MAX {
+            return None;
+        }
+
+        let nibble = |at: usize| u16::from(bytes[at] - b'a');
+        let items = (0..count)
+            .map(|i| {
+                let at = 2 + i * 4;
+                let mut word = nibble(at)
+                    | (nibble(at + 1) << 4)
+                    | (nibble(at + 2) << 8)
+                    | (nibble(at + 3) << 12);
+                // A quantity past what the field means is taken as one.
+                if word >> 6 > 0x3fc {
+                    word = (word & 0x3f) | 0x40;
+                }
+                // Only the auto-build items belong in a template.
+                if word & 0x3f > 6 {
+                    word &= 0xffc0;
+                }
+                DefaultQueueItem {
+                    item: (word & 0x3f) as u8,
+                    count: word >> 6,
+                }
+            })
+            .collect();
+
+        Some(Self {
+            name: name.to_string(),
+            queue: Some(DefaultQueue {
+                no_research: bytes[0] != b'a',
+                items,
+            }),
+        })
+    }
+
+    /// Encode one `stars.ini` value. An empty slot writes an empty string,
+    /// which is what the game writes and what it reads back as unused.
+    #[must_use]
+    pub fn encode_ini(&self) -> String {
+        let Some(queue) = self.queue.as_ref() else {
+            return String::new();
+        };
+        let items = &queue.items[..queue.items.len().min(DEFAULT_QUEUE_MAX)];
+        let mut out = String::with_capacity(2 + items.len() * 4 + self.name.len());
+        out.push(char::from(b'a' + u8::from(queue.no_research)));
+        #[allow(clippy::cast_possible_truncation)]
+        out.push(char::from(b'a' + items.len() as u8));
+        for entry in items {
+            let word = u16::from(entry.item & 0x3f) | ((entry.count & 0x03ff) << 6);
+            for shift in [0, 4, 8, 12] {
+                #[allow(clippy::cast_possible_truncation)]
+                out.push(char::from(b'a' + ((word >> shift) & 0xf) as u8));
+            }
+        }
+        out.push_str(&self.name[..self.name.len().min(TEMPLATE_NAME_MAX)]);
+        out
+    }
+
+    /// The `stars.ini` key this slot is stored under: `ZipOrdersP1` upward.
+    #[must_use]
+    pub fn ini_key(slot: usize) -> String {
+        format!("{TEMPLATE_INI_SECTION}P{}", slot + 1)
+    }
+}
+
+/// The `stars.ini` section the templates share with the fleet zip orders.
+pub const TEMPLATE_INI_SECTION: &str = "ZipOrders";

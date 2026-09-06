@@ -108,6 +108,11 @@ item ids, all planetary; 147 quantities, every one of them 100.
 The same record is what the `.xN` order operation `rtLogPlayerZpq1` (type 46)
 carries, truncated to the `2 * cpq + 2` bytes it uses — see `orders-x.md`.
 
+It is also the **first** of the player's four production templates. The other
+three are not in any save: they live in `stars.ini`, wrapped in a `ZIPPRODQ`
+that adds a name and a "used" flag — see `../ui/production.md` and
+`stars_formats::ProductionTemplate`.
+
 ### What the game does with it
 
 When a planet changes hands — settled or taken — `turn2.c` sets the planet's

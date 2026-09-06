@@ -385,6 +385,13 @@ fn the_dialog_draws() {
     app.production.as_mut().expect("open").queue_index = Some(0);
     frame(&mut app);
 
+    // The <Customize> panel, on each slot in turn.
+    for slot in 0..stars_formats::TEMPLATE_SLOTS {
+        app.customize_template = Some(slot);
+        frame(&mut app);
+    }
+    app.customize_template = None;
+
     app.production_cancel();
     frame(&mut app);
 }
@@ -441,4 +448,177 @@ fn the_queue_says_when_each_row_will_be_done() {
     let schedule = app.production_schedule();
     assert_eq!(schedule[0].0, "As Needed", "{schedule:?}");
     assert_eq!(schedule[0].1, EtaMark::Idle);
+}
+
+/// Applying a template replaces the queue's auto-build items and leaves the
+/// ordinary ones alone.
+#[test]
+fn a_template_replaces_only_the_auto_build_items() {
+    let mut app = a_game();
+    app.open_production();
+    app.production_clear();
+
+    let pick = |app: &mut App, id: u16| {
+        let index = app
+            .production_inventory()
+            .iter()
+            .position(|r| !r.ship && r.item == id)
+            .unwrap_or_else(|| panic!("item {id} should be on offer"));
+        app.production.as_mut().expect("open").inventory_index = index;
+    };
+
+    // A queue with one ordinary item and two auto-build ones.
+    pick(&mut app, item::FACTORY);
+    app.production_add(3);
+    pick(&mut app, item::AUTO_MINE);
+    app.production_add(50);
+    pick(&mut app, item::AUTO_DEFENSE);
+    app.production_add(5);
+
+    // Import it into slot 1, then wipe the queue and apply it back.
+    app.customize_template = Some(1);
+    app.production_import_template(1, "Colony");
+    assert_eq!(app.production_template_name(1), "Colony");
+    assert!(app.production_template_editable(1));
+
+    app.production_clear();
+    pick(&mut app, item::MINE);
+    app.production_add(2);
+    app.production_apply_template(1);
+
+    let queue = &app.production.as_ref().expect("open").queue;
+    // The ordinary mine survived, at the front, and the template's two
+    // auto-build items came in behind it. The ordinary factory was NOT part
+    // of the template.
+    assert_eq!(queue[0].item, item::MINE);
+    assert_eq!(queue[0].count, 2);
+    assert_eq!(queue[1].item, item::AUTO_MINE);
+    assert_eq!(queue[1].count, 50);
+    assert_eq!(queue[2].item, item::AUTO_DEFENSE);
+    assert_eq!(queue[2].count, 5);
+    assert_eq!(queue.len(), 3);
+}
+
+/// The default template is slot 0, is the player's own default queue, and
+/// cannot be renamed or deleted.
+#[test]
+fn the_default_template_is_the_players_default_queue() {
+    let mut app = a_game();
+    app.open_production();
+    app.production_clear();
+
+    assert_eq!(app.production_template_name(0), "<Default>");
+    assert!(
+        !app.production_template_editable(0),
+        "the default cannot be renamed or deleted"
+    );
+    app.production_delete_template(0);
+    assert_eq!(app.production_template_name(0), "<Default>");
+
+    // Importing into slot 0 changes the player's default queue, which is a
+    // real order.
+    let index = app
+        .production_inventory()
+        .iter()
+        .position(|r| !r.ship && r.item == item::AUTO_FACTORY)
+        .expect("auto factories");
+    app.production.as_mut().expect("open").inventory_index = index;
+    app.production_add(100);
+    app.production_import_template(0, "ignored");
+
+    let player = &app.game.as_ref().expect("game").players[0];
+    assert_eq!(player.default_queue.items.len(), 1);
+    assert_eq!(player.default_queue.items[0].item, 1); // AUTO_FACTORY
+    assert_eq!(player.default_queue.items[0].count, 100);
+}
+
+/// An empty slot reads `<Unused n>`, and deleting one empties it again.
+#[test]
+fn an_empty_template_slot_says_so() {
+    let mut app = a_game();
+    app.open_production();
+    app.production_clear();
+
+    assert_eq!(app.production_template_name(2), "<Unused 3>");
+    assert!(!app.production_template_editable(2));
+
+    let index = app
+        .production_inventory()
+        .iter()
+        .position(|r| !r.ship && r.item == item::AUTO_MINE)
+        .expect("auto mines");
+    app.production.as_mut().expect("open").inventory_index = index;
+    app.production_add(10);
+    app.production_import_template(2, "Mines");
+    assert_eq!(app.production_template_name(2), "Mines");
+
+    app.production_rename_template(2, "Digging");
+    assert_eq!(app.production_template_name(2), "Digging");
+
+    app.production_delete_template(2);
+    assert_eq!(app.production_template_name(2), "<Unused 3>");
+}
+
+/// The templates go out to `stars.ini` and come back, as the original keeps
+/// them there rather than in a save.
+#[test]
+fn templates_survive_a_trip_through_the_ini() {
+    let mut app = a_game();
+    app.open_production();
+    app.production_clear();
+    let index = app
+        .production_inventory()
+        .iter()
+        .position(|r| !r.ship && r.item == item::AUTO_FACTORY)
+        .expect("auto factories");
+    app.production.as_mut().expect("open").inventory_index = index;
+    app.production_add(25);
+    app.production_import_template(1, "Growth");
+
+    let ini = app.production_templates_ini();
+    assert_eq!(ini[0].0, "ZipOrdersP2", "slot 1 is the second key");
+    assert!(!ini[0].1.is_empty());
+
+    let mut fresh = a_game();
+    fresh.load_production_templates(&ini);
+    assert_eq!(fresh.production_template_name(1), "Growth");
+    let queue = fresh.production_templates()[1]
+        .queue
+        .clone()
+        .expect("it came back");
+    assert_eq!(queue.items.len(), 1);
+    assert_eq!(queue.items[0].count, 25);
+}
+
+/// The `<Customize>` panel lists what a template holds, in the game's wording.
+#[test]
+fn the_customize_panel_lists_the_template() {
+    use stars_core::production::template_lines;
+    use stars_formats::{DefaultQueue, DefaultQueueItem};
+
+    let empty = DefaultQueue::default();
+    assert_eq!(template_lines(None), vec!["<No Auto Build Orders>"]);
+    assert_eq!(template_lines(Some(&empty)), vec!["<No Auto Build Orders>"]);
+
+    let queue = DefaultQueue {
+        no_research: false,
+        items: vec![
+            DefaultQueueItem {
+                item: 1,
+                count: 100,
+            },
+            DefaultQueueItem { item: 0, count: 1 },
+            DefaultQueueItem { item: 3, count: 1 },
+        ],
+    };
+    assert_eq!(
+        template_lines(Some(&queue)),
+        vec![
+            "Factories (100)".to_string(),
+            // A count of one is shown by name alone...
+            "Mines".to_string(),
+            // ...and so is alchemy, whatever its count.
+            "Alchemy".to_string(),
+        ]
+    );
 }

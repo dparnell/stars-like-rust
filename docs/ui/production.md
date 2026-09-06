@@ -206,17 +206,67 @@ the drawing routine, not text.
 ## Templates
 
 A **production template** is a saved run of auto-build items
-(`MANUAL.PDF` pp. 7-3..7-6). Four of them per player: a default, applied
-automatically to any planet newly colonised or taken over, and three the player
+(`MANUAL.PDF` pp. 7-3..7-6). Four of them per player: a **default**, applied on
+its own to any planet newly colonised or taken over, and three the player
 applies by hand from the right-click menu on the blue diamond. Applying one
 replaces every auto-build item in the queue with the template's, leaving the
-ordinary items alone.
+ordinary items where they are, and takes the *Contribute only leftover
+resources* setting from it too.
 
-The default template already round-trips through this project's save code as
-`stars_formats::DefaultQueue` (`ZIPPRODQ1`, order record 46) and is applied by
-[`crate::orders::apply_default_queue`] when a planet changes hands. The other
-three, and the `ZipProdDlg` (`10d0:5490`) editor behind `<Customize>`, are not
-reproduced.
+```c
+typedef struct _zipprodq {
+    char      szName[13]; /* +0x00 */
+    uint8_t   fValid;     /* +0x0D  an empty slot reads <Unused 2> */
+    ZIPPRODQ1 zpq1;       /* +0x0E  the same record PLAYER.zpq1 holds */
+} ZIPPRODQ;               /* size 40 */
+```
+
+**They are not in a save.** `vrgZipProd` is a global, and `InitStars` fills it
+from `stars.ini` — section `ZipOrders`, keys `ZipOrdersP1`…`ZipOrdersP5` — with
+the whole record packed into printable letters:
+
+| characters | |
+|---|---|
+| 0 | the "no research" flag, `'a'` or `'b'` |
+| 1 | how many entries follow, `'a' + n` |
+| 2… | four per entry: the nibbles of the `PRODQ1` word, **lowest first**, each `'a' + nibble` |
+| then | the name, up to twelve characters |
+
+A value is rejected outright if it is under three characters or over 64, if the
+count is above twelve, if the packed body is not all in `'a'..='p'`, or if the
+name is thirteen characters or more. Two things are **clamped** rather than
+rejected: a quantity above 1020 becomes **1**, and an item id above 6 becomes
+**0** — which is the seventh independent statement in the binary that a
+template holds nothing but the auto-build items.
+
+So only the **default** ever reaches the host, through `PLAYER.zpq1` and the
+`rtLogPlayerZpq1` order; the other three follow the installation rather than
+the game. `stars_formats::ProductionTemplate` reads and writes the text form,
+and the desktop shell keeps a `stars.ini` beside the save, rewriting only the
+`ZipOrders` keys it owns.
+
+### `<Customize>`
+
+`ZipProdDlg` (`10d0:5490`). Four radio buttons, `0x431`…`0x434`, one per slot,
+each labelled with its template's name or `<Unused n>`; the chosen template's
+contents listed below (`FillZipProdLB`, `10d0:5e58`); and **Import** (`0x816`),
+**Delete** (`0x817`) and **Rename** (`0x41b`).
+
+* **Import** takes the current planet's queue, keeps the auto-build entries in
+  order, up to twelve, and makes them the template — which is why the manual
+  tells you to arrange the queue and set the research checkbox *before*
+  importing (p. 7-5).
+* **Delete** and **Rename** are greyed for slot 0 and for an empty slot
+  (`EnableZipProdBtns`): the default cannot be renamed, and the only way to
+  empty it is to import an empty queue over it.
+* Each line reads `Factories (100)`, except that an entry of exactly one — and
+  alchemy whatever its count — is shown by name alone. An empty template reads
+  `<No Auto Build Orders>`.
+
+The array is `ZIPPRODQ[5]` and both the reader and the writer walk all five,
+but the dialog's radio buttons only reach the first four, so the fifth
+round-trips through `stars.ini` without ever being usable. The manual's count
+of "three other templates" is the dialog's, not the array's.
 
 ## What is reproduced
 
@@ -228,7 +278,9 @@ double-click doing the same as the button, the merge with a neighbouring row,
 next starbase, the *Contribute only leftover resources to research* checkbox,
 the cost panel against what the planet has on the surface, and a working copy
 that **Cancel** throws away and **OK** — or stepping to another planet — writes
-back. Every queue row carries its year and its colour, in the dialog and in the
+back. All four production templates, with `<Customize>`'s Import, Delete and
+Rename and the `stars.ini` encoding they persist in. Every queue row carries
+its year and its colour, in the dialog and in the
 planet pane's Production tile alike — the original fills both from the same
 routine, so an item that will practically never be built is red in both.
 
@@ -252,7 +304,9 @@ In `crates/stars-core/src/production.rs`:
 
 ## What is not reproduced
 
-* **Templates** beyond the default one, and the `<Customize>` editor.
+* The **blue diamond**. The original hangs the template menu off a right-click
+  on a small diamond beside the queue; here the four templates and
+  `<Customize>` are a row of buttons.
 * The estimate is recomputed from scratch for every row on every frame, as the
   original recomputes it whenever it refills the list. It costs about a
   millisecond for a seven-row queue in a debug build, which is affordable; a

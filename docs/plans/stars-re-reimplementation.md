@@ -1594,7 +1594,34 @@ disagree.
     really `fAlchemy`. Taken at face value the whole top-up is unreachable
     code.
 
-48. **What is still missing to call it playable.** Every waypoint task is now
+48. ~~**The production templates.**~~ **Done.** All four, with `<Customize>`
+    (`ZipProdDlg`, `10d0:5490`) — Import, Delete, Rename — and the rule that
+    applying one replaces every auto-build item in the queue with the
+    template's while leaving the ordinary items alone.
+
+    The interesting part is that **they are not in a save at all.**
+    `vrgZipProd` is a global that `InitStars` fills from `stars.ini`, section
+    `ZipOrders`, keys `ZipOrdersP1`…`ZipOrdersP5`, with the whole record packed
+    into printable letters: a flag character, a count character, then four
+    characters per entry carrying the nibbles of the `PRODQ1` word lowest
+    first, then the name. So only the **default** template ever reaches the
+    host — through `PLAYER.zpq1` and the `rtLogPlayerZpq1` order — and the
+    other three follow the installation rather than the game. The encoding is
+    now in `stars-formats` with a round-trip test, and the desktop shell keeps
+    a `stars.ini` beside the save, rewriting only the keys it owns.
+
+    Its reader clamps two things rather than rejecting them, and one of them is
+    telling: an item id above 6 becomes 0. That is the **seventh** independent
+    statement in the binary that a template holds nothing but the auto-build
+    items.
+
+    One quirk kept: the array is `ZIPPRODQ[5]` and both the reader and the
+    writer walk all five, but the dialog's radio buttons only reach the first
+    four — so the fifth round-trips through the file without ever being usable.
+    The manual's "three other templates" is the dialog's count, not the
+    array's.
+
+49. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

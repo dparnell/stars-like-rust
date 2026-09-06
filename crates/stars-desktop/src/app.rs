@@ -4,7 +4,7 @@
 //! screen is drawn by `stars_ui::views`, so the desktop and web frontends can
 //! differ only in how they are hosted.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use stars_ui::{App, Screen};
 
@@ -86,6 +86,40 @@ impl StarsApp {
             Ok(()) => self.app.error = None,
             Err(e) => self.app.error = Some(e),
         }
+        self.write_templates(&path);
+    }
+
+    /// Read the player's production templates out of `stars.ini`.
+    ///
+    /// The original keeps them there rather than in a save — see
+    /// `stars_formats::ProductionTemplate` — so they follow the installation
+    /// rather than the game. This looks for the file beside the save, which is
+    /// where a copy of Stars! run from its own directory would have put it.
+    fn read_templates(&mut self, beside: &Path) {
+        let Some(ini) = beside.parent().map(|dir| dir.join("stars.ini")) else {
+            return;
+        };
+        let Ok(text) = std::fs::read_to_string(&ini) else {
+            return;
+        };
+        let values = ini_section(&text, stars_formats::TEMPLATE_INI_SECTION);
+        self.app.load_production_templates(&values);
+    }
+
+    /// Write them back, leaving every other section of the file alone.
+    fn write_templates(&mut self, beside: &Path) {
+        let Some(ini) = beside.parent().map(|dir| dir.join("stars.ini")) else {
+            return;
+        };
+        let existing = std::fs::read_to_string(&ini).unwrap_or_default();
+        let updated = with_ini_values(
+            &existing,
+            stars_formats::TEMPLATE_INI_SECTION,
+            &self.app.production_templates_ini(),
+        );
+        if updated != existing {
+            let _ = std::fs::write(&ini, updated);
+        }
     }
 
     /// Write the game's universe as a `.xy`.
@@ -165,9 +199,85 @@ impl StarsApp {
         if let Some(path) = picked {
             if let Err(e) = self.app.open(&path) {
                 self.app.error = Some(e);
+            } else {
+                self.read_templates(&path);
             }
         }
     }
+}
+
+/// The `key = value` pairs of one section of a Windows profile file.
+fn ini_section(text: &str, section: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut inside = false;
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            inside = name.eq_ignore_ascii_case(section);
+            continue;
+        }
+        if !inside {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('=') {
+            out.push((key.trim().to_string(), value.trim().to_string()));
+        }
+    }
+    out
+}
+
+/// Replace some keys in one section, leaving everything else in the file
+/// exactly as it was — the same courtesy the save code extends to a game file.
+fn with_ini_values(text: &str, section: &str, values: &[(String, String)]) -> String {
+    let mut out = String::with_capacity(text.len() + 64);
+    let mut inside = false;
+    let mut seen_section = false;
+    let mut written = false;
+
+    let write_values = |out: &mut String| {
+        for (key, value) in values {
+            out.push_str(key);
+            out.push('=');
+            out.push_str(value);
+            out.push('\n');
+        }
+    };
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if let Some(name) = trimmed.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            // Leaving the section: put our keys in before the next one starts.
+            if inside && !written {
+                write_values(&mut out);
+                written = true;
+            }
+            inside = name.eq_ignore_ascii_case(section);
+            seen_section |= inside;
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        // Drop the keys we are replacing; keep the rest of the section.
+        if inside {
+            if let Some((key, _)) = trimmed.split_once('=') {
+                if values.iter().any(|(k, _)| k == key.trim()) {
+                    continue;
+                }
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+
+    if !seen_section {
+        out.push('[');
+        out.push_str(section);
+        out.push_str("]\n");
+    }
+    if !written {
+        write_values(&mut out);
+    }
+    out
 }
 
 impl eframe::App for StarsApp {
