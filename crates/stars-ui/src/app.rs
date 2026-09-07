@@ -288,6 +288,9 @@ pub struct App {
     pub window_layout: WindowLayout,
     /// Whether the Game Parameters window is open.
     pub game_parameters: bool,
+    /// The race viewer, while it is open: whose race, and which of the six
+    /// pages is showing.
+    pub race_viewer: Option<(usize, usize)>,
     /// Whether the Find box is open (View (Find), Ctrl+F).
     pub find_open: bool,
     /// Which of the scanner's six views is showing.
@@ -7192,5 +7195,216 @@ impl App {
     #[must_use]
     pub fn game_parameters_conditions(&self) -> Vec<stars_core::scoresheet::Condition> {
         self.score_conditions()
+    }
+}
+
+// --- The race viewer ------------------------------------------------------
+
+/// One page of the race viewer, mirroring one page of the race wizard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RacePage {
+    /// What the page is about.
+    pub title: &'static str,
+    /// Its rows, as label and value.
+    pub rows: Vec<(String, String)>,
+}
+
+impl App {
+    /// A player's race, laid out as the race wizard's six pages.
+    ///
+    /// View (Race) opens the wizard itself on the player's own race, read-only
+    /// (`IDM_RACE_EDIT1`, F8). This shows the same six pages' worth of settings
+    /// without the wizard: dialogs 146 to 151 are mostly **owner-drawn** — the
+    /// habitability sliders and the economy bars are painted rather than laid
+    /// out as controls — so what is reproduced here is what each page *says*,
+    /// not how it looks.
+    ///
+    /// Returns nothing for a player that is not there.
+    #[must_use]
+    pub fn race_pages(&self, player: usize) -> Vec<RacePage> {
+        use stars_core::race::{lrt, RaceStat};
+        use stars_core::research::TechField;
+
+        let Some(record) = self.game.as_ref().and_then(|game| game.players.get(player)) else {
+            return Vec::new();
+        };
+        let race = &record.race;
+        let yes_no = |on: bool| if on { "yes" } else { "no" }.to_string();
+
+        // 1 — who they are.
+        let mut pages = vec![RacePage {
+            title: "Race",
+            rows: vec![
+                ("Race name".to_string(), record.name.clone()),
+                (
+                    "Plural race name".to_string(),
+                    if record.plural_name.is_empty() {
+                        "—".to_string()
+                    } else {
+                        record.plural_name.clone()
+                    },
+                ),
+                (
+                    "Password".to_string(),
+                    if record.password == 0 {
+                        "none".to_string()
+                    } else {
+                        "set".to_string()
+                    },
+                ),
+            ],
+        }];
+
+        // 2 — where they can live. A negative upper bound means immune, which
+        // is why the row is one thing or the other rather than a range and a
+        // flag.
+        let mut habitability = Vec::new();
+        for (index, name) in ["Gravity", "Temperature", "Radiation"].iter().enumerate() {
+            let value = if race.is_immune(index) {
+                "immune".to_string()
+            } else {
+                format!(
+                    "{} to {}, ideal {}",
+                    env_text(index, race.env_min[index]),
+                    env_text(index, race.env_max[index]),
+                    env_text(index, race.env_center[index])
+                )
+            };
+            habitability.push(((*name).to_string(), value));
+        }
+        habitability.push((
+            "Maximum growth rate".to_string(),
+            format!("{}%", race.pct_ideal_growth),
+        ));
+        pages.push(RacePage {
+            title: "Habitability",
+            rows: habitability,
+        });
+
+        // 3 — what they build things with.
+        pages.push(RacePage {
+            title: "Economy",
+            rows: vec![
+                (
+                    "Colonists per resource".to_string(),
+                    format!("{}00", race.stat(RaceStat::ResGen)),
+                ),
+                (
+                    "Resources per 10 factories".to_string(),
+                    race.stat(RaceStat::FactProd).to_string(),
+                ),
+                (
+                    "Cost of a factory".to_string(),
+                    format!("{} resources", race.stat(RaceStat::FactBuild)),
+                ),
+                (
+                    "Factories per 10,000 colonists".to_string(),
+                    race.stat(RaceStat::FactOperate).to_string(),
+                ),
+                (
+                    "Minerals per 10 mines".to_string(),
+                    race.stat(RaceStat::MineProd).to_string(),
+                ),
+                (
+                    "Cost of a mine".to_string(),
+                    format!("{} resources", race.stat(RaceStat::MineBuild)),
+                ),
+                (
+                    "Mines per 10,000 colonists".to_string(),
+                    race.stat(RaceStat::MineOperate).to_string(),
+                ),
+                (
+                    "Factories cost 1kT less germanium".to_string(),
+                    yes_no(race.has_lrt(lrt::CHEAP_FACT)),
+                ),
+            ],
+        });
+
+        // 4 — the one primary trait.
+        pages.push(RacePage {
+            title: "Primary Racial Trait",
+            rows: vec![(
+                "Trait".to_string(),
+                race.prt().map_or_else(
+                    || format!("unknown ({})", race.stat(RaceStat::MajorAdv)),
+                    |prt| prt.name().to_string(),
+                ),
+            )],
+        });
+
+        // 5 — the fourteen lesser ones, all listed so that what is *not* taken
+        // is as plain as what is.
+        pages.push(RacePage {
+            title: "Lesser Racial Traits",
+            rows: lrt::ALL
+                .iter()
+                .map(|bit| {
+                    (
+                        lrt::name(*bit).unwrap_or("?").to_string(),
+                        yes_no(race.has_lrt(*bit)),
+                    )
+                })
+                .collect(),
+        });
+
+        // 6 — what research costs, field by field. The stored value is a
+        // three-way setting and the wizard spells out all three.
+        let mut research: Vec<(String, String)> = TechField::ALL
+            .iter()
+            .enumerate()
+            .map(|(index, field)| {
+                let setting = race.attrs[RaceStat::TechBonus1 as usize + index];
+                let text = match setting {
+                    0 => "costs 75% extra",
+                    1 => "costs the standard amount",
+                    2 => "costs 50% less",
+                    _ => "unknown",
+                };
+                (field.name().to_string(), text.to_string())
+            })
+            .collect();
+        research.push((
+            "All techs start at 3".to_string(),
+            yes_no(race.has_lrt(lrt::TECH3)),
+        ));
+        pages.push(RacePage {
+            title: "Research Costs",
+            rows: research,
+        });
+
+        pages
+    }
+}
+
+impl App {
+    /// Open the race viewer on a player's race (View (Race), F8).
+    pub fn open_race_viewer(&mut self, player: usize) {
+        if self
+            .game
+            .as_ref()
+            .is_some_and(|game| player < game.players.len())
+        {
+            self.race_viewer = Some((player, 0));
+        }
+    }
+
+    /// Close it.
+    pub fn close_race_viewer(&mut self) {
+        self.race_viewer = None;
+    }
+
+    /// Turn a page, the way the wizard's Back and Next do — but stopping at
+    /// the ends rather than wrapping, because a wizard's Back and Next stop.
+    pub fn race_viewer_page(&mut self, forward: bool) {
+        let Some((player, page)) = self.race_viewer else {
+            return;
+        };
+        let last = self.race_pages(player).len().saturating_sub(1);
+        let page = if forward {
+            (page + 1).min(last)
+        } else {
+            page.saturating_sub(1)
+        };
+        self.race_viewer = Some((player, page));
     }
 }

@@ -1,6 +1,6 @@
 # The View menu
 
-Status: **structure reproduced**; two of its seven entries stand in for
+Status: **structure reproduced**; one of its seven entries stands in for
 something the original does more fully.
 
 Menu resource, submenu 1, in the original's own order:
@@ -51,10 +51,8 @@ See `scanner.md` — it colours planet names and ship counts, and nothing else.
 
 ## Race
 
-`IDM_RACE_EDIT1`. The original opens the **race wizard** on the player's own
-race, read-only. This project has no such viewer, so the menu item and F8 go to
-the Players screen, which shows the same race in a plainer form. That is a
-stand-in and is named as one.
+`IDM_RACE_EDIT1`. Opens the race wizard on the player's own race, read-only —
+six pages walked with Back and Next. See `race-wizard.md`.
 
 ## Game Parameters
 
@@ -78,7 +76,6 @@ condition the game is not playing for shown greyed beside its setting.
 
 ## What is not reproduced
 
-* The **race wizard as a viewer**, which is what View (Race) really opens.
 * The original's Game Parameters dialog is **paged**; this is one panel.
 * Window Layout rearranges tiled child windows in the original; here it moves
   one split.

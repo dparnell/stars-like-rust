@@ -39,7 +39,7 @@ pub mod views;
 
 pub use app::{
     distance_text, fleet_arrow, App, Browser, DesignView, Designer, DesignerDrag, Editing,
-    FilterCommand, FilterEntry, FindResult, OrbitRing, PartRow, Production, ResearchDialog,
-    ScanObject, ScanOverlays, ScanView, SchematicSlot, Screen, Selection, StatusBar, SurveyBar,
-    SurveySubject, WindowLayout, ARROW_SHEET,
+    FilterCommand, FilterEntry, FindResult, OrbitRing, PartRow, Production, RacePage,
+    ResearchDialog, ScanObject, ScanOverlays, ScanView, SchematicSlot, Screen, Selection,
+    StatusBar, SurveyBar, SurveySubject, WindowLayout, ARROW_SHEET,
 };

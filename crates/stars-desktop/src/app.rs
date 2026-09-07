@@ -439,7 +439,12 @@ impl eframe::App for StarsApp {
             && self.app.setup.is_none()
             && ctx.input(|i| i.key_pressed(egui::Key::F8))
         {
-            self.app.screen = Screen::Players;
+            if self.app.race_viewer.is_some() {
+                self.app.close_race_viewer();
+            } else {
+                let me = self.app.local_player();
+                self.app.open_race_viewer(me);
+            }
         }
 
         if self.app.game.is_some()
@@ -473,6 +478,18 @@ impl eframe::App for StarsApp {
                     });
                 if !open {
                     self.app.find_open = false;
+                }
+            }
+
+            if self.app.race_viewer.is_some() {
+                let mut open = true;
+                egui::Window::new("Race")
+                    .open(&mut open)
+                    .resizable(true)
+                    .default_width(400.0)
+                    .show(ctx, |ui| stars_ui::views::race::view(&mut self.app, ui));
+                if !open {
+                    self.app.close_race_viewer();
                 }
             }
 
@@ -682,14 +699,11 @@ impl eframe::App for StarsApp {
 
                     if ui
                         .add_enabled(playing, egui::Button::new("Race…").shortcut_text("F8"))
-                        .on_hover_text(
-                            "The original opens the race wizard read-only; this shows \
-                             the same race on the Players screen.",
-                        )
                         .clicked()
                     {
                         ui.close_menu();
-                        self.app.screen = Screen::Players;
+                        let me = self.app.local_player();
+                        self.app.open_race_viewer(me);
                     }
                     if ui
                         .add_enabled(playing, egui::Button::new("Game Parameters…"))

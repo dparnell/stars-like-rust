@@ -147,6 +147,8 @@ pub mod lrt {
     pub const ISB: u32 = 3;
     /// Generalized Research.
     pub const GENERALIZED_RESEARCH: u32 = 4;
+    /// Ultimate Recycling.
+    pub const ULTIMATE_RECYCLING: u32 = 5;
     /// Mineral Alchemy.
     pub const MINERAL_ALCHEMY: u32 = 6;
     /// No Ramscoop Engines.
@@ -167,6 +169,55 @@ pub mod lrt {
     pub const TECH3: u32 = 29;
     /// Factories cost one less germanium.
     pub const CHEAP_FACT: u32 = 31;
+
+    /// The **fourteen** lesser racial traits, in the order the race wizard's
+    /// fifth page lists them — which is bit order.
+    ///
+    /// `TECH3` and `CHEAP_FACT` are not among them: they live far up the same
+    /// word at bits 29 and 31 and belong to other pages of the wizard.
+    pub const ALL: [u32; 14] = [
+        IFE,
+        TT,
+        ARM,
+        ISB,
+        GENERALIZED_RESEARCH,
+        ULTIMATE_RECYCLING,
+        MINERAL_ALCHEMY,
+        NO_RAMSCOOPS,
+        CHEAP_ENGINES,
+        OBRM,
+        NO_ADV_SCANNER,
+        LOW_STARTING_POP,
+        BLEEDING_EDGE_TECH,
+        REGENERATING_SHIELDS,
+    ];
+
+    /// What a lesser racial trait is called.
+    ///
+    /// The names sit at fourteen consecutive string ids, `0x0132` to `0x013f`,
+    /// one per bit in this order — which is what fixes bit 5 as Ultimate
+    /// Recycling, a trait this table had no name for at all until the race
+    /// viewer needed to list all fourteen.
+    #[must_use]
+    pub fn name(bit: u32) -> Option<&'static str> {
+        Some(match bit {
+            IFE => "Improved Fuel Efficiency",
+            TT => "Total Terraforming",
+            ARM => "Advanced Remote Mining",
+            ISB => "Improved Starbases",
+            GENERALIZED_RESEARCH => "Generalized Research",
+            ULTIMATE_RECYCLING => "Ultimate Recycling",
+            MINERAL_ALCHEMY => "Mineral Alchemy",
+            NO_RAMSCOOPS => "No Ramscoop Engines",
+            CHEAP_ENGINES => "Cheap Engines",
+            OBRM => "Only Basic Remote Mining",
+            NO_ADV_SCANNER => "No Advanced Scanners",
+            LOW_STARTING_POP => "Low Starting Population",
+            BLEEDING_EDGE_TECH => "Bleeding Edge Technology",
+            REGENERATING_SHIELDS => "Regenerating Shields",
+            _ => return None,
+        })
+    }
 }
 
 /// A race, as far as the planetary simulation is concerned.

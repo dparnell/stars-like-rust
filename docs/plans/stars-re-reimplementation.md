@@ -2080,7 +2080,34 @@ disagree.
     race wizard read-only, and this project has no such viewer, so it goes to
     the Players screen instead.
 
-65. **What is still missing to call it playable.** Every waypoint task is now
+65. ~~**The race wizard as a viewer.**~~ **Done.** View (Race), F8. Spec in
+    `docs/ui/race-wizard.md`. Six pages walked with Back and Next, which stop
+    at the ends rather than wrapping.
+
+    The dialog templates gave the structure and also the trap: pages 2 and 3
+    hold almost **no controls**, because the habitability sliders and the
+    economy bars are painted in `WM_PAINT` rather than laid out. What each page
+    *says* had to come from the race record instead, so what is reproduced is
+    the content and not the appearance.
+
+    Page 5 settled two things this project had wrong. `RaceWizardDlg5`'s
+    `WM_INITDIALOG` loops `i` from 0 to 13, giving checkbox `0x123 + i` the
+    caption from string `0x132 + i` and its state from **bit `i`** — so string
+    order, checkbox order and bit order are the same thing. From that:
+
+    - **bit 5 had no name at all** in `race::lrt`. It is Ultimate Recycling,
+      and nothing had needed it until a page had to list all fourteen;
+    - **`docs/formats/race-r.md`'s bit table was wrong from bit 6 down**, and
+      had been marked *confirmed* because the shipped AI races decoded to
+      "sensible, overlapping trait sets". Both orderings do that, so the
+      argument never discriminated. Read correctly, six of the seven stock
+      races share one paid-for advantage (IFE) funded by three that give points
+      back (NRSE, OBRM, LSP); the old reading gave every one of them
+      Regenerating Shields, an expensive advantage no stock AI would buy. The
+      engine's own constants were right all along, so **no behaviour changed** —
+      only the document, and a test now locks the decoding.
+
+66. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -2095,8 +2122,8 @@ disagree.
       scaling and shield absorption.
     - A loaded state file still cannot carry structural fleet changes back —
       the game does not either; the order log does.
-    - **The race wizard as a viewer**, which is what View (Race) opens in the
-      original; F8 goes to the Players screen instead.
+    - **The race creation wizard**, which File (Custom Race Wizard) opens;
+      this project has the read-only viewer only.
     - **`stars.ini` does not keep the scanner's settings** between sessions —
       the view, the overlays, the three filter masks and the coverage. Their
       defaults are honoured; the saving is not.

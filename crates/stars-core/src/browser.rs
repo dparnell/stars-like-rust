@@ -340,18 +340,11 @@ fn notes(who: &Builder<'_>, category: u16, item: usize) -> Vec<String> {
 }
 
 /// What a lesser racial trait is called.
+///
+/// The full table lives with the bits themselves; this only supplies the
+/// wording for a trait the table does not name, which no real one is.
 fn lrt_name(bit: u32) -> &'static str {
-    use crate::race::lrt;
-    match bit {
-        lrt::IFE => "Improved Fuel Efficiency",
-        lrt::TT => "Total Terraforming",
-        lrt::ARM => "Advanced Remote Mining",
-        lrt::ISB => "Improved Starbases",
-        lrt::NO_RAMSCOOPS => "No Ramscoop Engines",
-        lrt::OBRM => "Only Basic Remote Mining",
-        lrt::NO_ADV_SCANNER => "No Advanced Scanners",
-        _ => "that lesser racial trait",
-    }
+    crate::race::lrt::name(bit).unwrap_or("that lesser racial trait")
 }
 
 /// Step to the next or previous component, wrapping through the catalogue.

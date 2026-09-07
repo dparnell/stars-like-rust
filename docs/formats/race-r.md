@@ -130,33 +130,50 @@ unless noted; multi-byte integers are little-endian.
 | 3  | CA — Claim Adjuster        | 8 | AR — Alternate Reality      |
 | 4  | IS — Inner Strength        | 9 | JOAT — Jack of All Trades   |
 
-**Lesser Racial Traits** (offset 78, u16 bitfield). Bit positions **confirmed**
-against the seven shipped AI races (the default races mostly have `LRT = 0`, but
-Insectoid carries `0x2108` = ISB|NAS|MA, so it also helped):
+**Lesser Racial Traits** (offset 78, u16 bitfield). Bit positions **settled
+from the race wizard's own code**:
 
 | bit | LRT  | name                        | bit | LRT  | name                        |
 |----:|------|-----------------------------|----:|------|-----------------------------|
-| 0   | IFE  | Improved Fuel Efficiency    | 7   | OBRM | Only Basic Remote Mining    |
-| 1   | TT   | Total Terraforming          | 8   | NAS  | No Advanced Scanners        |
-| 2   | ARM  | Advanced Remote Mining      | 9   | LSP  | Low Starting Population     |
-| 3   | ISB  | Improved Starbases          | 10  | BET  | Bleeding Edge Technology    |
-| 4   | GR   | Generalized Research        | 11  | RS   | Regenerating Shields        |
-| 5   | UR   | Ultimate Recycling          | 12  | CE   | Cheap Engines               |
-| 6   | NRSE | No Ram Scoop Engines        | 13  | MA   | Mineral Alchemy             |
+| 0   | IFE  | Improved Fuel Efficiency    | 7   | NRSE | No Ram Scoop Engines        |
+| 1   | TT   | Total Terraforming          | 8   | CE   | Cheap Engines               |
+| 2   | ARM  | Advanced Remote Mining      | 9   | OBRM | Only Basic Remote Mining    |
+| 3   | ISB  | Improved Starbases          | 10  | NAS  | No Advanced Scanners        |
+| 4   | GR   | Generalized Research        | 11  | LSP  | Low Starting Population     |
+| 5   | UR   | Ultimate Recycling          | 12  | BET  | Bleeding Edge Technology    |
+| 6   | MA   | Mineral Alchemy             | 13  | RS   | Regenerating Shields        |
+
+> **This table was wrong from bit 6 down until the race viewer was built.** It
+> had been "confirmed" by observing that the shipped AI races decoded to
+> sensible, overlapping trait sets — but *both* orderings do that, so the
+> argument never discriminated. `RaceWizardDlg5`'s `WM_INITDIALOG` settles it
+> outright: it loops `i` from 0 to 13 giving checkbox `0x123 + i` the caption
+> from string `0x132 + i` and its state from **bit `i`**, so the string order,
+> the checkbox order and the bit order are one and the same. The fourteen names
+> sit at consecutive ids `0x0132`–`0x013f` in the order above.
+>
+> `stars_core::race::lrt` always had it right; only this table was wrong, so no
+> behaviour changed when it was corrected.
 
 The seven AI races decode to sensible, overlapping trait sets — all share the
 base IFE|OBRM|LSP — and no bit outside this 14-bit range is ever set, which is
 what confirms both the field location and the bit order:
 
-| race        | PRT  | LRT bits | traits                    |
-|-------------|------|---------:|---------------------------|
-| BIGPRO      | IS   | `0x0a89` | IFE, ISB, OBRM, LSP, RS   |
-| DEFENDER    | SD   | `0x0a81` | IFE, OBRM, LSP, RS        |
-| ECOBOOM     | CA   | `0x0a81` | IFE, OBRM, LSP, RS        |
-| FLEXIBLE    | JOAT | `0x0681` | IFE, OBRM, LSP, BET       |
-| JUMPERS     | IT   | `0x0a81` | IFE, OBRM, LSP, RS        |
-| OFFENDER    | WM   | `0x2a81` | IFE, OBRM, LSP, RS, MA    |
-| SNEAK       | SS   | `0x0a81` | IFE, OBRM, LSP, RS        |
+| race        | PRT  | LRT bits | traits                         |
+|-------------|------|---------:|--------------------------------|
+| BIGPRO      | IS   | `0x0a89` | IFE, ISB, NRSE, OBRM, LSP      |
+| DEFENDER    | SD   | `0x0a81` | IFE, NRSE, OBRM, LSP           |
+| ECOBOOM     | CA   | `0x0a81` | IFE, NRSE, OBRM, LSP           |
+| FLEXIBLE    | JOAT | `0x0681` | IFE, NRSE, OBRM, NAS           |
+| JUMPERS     | IT   | `0x0a81` | IFE, NRSE, OBRM, LSP           |
+| OFFENDER    | WM   | `0x2a81` | IFE, NRSE, OBRM, LSP, RS       |
+| SNEAK       | SS   | `0x0a81` | IFE, NRSE, OBRM, LSP           |
+
+Read this way the stock races make obvious sense: six of the seven share the
+same base of **one** paid-for advantage, IFE, funded by **three** disadvantages
+that give points back — NRSE, OBRM and LSP. Under the old ordering they all
+carried Regenerating Shields, an expensive advantage no stock AI would buy,
+which is the sort of thing a plausibility argument is bad at noticing.
 
 Each race's **PRT also matches its file name** (OFFENDER→WM, DEFENDER→SD,
 SNEAK→SS, JUMPERS→IT, FLEXIBLE→JOAT, ECOBOOM→CA eco, BIGPRO→IS), an independent
