@@ -47,8 +47,11 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         return;
     };
 
-    crate::views::toolbar::view(app, ui);
-    ui.separator();
+    // View (Toolbar) hides it, which the manual offers as a way to make room.
+    if app.toolbar_visible() {
+        crate::views::toolbar::view(app, ui);
+        ui.separator();
+    }
 
     let available = ui.available_size();
     let (response, painter) = ui.allocate_painter(available, Sense::click_and_drag());

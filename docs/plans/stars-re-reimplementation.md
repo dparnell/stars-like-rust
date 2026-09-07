@@ -2049,7 +2049,38 @@ disagree.
     one. The rest of what that menu holds in the original (Toolbar, Zoom,
     Window Layout, Race, Game Parameters) still has no home here.
 
-64. **What is still missing to call it playable.** Every waypoint task is now
+64. ~~**The rest of the View menu.**~~ **Done.** Spec in
+    `docs/ui/view-menu.md`. The menu resource gives the tree and the ids, and
+    the desktop frontend now has all seven entries in the original's order:
+    Toolbar, a rule, Find (Ctrl+F), Zoom, Window Layout, Player Colors, a
+    rule, Race (F8) and Game Parameters.
+
+    **Toolbar** hides the scanner's toolbar, which the manual offers as a way
+    to make room (p. 2-9). **Zoom** is a second way to the nine sizes the
+    toolbar's magnifying glass already offered. **Window Layout** sets
+    `iWindowLayout` from the menu id; the original is rearranging tiled child
+    windows and this frontend has one split to give, so each layout gets its
+    own panel identity and choosing one really moves it.
+
+    **Find** moves here from the ad-hoc box the toolbar row used to carry,
+    which is where the original has always had it — the previous commit that
+    replaced that toolbar had parked it in the menu bar for want of anywhere
+    better.
+
+    **Game Parameters** is new: what the game was set up with, and the victory
+    conditions under it, which is where the manual sends a player to read them
+    (p. 2-3). It all comes out of the `.xy`'s game block — and that turned up a
+    fact worth recording in `docs/formats/xy.md`: **the `.xy`'s `turn` counter
+    is written once and never updated.** All four years of the
+    `no-random-events` fixture carry `turn = 0`, so the year has to come from
+    the save's own header. A test asserted 2500 and got 2400, which is how it
+    surfaced.
+
+    **Race** (F8) is a stand-in and is named as one: the original opens the
+    race wizard read-only, and this project has no such viewer, so it goes to
+    the Players screen instead.
+
+65. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -2064,9 +2095,8 @@ disagree.
       scaling and shield absorption.
     - A loaded state file still cannot carry structural fleet changes back —
       the game does not either; the order log does.
-    - **The rest of the View menu**: Toolbar (hiding the toolbar), Zoom,
-      Window Layout, Race and Game Parameters. Player Colors is the only item
-      of it this frontend has.
+    - **The race wizard as a viewer**, which is what View (Race) opens in the
+      original; F8 goes to the Players screen instead.
     - **`stars.ini` does not keep the scanner's settings** between sessions —
       the view, the overlays, the three filter masks and the coverage. Their
       defaults are honoured; the saving is not.

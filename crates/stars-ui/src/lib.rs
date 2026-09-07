@@ -41,5 +41,5 @@ pub use app::{
     distance_text, fleet_arrow, App, Browser, DesignView, Designer, DesignerDrag, Editing,
     FilterCommand, FilterEntry, FindResult, OrbitRing, PartRow, Production, ResearchDialog,
     ScanObject, ScanOverlays, ScanView, SchematicSlot, Screen, Selection, StatusBar, SurveyBar,
-    SurveySubject, ARROW_SHEET,
+    SurveySubject, WindowLayout, ARROW_SHEET,
 };

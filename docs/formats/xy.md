@@ -59,9 +59,16 @@ byte-for-byte on all 210 `.xy` fixtures.
 | 12     | 2    | `mdStartDist`   | distance between players' homeworlds (1=close … 3=distant) |
 | 14     | 2    | `fDirty`        | not modelled                                  |
 | 16     | 2    | `wCrap`         | bit-flags (see below)                         |
-| 18     | 2    | `turn`          | year = `2400 + turn`                          |
+| 18     | 2    | `turn`          | year = `2400 + turn`, but **never updated** — see below |
 | 20     | 12   | `rgvc[0..12]`   | victory conditions (per-condition byte)       |
+
 | 32     | 32   | `szName`        | NUL-padded ASCII; `"A Barefoot JayWalk"`      |
+
+**`turn` is written once and left there.** The `.xy` carries the game's
+*setup*, not its state: all four years of the `no-random-events` fixture —
+2400, 2450, 2470 and 2500 — carry `turn = 0`. Anything that wants the current
+year must take it from a save's own header instead.
+
 
 `mdSize` and `mdDensity` together give the planet count exactly — see
 `../formulas/new-game.md`, where the formula is checked against all nine

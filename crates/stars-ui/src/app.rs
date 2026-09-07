@@ -278,6 +278,18 @@ pub struct App {
     pub selection: Selection,
     /// The scanner's zoom, `-4..=4` (`iScanZoom`). Zero is life size.
     pub scan_zoom: i8,
+    /// View (Toolbar), inverted so that the default is **shown**.
+    ///
+    /// `MANUAL.PDF` p. 2-9 offers it as a way to make room: "If the screen
+    /// still seems too cramped try hiding the Toolbar using the menu item View
+    /// (Toolbar). Most of the Toolbar functions are available" from the menus.
+    pub toolbar_hidden: bool,
+    /// View (Window Layout) — `iWindowLayout`, `0..=2`.
+    pub window_layout: WindowLayout,
+    /// Whether the Game Parameters window is open.
+    pub game_parameters: bool,
+    /// Whether the Find box is open (View (Find), Ctrl+F).
+    pub find_open: bool,
     /// Which of the scanner's six views is showing.
     pub scan_view: ScanView,
     /// The scanner's overlays and filters.
@@ -7055,5 +7067,130 @@ impl App {
     #[must_use]
     pub fn planet_names_visible(&self) -> bool {
         self.scan_overlays.names && self.scan_zoom > -2
+    }
+}
+
+// --- The View menu --------------------------------------------------------
+
+/// View (Window Layout): how much room the frame gives the scanner.
+///
+/// `iWindowLayout`, set straight from the menu id — `wParam - IDM_VIEW_LAYOUT_0`
+/// — after which the original resizes its tiles and refits the frame's
+/// children. The three are the same three the menu names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WindowLayout {
+    /// The most room for the map.
+    #[default]
+    Large = 0,
+    /// The middle one.
+    Medium = 1,
+    /// The least — the only one the original treats specially, passing
+    /// `iWindowLayout == 2` to `EnsureTileSize`.
+    Small = 2,
+}
+
+impl WindowLayout {
+    /// All three, in the menu's order.
+    pub const ALL: [WindowLayout; 3] = [
+        WindowLayout::Large,
+        WindowLayout::Medium,
+        WindowLayout::Small,
+    ];
+
+    /// The name the menu gives it.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            WindowLayout::Large => "Large Screen",
+            WindowLayout::Medium => "Medium Screen",
+            WindowLayout::Small => "Small Screen",
+        }
+    }
+}
+
+impl App {
+    /// Whether the scanner's toolbar is showing.
+    #[must_use]
+    pub fn toolbar_visible(&self) -> bool {
+        !self.toolbar_hidden
+    }
+
+    /// The game's settings, as the View (Game Parameters) window lists them.
+    ///
+    /// Everything here comes out of the `.xy`'s game block, which is the only
+    /// place it is kept — a `.mN` or `.hst` alone knows none of it, and the
+    /// list is then empty rather than invented.
+    #[must_use]
+    pub fn game_parameters_rows(&self) -> Vec<(String, String)> {
+        use stars_core::newgame::{Density, Size, StartDistance};
+        use stars_formats::game_flag;
+
+        let Some(info) = self.universe.as_ref().and_then(|u| u.game().ok()) else {
+            return Vec::new();
+        };
+        let class = |value: i16, names: &[&'static str]| -> String {
+            usize::try_from(value)
+                .ok()
+                .and_then(|index| names.get(index))
+                .map_or_else(|| format!("class {value}"), |name| (*name).to_string())
+        };
+        let sizes: Vec<&'static str> = Size::ALL.iter().map(|s| s.name()).collect();
+        let densities: Vec<&'static str> = Density::ALL.iter().map(|d| d.name()).collect();
+        let distances: Vec<&'static str> = StartDistance::ALL.iter().map(|d| d.name()).collect();
+
+        // The year comes from the **save**, not the universe file: the `.xy`
+        // is written once when the game is created and its turn counter stays
+        // at zero for ever after. All four years of the `no-random-events`
+        // fixture carry `turn = 0`, which is what settles it.
+        let year = self.game.as_ref().map_or(2400, stars_core::GameState::year);
+        let mut rows = vec![
+            ("Name".to_string(), info.name.clone()),
+            ("Year".to_string(), year.to_string()),
+            ("Universe size".to_string(), class(info.size, &sizes)),
+            ("Density".to_string(), class(info.density, &densities)),
+            (
+                "Player positions".to_string(),
+                class(info.start_distance, &distances),
+            ),
+            ("Players".to_string(), info.players.to_string()),
+            ("Planets".to_string(), info.planets.to_string()),
+        ];
+
+        // The options, named as the New Game wizard names them. Only the ones
+        // that are on are listed, which is how the original's page reads.
+        let options = [
+            (game_flag::EXTRA_FUEL, "Maximum minerals"),
+            (game_flag::SLOW_TECH, "Slower tech advances"),
+            (game_flag::SINGLE_PLAYER, "One human player"),
+            (game_flag::TUTORIAL, "Tutorial"),
+            (game_flag::AIS_BAND, "Computer players are handicapped"),
+            (game_flag::BBS_PLAY, "Public player (BBS) game"),
+            (game_flag::VIS_SCORES, "Public player scores"),
+            (game_flag::NO_RANDOM, "No random events"),
+            (game_flag::CLUMPING, "Clumped planets"),
+        ];
+        let on: Vec<&str> = options
+            .iter()
+            .filter(|(bit, _)| info.flags & bit != 0)
+            .map(|(_, name)| *name)
+            .collect();
+        rows.push((
+            "Options".to_string(),
+            if on.is_empty() {
+                "none".to_string()
+            } else {
+                on.join(", ")
+            },
+        ));
+        rows
+    }
+}
+
+impl App {
+    /// The victory conditions the Game Parameters window lists, which are the
+    /// Score sheet's own.
+    #[must_use]
+    pub fn game_parameters_conditions(&self) -> Vec<stars_core::scoresheet::Condition> {
+        self.score_conditions()
     }
 }

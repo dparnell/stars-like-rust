@@ -429,8 +429,67 @@ impl eframe::App for StarsApp {
 
         if self.app.game.is_some()
             && self.app.setup.is_none()
+            && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F))
+        {
+            self.app.find_open = true;
+        }
+
+        // View (Race) is F8 in the original.
+        if self.app.game.is_some()
+            && self.app.setup.is_none()
+            && ctx.input(|i| i.key_pressed(egui::Key::F8))
+        {
+            self.app.screen = Screen::Players;
+        }
+
+        if self.app.game.is_some()
+            && self.app.setup.is_none()
             && ctx.input(|i| i.key_pressed(egui::Key::F7))
         {
+            if self.app.find_open {
+                let mut open = true;
+                egui::Window::new("Find")
+                    .open(&mut open)
+                    .resizable(false)
+                    .default_width(260.0)
+                    .show(ctx, |ui| {
+                        ui.label(
+                            egui::RichText::new("A planet or fleet by name, or a fleet by number.")
+                                .small()
+                                .weak(),
+                        );
+                        let mut text = std::mem::take(&mut self.app.find_text);
+                        let field =
+                            ui.add(egui::TextEdit::singleline(&mut text).desired_width(220.0));
+                        field.request_focus();
+                        let entered =
+                            field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        self.app.find_text = text;
+                        let pressed = ui.button("Find").clicked();
+                        if entered || pressed {
+                            let typed = self.app.find_text.clone();
+                            self.app.find(&typed);
+                        }
+                    });
+                if !open {
+                    self.app.find_open = false;
+                }
+            }
+
+            if self.app.game_parameters {
+                let mut open = true;
+                egui::Window::new("Game Parameters")
+                    .open(&mut open)
+                    .resizable(true)
+                    .default_width(420.0)
+                    .show(ctx, |ui| {
+                        stars_ui::views::parameters::view(&mut self.app, ui);
+                    });
+                if !open {
+                    self.app.game_parameters = false;
+                }
+            }
+
             if self.app.relations_dialog.is_some() {
                 self.app.close_relations();
             } else {
@@ -553,7 +612,61 @@ impl eframe::App for StarsApp {
                 // The original's View menu. Only its one checkable item so
                 // far — the rest of what it holds (Toolbar, Zoom, Window
                 // Layout, Race, Game Parameters) has no home here yet.
+                // The View menu, in the original's own order: Toolbar, a
+                // rule, Find, the two submenus, Player Colors, a rule, then
+                // Race and Game Parameters.
                 ui.menu_button("View", |ui| {
+                    let playing = self.app.game.is_some() && self.app.setup.is_none();
+
+                    let mut shown = self.app.toolbar_visible();
+                    if ui
+                        .checkbox(&mut shown, "Toolbar")
+                        .on_hover_text(
+                            "Hide the scanner's toolbar to make room. Most of what \
+                             it does is on these menus too.",
+                        )
+                        .changed()
+                    {
+                        self.app.toolbar_hidden = !shown;
+                    }
+                    ui.separator();
+
+                    if ui
+                        .add_enabled(playing, egui::Button::new("Find…").shortcut_text("Ctrl+F"))
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.app.find_open = true;
+                    }
+
+                    ui.menu_button("Zoom", |ui| {
+                        for (step, percent) in stars_ui::App::ZOOM_PERCENT.iter().enumerate() {
+                            let zoom = i8::try_from(step).unwrap_or(4) - 4;
+                            if ui
+                                .selectable_label(self.app.scan_zoom == zoom, format!("{percent}%"))
+                                .clicked()
+                            {
+                                self.app.scan_zoom = zoom;
+                                ui.close_menu();
+                            }
+                        }
+                    });
+
+                    ui.menu_button("Window Layout", |ui| {
+                        for layout in stars_ui::WindowLayout::ALL {
+                            if ui
+                                .selectable_label(
+                                    self.app.window_layout == layout,
+                                    layout.name(),
+                                )
+                                .clicked()
+                            {
+                                self.app.window_layout = layout;
+                                ui.close_menu();
+                            }
+                        }
+                    });
+
                     let mut on = self.app.scan_overlays.player_colours;
                     if ui
                         .checkbox(&mut on, "Player Colors")
@@ -564,6 +677,26 @@ impl eframe::App for StarsApp {
                         .changed()
                     {
                         self.app.scan_overlays.player_colours = on;
+                    }
+                    ui.separator();
+
+                    if ui
+                        .add_enabled(playing, egui::Button::new("Race…").shortcut_text("F8"))
+                        .on_hover_text(
+                            "The original opens the race wizard read-only; this shows \
+                             the same race on the Players screen.",
+                        )
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.app.screen = Screen::Players;
+                    }
+                    if ui
+                        .add_enabled(playing, egui::Button::new("Game Parameters…"))
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.app.game_parameters = true;
                     }
                 });
                 ui.separator();
@@ -654,25 +787,6 @@ impl eframe::App for StarsApp {
                 // scanner's toolbar, so it sits in this frontend's own menu
                 // bar rather than cluttering the toolbar with a control the
                 // original does not have there.
-                if self.app.game.is_some() && self.app.setup.is_none() {
-                    ui.separator();
-                    let mut text = std::mem::take(&mut self.app.find_text);
-                    let field = ui.add(
-                        egui::TextEdit::singleline(&mut text)
-                            .desired_width(110.0)
-                            .hint_text("Find…  (Ctrl+F)"),
-                    );
-                    let entered =
-                        field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                    self.app.find_text = text;
-                    if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F)) {
-                        field.request_focus();
-                    }
-                    if entered {
-                        let typed = self.app.find_text.clone();
-                        self.app.find(&typed);
-                    }
-                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let mut status = self.app.status_line();
                     if self.app.dirty {
@@ -739,9 +853,23 @@ impl eframe::App for StarsApp {
         // its own order: the planet at the top, the messages under it, and the
         // survey at the bottom (`RefitFrameChildren`, `mdi.c`).
         if self.app.game.is_some() {
-            egui::SidePanel::left("planet")
+            // View (Window Layout) chooses how much of the frame the panes
+            // take, leaving the rest to the scanner. The original resizes its
+            // tiles and refits the frame's children; this frontend has one
+            // split to give, so it gives that.
+            let panes = match self.app.window_layout {
+                stars_ui::WindowLayout::Large => 320.0,
+                stars_ui::WindowLayout::Medium => 380.0,
+                stars_ui::WindowLayout::Small => 440.0,
+            };
+            // Each layout gets its own panel identity, so choosing one really
+            // moves the split — egui remembers a panel's width, and a shared
+            // id would leave the first layout's width in place for ever — and
+            // so that a width dragged out by hand is remembered per layout.
+            egui::SidePanel::left(egui::Id::new(("planet", self.app.window_layout as u8)))
                 .resizable(true)
-                .default_width(380.0)
+                .default_width(panes)
+                .width_range(240.0..=640.0)
                 .show(ctx, |ui| {
                     egui::TopBottomPanel::bottom("messages")
                         .resizable(true)
