@@ -2107,7 +2107,35 @@ disagree.
       engine's own constants were right all along, so **no behaviour changed** —
       only the document, and a test now locks the decoding.
 
-66. **What is still missing to call it playable.** Every waypoint task is now
+66. ~~**The Custom Race Wizard.**~~ **Done.** File (Custom Race Wizard) opens
+    the same six pages with everything editable, with the advantage-points
+    counter recomputed on every change and drawn in red when the race is over
+    budget — which is the whole point of the dialog. Finish writes a `.rN`
+    file. Spec in `docs/ui/race-wizard.md`.
+
+    Three things came out of it:
+
+    - **The seven predefined races are `vrgplrDef` (`1120:0da2`)**, a
+      `PLAYER[7]` in the data segment, now transcribed in `stars_core::presets`
+      — the eight buttons on page 1 are these seven plus `Custom`. The
+      transcription is checked the strongest way available: writing each preset
+      out under the header its shipped `.r1` file carries reproduces that file
+      **byte for byte**.
+    - **The `.rN` writer**, `stars_core::save::race_file`. All seven shipped
+      race files are written back byte for byte from what was read out of them.
+    - **Byte 81 bit 6 was `TBD` in `docs/formats/race-r.md`** and is
+      `ibitRaceAIPlayer`. `PLAYER.grbitAttr` is a `uint32_t` at `+0x4e`, so the
+      trait word at offset 78 and the "checkbox" byte at 81 are one field and
+      the checkboxes are simply its top bits. Dropping bit 30 was the one thing
+      that stopped `random.r1` — the template the computer players are built
+      from, and the only file that carries it — re-encoding exactly.
+
+    A bug in the desktop frontend turned up while wiring the window in: the
+    Find, Race and Game Parameters windows had been nested inside the **F7 key
+    handler**, so each drew only on the frame that key was pressed. They are
+    modeless windows and now draw every frame, alongside the wizard.
+
+67. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

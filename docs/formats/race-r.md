@@ -1,11 +1,11 @@
 # Format: `.rN` — race definition
 
-- **Status:** container **verified byte-for-byte**; race record **largely
-
-  decoded** (habitability, growth, economy, research %, per-field research cost,
-  PRT, LRTs, checkbox flags, **singular + plural names**) — a couple of flag bits
-  remain; a typed read-only view is implemented
-  (`stars-formats::race::RaceRecord`)
+- **Status:** **verified** — container and race record both. Every shipped race
+  file is decoded (habitability, growth, economy, research %, per-field research
+  cost, PRT, LRTs, checkbox flags, **singular + plural names**) and **written
+  back byte for byte**, which is what closed the last unidentified flag bit.
+  Read and written through `stars-formats::race::RaceRecord` and
+  `stars_core::save::race_file`
 - **Reference used:** TotalHost `StarsRace.pl` (Rick Steeves), which lays out the
   full type-6 player/race record field-by-field; its offsets were cross-checked
   against the fixtures below and drive the typed decoder
@@ -95,7 +95,7 @@ unless noted; multi-byte integers are little-endian.
 | 76     | 1    | **PRT**              | primary racial trait: `0`=HE `1`=SS `2`=WM `3`=CA `4`=IS `5`=SD `6`=PP `7`=IT `8`=AR `9`=JOAT |
 | 77     | 1    | (unknown)            | always `0` in samples; possibly a second PRT byte (per `StarsRace.pl`)   |
 | 78     | 2    | **LRT bitfield**     | lesser racial traits, little-endian u16 (bit layout below); Humanoid = `0` |
-| 81     | 1    | checkbox flags       | **bit 5** = *expensive tech starts at level 3* (Nucleoid `0x20`), **bit 7** = *factories cost 1 less germ.* (Rabbitoid `0x80`); bit 6 seen set on Random (`0x40`), TBD |
+| 81     | 1    | checkbox flags       | the **high byte of `PLAYER.grbitAttr`** (see below): **bit 5** = *expensive tech starts at level 3* (`ibitRaceTech3`, Nucleotid `0x20`), **bit 6** = `ibitRaceAIPlayer` (Random `0x40`), **bit 7** = *factories cost 1 less germ.* (`ibitRaceCheapFact`, Rabbitoid `0x80`) |
 | 82     | 2    | MT items             | u16; player-block field (`0` in a race file)                            |
 | 112    | var  | player relations     | `len = d[112]`, then one byte per player; `0`-length in a race file; the names follow |
 | var    | var  | race names           | two length-prefixed, nibble-packed strings (singular + plural); see below |
@@ -130,8 +130,22 @@ unless noted; multi-byte integers are little-endian.
 | 3  | CA — Claim Adjuster        | 8 | AR — Alternate Reality      |
 | 4  | IS — Inner Strength        | 9 | JOAT — Jack of All Trades   |
 
-**Lesser Racial Traits** (offset 78, u16 bitfield). Bit positions **settled
-from the race wizard's own code**:
+**Lesser Racial Traits** (offset 78, u16 bitfield). This is the low half of
+`PLAYER.grbitAttr`, a `uint32_t` at `+0x4e`, so offsets 78 to 81 are one field
+and the "checkbox" byte at 81 holds its top eight bits:
+
+| bit | name                | where it appears                              |
+|----:|---------------------|-----------------------------------------------|
+| 29  | `ibitRaceTech3`     | wizard page 6, *expensive tech starts at 3*   |
+| 30  | `ibitRaceAIPlayer`  | not a wizard setting; marks a computer race   |
+| 31  | `ibitRaceCheapFact` | wizard page 3, *factories cost 1kT less germ* |
+
+`ibitRaceAIPlayer` is set on exactly one shipped race file, `random.r1` — the
+template the New Game dialog's random players are built from. It was `TBD` here
+until the writer was checked against the shipped files: dropping it was the one
+thing that stopped `random.r1` re-encoding byte for byte.
+
+Bit positions for the fourteen **settled from the race wizard's own code**:
 
 | bit | LRT  | name                        | bit | LRT  | name                        |
 |----:|------|-----------------------------|----:|------|-----------------------------|
@@ -221,12 +235,27 @@ exposes `singular_name` / `plural_name`.
   and their in-game meaning are now taken from `StarsRace.pl`, but the raw byte →
   displayed-rate conversions (e.g. how `resource/colonist` maps to "1 per 1000")
   still want an in-game cross-check.
-- The `spend leftover points` selector (offset 69) — the raw byte is exposed, but
-  the full enumeration of values is not yet mapped.
+- ~~The `spend leftover points` selector (offset 69)~~ — mapped: `0` surface
+  minerals, `1` mineral concentrations, `2` mines, `3` factories, `4` defences
+  (strings `0x0106`–`0x010a`, the combo on wizard page 1). What each buys is in
+  `docs/formulas/new-game.md`.
 - The player-block-only fields (homeworld, rank, password, tech levels/points,
   resource priority, MT items) are documented from `StarsRace.pl` but not yet
   decoded here — they are all `0` in a `.rN` file and belong to the `.mN`/`.hst`
   player-block work.
+
+## Writing one
+
+`stars_core::save::race_file` builds a race file from a `Race`: a plaintext
+header (`FileType::Race`, turn 1, player 31), the type-6 block through
+`PlayerRecord::encode`, and an empty footer. The game id seeds the cipher and
+nothing else — no game owns a race file — so it is folded from the two names,
+which keeps writing the same race twice byte-for-byte stable.
+
+**All seven shipped race files are reproduced byte for byte** from what was
+read out of them, and so are the seven transcribed presets in
+`stars_core::presets` when written under the header their file carries. See
+`crates/stars-core/tests/race_writing.rs`.
 
 ## Derived test vectors
 

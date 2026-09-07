@@ -53,13 +53,22 @@ pub const RESEARCH_COST_OFFSET: usize = 70;
 /// Offset of the primary-racial-trait byte.
 pub const PRT_OFFSET: usize = 76;
 /// Offset of the lesser-racial-trait bitfield (little-endian `u16`).
+///
+/// It is the low half of `PLAYER.grbitAttr`, a `uint32_t` at `+0x4e` — so the
+/// "checkbox" byte at [`CHECKBOX_OFFSET`] is the same field's high byte and
+/// the flags there are simply bits 24 to 31 of it.
 pub const LRT_OFFSET: usize = 78;
-/// Offset of the checkbox-flags byte (offset 81). Only meaningful in a
-/// `fullData` record.
+/// Offset of the checkbox-flags byte (offset 81) — the high byte of
+/// `PLAYER.grbitAttr`. Only meaningful in a `fullData` record.
 pub const CHECKBOX_OFFSET: usize = 81;
-/// Checkbox bit 5 — *expensive tech starts at level 3*.
+/// Checkbox bit 5 — *expensive tech starts at level 3* (`ibitRaceTech3`, 29).
 pub const CHECKBOX_EXPENSIVE_TECH_AT_3: u8 = 1 << 5;
-/// Checkbox bit 7 — *factories cost 1 less germanium to build*.
+/// Checkbox bit 6 — the race is played by the computer (`ibitRaceAIPlayer`,
+/// 30). Not a wizard setting: it marks the templates the AI opponents are
+/// built from, and is the one bit set in the shipped `random.r1`.
+pub const CHECKBOX_AI_PLAYER: u8 = 1 << 6;
+/// Checkbox bit 7 — *factories cost 1 less germanium to build*
+/// (`ibitRaceCheapFact`, 31).
 pub const CHECKBOX_FACTORIES_COST_1_LESS_GERM: u8 = 1 << 7;
 /// Offset of the flags byte that carries the `fullData` marker (bit 2). It is
 /// set for `.rN` race files and full player blocks, where the names live at the
@@ -333,6 +342,11 @@ pub struct RaceRecord {
     pub lrt_bits: u16,
     /// Checkbox: *expensive tech starts at level 3* (offset 81, bit 5).
     pub expensive_tech_starts_at_level_3: bool,
+    /// `ibitRaceAIPlayer` (offset 81, bit 6): the race is one the computer
+    /// plays. The wizard does not offer it; the shipped `random.r1` — the
+    /// template the AI opponents are drawn from — is the one fixture that
+    /// carries it.
+    pub ai_player: bool,
     /// Checkbox: *factories cost 1 less germanium to build* (offset 81, bit 7).
     pub factories_cost_one_less_germanium: bool,
     /// Singular race name (e.g. `"Humanoid"`), decoded from the packed
@@ -404,6 +418,7 @@ impl RaceRecord {
             prt: Prt::from_id(data[PRT_OFFSET]),
             lrt_bits: u16::from_le_bytes([data[LRT_OFFSET], data[LRT_OFFSET + 1]]),
             expensive_tech_starts_at_level_3: checkbox & CHECKBOX_EXPENSIVE_TECH_AT_3 != 0,
+            ai_player: checkbox & CHECKBOX_AI_PLAYER != 0,
             factories_cost_one_less_germanium: checkbox & CHECKBOX_FACTORIES_COST_1_LESS_GERM != 0,
             singular_name: singular,
             plural_name: plural,
@@ -495,9 +510,14 @@ pub fn write_race_fields(race: &RaceRecord, data: &mut [u8]) {
     data[LRT_OFFSET..LRT_OFFSET + 2].copy_from_slice(&race.lrt_bits.to_le_bytes());
 
     let mut checkbox = data[CHECKBOX_OFFSET]
-        & !(CHECKBOX_EXPENSIVE_TECH_AT_3 | CHECKBOX_FACTORIES_COST_1_LESS_GERM);
+        & !(CHECKBOX_EXPENSIVE_TECH_AT_3
+            | CHECKBOX_AI_PLAYER
+            | CHECKBOX_FACTORIES_COST_1_LESS_GERM);
     if race.expensive_tech_starts_at_level_3 {
         checkbox |= CHECKBOX_EXPENSIVE_TECH_AT_3;
+    }
+    if race.ai_player {
+        checkbox |= CHECKBOX_AI_PLAYER;
     }
     if race.factories_cost_one_less_germanium {
         checkbox |= CHECKBOX_FACTORIES_COST_1_LESS_GERM;

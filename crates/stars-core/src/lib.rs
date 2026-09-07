@@ -70,6 +70,7 @@ pub mod parts;
 pub mod patrol;
 pub mod planet;
 pub mod population;
+pub mod presets;
 pub mod production;
 pub mod race;
 pub mod relations;

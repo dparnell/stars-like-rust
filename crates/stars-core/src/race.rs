@@ -83,17 +83,23 @@ impl Prt {
     ];
 
     /// The name the game shows.
+    ///
+    /// The captions of the ten radio buttons on page 4 of the race wizard
+    /// (`IDD_RACE_WIZARD_4`, ids `0x10f`–`0x118`), hyphens and all. `It` is
+    /// **Interstellar Traveler**; this table called it "Inner Tech", which is
+    /// this project's own shorthand for the trait and not a name the game ever
+    /// shows.
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
-            Prt::He => "Hyper Expansion",
+            Prt::He => "Hyper-Expansion",
             Prt::Ss => "Super Stealth",
             Prt::Wm => "War Monger",
             Prt::Ca => "Claim Adjuster",
-            Prt::Is => "Inner Strength",
+            Prt::Is => "Inner-Strength",
             Prt::Sd => "Space Demolition",
             Prt::Pp => "Packet Physics",
-            Prt::It => "Inner Tech",
+            Prt::It => "Interstellar Traveler",
             Prt::Ar => "Alternate Reality",
             Prt::Joat => "Jack of All Trades",
         }
@@ -167,6 +173,12 @@ pub mod lrt {
     pub const REGENERATING_SHIELDS: u32 = 13;
     /// Expensive tech starts at level 3.
     pub const TECH3: u32 = 29;
+    /// `ibitRaceAIPlayer`: the race is one the computer plays.
+    ///
+    /// Not a trait and not a wizard setting — it marks the templates the AI
+    /// opponents are built from, and is the only bit the shipped `random.r1`
+    /// carries.
+    pub const AI_PLAYER: u32 = 30;
     /// Factories cost one less germanium.
     pub const CHEAP_FACT: u32 = 31;
 

@@ -291,6 +291,8 @@ pub struct App {
     /// The race viewer, while it is open: whose race, and which of the six
     /// pages is showing.
     pub race_viewer: Option<(usize, usize)>,
+    /// The Custom Race Wizard, while it is open.
+    pub race_wizard: Option<RaceWizard>,
     /// Whether the Find box is open (View (Find), Ctrl+F).
     pub find_open: bool,
     /// Which of the scanner's six views is showing.
@@ -3585,7 +3587,7 @@ fn comma_format(value: i64) -> String {
 ///
 /// Gravity runs from 0.12g to 8g on a curve, temperature from -200°C to 200°C
 /// and radiation from 0 to 100mR, all from a click in `0..=100`.
-fn env_text(variable: usize, clicks: i8) -> String {
+pub(crate) fn env_text(variable: usize, clicks: i8) -> String {
     let clicks = i32::from(clicks);
     match variable {
         // `PszCalcGravity` (`planet.c`): the curve is two straight pieces
@@ -7408,3 +7410,300 @@ impl App {
         self.race_viewer = Some((player, page));
     }
 }
+
+// --- The Custom Race Wizard -----------------------------------------------
+
+/// A race being designed.
+///
+/// `RaceCreationWizard` (`10e0:0000`), File (Custom Race Wizard). The same six
+/// pages the viewer shows, with the settings editable and the **advantage
+/// points** counted as they change — which is what the wizard is really for:
+/// every choice spends or refunds from one budget, and a race is only legal
+/// when what is left is not negative.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RaceWizard {
+    /// The race being built.
+    pub race: stars_core::Race,
+    /// Its singular name.
+    pub name: String,
+    /// Its plural name.
+    pub plural: String,
+    /// Which race emblem it wears (`PLAYER.iPlrBmp`, 0..=31).
+    pub emblem: u8,
+    /// The turn password, as typed. Stored as a salt, never as itself — see
+    /// [`stars_formats::password`] — so this is only ever what was typed into
+    /// this wizard, and an existing race's password cannot be shown back.
+    pub password: String,
+    /// Which of the six pages is showing.
+    pub page: usize,
+}
+
+impl App {
+    /// Open the wizard on a fresh Humanoid, which is where the original starts.
+    pub fn open_race_wizard(&mut self) {
+        self.race_wizard = Some(RaceWizard {
+            race: stars_core::Race::humanoid(),
+            name: String::new(),
+            plural: String::new(),
+            emblem: 0,
+            password: String::new(),
+            page: 0,
+        });
+        self.race_wizard_load_preset(0);
+    }
+
+    /// Open it on a copy of a player's race.
+    pub fn open_race_wizard_from(&mut self, player: usize) {
+        let Some(record) = self.game.as_ref().and_then(|game| game.players.get(player)) else {
+            return;
+        };
+        self.race_wizard = Some(RaceWizard {
+            race: record.race.clone(),
+            name: record.name.clone(),
+            plural: record.plural_name.clone(),
+            emblem: record.logo,
+            password: String::new(),
+            page: 0,
+        });
+    }
+
+    /// Load one of the seven predefined races, as the buttons on page 1 do.
+    ///
+    /// The race and its emblem are replaced; the **names only if the race is
+    /// still called after one of the seven**. `RaceWizardDlg1` compares the
+    /// name box against the seven strings before refilling it, so a name the
+    /// player typed survives pressing the buttons.
+    pub fn race_wizard_load_preset(&mut self, index: usize) {
+        let Some(preset) = stars_core::presets::preset(index) else {
+            return;
+        };
+        let Some(wizard) = self.race_wizard.as_mut() else {
+            return;
+        };
+        let stock = wizard.name.is_empty()
+            || stars_core::presets::ALL
+                .iter()
+                .any(|other| other.name == wizard.name);
+        wizard.race = preset.race.clone();
+        wizard.emblem = preset.emblem;
+        if stock {
+            wizard.name = preset.name.to_string();
+            wizard.plural = preset.plural.to_string();
+        }
+    }
+
+    /// Which of the eight buttons on page 1 is checked.
+    ///
+    /// They are radio buttons, not commands: the original works out which one
+    /// by comparing the race being designed against each entry of `vrgplrDef`
+    /// (`__fmemcmp` over the first `0x80` bytes of the player struct, which is
+    /// everything but the two names), and checks `Custom` when none matches.
+    #[must_use]
+    pub fn race_wizard_selected_preset(&self) -> Option<usize> {
+        let wizard = self.race_wizard.as_ref()?;
+        stars_core::presets::ALL
+            .iter()
+            .position(|preset| preset.race == wizard.race && preset.emblem == wizard.emblem)
+    }
+
+    /// Whether the wizard can move off page 1.
+    ///
+    /// It cannot while `Random` is chosen — the original disables `Next >` for
+    /// that one button — because a random race is not one there is anything to
+    /// edit.
+    #[must_use]
+    pub fn race_wizard_can_go_on(&self) -> bool {
+        let random = stars_core::presets::ALL.len() - 1;
+        self.race_wizard_selected_preset() != Some(random)
+    }
+
+    /// The window caption, which the original numbers: string `0x010e`,
+    /// `"Custom Race Wizard - Step %d of 6"`.
+    #[must_use]
+    pub fn race_wizard_title(&self) -> String {
+        let step = self.race_wizard.as_ref().map_or(1, |w| w.page + 1);
+        format!("Custom Race Wizard - Step {step} of {RACE_WIZARD_PAGES}")
+    }
+
+    /// Choose the race emblem.
+    pub fn race_wizard_set_emblem(&mut self, emblem: u8) {
+        if let Some(wizard) = self.race_wizard.as_mut() {
+            wizard.emblem = emblem & 0x1F;
+        }
+    }
+
+    /// Choose what the leftover advantage points are spent on: `0` surface
+    /// minerals, `1` concentrations, `2` mines, `3` factories, `4` defences.
+    pub fn race_wizard_set_leftover(&mut self, choice: i16) {
+        if let Some(wizard) = self.race_wizard.as_mut() {
+            wizard.race.attrs[stars_core::race::RaceStat::UseLeftover as usize] =
+                choice.clamp(0, 4);
+        }
+    }
+
+    /// The race as a `.rN` file, ready to write.
+    ///
+    /// `None` while the wizard is closed; an error only if a name is too long
+    /// for the length byte that frames it.
+    pub fn race_wizard_file(&self) -> Option<stars_formats::Result<Vec<u8>>> {
+        let wizard = self.race_wizard.as_ref()?;
+        Some(stars_core::save::race_file(
+            &wizard.race,
+            &wizard.name,
+            &wizard.plural,
+            wizard.emblem,
+        ))
+    }
+
+    /// What the wizard refuses to save, in the original's own words (string
+    /// `0x0515`), or `None` when the race is legal.
+    #[must_use]
+    pub fn race_wizard_refusal(&self) -> Option<String> {
+        let points = self.race_wizard_points();
+        (points < 0).then(|| {
+            format!(
+                "Your advantage points are currently in the hole by {} points. \
+                 You cannot save a race definition which has a negative balance.",
+                -points
+            )
+        })
+    }
+
+    /// Close it, throwing the race away.
+    pub fn close_race_wizard(&mut self) {
+        self.race_wizard = None;
+    }
+
+    /// Turn a page. Like the viewer's, these stop at the ends.
+    pub fn race_wizard_page(&mut self, forward: bool) {
+        let Some(wizard) = self.race_wizard.as_mut() else {
+            return;
+        };
+        wizard.page = if forward {
+            (wizard.page + 1).min(RACE_WIZARD_PAGES - 1)
+        } else {
+            wizard.page.saturating_sub(1)
+        };
+    }
+
+    /// What the race being designed has left to spend.
+    ///
+    /// Negative means it costs more than the budget allows, and the original
+    /// draws the figure in red when it is — see
+    /// [`stars_core::advantage_points`].
+    #[must_use]
+    pub fn race_wizard_points(&self) -> i16 {
+        self.race_wizard
+            .as_ref()
+            .map_or(0, |wizard| stars_core::advantage_points(&wizard.race))
+    }
+
+    /// Whether the race as it stands could be played.
+    #[must_use]
+    pub fn race_wizard_is_legal(&self) -> bool {
+        self.race_wizard_points() >= 0
+    }
+
+    /// Choose the primary racial trait.
+    pub fn race_wizard_set_prt(&mut self, prt: stars_core::race::Prt) {
+        if let Some(wizard) = self.race_wizard.as_mut() {
+            wizard.race.attrs[stars_core::race::RaceStat::MajorAdv as usize] = prt as i16;
+        }
+    }
+
+    /// Turn one lesser racial trait on or off.
+    pub fn race_wizard_toggle_lrt(&mut self, bit: u32) {
+        if let Some(wizard) = self.race_wizard.as_mut() {
+            wizard.race.lrt_bits ^= 1 << bit;
+        }
+    }
+
+    /// Set one environment axis, or make the race immune to it.
+    ///
+    /// Immunity is stored as a **negative upper bound**, which is how the
+    /// simulation recognises it, so switching it on and off has to put a real
+    /// range back rather than leave the axis half-set.
+    pub fn race_wizard_set_immune(&mut self, axis: usize, immune: bool) {
+        let Some(wizard) = self.race_wizard.as_mut() else {
+            return;
+        };
+        if axis > 2 {
+            return;
+        }
+        if immune {
+            wizard.race.env_max[axis] = -1;
+        } else if wizard.race.env_max[axis] < 0 {
+            // Back to the middle third, which is where a fresh axis sits.
+            wizard.race.env_center[axis] = 50;
+            wizard.race.env_min[axis] = 35;
+            wizard.race.env_max[axis] = 65;
+        }
+    }
+
+    /// Move one bound of an environment axis, in clicks.
+    ///
+    /// The three are kept in order — low, centre, high — because a race whose
+    /// bounds crossed would have a habitable range of nothing.
+    pub fn race_wizard_set_env(&mut self, axis: usize, which: usize, clicks: i8) {
+        let Some(wizard) = self.race_wizard.as_mut() else {
+            return;
+        };
+        if axis > 2 || wizard.race.env_max[axis] < 0 {
+            return;
+        }
+        let clicks = clicks.clamp(0, 100);
+        match which {
+            0 => wizard.race.env_min[axis] = clicks.min(wizard.race.env_center[axis]),
+            1 => {
+                wizard.race.env_center[axis] =
+                    clicks.clamp(wizard.race.env_min[axis], wizard.race.env_max[axis]);
+            }
+            _ => wizard.race.env_max[axis] = clicks.max(wizard.race.env_center[axis]),
+        }
+    }
+
+    /// Set the maximum growth rate, which the points model clamps to `1..=20`.
+    pub fn race_wizard_set_growth(&mut self, percent: i8) {
+        if let Some(wizard) = self.race_wizard.as_mut() {
+            wizard.race.pct_ideal_growth = percent.clamp(1, 20);
+        }
+    }
+
+    /// Set one economy figure.
+    ///
+    /// The original's sliders have bounds this project has not recovered, so
+    /// the only limits here are the ones the points model itself imposes — it
+    /// stops counting colonists-per-resource above 25 — and what the file can
+    /// store. What really constrains a race is the budget, which the counter
+    /// shows.
+    pub fn race_wizard_set_stat(&mut self, stat: stars_core::race::RaceStat, value: i16) {
+        if let Some(wizard) = self.race_wizard.as_mut() {
+            wizard.race.attrs[stat as usize] = value.clamp(1, 100);
+        }
+    }
+
+    /// Set what one research field costs: `0` extra, `1` standard, `2` less.
+    pub fn race_wizard_set_research(&mut self, field: usize, setting: i16) {
+        if let Some(wizard) = self.race_wizard.as_mut() {
+            if field < 6 {
+                wizard.race.attrs[stars_core::race::RaceStat::TechBonus1 as usize + field] =
+                    setting.clamp(0, 2);
+            }
+        }
+    }
+
+    /// Turn the two checkbox traits on or off — they live far up the trait
+    /// word and belong to other pages than the fourteen.
+    pub fn race_wizard_set_flag(&mut self, bit: u32, on: bool) {
+        if let Some(wizard) = self.race_wizard.as_mut() {
+            if on {
+                wizard.race.lrt_bits |= 1 << bit;
+            } else {
+                wizard.race.lrt_bits &= !(1 << bit);
+            }
+        }
+    }
+}
+
+/// How many pages the wizard has.
+pub const RACE_WIZARD_PAGES: usize = 6;

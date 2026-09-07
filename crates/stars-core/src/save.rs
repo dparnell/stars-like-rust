@@ -198,6 +198,10 @@ fn all_planets(state: &GameState) -> impl Iterator<Item = &Planet> {
 /// The player number a shared file carries.
 const HOST_PLAYER: u8 = 31;
 
+/// The player id a race-only block carries, in place of a 0-based player
+/// number: a race in a `.rN` file belongs to nobody yet.
+const RACE_ONLY_PLAYER: u8 = 0xFF;
+
 /// The two-byte footer every `.hst` and `.mN` in the fixtures ends with.
 fn footer(_state: &GameState) -> Vec<u8> {
     vec![0, 0]
@@ -340,6 +344,7 @@ fn race_record(race: &Race, player_id: u8) -> stars_formats::RaceRecord {
         lrt_bits: (race.lrt_bits & 0x3FFF) as u16,
         expensive_tech_starts_at_level_3: race.has_lrt(crate::race::lrt::TECH3),
         factories_cost_one_less_germanium: race.has_lrt(crate::race::lrt::CHEAP_FACT),
+        ai_player: race.has_lrt(crate::race::lrt::AI_PLAYER),
         singular_name: String::new(),
         plural_name: String::new(),
     }
@@ -895,4 +900,108 @@ fn push_battle_plans(state: &GameState, body: &mut Vec<Block>, player: usize) ->
         body.push(block(30, record.encode()?)?);
     }
     Ok(())
+}
+
+/// Turn a race back into the record a `.rN` file is written from.
+///
+/// The inverse of [`crate::load::race_from_record`], and the direction the
+/// race wizard needs: it edits a [`Race`] and has to hand a record to
+/// [`stars_formats::write_race_fields`]. It is the same conversion a player
+/// block uses, with the names filled in and the race-only player marker in
+/// place of a player id.
+///
+/// Two fields do not survive the round trip because [`Race`] does not carry
+/// them — the research percentage and the `full_data` flag — so they are set
+/// to what a freshly written race file holds: 15% and true.
+#[must_use]
+pub fn record_from_race(
+    race: &crate::Race,
+    singular: &str,
+    plural: &str,
+) -> stars_formats::RaceRecord {
+    let mut record = race_record(race, RACE_ONLY_PLAYER);
+    record.singular_name = singular.to_string();
+    record.plural_name = plural.to_string();
+    record
+}
+
+/// Write a race out as a `.rN` file.
+///
+/// A race file is the smallest thing this crate writes: a plaintext header, one
+/// encrypted type-6 block holding the race record, and an empty footer — the
+/// three-block shape every fixture has (`docs/formats/race-r.md`). The header
+/// is stamped as [`FileType::Race`], turn 1, player [`HOST_PLAYER`] (31, the
+/// "no specific player" marker), exactly as the seven shipped races are.
+///
+/// The block is a player block with the race in it, so it goes out through
+/// [`PlayerRecord::encode`]: the counts are all zero and the relations table is
+/// empty, which is what a race that has not joined a game yet has to say.
+/// `logo` is the emblem index the wizard picked (0..=31).
+///
+/// The game id seeds the cipher and is otherwise unused in a race file — no
+/// game owns it yet — so it is derived from the names to keep writing the same
+/// race twice byte-for-byte stable.
+///
+/// # Errors
+/// [`FormatError::Malformed`] if a name is too long for its length byte or the
+/// record does not fit its block.
+pub fn race_file(race: &crate::Race, singular: &str, plural: &str, logo: u8) -> Result<Vec<u8>> {
+    const RACE_TURN: u16 = 1;
+    let game_id = name_seed(singular, plural);
+    let header = FileHeader::new(
+        game_id,
+        FileType::Race,
+        HOST_PLAYER,
+        RACE_TURN,
+        salt_for(game_id, HOST_PLAYER, RACE_TURN as i16),
+    );
+    let record = record_from_race(race, singular, plural);
+    race_file_with_header(&header, &record, logo)
+}
+
+/// Write a race record out as a `.rN` file under a header of the caller's own.
+///
+/// The body of [`race_file`], split out so a test can rebuild a shipped race
+/// file under the header that file carries and compare the result byte for
+/// byte — everything after the header is this function's to produce.
+///
+/// # Errors
+/// As [`race_file`].
+pub fn race_file_with_header(
+    header: &FileHeader,
+    record: &stars_formats::RaceRecord,
+    logo: u8,
+) -> Result<Vec<u8>> {
+    let player = PlayerRecord {
+        player_number: record.player_id,
+        ship_design_count: 0,
+        starbase_design_count: 0,
+        planets: 0,
+        fleets: 0,
+        logo: logo & 0x1F,
+        full_data: true,
+        // Offset 7 is `0` in every shipped race file: none of the player flags
+        // (human, AI skill) mean anything until the race joins a game.
+        flags_byte: 0,
+        player_relations: Vec::new(),
+        race: Some(record.clone()),
+        singular_name: record.singular_name.clone(),
+        plural_name: record.plural_name.clone(),
+        research: None,
+        default_queue: None,
+        password: None,
+        trader_parts: None,
+        fixed: Vec::new(),
+        trailing: Vec::new(),
+    };
+    StarsFile::build(header, &[block(6, player.encode()?)?], Vec::new())
+}
+
+/// A stable game id for a race file, folded from its two names.
+fn name_seed(singular: &str, plural: &str) -> u32 {
+    let mut seed: u32 = 0x9E37_79B9;
+    for byte in singular.bytes().chain([0]).chain(plural.bytes()) {
+        seed = seed.rotate_left(5) ^ u32::from(byte).wrapping_mul(0x0100_0193);
+    }
+    seed
 }

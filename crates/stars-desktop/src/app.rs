@@ -215,6 +215,49 @@ impl StarsApp {
         }
     }
 
+    /// Write the race the wizard is holding, and close it.
+    ///
+    /// The original's own file filter is `"Stars! Race Files|*.R*|"` (string
+    /// `0x0531`) and it names the file after the race.
+    fn save_race(&mut self) {
+        let Some(built) = self.app.race_wizard_file() else {
+            return;
+        };
+        let bytes = match built {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                self.app.error = Some(e.to_string());
+                return;
+            }
+        };
+        let suggestion = self
+            .app
+            .race_wizard
+            .as_ref()
+            .map(|w| format!("{}.r1", sanitise(&w.name)))
+            .unwrap_or_else(|| "race.r1".into());
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Save the race")
+            .set_file_name(suggestion)
+            .add_filter("Stars! race files", &["r1"])
+            .save_file()
+        else {
+            return;
+        };
+        match std::fs::write(&path, bytes) {
+            Ok(()) => {
+                self.app.error = None;
+                self.app.close_race_wizard();
+            }
+            // The original's own words for this, string `0x010b`.
+            Err(e) => {
+                self.app.error = Some(format!(
+                    "Stars! was unable to save your race data file. Please try again. ({e})"
+                ));
+            }
+        }
+    }
+
     /// Act on what the New Game wizard asked for.
     fn wizard(&mut self, action: stars_ui::views::newgame::Action) {
         use stars_ui::views::newgame::Action;
@@ -451,68 +494,93 @@ impl eframe::App for StarsApp {
             && self.app.setup.is_none()
             && ctx.input(|i| i.key_pressed(egui::Key::F7))
         {
-            if self.app.find_open {
-                let mut open = true;
-                egui::Window::new("Find")
-                    .open(&mut open)
-                    .resizable(false)
-                    .default_width(260.0)
-                    .show(ctx, |ui| {
-                        ui.label(
-                            egui::RichText::new("A planet or fleet by name, or a fleet by number.")
-                                .small()
-                                .weak(),
-                        );
-                        let mut text = std::mem::take(&mut self.app.find_text);
-                        let field =
-                            ui.add(egui::TextEdit::singleline(&mut text).desired_width(220.0));
-                        field.request_focus();
-                        let entered =
-                            field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        self.app.find_text = text;
-                        let pressed = ui.button("Find").clicked();
-                        if entered || pressed {
-                            let typed = self.app.find_text.clone();
-                            self.app.find(&typed);
-                        }
-                    });
-                if !open {
-                    self.app.find_open = false;
-                }
-            }
-
-            if self.app.race_viewer.is_some() {
-                let mut open = true;
-                egui::Window::new("Race")
-                    .open(&mut open)
-                    .resizable(true)
-                    .default_width(400.0)
-                    .show(ctx, |ui| stars_ui::views::race::view(&mut self.app, ui));
-                if !open {
-                    self.app.close_race_viewer();
-                }
-            }
-
-            if self.app.game_parameters {
-                let mut open = true;
-                egui::Window::new("Game Parameters")
-                    .open(&mut open)
-                    .resizable(true)
-                    .default_width(420.0)
-                    .show(ctx, |ui| {
-                        stars_ui::views::parameters::view(&mut self.app, ui);
-                    });
-                if !open {
-                    self.app.game_parameters = false;
-                }
-            }
-
             if self.app.relations_dialog.is_some() {
                 self.app.close_relations();
             } else {
                 // Refused outright in a single-player game, as the original
                 // refuses it: the menu item is there and does nothing.
                 self.app.open_relations();
+            }
+        }
+
+        // The modeless windows, which draw every frame. They belong out
+        // here rather than inside a key handler: a window nested in one
+        // is drawn only on the frame that key is pressed.
+        if self.app.find_open {
+            let mut open = true;
+            egui::Window::new("Find")
+                .open(&mut open)
+                .resizable(false)
+                .default_width(260.0)
+                .show(ctx, |ui| {
+                    ui.label(
+                        egui::RichText::new("A planet or fleet by name, or a fleet by number.")
+                            .small()
+                            .weak(),
+                    );
+                    let mut text = std::mem::take(&mut self.app.find_text);
+                    let field = ui.add(egui::TextEdit::singleline(&mut text).desired_width(220.0));
+                    // Only when nothing else has it: the box draws every
+                    // frame, and asking for focus unconditionally would take
+                    // it back off whatever the user clicked next.
+                    if ui.memory(|m| m.focused().is_none()) {
+                        field.request_focus();
+                    }
+                    let entered =
+                        field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    self.app.find_text = text;
+                    let pressed = ui.button("Find").clicked();
+                    if entered || pressed {
+                        let typed = self.app.find_text.clone();
+                        self.app.find(&typed);
+                    }
+                });
+            if !open {
+                self.app.find_open = false;
+            }
+        }
+
+        if self.app.race_wizard.is_some() {
+            let mut open = true;
+            let mut finish = false;
+            egui::Window::new(self.app.race_wizard_title())
+                .id(egui::Id::new("race-wizard"))
+                .open(&mut open)
+                .resizable(true)
+                .default_width(420.0)
+                .show(ctx, |ui| {
+                    finish = stars_ui::views::race_wizard::view(&mut self.app, ui);
+                });
+            if !open {
+                self.app.close_race_wizard();
+            } else if finish {
+                self.save_race();
+            }
+        }
+
+        if self.app.race_viewer.is_some() {
+            let mut open = true;
+            egui::Window::new("Race")
+                .open(&mut open)
+                .resizable(true)
+                .default_width(400.0)
+                .show(ctx, |ui| stars_ui::views::race::view(&mut self.app, ui));
+            if !open {
+                self.app.close_race_viewer();
+            }
+        }
+
+        if self.app.game_parameters {
+            let mut open = true;
+            egui::Window::new("Game Parameters")
+                .open(&mut open)
+                .resizable(true)
+                .default_width(420.0)
+                .show(ctx, |ui| {
+                    stars_ui::views::parameters::view(&mut self.app, ui);
+                });
+            if !open {
+                self.app.game_parameters = false;
             }
         }
 
@@ -594,6 +662,18 @@ impl eframe::App for StarsApp {
                     {
                         ui.close_menu();
                         self.save_universe();
+                    }
+                    ui.separator();
+                    if ui
+                        .button("Custom Race Wizard…")
+                        .on_hover_text(
+                            "Design a race and write it out as a .r file, which a \
+                             new game can then start a player from.",
+                        )
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.app.open_race_wizard();
                     }
                     ui.separator();
                     // The game's own pictures are read out of a copy of the

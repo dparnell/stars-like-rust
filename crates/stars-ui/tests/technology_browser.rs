@@ -218,14 +218,15 @@ fn a_forbidden_component_explains_itself() {
         stars_core::parts::Builder::player(player)
     };
 
-    // A Humanoid is Jack of All Trades, so the Settler's Delight — Hyper
-    // Expansion's engine — is out of reach and says which trait it needs.
+    // A Humanoid is Jack of All Trades, so the Settler's Delight —
+    // Hyper-Expansion's engine — is out of reach and says which trait it
+    // needs. The trait is spelled as the race wizard's own button spells it.
     let detail = stars_core::browser::detail(&who, slot::ENGINE, 0).expect("Settler's Delight");
     assert_eq!(detail.name, "Settler's Delight");
     assert!(!detail.buildable());
     assert_eq!(detail.notes.len(), 1);
     assert!(
-        detail.notes[0].contains("Hyper Expansion"),
+        detail.notes[0].contains("Hyper-Expansion"),
         "{}",
         detail.notes[0]
     );

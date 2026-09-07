@@ -438,3 +438,29 @@ fn the_designer_draws_in_both_modes() {
     assert!(app.designer.is_none());
     frame(&mut app);
 }
+
+/// Every page of the race wizard lays out, on a race with an immune axis so
+/// the habitability page draws both kinds of row.
+#[test]
+fn every_race_wizard_page_draws() {
+    let mut app = App::new();
+    app.open_race_wizard();
+    app.race_wizard_load_preset(4); // Silicanoid: immune to all three.
+
+    for page in 0..stars_ui::RACE_WIZARD_PAGES {
+        if let Some(wizard) = app.race_wizard.as_mut() {
+            wizard.page = page;
+        }
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                stars_ui::views::race_wizard::view(&mut app, ui);
+            });
+        });
+        assert_eq!(
+            app.race_wizard.as_ref().expect("still open").page,
+            page,
+            "drawing page {page} should not have turned it"
+        );
+    }
+}

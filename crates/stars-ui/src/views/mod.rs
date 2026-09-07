@@ -19,6 +19,7 @@ pub mod planets;
 pub mod players;
 pub mod production;
 pub mod race;
+pub mod race_wizard;
 pub mod relations;
 pub mod research;
 pub mod score;

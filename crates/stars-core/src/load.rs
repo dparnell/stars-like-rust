@@ -81,6 +81,7 @@ pub fn race_from_record(record: &RaceRecord) -> Race {
         // occupy in the engine's own `grbitAttr`.
         lrt_bits: u32::from(record.lrt_bits)
             | (u32::from(record.expensive_tech_starts_at_level_3) << lrt::TECH3)
+            | (u32::from(record.ai_player) << lrt::AI_PLAYER)
             | (u32::from(record.factories_cost_one_less_germanium) << lrt::CHEAP_FACT),
         env_center: [gc, tc, rc],
         env_min: [gl, tl, rl],
