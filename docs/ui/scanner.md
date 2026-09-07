@@ -152,9 +152,23 @@ overlay is gated on the same count, so the filters narrow that too.
 
 ## Clicking the same spot again
 
-The first click on a spot selects what is there. **Clicking it again steps to
-the next thing on it** — `FGetNextObjHere` (`1058:909c`), reached from the
-left-click handler only when the point clicked is the point already selected.
+`ScannerWndProc`'s `WM_LBUTTONDOWN` arm works in an order that matters:
+
+1. `FFindNearestObject` finds what was clicked;
+2. `ChangeScanSel(&scan, 1)` **selects it**;
+3. `if (!fSameSpot) return;` — a click on a new spot stops here;
+4. only on the spot already selected does `FGetNextObjHere` step round.
+
+So a click selects **what is under the pointer** — the planet when the pointer
+is on the planet, whatever orbits it notwithstanding — and it is the *second*
+click on the same spot that cycles.
+
+> Getting that round the wrong way is what this project did at first: every
+> click went through the cycle, so clicking a planet with fleets in orbit
+> selected a fleet. Worse, the hit test ran off egui's `interact_pointer_pos`,
+> which is `Some` on every frame the button is **held**, so holding the button
+> down spun through everything on the spot several times a second. The hit test
+> now runs only on the frame of a click.
 
 The cycle is the planet, then each fleet in fleet order, then round to the
 planet. Two restrictions make it narrower than it looks, and both come from the
@@ -175,6 +189,25 @@ spot holding one thing stays put when clicked again. And selecting a fleet
 keeps the planet it orbits, because `sel` holds both and the status bar names
 the planet whichever is in front; the **pane** follows the selection, so
 cycling swaps between the planet's tiles and the fleet's as it goes.
+
+## The right-click menu
+
+`WM_RBUTTONDOWN`, without the tape's modifier, puts up a popup of everything at
+the point clicked and selects whatever is chosen from it.
+
+The list is built in a fixed order: the **planet** at that point, a separator,
+then **every fleet there — whoever owns it**. This is not the ours-only cycle
+above: a right click is how you reach another player's fleet sitting on top of
+your own. The separator is dropped when there are no fleets to put under it
+(`if (c == 2 && planet) c = 1`), and the current selection is passed to
+`PopupMenu` as `iChecked`, which ticks it.
+
+The original's list also carries the `THING`s at that point — minefields,
+wormholes and packets, tagged `0x2000`. They are left out here because this
+project's selection holds a planet or a fleet and has nowhere to put one.
+
+The menu is placed on the object rather than on the pointer, so it stays with
+what it is about; Escape or a click elsewhere puts it away.
 
 ## Player colours
 
@@ -252,6 +285,10 @@ and how far that is (`FHandleMeasuringTape`, `1058:9974`). Three details:
   finds;
 * holding **Shift** widens the search mask from `0x4f` to `0x8f`, so the tape
   catches more;
+* the original's gesture is a **middle**-drag or **Shift**-and-right-drag
+  (`msg == WM_MBUTTONDOWN || (WM_RBUTTONDOWN && (wParam & MK_SHIFT))`), because
+  a plain right-click is the menu above. Here a right-*drag* is the tape and a
+  right-*click* is the menu, which keeps both gestures without a modifier;
 * nothing is drawn until the pointer has moved **more than two units** from
   where it started, which stops a stray right-click leaving a mark.
 

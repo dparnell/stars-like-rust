@@ -81,7 +81,13 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     // object, because clicking the same point again cycles through everything
     // on it.
     let mut clicked: Option<(i16, i16, Option<i16>, Option<usize>)> = None;
-    let pointer = response.interact_pointer_pos();
+    // **Only on the frame of a click.** `interact_pointer_pos` is `Some` for
+    // every frame the button is held down, so hit-testing on it alone would
+    // act again and again while the button is down — which, with the
+    // click-again-to-cycle rule below, spins through everything on the spot.
+    let pointer = (response.clicked() || response.secondary_clicked())
+        .then(|| response.interact_pointer_pos())
+        .flatten();
 
     // Minefields first, so they lie under the planets rather than over them. A
     // field is a circle whose radius is the square root of its mine count,
@@ -406,17 +412,64 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             }
         }
     } else if let Some((x, y, planet, fleet)) = clicked {
-        // Clicking the spot already selected steps to the next thing on it;
-        // clicking a new one selects what is there. A planet or fleet that
-        // takes no part in the cycle — anybody else's — is still selectable,
-        // which is what the plain selection below is for.
-        if !app.scan_click(x, y) {
-            if let Some(id) = planet {
-                app.selection.planet = Some(id);
-                app.selection.on_fleet = false;
-            } else if let Some(index) = fleet {
-                app.select_object(ScanObject::Fleet(index));
+        let hit = match (planet, fleet) {
+            (Some(id), _) => Some(ScanObject::Planet(id)),
+            (None, Some(index)) => Some(ScanObject::Fleet(index)),
+            _ => None,
+        };
+        if let Some(hit) = hit {
+            if response.secondary_clicked() {
+                // The right-click menu, which lists everything at that point.
+                app.scan_menu_at = Some((x, y));
+            } else {
+                // A click selects what is under the pointer; the same spot
+                // again steps to the next thing there.
+                app.scan_click_on(hit);
             }
+        }
+    }
+
+    // The menu itself, while it is up. It is placed on the object rather than
+    // on the pointer, so it stays with what it is about if the map moves.
+    if let Some((x, y)) = app.scan_menu_at {
+        let items = app.scan_menu(x, y);
+        let at = to_screen(f32::from(x), f32::from(y)) + Vec2::new(10.0, 10.0);
+        let mut chosen = None;
+        let area = egui::Area::new(egui::Id::new("scanner-menu"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(at)
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_max_width(180.0);
+                    if items.is_empty() {
+                        ui.label(egui::RichText::new("nothing here").weak().small());
+                    }
+                    for item in &items {
+                        // The original's list puts a separator between the
+                        // planet and the fleets, and ticks the selection.
+                        if item.first_of_group {
+                            ui.separator();
+                        }
+                        if ui
+                            .selectable_label(
+                                item.checked,
+                                egui::RichText::new(&item.label).small(),
+                            )
+                            .clicked()
+                        {
+                            chosen = Some(item.object);
+                        }
+                    }
+                });
+            });
+        if let Some(object) = chosen {
+            app.select_object(object);
+            app.scan_menu_at = None;
+        } else if ui.input(|i| i.key_pressed(egui::Key::Escape))
+            || (response.clicked() && !area.response.contains_pointer())
+        {
+            // Anywhere else, or Escape, puts it away.
+            app.scan_menu_at = None;
         }
     }
 

@@ -2303,7 +2303,32 @@ disagree.
     (`1058:4bf4`) has exactly four callers, `DrawScanner` three times and
     `DrawScanFleetCount` once, and the panes consult neither filter.
 
-74. **What is still missing to call it playable.** Every waypoint task is now
+74. ~~**The scanner's click, put right.**~~ **Done.** Reported from playing:
+    clicking a planet on the map "cycles rapidly between all the ships orbiting
+    it" instead of selecting the planet. Two bugs and a missing feature, all in
+    `docs/ui/scanner.md`.
+
+    The **cycling** was a frame bug of mine: the hit test ran off egui's
+    `interact_pointer_pos`, which is `Some` on every frame the button is held,
+    so holding the button down ran the click-again-to-cycle rule several times
+    a second. It now runs only on the frame of a click.
+
+    The **order** was wrong too, and that is a reading of the original rather
+    than a slip: `ScannerWndProc` selects what was clicked first
+    (`ChangeScanSel`) and returns unless the click was on the spot already
+    selected — only then does `FGetNextObjHere` step round. Every click here
+    went through the cycle instead, so clicking a planet with fleets in orbit
+    selected a fleet, and another player's planet or fleet was reached only by
+    a fallback.
+
+    The **right-click menu** is new: `WM_RBUTTONDOWN` lists the planet at that
+    point, a separator, and every fleet there whoever owns it, with the
+    selection ticked, and selects what is chosen. That is how you reach another
+    player's fleet sitting on top of your own, which the ours-only cycle never
+    visits. The original's list also carries the `THING`s there; this project's
+    selection has nowhere to put one, so they are left out.
+
+75. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

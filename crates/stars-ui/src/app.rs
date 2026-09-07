@@ -293,6 +293,9 @@ pub struct App {
     pub race_viewer: Option<(usize, usize)>,
     /// The Custom Race Wizard, while it is open.
     pub race_wizard: Option<RaceWizard>,
+    /// Where the scanner's right-click menu was opened, in galaxy units, while
+    /// it is up.
+    pub scan_menu_at: Option<(i16, i16)>,
     /// Which fleet the pane's last tile is showing, as owner and fleet id.
     ///
     /// Both halves are needed: a fleet id is the player's own numbering, so
@@ -6961,6 +6964,20 @@ impl App {
 
 // --- Clicking the same spot again -----------------------------------------
 
+/// One line of the scanner's right-click menu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScanMenuItem {
+    /// What choosing it selects.
+    pub object: ScanObject,
+    /// What it reads.
+    pub label: String,
+    /// Whether it is the current selection, which the original ticks.
+    pub checked: bool,
+    /// Whether a separator goes above it, as the original puts one between the
+    /// planet and the fleets.
+    pub first_of_group: bool,
+}
+
 /// One thing the scanner can have selected at a point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScanObject {
@@ -7058,6 +7075,96 @@ impl App {
                 }
             }
         }
+    }
+
+    /// The scanner's left click, on the thing the pointer landed on.
+    ///
+    /// This is the order `ScannerWndProc`'s `WM_LBUTTONDOWN` arm works in, and
+    /// getting it round the right way matters:
+    ///
+    /// 1. `FFindNearestObject` finds what was clicked;
+    /// 2. `ChangeScanSel(&scan, 1)` **selects it**;
+    /// 3. only if the click was on the spot already selected does
+    ///    `FGetNextObjHere` step to the next thing there.
+    ///
+    /// So a click selects what is under the pointer — the planet when the
+    /// pointer is on the planet, whatever else orbits it notwithstanding — and
+    /// it is the *second* click on the same spot that cycles.
+    ///
+    /// Returns whether the selection moved.
+    pub fn scan_click_on(&mut self, hit: ScanObject) -> bool {
+        let same_spot = self
+            .object_position(hit)
+            .and_then(|at| {
+                let current = self.selected_object()?;
+                Some(self.object_position(current)? == at)
+            })
+            .unwrap_or(false);
+        if !same_spot {
+            if Some(hit) == self.selected_object() {
+                return false;
+            }
+            self.select_object(hit);
+            return true;
+        }
+        // The same spot again: step round what is here. A spot whose things do
+        // not cycle — somebody else's — leaves the selection where it is.
+        match self.object_position(hit) {
+            Some(at) => self.scan_click(at.x, at.y),
+            None => false,
+        }
+    }
+
+    /// What the scanner's **right click** offers, at a galaxy point.
+    ///
+    /// `ScannerWndProc`'s `WM_RBUTTONDOWN` arm builds a list and puts it up as
+    /// a popup with the current selection ticked (`PopupMenu(..., iChecked,
+    /// 1)`). The list is the planet at that point, then **every fleet there,
+    /// whoever owns it** — this is not the ours-only cycle — with a separator
+    /// between the two groups that is dropped when there are no fleets.
+    ///
+    /// The original's list also carries the `THING`s at that point: minefields,
+    /// wormholes and packets. They are left out here because this project's
+    /// selection has nowhere to put one — see `docs/ui/scanner.md`.
+    #[must_use]
+    pub fn scan_menu(&self, x: i16, y: i16) -> Vec<ScanMenuItem> {
+        let Some(game) = self.game.as_ref() else {
+            return Vec::new();
+        };
+        let at = stars_core::movement::Point::new(x, y);
+        let selected = self.selected_object();
+        let mut out: Vec<ScanMenuItem> = Vec::new();
+
+        if let Some(planet) = game
+            .planets
+            .iter()
+            .chain(game.known_planets.iter())
+            .find(|planet| planet.position == Some(at))
+        {
+            let object = ScanObject::Planet(planet.id);
+            out.push(ScanMenuItem {
+                object,
+                label: self.planet_name(planet.id),
+                checked: Some(object) == selected,
+                first_of_group: false,
+            });
+        }
+        let planets = out.len();
+        for (index, fleet) in game.fleets.iter().enumerate() {
+            if fleet.position != at || fleet.stacks.is_empty() {
+                continue;
+            }
+            let object = ScanObject::Fleet(index);
+            out.push(ScanMenuItem {
+                object,
+                label: self.fleet_display_name(index),
+                checked: Some(object) == selected,
+                // The rule the separator is dropped by: it only appears when
+                // there is a planet above and a fleet below.
+                first_of_group: planets > 0 && out.len() == planets,
+            });
+        }
+        out
     }
 
     /// The scanner's left click, at a galaxy point.

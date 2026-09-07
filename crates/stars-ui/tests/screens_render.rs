@@ -640,3 +640,35 @@ fn the_host_mode_dialog_draws() {
     }
     assert!(app.host_mode, "drawing should not close it");
 }
+
+/// The scanner's right-click menu draws over the map.
+#[test]
+fn the_scanner_menu_draws() {
+    use stars_core::newgame::{NewGame, NewPlayer, Size};
+    use stars_core::{opponents, Race};
+
+    let mut app = App::new();
+    app.new_game(&NewGame {
+        name: "Menu".to_string(),
+        size: Size::Small,
+        players: vec![
+            NewPlayer::human(Race::humanoid()),
+            opponents::opponent(1, 1).expect("an opponent").as_player(),
+        ],
+        ..NewGame::default()
+    })
+    .expect("creates the game");
+    let at = app
+        .game
+        .as_ref()
+        .expect("a game")
+        .planets
+        .iter()
+        .find(|p| p.owner == Some(0))
+        .and_then(|p| p.position)
+        .expect("a homeworld");
+    app.scan_menu_at = Some((at.x, at.y));
+
+    draw(&mut app, Screen::Galaxy);
+    assert!(app.scan_menu_at.is_some(), "drawing should not close it");
+}

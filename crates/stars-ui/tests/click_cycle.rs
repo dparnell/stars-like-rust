@@ -207,3 +207,145 @@ fn the_map_draws_after_a_cycle() {
         });
     }
 }
+
+// --- Clicking on a thing, rather than at a point ------------------------
+//
+// `ScannerWndProc` selects what was clicked first (`ChangeScanSel`) and only
+// cycles when the click lands on the spot already selected.
+
+/// Clicking a planet selects **the planet**, whatever is in orbit round it.
+#[test]
+fn clicking_a_planet_selects_the_planet() {
+    let mut app = a_game();
+    let (planet, at) = homeworld(&app);
+    app.game.as_mut().expect("a game").fleets = vec![fleet(0, at, Some(0)), fleet(0, at, Some(0))];
+    nothing_selected(&mut app);
+
+    assert!(app.scan_click_on(ScanObject::Planet(planet)));
+    assert_eq!(app.selected_object(), Some(ScanObject::Planet(planet)));
+
+    // Somewhere else and back again: still the planet, not the fleet the
+    // cycle happened to leave behind.
+    app.scan_click_on(ScanObject::Fleet(0));
+    assert_eq!(app.selected_object(), Some(ScanObject::Fleet(0)));
+    app.scan_click_on(ScanObject::Planet(planet));
+    assert_eq!(
+        app.selected_object(),
+        Some(ScanObject::Fleet(1)),
+        "the same spot, so it cycles"
+    );
+}
+
+/// A planet that is not ours takes no part in the cycle, but clicking it still
+/// selects it.
+#[test]
+fn clicking_someone_else_s_planet_selects_it() {
+    let mut app = a_game();
+    let (theirs, at) = {
+        let game = app.game.as_ref().expect("a game");
+        let planet = game
+            .planets
+            .iter()
+            .find(|p| p.owner == Some(1))
+            .expect("their homeworld");
+        (planet.id, planet.position.expect("a position"))
+    };
+    // One of ours in orbit round it, which the old code would have selected
+    // instead of the planet.
+    app.game.as_mut().expect("a game").fleets = vec![fleet(0, at, None)];
+    nothing_selected(&mut app);
+
+    assert!(app.scan_click_on(ScanObject::Planet(theirs)));
+    assert_eq!(app.selected_object(), Some(ScanObject::Planet(theirs)));
+}
+
+/// A fleet on its own in deep space is selected by clicking it.
+#[test]
+fn clicking_a_fleet_in_deep_space_selects_it() {
+    let mut app = a_game();
+    let away = Point::new(21, 34);
+    app.game.as_mut().expect("a game").fleets = vec![fleet(0, away, None)];
+    nothing_selected(&mut app);
+
+    assert!(app.scan_click_on(ScanObject::Fleet(0)));
+    assert_eq!(app.selected_object(), Some(ScanObject::Fleet(0)));
+    // Clicking it again has nowhere else to go and leaves it alone.
+    assert!(!app.scan_click_on(ScanObject::Fleet(0)));
+    assert_eq!(app.selected_object(), Some(ScanObject::Fleet(0)));
+}
+
+/// And so is somebody else's fleet out there, which the ours-only cycle would
+/// never reach.
+#[test]
+fn clicking_another_player_s_fleet_selects_it() {
+    let mut app = a_game();
+    let away = Point::new(45, 12);
+    app.game.as_mut().expect("a game").fleets = vec![fleet(1, away, None)];
+    nothing_selected(&mut app);
+
+    assert!(app.scan_click_on(ScanObject::Fleet(0)));
+    assert_eq!(app.selected_object(), Some(ScanObject::Fleet(0)));
+}
+
+// --- The right-click menu -----------------------------------------------
+
+/// The planet, then a separator, then every fleet there — whoever owns it.
+#[test]
+fn the_menu_lists_the_planet_and_every_fleet() {
+    let mut app = a_game();
+    let (planet, at) = homeworld(&app);
+    app.game.as_mut().expect("a game").fleets = vec![
+        fleet(0, at, Some(0)),
+        fleet(1, at, Some(0)),
+        fleet(0, Point::new(60, 60), None),
+    ];
+    nothing_selected(&mut app);
+    app.selection.planet = Some(planet);
+
+    let menu = app.scan_menu(at.x, at.y);
+    assert_eq!(menu.len(), 3, "the planet and the two fleets there");
+    assert_eq!(menu[0].object, ScanObject::Planet(planet));
+    assert!(menu[0].checked, "the selection is ticked");
+    assert!(!menu[0].first_of_group);
+    assert_eq!(menu[1].object, ScanObject::Fleet(0));
+    assert!(
+        menu[1].first_of_group,
+        "a separator between the planet and the fleets"
+    );
+    assert_eq!(
+        menu[2].object,
+        ScanObject::Fleet(1),
+        "another player's fleet is listed too — the menu is not the ours-only cycle"
+    );
+    assert!(!menu[2].first_of_group);
+    assert!(menu.iter().skip(1).all(|item| !item.checked));
+}
+
+/// With no fleets the separator goes, which is the original's `c == 2` rule.
+#[test]
+fn a_planet_on_its_own_has_no_separator() {
+    let mut app = a_game();
+    let (planet, at) = homeworld(&app);
+    app.game.as_mut().expect("a game").fleets = Vec::new();
+    let menu = app.scan_menu(at.x, at.y);
+    assert_eq!(menu.len(), 1);
+    assert_eq!(menu[0].object, ScanObject::Planet(planet));
+    assert!(!menu[0].first_of_group);
+}
+
+/// Fleets with no planet: no separator either, since there is nothing above.
+#[test]
+fn fleets_with_no_planet_have_no_separator() {
+    let mut app = a_game();
+    let away = Point::new(19, 71);
+    app.game.as_mut().expect("a game").fleets = vec![fleet(0, away, None), fleet(1, away, None)];
+    let menu = app.scan_menu(away.x, away.y);
+    assert_eq!(menu.len(), 2);
+    assert!(menu.iter().all(|item| !item.first_of_group));
+}
+
+#[test]
+fn an_empty_spot_has_an_empty_menu() {
+    let app = a_game();
+    assert!(app.scan_menu(1, 1).is_empty());
+}
