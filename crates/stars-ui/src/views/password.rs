@@ -72,3 +72,65 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         app.submit_password();
     }
 }
+
+/// Draw the prompt that asks for a turn password.
+///
+/// `PasswordDlg`, `IDD_PASSWORD` (140): one box, the question above it, OK and
+/// Cancel. Cancelling gives up on the file, as the original's loader does.
+///
+/// `now` is the frontend's clock in seconds, which the retry delay is measured
+/// against.
+pub fn prompt(app: &mut App, ui: &mut egui::Ui, now: f64) {
+    let Some(state) = app.password_prompt.as_mut() else {
+        return;
+    };
+    // String `0x035f`.
+    ui.label("Enter the password:");
+    let mut submit = false;
+    let field = ui.add(
+        egui::TextEdit::singleline(&mut state.typed)
+            .password(true)
+            .char_limit(PROMPT_FIELD_LIMIT)
+            .desired_width(160.0),
+    );
+    if ui.memory(|m| m.focused().is_none()) {
+        field.request_focus();
+    }
+    submit |= field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+    let error = state.error.clone();
+
+    // A wrong password costs a wait before the next attempt, which grows with
+    // how many have been wrong. See `App::password_retry_delay_ms`.
+    let wait = app.password_wait_left(now);
+    if let Some(error) = error {
+        ui.colored_label(egui::Color32::from_rgb(0xff, 0x6b, 0x6b), error);
+    }
+    if wait > 0.0 {
+        ui.label(
+            egui::RichText::new(format!("Try again in {:.0}s.", wait.ceil()))
+                .small()
+                .weak(),
+        );
+    }
+
+    ui.separator();
+    let mut cancel = false;
+    ui.horizontal(|ui| {
+        submit |= ui
+            .add_enabled(wait <= 0.0, egui::Button::new("OK"))
+            .clicked();
+        cancel = ui.button("Cancel").clicked();
+    });
+
+    if cancel {
+        app.cancel_password_prompt();
+    } else if submit && wait <= 0.0 {
+        app.submit_password_prompt(now);
+    }
+}
+
+/// What the prompt's box will take.
+///
+/// `PasswordDlg` limits it to fifteen characters — one fewer than the Change
+/// Password dialog, which is its own inconsistency and not this project's.
+const PROMPT_FIELD_LIMIT: usize = 15;

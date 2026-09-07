@@ -297,6 +297,32 @@ pub struct App {
     pub battle_plans: Option<BattlePlans>,
     /// The Change Password dialog, while it is open.
     pub password_dialog: Option<PasswordDialog>,
+    /// The prompt that asks for a turn password, while a save is waiting on it.
+    pub password_prompt: Option<PasswordPrompt>,
+    /// The salt last accepted at that prompt (`lSaltLast`), so the same
+    /// password is asked for once a session and not once a file.
+    pub password_given: Option<u32>,
+    /// How many passwords have been got wrong (`vcPasswordFailures`). It counts
+    /// for the session and is never reset, which is what slows a guesser down.
+    pub password_failures: u32,
+    /// The clock reading the prompt will take another attempt at, while a wait
+    /// is running.
+    pub password_retry_at: Option<f64>,
+    /// `stars.ini`'s `[Misc] DefaultPassword` (`vszDefPass`), if the frontend
+    /// found one: a password kept there is offered before the prompt is.
+    pub default_password: String,
+    /// Whether opening a guarded turn should ask for its password.
+    ///
+    /// A frontend with somebody at the keyboard sets this; anything else
+    /// leaves it clear and reads the file straight through. The original draws
+    /// the same line with `ini.fValidate` — in batch mode `FCheckPassword`
+    /// refuses instead of asking, because there is nobody to answer — except
+    /// that this reads the file rather than refusing it. That is the honest
+    /// choice here: the salt is a gate on the interface and never encrypted
+    /// anything, so a tool re-encoding a save is not pretending to have got
+    /// past a protection. What it must not do is pretend to be the player, and
+    /// nothing here does: the prompt is what a player sees.
+    pub prompt_for_password: bool,
     /// Whether the Find box is open (View (Find), Ctrl+F).
     pub find_open: bool,
     /// Which of the scanner's six views is showing.
@@ -514,6 +540,27 @@ impl App {
     /// # Errors
     /// Returns a message suitable for showing to the player.
     pub fn open(&mut self, path: &Path) -> Result<(), String> {
+        let loaded = self.read_save(path)?;
+        // `FCheckPassword` (`1040:58d8`): a turn whose player put a password on
+        // it is not opened until that password is given. The original fails the
+        // load outright when it is not (`file.c`, `goto LError`), so the game
+        // stays parked here until the prompt is answered.
+        let salt = loaded.password;
+        if self.prompt_for_password && self.password_needed(salt) {
+            self.password_prompt = Some(PasswordPrompt {
+                salt,
+                typed: String::new(),
+                error: None,
+                pending: Box::new(loaded),
+            });
+            return Ok(());
+        }
+        self.install(loaded);
+        Ok(())
+    }
+
+    /// Read a save and everything that goes with it, without installing it.
+    fn read_save(&mut self, path: &Path) -> Result<Loaded, String> {
         let bytes =
             std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
         let file = StarsFile::decode(&bytes)
@@ -534,7 +581,41 @@ impl App {
 
         let header = &file.latest_segment().header;
         let layout = ActionLayout::for_version(header.version_major, header.version_minor);
-        self.battles = battle_records_in_with(file.segment_blocks(file.latest_segment()), layout);
+        let battles = battle_records_in_with(file.segment_blocks(file.latest_segment()), layout);
+
+        // Whose password guards this file. A player's file names its player in
+        // the header and that player's salt is the one to ask for
+        // (`lSaltCur = rgplr[iPlayer].lSalt`); a host file names none, and the
+        // original takes the host's salt from a leading type-36 record that
+        // this project neither writes nor reads. So a `.hst` asks for nothing.
+        let player = usize::from(header.player);
+        let password = state
+            .players
+            .get(player)
+            .filter(|_| player < stars_core::newgame::MAX_PLAYERS)
+            .map_or(0, |p| p.password);
+
+        Ok(Loaded {
+            state,
+            universe,
+            battles,
+            file,
+            path: path.to_path_buf(),
+            password,
+        })
+    }
+
+    /// Make a loaded save the current game.
+    fn install(&mut self, loaded: Loaded) {
+        let Loaded {
+            state,
+            universe,
+            battles,
+            file,
+            path,
+            password: _,
+        } = loaded;
+        self.battles = battles;
 
         self.selection = Selection {
             planet: state.planets.first().map(|p| p.id),
@@ -546,7 +627,7 @@ impl App {
         self.game = Some(state);
         self.universe = universe;
         self.setup = None;
-        self.path = Some(path.to_path_buf());
+        self.path = Some(path);
         self.file = Some(file);
         self.dirty = false;
         self.edited.clear();
@@ -561,7 +642,6 @@ impl App {
         // start when every one of them is.
         self.view_filtered = false;
         self.show_first_message();
-        Ok(())
     }
 
     /// Write the game back, as bytes.
@@ -1704,6 +1784,9 @@ impl App {
             return false;
         }
         player.password = salt;
+        // `NewPasswordDlg` sets `lSaltLast` as it stores the new salt, so a
+        // password just chosen is not asked for again this session.
+        self.password_given = (salt != 0).then_some(salt);
 
         // Like the relations table, this is state rather than an event: the
         // last record wins, so an earlier one is dropped instead of stacking.
@@ -8063,5 +8146,119 @@ impl App {
         self.set_password(&new);
         self.password_dialog = None;
         true
+    }
+}
+
+/// A save read off disk but not yet installed.
+///
+/// It exists for one reason: a file whose player has a password is read before
+/// the password is asked for, and has to wait somewhere until it is given.
+pub struct Loaded {
+    state: GameState,
+    universe: Option<Universe>,
+    battles: Vec<BattleRecord>,
+    file: StarsFile,
+    path: std::path::PathBuf,
+    /// The salt of the password guarding it; `0` for none.
+    password: u32,
+}
+
+/// The prompt that asks for a turn password (`PasswordDlg`, `IDD_PASSWORD`).
+///
+/// See `docs/ui/change-password.md`.
+pub struct PasswordPrompt {
+    /// The salt the typed password has to fold to.
+    pub salt: u32,
+    /// What has been typed.
+    pub typed: String,
+    /// Whether the last attempt was wrong.
+    pub error: Option<String>,
+    /// The save waiting on it.
+    pending: Box<Loaded>,
+}
+
+impl App {
+    /// Whether a file guarded by `salt` needs the prompt.
+    ///
+    /// `FCheckPassword` (`1040:58d8`) in order: no password at all, the same
+    /// password as the last one accepted, a computer player, or a matching
+    /// `DefaultPassword` in `stars.ini` — any of those and nothing is asked.
+    #[must_use]
+    pub fn password_needed(&self, salt: u32) -> bool {
+        if salt == 0 || self.password_given == Some(salt) {
+            return false;
+        }
+        if !self.default_password.is_empty()
+            && stars_formats::password_salt(&self.default_password) == salt
+        {
+            return false;
+        }
+        true
+    }
+
+    /// How long the prompt makes the player wait before trying again, in
+    /// milliseconds.
+    ///
+    /// `PasswordDlg` calls `Delay` with one of three constants, chosen by how
+    /// many passwords have been got wrong this session: a second under ten,
+    /// five seconds under a hundred, ten seconds after that. It is the only
+    /// thing standing between the salt and a dictionary, and it is reproduced
+    /// here as a wait before the next attempt is accepted rather than as a
+    /// frozen window.
+    #[must_use]
+    pub fn password_retry_delay_ms(&self) -> u64 {
+        match self.password_failures {
+            0..=9 => 1_000,
+            10..=99 => 5_000,
+            _ => 10_000,
+        }
+    }
+
+    /// Answer the prompt. Returns whether the password was right.
+    ///
+    /// Right, and the save it was holding is opened; wrong, and the prompt
+    /// stays with the box cleared, the failure counted and the wait before the
+    /// next attempt started. `now` is the frontend's clock, in seconds.
+    pub fn submit_password_prompt(&mut self, now: f64) -> bool {
+        let Some(prompt) = self.password_prompt.as_ref() else {
+            return false;
+        };
+        if stars_formats::password_salt(&prompt.typed) != prompt.salt {
+            self.password_failures = self.password_failures.saturating_add(1);
+            #[allow(clippy::cast_precision_loss)]
+            let delay = self.password_retry_delay_ms() as f64 / 1000.0;
+            self.password_retry_at = Some(now + delay);
+            if let Some(prompt) = self.password_prompt.as_mut() {
+                prompt.typed.clear();
+                prompt.error = Some("That is not the password. Try again.".to_string());
+            }
+            return false;
+        }
+        self.password_retry_at = None;
+        let prompt = self.password_prompt.take().expect("checked just above");
+        // `PasswordDlg` remembers the salt it accepted, which is what stops the
+        // same password being asked for twice in one session.
+        self.password_given = Some(prompt.salt);
+        self.install(*prompt.pending);
+        true
+    }
+
+    /// How long is left of the wait after a wrong password, in seconds.
+    ///
+    /// `now` is the frontend's clock. Zero when there is nothing to wait for.
+    #[must_use]
+    pub fn password_wait_left(&self, now: f64) -> f64 {
+        let Some(until) = self.password_retry_at else {
+            return 0.0;
+        };
+        (until - now).max(0.0)
+    }
+
+    /// Give up on the prompt, and on the save behind it.
+    ///
+    /// The original's loader treats a cancelled prompt as a failed load, so
+    /// whatever was open stays open and the file is dropped.
+    pub fn cancel_password_prompt(&mut self) {
+        self.password_prompt = None;
     }
 }

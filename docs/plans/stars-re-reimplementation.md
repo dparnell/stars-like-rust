@@ -2181,7 +2181,35 @@ disagree.
     editor was: that screen now says whether a password is set and offers the
     dialog.
 
-69. **What is still missing to call it playable.** Every waypoint task is now
+69. ~~**The password prompt.**~~ **Done.** `PasswordDlg` / `IDD_PASSWORD`, the
+    other half of the password story: what `FCheckPassword` puts up before a
+    guarded turn is opened. Spec in `docs/ui/change-password.md`.
+
+    Opening a save is now two steps, because that is what the original does: a
+    turn whose player put a password on it is read but **not installed** until
+    the password is given, and cancelling the prompt drops the file exactly as
+    the loader's `goto LError` does. Four things skip the prompt, in
+    `FCheckPassword`'s own order — no password, the password already given this
+    session, a computer player, or a matching `[Misc] DefaultPassword` in
+    `stars.ini`.
+
+    The prompt is a frontend's to put up: `App::prompt_for_password` turns it
+    on and the desktop sets it, while a test or a tool reads the file straight
+    through. The original draws that line with `ini.fValidate`, which refuses
+    instead of asking — the difference being that this reads the file, since a
+    salt gates the interface and never encrypted anything. Every save under
+    `fixtures/` carries one, and the differential test that re-encodes them all
+    is that case.
+
+    A wrong password costs a wait that grows with how many have been wrong: one
+    second under ten failures, five under a hundred, ten after that. The middle
+    constant took a moment to pin down — the reconstruction renders it as
+    `(char *)"Stars!" + 3`, which is a numeric immediate the decompiler matched
+    to a string address; there is a `Stars!` literal at `DS:0x1385`, so the
+    constant is `0x1388`, 5000ms. It is reproduced as a countdown rather than as
+    the original's frozen `Delay`.
+
+70. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

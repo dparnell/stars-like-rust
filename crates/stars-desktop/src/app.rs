@@ -20,6 +20,8 @@ impl StarsApp {
     #[must_use]
     pub fn new(open: Option<PathBuf>) -> Self {
         let mut app = App::new();
+        // There is somebody here to ask, so a guarded turn asks.
+        app.prompt_for_password = true;
         if let Some(path) = open {
             if let Err(e) = app.open(&path) {
                 app.error = Some(e);
@@ -174,6 +176,14 @@ impl StarsApp {
         };
         let values = ini_section(&text, stars_formats::TEMPLATE_INI_SECTION);
         self.app.load_production_templates(&values);
+
+        // `[Misc] DefaultPassword`, which `FCheckPassword` consults before it
+        // puts the password prompt up.
+        self.app.default_password = ini_section(&text, stars_formats::DEFAULT_PASSWORD_INI_SECTION)
+            .into_iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(stars_formats::DEFAULT_PASSWORD_INI_KEY))
+            .map(|(_, value)| value)
+            .unwrap_or_default();
     }
 
     /// Write them back, leaving every other section of the file alone.
@@ -475,6 +485,21 @@ impl eframe::App for StarsApp {
             && self.app.setup.is_none()
             && ctx.input(|i| i.key_pressed(egui::Key::F6))
         {
+            // The password prompt holds a save that is not open yet, so it is put
+            // up on its own, with no close button — Cancel gives up on the file,
+            // as the original's loader does.
+            if self.app.password_prompt.is_some() {
+                let now = ctx.input(|i| i.time);
+                egui::Window::new("Stars!")
+                    .id(egui::Id::new("password-prompt"))
+                    .collapsible(false)
+                    .resizable(false)
+                    .default_width(260.0)
+                    .show(ctx, |ui| {
+                        stars_ui::views::password::prompt(&mut self.app, ui, now);
+                    });
+            }
+
             if self.app.password_dialog.is_some() {
                 let mut open = true;
                 egui::Window::new("Change Password")

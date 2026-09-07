@@ -13,6 +13,18 @@
 //! change replays. It offers no way to go the other way, and there is no reason
 //! for one: the game only ever compares salts.
 
+/// The `stars.ini` section a default password is kept in (`idsMisc`).
+pub const DEFAULT_PASSWORD_INI_SECTION: &str = "Misc";
+
+/// The `stars.ini` key that holds it (`idsDefaultpassword`, string `0x00ae`).
+///
+/// `InitStuff` reads it into a 16-byte buffer (`GetPrivateProfileString(...,
+/// 0x10, ...)`), and `FCheckPassword` skips the prompt when what is there folds
+/// to the salt being asked for. It is a convenience for a player who does not
+/// want to type their own password back at themselves, and it is stored in
+/// plain text, which is worth knowing before using one.
+pub const DEFAULT_PASSWORD_INI_KEY: &str = "DefaultPassword";
+
 /// Offset of the salt inside the fixed region of a full player block.
 ///
 /// Named "password" in `docs/formats/race-r.md`, which recovered the field

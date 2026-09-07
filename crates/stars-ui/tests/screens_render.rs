@@ -548,3 +548,61 @@ fn the_change_password_dialog_draws() {
     frame(&mut app);
     assert!(app.password_dialog.is_some(), "a mismatch keeps it open");
 }
+
+/// The password prompt lays out, before and after a wrong answer.
+#[test]
+fn the_password_prompt_draws() {
+    use stars_core::newgame::{NewGame, NewPlayer, Size};
+    use stars_core::{opponents, Race};
+
+    let mut app = App::new();
+    app.new_game(&NewGame {
+        name: "Prompt".to_string(),
+        size: Size::Small,
+        players: vec![
+            NewPlayer::human(Race::humanoid()),
+            opponents::opponent(1, 1).expect("an opponent").as_player(),
+        ],
+        ..NewGame::default()
+    })
+    .expect("creates the game");
+    app.set_password("io");
+
+    let dir = std::env::temp_dir().join(format!("stars-ui-prompt-draw-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let written = app
+        .save_new_game(&dir.join("Prompt.hst"))
+        .expect("writes the game");
+    let turn = written
+        .iter()
+        .find(|p| p.extension().is_some_and(|e| e == "m1"))
+        .expect("a turn file")
+        .clone();
+
+    // A fresh app with somebody at the keyboard has not been given the
+    // password, so opening asks for it.
+    let mut app = App::new();
+    app.prompt_for_password = true;
+    app.open(&turn).expect("reads the file");
+    assert!(app.password_prompt.is_some());
+
+    let frame = |app: &mut App, now: f64| {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                stars_ui::views::password::prompt(app, ui, now);
+            });
+        });
+    };
+
+    frame(&mut app, 0.0);
+    if let Some(prompt) = app.password_prompt.as_mut() {
+        prompt.typed = "not it".to_string();
+    }
+    app.submit_password_prompt(0.0);
+    // Drawn during the wait that follows a wrong password.
+    frame(&mut app, 0.5);
+    assert!(app.password_prompt.is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}
