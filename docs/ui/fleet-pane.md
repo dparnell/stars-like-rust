@@ -22,11 +22,39 @@ pane's:
 | 3 | left | 12 | `DrawShipWayPtOrders` (`1050:0912`) | **Waypoint Task** |
 | 4 | right | 14 | `DrawShipCargo` (`1050:1a54`) | **Fuel & Cargo** |
 | 5 | right | 16 | `DrawFleetComp` (`1050:1e72`) | **Fleet Composition** |
-| 6 | right | 22 | `DrawPlanetShipList` (`1048:377e`) | the other fleets here |
+| 6 | right | 22 | `DrawPlanetShipList` (`1048:377e`) | **Other Fleets Here** |
 
 The last tile is shared with the planet pane — the same routine, in the same
 place on the right — so whichever you have selected, the pane's bottom right
 always answers "what else is here?".
+
+## Other Fleets Here
+
+`DrawPlanetShipList` does not decompile — the decompiler dies on it — so this
+was read out of the binary instruction by instruction.
+
+It titles itself by which pane it is in: **`Fleets in Orbit`** (string `0x0338`)
+when a planet is selected and **`Other Fleets Here`** (`0x0339`) when a fleet
+is, the "other" being that fleet, which it leaves out — the caller passes it as
+`idSkip`.
+
+The tile is not a list of names. It is a **dropdown** of what is here, sized to
+the tile and placed over it, and under that a **`Fuel `** gauge and a
+**`Cargo `** gauge (strings `0x02ea` and `0x02e9`) for whichever is chosen,
+their labels aligned on the wider of the two. Below them the routine positions
+three buttons across the tile's foot.
+
+Two states turn the gauges off, and both are reproduced:
+
+* **nothing selected** — the combo returns `CB_ERR`, and the tile draws no
+  gauges and disables its buttons;
+* **not known in full** — the object's detail is not `7`. Full detail is only
+  ever had of one's own fleets, so somebody else's is listed but not measured.
+
+The cargo gauge is drawn by a different routine from the fuel gauge
+(`1110:044e` against `1050:44b6`) because it is **segmented**: a bar each for
+ironium, boranium and germanium, and one for colonists, in the colours the game
+gives them elsewhere. That is reproduced too.
 
 ## Where it is
 
@@ -87,6 +115,16 @@ have won and nothing more. A tanker that really is the most numerous ship still
 holds the picture. A fleet of more than one design is marked `+n` beside the
 picture rather than drawn as all of them.
 
-Not reproduced: the mining rate row, the fuel and cargo *gauges* (the figures
-are given as text), and the three buttons — Battle Plans, Jettison and Xfer —
-whose dialogs this project does not have.
+Also reproduced: the last tile as described above — its two titles, the
+dropdown, the skipped selection, and the two gauges with the cargo one
+segmented by mineral.
+
+Not reproduced: the mining rate row, the *Fuel & Cargo* tile's own gauges (that
+tile gives the figures as text), and the buttons — Battle Plans, Jettison and
+Xfer on tile 4, and the three along the foot of the last tile — whose dialogs
+this project does not have.
+
+One thing this project has to say that the original does not: a fleet id is the
+**player's own numbering**, so two players each have a fleet 1. The dropdown
+remembers what is chosen by owner *and* id, which is what the original's own
+combo item data amounts to.

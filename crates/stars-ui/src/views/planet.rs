@@ -36,7 +36,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         });
         ui.vertical(|ui| {
             ui.set_width(width);
-            lines(ui, "Fleets in Orbit", &app.planet_fleets_tile(), "none");
+            crate::views::fleets_here(app, ui);
             production(ui, &app.planet_production_rows());
             // The tile's own button, which is how the original opens the
             // Production dialog.
@@ -77,19 +77,6 @@ fn rows(ui: &mut egui::Ui, title: &str, rows: &[(String, String)]) {
                     ui.end_row();
                 }
             });
-    });
-}
-
-/// One tile holding a list rather than label/value pairs.
-fn lines(ui: &mut egui::Ui, title: &str, lines: &[String], empty: &str) {
-    tile(ui, title, |ui| {
-        if lines.is_empty() {
-            ui.label(egui::RichText::new(empty).weak().small());
-            return;
-        }
-        for line in lines {
-            ui.label(egui::RichText::new(line).small());
-        }
     });
 }
 

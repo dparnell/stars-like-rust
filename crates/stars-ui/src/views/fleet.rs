@@ -39,15 +39,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             ui.set_width(width);
             rows(ui, "Fuel & Cargo", &app.fleet_cargo_tile());
             rows(ui, "Fleet Composition", &app.fleet_composition_tile());
-            let others = app.planet_fleets_tile();
-            tile(ui, "Fleets Here", |ui| {
-                if others.is_empty() {
-                    ui.label(egui::RichText::new("none").weak().small());
-                }
-                for line in others {
-                    ui.label(egui::RichText::new(line).small());
-                }
-            });
+            crate::views::fleets_here(app, ui);
         });
     });
 }

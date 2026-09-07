@@ -2286,7 +2286,24 @@ disagree.
     `crates/stars-desktop/src/app.rs` now carries a test that reads its own
     source and fails if any `egui::Window` is opened inside a key handler.
 
-73. **What is still missing to call it playable.** Every waypoint task is now
+73. ~~**The pane's last tile.**~~ **Done.** `DrawPlanetShipList` (`1048:377e`),
+    which both panes end with. Spec in `docs/ui/fleet-pane.md`.
+
+    The decompiler dies on this routine, so it was read out of the binary
+    instruction by instruction — and it is not the list of fleet names this
+    project had been drawing. It is a **dropdown** of what is here with a
+    **Fuel** gauge and a segmented **Cargo** gauge under it, titled
+    `Fleets in Orbit` from the planet pane and `Other Fleets Here` from the
+    fleet pane, which leaves the selected fleet out. Both of the original's
+    "no gauges" states are kept: nothing selected, and an object not known in
+    full — which is every fleet but one's own.
+
+    It also answered the question that started the task. The ship-design and
+    enemy-class filters are the **scanner's alone**: `CShipsScanVis`
+    (`1058:4bf4`) has exactly four callers, `DrawScanner` three times and
+    `DrawScanFleetCount` once, and the panes consult neither filter.
+
+74. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

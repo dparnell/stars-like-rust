@@ -172,7 +172,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                     .map_or((0, 0), |(i, v)| (i, *v));
                 #[allow(clippy::cast_precision_loss)]
                 let radius = (2.0 + (amount as f32).sqrt() / 6.0).min(9.0);
-                (mineral_colour(best), radius)
+                (crate::views::mineral_colour(best), radius)
             }
             ScanView::Normal => match planet.owner {
                 Some(owner) => (player_colour(owner), if owned { 4.5 } else { 3.5 }),
@@ -472,16 +472,6 @@ fn value_colour(value: i16) -> Color32 {
         (60.0 * (1.0 - t) + 200.0 * t) as u8,
         60,
     )
-}
-
-/// Each mineral's own colour, as the game colours them: ironium blue,
-/// boranium green, germanium yellow.
-fn mineral_colour(mineral: usize) -> Color32 {
-    match mineral {
-        0 => Color32::from_rgb(90, 130, 230),
-        1 => Color32::from_rgb(90, 200, 110),
-        _ => Color32::from_rgb(220, 200, 80),
-    }
 }
 
 /// Draw the orbit rings gathered while the planets were drawn.

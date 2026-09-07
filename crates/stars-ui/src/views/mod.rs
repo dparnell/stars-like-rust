@@ -89,6 +89,171 @@ pub fn player_colour(player: i16) -> egui::Color32 {
     egui::Color32::from_rgb(r, g, b)
 }
 
+/// Each mineral's own colour, as the game colours them: ironium blue,
+/// boranium green, germanium yellow. Colonists are drawn in white.
+#[must_use]
+pub fn mineral_colour(mineral: usize) -> egui::Color32 {
+    match mineral {
+        0 => egui::Color32::from_rgb(90, 130, 230),
+        1 => egui::Color32::from_rgb(90, 200, 110),
+        2 => egui::Color32::from_rgb(220, 200, 80),
+        _ => egui::Color32::from_rgb(230, 230, 230),
+    }
+}
+
+/// The tile both panes end with: the fleets at this place, and the fuel and
+/// cargo of whichever is chosen.
+///
+/// `DrawPlanetShipList` (`1048:377e`), which the planet pane draws as its
+/// fourth tile and the fleet pane as its seventh — the same routine in the same
+/// corner, so whichever is selected, the pane's bottom right answers "what else
+/// is here?". A dropdown of the fleets, then a **Fuel** gauge and a **Cargo**
+/// gauge for the one chosen, their labels aligned on the wider of the two.
+///
+/// The three buttons the original puts along the bottom are not here: they open
+/// the Xfer and Merge dialogs, which this project does not have.
+pub fn fleets_here(app: &mut App, ui: &mut egui::Ui) {
+    let title = app.pane_fleets_title();
+    let list = app.pane_fleet_list();
+    let chosen = app.pane_fleet_choice();
+    let gauges = app.pane_fleet_gauges();
+    let mut choose = None;
+
+    tile(ui, title, |ui| {
+        if list.is_empty() {
+            ui.label(egui::RichText::new("none").weak().small());
+            return;
+        }
+        let showing = chosen
+            .and_then(|index| list.iter().find(|entry| entry.index == index))
+            .map(|entry| format!("{} ({})", entry.name, entry.ships))
+            .unwrap_or_default();
+        egui::ComboBox::from_id_source("pane-fleets-here")
+            .width(ui.available_width() - 8.0)
+            .selected_text(egui::RichText::new(showing).small())
+            .show_ui(ui, |ui| {
+                for entry in &list {
+                    let label = format!("{} ({})", entry.name, entry.ships);
+                    if ui
+                        .selectable_label(Some(entry.index) == chosen, label)
+                        .clicked()
+                    {
+                        choose = Some(entry.key);
+                    }
+                }
+            });
+
+        match gauges {
+            // Somebody else's fleet is seen, not known: the original draws no
+            // gauges for anything it does not have in full detail.
+            None => {
+                ui.label(
+                    egui::RichText::new("Fuel and cargo are known only for your own fleets.")
+                        .small()
+                        .weak(),
+                );
+            }
+            Some(gauges) => {
+                let width = ui.fonts(|f| {
+                    ["Fuel ", "Cargo "]
+                        .iter()
+                        .map(|label| {
+                            f.layout_no_wrap(
+                                (*label).to_string(),
+                                egui::TextStyle::Small.resolve(ui.style()),
+                                egui::Color32::PLACEHOLDER,
+                            )
+                            .size()
+                            .x
+                        })
+                        .fold(0.0_f32, f32::max)
+                });
+                gauge(
+                    ui,
+                    "Fuel",
+                    width,
+                    gauges.fuel_capacity,
+                    &[(gauges.fuel, egui::Color32::from_rgb(210, 170, 60))],
+                    format!("{}mg", gauges.fuel),
+                );
+                let mut bars: Vec<(i32, egui::Color32)> = (0..3)
+                    .map(|m| (gauges.minerals[m], mineral_colour(m)))
+                    .collect();
+                bars.push((gauges.colonists, mineral_colour(3)));
+                gauge(
+                    ui,
+                    "Cargo",
+                    width,
+                    gauges.cargo_capacity,
+                    &bars,
+                    format!("{}kT", gauges.cargo()),
+                );
+            }
+        }
+    });
+
+    if let Some(key) = choose {
+        app.choose_pane_fleet(key);
+    }
+}
+
+/// One gauge: a label, a bar of one or more coloured segments, and the figure.
+fn gauge(
+    ui: &mut egui::Ui,
+    label: &str,
+    label_width: f32,
+    capacity: i32,
+    segments: &[(i32, egui::Color32)],
+    text: String,
+) {
+    ui.horizontal(|ui| {
+        ui.add_sized(
+            egui::vec2(label_width, ui.spacing().interact_size.y * 0.6),
+            egui::Label::new(egui::RichText::new(label).small()),
+        );
+        let height = ui.text_style_height(&egui::TextStyle::Small);
+        let bar = (ui.available_width() - 44.0).max(24.0);
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(bar, height), egui::Sense::hover());
+        let painter = ui.painter();
+        painter.rect_filled(rect, 1.0, egui::Color32::from_gray(40));
+        if capacity > 0 {
+            let mut x = rect.left();
+            for (amount, colour) in segments {
+                if *amount <= 0 {
+                    continue;
+                }
+                #[allow(clippy::cast_precision_loss)]
+                let width = rect.width() * (*amount as f32) / (capacity as f32);
+                let width = width.min(rect.right() - x);
+                if width <= 0.0 {
+                    break;
+                }
+                painter.rect_filled(
+                    egui::Rect::from_min_size(
+                        egui::pos2(x, rect.top()),
+                        egui::vec2(width, rect.height()),
+                    ),
+                    1.0,
+                    *colour,
+                );
+                x += width;
+            }
+        }
+        ui.label(egui::RichText::new(text).small());
+    });
+}
+
+/// The frame every tile shares, as both panes draw it.
+fn tile(ui: &mut egui::Ui, title: &str, body: impl FnOnce(&mut egui::Ui)) {
+    egui::Frame::group(ui.style())
+        .inner_margin(egui::Margin::symmetric(4.0, 2.0))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(egui::RichText::new(title).small().strong());
+            body(ui);
+        });
+}
+
 /// A population figure, in the units players expect.
 ///
 /// The simulation stores population in units of 100 colonists, which is a

@@ -293,6 +293,11 @@ pub struct App {
     pub race_viewer: Option<(usize, usize)>,
     /// The Custom Race Wizard, while it is open.
     pub race_wizard: Option<RaceWizard>,
+    /// Which fleet the pane's last tile is showing, as owner and fleet id.
+    ///
+    /// Both halves are needed: a fleet id is the player's own numbering, so
+    /// two players each have a fleet 1.
+    pub pane_fleet_chosen: Option<(i16, u16)>,
     /// The Battle Plans dialog, while it is open.
     pub battle_plans: Option<BattlePlans>,
     /// The Change Password dialog, while it is open.
@@ -2160,24 +2165,104 @@ impl App {
             .collect()
     }
 
-    /// The **fleets in orbit** tile.
+    /// The title of the pane's last tile.
+    ///
+    /// `DrawPlanetShipList` (`1048:377e`) draws the same tile for both panes
+    /// and titles it by which one it is in: `Fleets in Orbit` for a planet
+    /// (string `0x0338`) and `Other Fleets Here` for a fleet (`0x0339`), the
+    /// "other" being the selected fleet, which the tile leaves out.
     #[must_use]
-    pub fn planet_fleets_tile(&self) -> Vec<String> {
-        let (Some(game), Some(planet)) = (self.game.as_ref(), self.pane_planet()) else {
+    pub fn pane_fleets_title(&self) -> &'static str {
+        if self.selection.on_fleet && self.pane_fleet().is_some() {
+            "Other Fleets Here"
+        } else {
+            "Fleets in Orbit"
+        }
+    }
+
+    /// What the tile's dropdown holds: the fleets at the pane's location.
+    ///
+    /// The selected fleet is left out when the pane is showing one — the
+    /// original passes it as `idSkip` — so the tile always answers "what
+    /// **else** is here?".
+    #[must_use]
+    pub fn pane_fleet_list(&self) -> Vec<PaneFleet> {
+        let Some(game) = self.game.as_ref() else {
             return Vec::new();
         };
-        let Some(at) = planet.position else {
+        // A fleet's own position when one is selected, the planet's otherwise.
+        let at = match (self.selection.on_fleet, self.pane_fleet()) {
+            (true, Some(fleet)) => Some(fleet.position),
+            _ => self.pane_planet().and_then(|planet| planet.position),
+        };
+        let Some(at) = at else {
             return Vec::new();
         };
+        let skip = self
+            .selection
+            .on_fleet
+            .then(|| self.pane_fleet().map(|fleet| (fleet.owner, fleet.id)))
+            .flatten();
+        let me = self.local_player();
+
         game.fleets
             .iter()
-            .filter(|f| f.position == at && !f.stacks.is_empty())
-            .map(|f| {
-                let ships: i32 = f.stacks.iter().map(|s| s.count).sum();
-                let name = f.name.clone().unwrap_or_else(|| format!("Fleet #{}", f.id));
-                format!("{name} ({ships})")
+            .enumerate()
+            .filter(|(_, fleet)| fleet.position == at && !fleet.stacks.is_empty())
+            .filter(|(_, fleet)| Some((fleet.owner, fleet.id)) != skip)
+            .map(|(index, fleet)| PaneFleet {
+                index,
+                key: (fleet.owner, fleet.id),
+                name: self.fleet_display_name(index),
+                ships: fleet.stacks.iter().map(|stack| stack.count).sum(),
+                mine: usize::try_from(fleet.owner).is_ok_and(|owner| owner == me),
             })
             .collect()
+    }
+
+    /// The fleet the tile's dropdown is showing, as an index into the game's
+    /// fleets.
+    ///
+    /// The first one when nothing has been chosen, and nothing at all when the
+    /// list is empty — which is the state the original disables the tile's
+    /// buttons and draws no gauges in.
+    #[must_use]
+    pub fn pane_fleet_choice(&self) -> Option<usize> {
+        let list = self.pane_fleet_list();
+        self.pane_fleet_chosen
+            .and_then(|key| list.iter().find(|entry| entry.key == key))
+            .or_else(|| list.first())
+            .map(|entry| entry.index)
+    }
+
+    /// Choose one from the dropdown, by the key [`PaneFleet::key`] carries.
+    pub fn choose_pane_fleet(&mut self, key: (i16, u16)) {
+        self.pane_fleet_chosen = Some(key);
+    }
+
+    /// The **fuel and cargo gauges** the tile draws under its dropdown.
+    ///
+    /// `None` when there is nothing to draw them for, which the original
+    /// decides two ways: nothing is selected, or what is selected is not known
+    /// in full (`det != 7`). Full detail is only ever had of one's own fleets,
+    /// so somebody else's shows the dropdown and no gauges.
+    #[must_use]
+    pub fn pane_fleet_gauges(&self) -> Option<FleetGauges> {
+        let index = self.pane_fleet_choice()?;
+        let game = self.game.as_ref()?;
+        let fleet = game.fleets.get(index)?;
+        let owner = usize::try_from(fleet.owner).ok()?;
+        if owner != self.local_player() {
+            return None;
+        }
+        let designs = game.designs.get(owner)?;
+        Some(FleetGauges {
+            fuel: fleet.cargo.fuel,
+            fuel_capacity: fleet.fuel_capacity(designs),
+            minerals: fleet.cargo.minerals,
+            colonists: fleet.cargo.colonists,
+            cargo_capacity: fleet.cargo_capacity(designs),
+        })
     }
 
     /// A fleet's name, as the game writes it (`PszGetFleetName`, `util.c`).
@@ -8598,5 +8683,48 @@ impl App {
             }
             self.generate_turn();
         }
+    }
+}
+
+/// One fleet in the pane's last tile.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaneFleet {
+    /// Where it is in the game's fleet list.
+    pub index: usize,
+    /// Its owner and id, which together are what the dropdown remembers: a
+    /// fleet id is only unique within one player's fleets.
+    pub key: (i16, u16),
+    /// Its name, as the game writes it.
+    pub name: String,
+    /// How many ships it has.
+    pub ships: i32,
+    /// Whether it is the local player's.
+    pub mine: bool,
+}
+
+/// What the pane's last tile draws its two gauges from.
+///
+/// The fuel gauge is one bar; the cargo gauge is four, one per mineral and one
+/// for colonists, which is why the original draws them with different routines
+/// (`1050:44b6` and `1110:044e`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct FleetGauges {
+    /// Fuel aboard, in mg.
+    pub fuel: i32,
+    /// What the fleet's tanks hold.
+    pub fuel_capacity: i32,
+    /// Ironium, boranium and germanium aboard, in kT.
+    pub minerals: [i32; 3],
+    /// Colonists aboard, in kT.
+    pub colonists: i32,
+    /// What the fleet's holds take.
+    pub cargo_capacity: i32,
+}
+
+impl FleetGauges {
+    /// Everything in the holds.
+    #[must_use]
+    pub fn cargo(&self) -> i32 {
+        self.minerals.iter().sum::<i32>() + self.colonists
     }
 }
