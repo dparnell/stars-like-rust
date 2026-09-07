@@ -299,6 +299,8 @@ pub struct App {
     pub password_dialog: Option<PasswordDialog>,
     /// The prompt that asks for a turn password, while a save is waiting on it.
     pub password_prompt: Option<PasswordPrompt>,
+    /// Whether the Host Mode dialog is open.
+    pub host_mode: bool,
     /// The salt last accepted at that prompt (`lSaltLast`), so the same
     /// password is asked for once a session and not once a file.
     pub password_given: Option<u32>,
@@ -8260,5 +8262,185 @@ impl App {
     /// whatever was open stays open and the file is dropped.
     pub fn cancel_password_prompt(&mut self) {
         self.password_prompt = None;
+    }
+}
+
+/// Where one player's turn has got to, as the Host Mode dialog reports it.
+///
+/// `CFindTurnsOutstanding` (`mdi.c`) works this out for every player and puts
+/// the answer in `rgOut`, which indexes seven consecutive strings from
+/// `idsTurned` (`0x02cc`) — with the dead one at `0x02cb`, an index of `-1`.
+/// The dialog draws the first two in dark green and the rest in dark red.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnStatus {
+    /// The player is dead and is not waited for (`rgOut = -1`).
+    Dead,
+    /// The orders are in — or the player is a computer player, which the host
+    /// never waits for.
+    TurnedIn,
+    /// Nothing has arrived.
+    StillOut,
+    /// Something arrived, but it is not a finished turn.
+    PartiallyDone,
+    /// A file arrived that could not be read.
+    Corrupted,
+    /// A file for another year.
+    WrongYear,
+    /// A file for another game.
+    WrongGame,
+}
+
+impl TurnStatus {
+    /// What the dialog writes after the player's name.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Dead => "dead",
+            Self::TurnedIn => "turned in",
+            Self::StillOut => "still out",
+            Self::PartiallyDone => "partially done",
+            Self::Corrupted => "corrupted",
+            Self::WrongYear => "not on the right year",
+            Self::WrongGame => "not in the right game",
+        }
+    }
+
+    /// Whether the host is still waiting on this player.
+    ///
+    /// Only the two the dialog draws in green are not outstanding, and a dead
+    /// player is not waited for.
+    #[must_use]
+    pub fn outstanding(self) -> bool {
+        !matches!(self, Self::Dead | Self::TurnedIn)
+    }
+}
+
+impl App {
+    /// The game's name, as the `.xy` records it.
+    ///
+    /// The Host Mode dialog puts it at the top; the original takes it from
+    /// `game.szName`, which is what the universe file carries.
+    #[must_use]
+    pub fn game_name(&self) -> String {
+        self.universe
+            .as_ref()
+            .and_then(|u| u.game().ok())
+            .map(|info| info.name)
+            .unwrap_or_default()
+    }
+
+    /// The base name of the open game's files (`szBase`), without an extension.
+    #[must_use]
+    pub fn host_file_name(&self) -> String {
+        self.path
+            .as_ref()
+            .and_then(|path| path.file_stem())
+            .map(|stem| stem.to_string_lossy().to_string())
+            .unwrap_or_default()
+    }
+
+    /// Open the Host Mode dialog.
+    pub fn open_host_mode(&mut self) {
+        self.host_mode = true;
+    }
+
+    /// Close it.
+    pub fn close_host_mode(&mut self) {
+        self.host_mode = false;
+    }
+
+    /// Where each player's turn has got to.
+    ///
+    /// A computer player is never waited for, and neither is a dead one. For
+    /// everybody else the `.xN` beside the game is looked at: missing is
+    /// *still out*, a file for another game or another year says so, one that
+    /// will not decode is *corrupted*, and one whose header does not carry the
+    /// submitted flag is *partially done* — that flag is `gd.fPartialTurn` on
+    /// the original's side.
+    #[must_use]
+    pub fn turn_status(&self, player: usize) -> TurnStatus {
+        let Some(game) = self.game.as_ref() else {
+            return TurnStatus::StillOut;
+        };
+        let Some(record) = game.players.get(player) else {
+            return TurnStatus::StillOut;
+        };
+        if record.dead {
+            return TurnStatus::Dead;
+        }
+        if !matches!(record.control, stars_core::ai::Control::Human) {
+            return TurnStatus::TurnedIn;
+        }
+        let Some(path) = self.path.as_ref() else {
+            return TurnStatus::StillOut;
+        };
+        let directory = path.parent().unwrap_or_else(|| Path::new("."));
+        let Some(stem) = path.file_stem().map(|s| s.to_string_lossy().to_string()) else {
+            return TurnStatus::StillOut;
+        };
+        let Ok(bytes) = std::fs::read(directory.join(format!("{stem}.x{}", player + 1))) else {
+            return TurnStatus::StillOut;
+        };
+        let Ok(decoded) = StarsFile::decode(&bytes) else {
+            return TurnStatus::Corrupted;
+        };
+        let header = &decoded.latest_segment().header;
+        if header.game_id != game.seed {
+            return TurnStatus::WrongGame;
+        }
+        if i16::try_from(header.turn).ok() != Some(game.turn) {
+            return TurnStatus::WrongYear;
+        }
+        if !header.flag_done {
+            return TurnStatus::PartiallyDone;
+        }
+        TurnStatus::TurnedIn
+    }
+
+    /// Every player's status, in player order.
+    #[must_use]
+    pub fn turn_statuses(&self) -> Vec<TurnStatus> {
+        let count = self.game.as_ref().map_or(0, |game| game.players.len());
+        (0..count).map(|player| self.turn_status(player)).collect()
+    }
+
+    /// How many turns the host is still waiting on (`CFindTurnsOutstanding`).
+    #[must_use]
+    pub fn turns_outstanding(&self) -> usize {
+        self.turn_statuses()
+            .iter()
+            .filter(|status| status.outstanding())
+            .count()
+    }
+
+    /// The year the next generation will produce.
+    #[must_use]
+    pub fn next_year(&self) -> i32 {
+        self.game.as_ref().map_or(2400, |game| game.year() + 1)
+    }
+
+    /// How many turns `Generate Now` will run, given the modifiers held down.
+    ///
+    /// The original reads them with `GetAsyncKeyState` as it starts: plain is
+    /// one turn, and Ctrl, Shift or both force a run of them (`iPassCnt` 99, 9
+    /// and 999). It asks before doing any of it.
+    #[must_use]
+    pub fn generate_passes(shift: bool, control: bool) -> u16 {
+        match (shift, control) {
+            (false, false) => 1,
+            (false, true) => 99,
+            (true, false) => 9,
+            (true, true) => 999,
+        }
+    }
+
+    /// Generate `passes` turns in a row.
+    pub fn generate_turns(&mut self, passes: u16) {
+        for _ in 0..passes.max(1) {
+            if self.game.is_none() {
+                return;
+            }
+            self.generate_turn();
+        }
     }
 }

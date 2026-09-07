@@ -12,6 +12,7 @@ pub mod designer;
 pub mod fleet;
 pub mod fleets;
 pub mod galaxy;
+pub mod host;
 pub mod messages;
 pub mod newgame;
 pub mod parameters;

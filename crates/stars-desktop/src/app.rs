@@ -11,6 +11,9 @@ use stars_ui::{App, Screen};
 /// The eframe application.
 pub struct StarsApp {
     app: App,
+    /// The clock reading the Host Mode dialog measures "time since last
+    /// change" from (`ctickLast`).
+    host_since: f64,
     /// The files the last "save a new game" wrote, to report back.
     written: Vec<String>,
 }
@@ -30,6 +33,7 @@ impl StarsApp {
         let mut this = Self {
             app,
             written: Vec::new(),
+            host_since: 0.0,
         };
         this.find_art(None);
         this
@@ -268,6 +272,59 @@ impl StarsApp {
         }
     }
 
+    /// Act on what the Host Mode dialog asked for.
+    ///
+    /// Generating writes the new files for everybody, which is what a host
+    /// generation is: the year runs, and every player gets a turn file. The
+    /// original asks before generating with turns outstanding and before a
+    /// forced run of them, and so does this.
+    fn host(&mut self, action: stars_ui::views::host::Action, now: f64) {
+        use stars_ui::views::host::Action;
+        match action {
+            Action::Generate(passes) => {
+                let outstanding = self.app.turns_outstanding();
+                let question = if passes > 1 {
+                    format!("Force generate {passes} turns in a row?")
+                } else if outstanding > 0 {
+                    format!(
+                        "{outstanding} of {} turns are still out. Generate anyway?",
+                        self.app.turn_statuses().len()
+                    )
+                } else {
+                    String::new()
+                };
+                if !question.is_empty()
+                    && rfd::MessageDialog::new()
+                        .set_title("Stars!")
+                        .set_description(&question)
+                        .set_buttons(rfd::MessageButtons::YesNo)
+                        .show()
+                        != rfd::MessageDialogResult::Yes
+                {
+                    return;
+                }
+                self.app.generate_turns(passes);
+                self.host_since = now;
+                // A generated year is only a host's when everyone can read it.
+                let Some(path) = self.app.path.clone() else {
+                    return;
+                };
+                match self.app.save_new_game(&path) {
+                    Ok(written) => {
+                        self.written = written
+                            .iter()
+                            .filter_map(|p| p.file_name())
+                            .map(|n| n.to_string_lossy().to_string())
+                            .collect();
+                        self.app.error = None;
+                    }
+                    Err(e) => self.app.error = Some(e),
+                }
+            }
+            Action::Close => self.app.close_host_mode(),
+        }
+    }
+
     /// Act on what the New Game wizard asked for.
     fn wizard(&mut self, action: stars_ui::views::newgame::Action) {
         use stars_ui::views::newgame::Action;
@@ -498,6 +555,27 @@ impl eframe::App for StarsApp {
                     .show(ctx, |ui| {
                         stars_ui::views::password::prompt(&mut self.app, ui, now);
                     });
+            }
+
+            if self.app.host_mode {
+                let mut open = true;
+                // The original hides everything else and runs this modally; here it
+                // is a window, so the map is still there behind it.
+                let elapsed = ctx.input(|i| i.time) - self.host_since;
+                let mut action = None;
+                egui::Window::new("Stars! Host Mode")
+                    .open(&mut open)
+                    .resizable(false)
+                    .default_width(440.0)
+                    .show(ctx, |ui| {
+                        action = stars_ui::views::host::view(&mut self.app, ui, elapsed);
+                    });
+                if !open {
+                    self.app.close_host_mode();
+                }
+                if let Some(action) = action {
+                    self.host(action, ctx.input(|i| i.time));
+                }
             }
 
             if self.app.password_dialog.is_some() {
@@ -859,6 +937,21 @@ impl eframe::App for StarsApp {
                     }
                 });
                 ui.separator();
+                if ui
+                    .add_enabled(
+                        self.app.game.is_some() && self.app.setup.is_none(),
+                        egui::Button::new("Host Mode…"),
+                    )
+                    .on_hover_text(
+                        "Watch for the other players' turns and generate the year. \
+                         The original makes this a mode of its own, entered by opening \
+                         the host file.",
+                    )
+                    .clicked()
+                {
+                    ui.close_menu();
+                    self.app.open_host_mode();
+                }
                 if ui
                     .add_enabled(
                         self.app.game.is_some() && self.app.setup.is_none(),

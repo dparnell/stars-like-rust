@@ -2209,7 +2209,35 @@ disagree.
     constant is `0x1388`, 5000ms. It is reproduced as a countdown rather than as
     the original's frozen `Delay`.
 
-70. **What is still missing to call it playable.** Every waypoint task is now
+70. ~~**The Host Mode dialog.**~~ **Done.** `HostModeDialog` / `IDD_HOST_MODE`.
+    Spec in `docs/ui/host-mode.md`. The game and file it is watching, the year
+    it will generate next, the player list with every one of the seven statuses
+    `CFindTurnsOutstanding` can report, the elapsed clock in all four of its
+    formats, and Generate Now — which asks before generating with turns still
+    out or forcing a run of them, then replays the submitted orders, runs the
+    year and writes everybody's files.
+
+    The whole player list is painted rather than laid out, as the race wizard's
+    middle pages are: the template describes a dialog with no players in it, so
+    what it says came from `DrawHostDialog2`.
+
+    Two departures, both recorded in the spec. In the original this **is** a
+    mode — `BringUpHostDlg` hides the map and runs the dialog in a loop, and
+    the program enters it by opening a host file — while this project opens a
+    `.hst` as a game like any other, so it is a window reached from the Turn
+    menu. And **Auto Generate** is disabled: the options dialog behind it
+    (`IDD_HOST_OPTIONS`) has two run-time captions whose numbers are painted by
+    `DrawHostOptions`, a stub in the reconstruction, so how they are edited is
+    not recovered.
+
+    The **host password** is the piece left over, and it is a format job rather
+    than a UI one: the original keeps the host's salt in a leading
+    `rtChgPassword` record inside the `.hst`, which this project neither writes
+    nor reads. Doing that would give the Password... button somewhere to write
+    to and would make a `.hst` ask for a password when it is opened, which is
+    the one thing the password prompt cannot yet do.
+
+71. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

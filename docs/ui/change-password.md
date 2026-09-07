@@ -137,7 +137,9 @@ test that re-encodes them all is exactly this case.
 
 ## What is not
 
-* **Host mode**, and so the second note, the alternative caption and the
-  host-password record a `.hst` would carry.
+* The **host password**, and so the second note and the alternative caption.
+  There is a host mode now (`host-mode.md`), but its `Password...` button is
+  disabled: the salt has nowhere to go until the `.hst`'s leading
+  `rtChgPassword` record is written and read.
 * **Validate mode**, which fails rather than asking.
 * The **Help** buttons.

@@ -606,3 +606,37 @@ fn the_password_prompt_draws() {
     assert!(app.password_prompt.is_some());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The Host Mode dialog lays out, with a mix of statuses on the board.
+#[test]
+fn the_host_mode_dialog_draws() {
+    use stars_core::newgame::{NewGame, NewPlayer, Size};
+    use stars_core::{opponents, Race};
+
+    let mut app = App::new();
+    app.new_game(&NewGame {
+        name: "Hosted".to_string(),
+        size: Size::Small,
+        players: vec![
+            NewPlayer::human(Race::humanoid()),
+            NewPlayer::human(Race::humanoid()),
+            opponents::opponent(1, 1).expect("an opponent").as_player(),
+        ],
+        ..NewGame::default()
+    })
+    .expect("creates the game");
+    if let Some(game) = app.game.as_mut() {
+        game.players[1].dead = true;
+    }
+    app.open_host_mode();
+
+    for elapsed in [0.0, 64.0, 90_061.0] {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                stars_ui::views::host::view(&mut app, ui, elapsed);
+            });
+        });
+    }
+    assert!(app.host_mode, "drawing should not close it");
+}
