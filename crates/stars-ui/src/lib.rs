@@ -38,8 +38,9 @@ pub mod vcr;
 pub mod views;
 
 pub use app::{
-    distance_text, fleet_arrow, App, Browser, DesignView, Designer, DesignerDrag, Editing,
-    FilterCommand, FilterEntry, FindResult, OrbitRing, PartRow, Production, RacePage, RaceWizard,
-    ResearchDialog, ScanObject, ScanOverlays, ScanView, SchematicSlot, Screen, Selection,
-    StatusBar, SurveyBar, SurveySubject, WindowLayout, ARROW_SHEET, RACE_WIZARD_PAGES,
+    copied_plan_name, distance_text, fleet_arrow, App, BattlePlans, Browser, DesignView, Designer,
+    DesignerDrag, Editing, FilterCommand, FilterEntry, FindResult, OrbitRing, PartRow, Production,
+    RacePage, RaceWizard, ResearchDialog, ScanObject, ScanOverlays, ScanView, SchematicSlot,
+    Screen, Selection, StatusBar, SurveyBar, SurveySubject, WindowLayout, ARROW_SHEET,
+    MAX_BATTLE_PLANS, RACE_WIZARD_PAGES,
 };

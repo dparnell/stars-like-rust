@@ -17,7 +17,9 @@
 //! |--------|-------------|------------------------------------------------|
 //! | 0      | low 4 bits  | race / player id                               |
 //! | 0      | high 4 bits | battle-plan id                                 |
-//! | 1      | 1 byte      | tactic                                         |
+//! | 1      | low 4 bits  | tactic                                         |
+//! | 1      | bit 6       | deleted ([`PLAN_DELETED`])                     |
+//! | 1      | bit 7       | dump cargo ([`PLAN_DUMP_CARGO`])               |
 //! | 2      | low 4 bits  | primary target                                 |
 //! | 2      | high 4 bits | secondary target                               |
 //! | 3      | 1 byte      | "attack who" (0 = nobody … 3 = everyone, 4+ = a specific race id) |
@@ -68,6 +70,15 @@ pub struct BattlePlanRecord {
 /// and [`BattlePlanRecord::deleted`].
 pub const PLAN_DELETED: u8 = 0x40;
 
+/// Bit 7 of byte 1: **dump cargo** at the start of the battle.
+///
+/// The `fDumpCargo` bit of `BTLPLAN.iplr` (`iplr:4, iplan:4, mdTactic:4,
+/// unused1:2, fDelete:1, fDumpCargo:1`), and the Battle Plans dialog's
+/// `D&ump Cargo` checkbox — `BattlePlansDlg` reads it as `wFlags >> 15` and
+/// writes it back into the same bit. `MANUAL.PDF` p. 15-14: "Dump Cargo —
+/// Jettison cargo at the start of battle."
+pub const PLAN_DUMP_CARGO: u8 = 0x80;
+
 impl BattlePlanRecord {
     /// The tactic proper: the low nibble of [`Self::tactic`]. The original
     /// refuses a value above 6.
@@ -80,6 +91,27 @@ impl BattlePlanRecord {
     #[must_use]
     pub fn deleted(&self) -> bool {
         self.tactic & PLAN_DELETED != 0
+    }
+
+    /// Whether the plan jettisons its cargo at the start of a battle
+    /// ([`PLAN_DUMP_CARGO`]).
+    #[must_use]
+    pub fn dump_cargo(&self) -> bool {
+        self.tactic & PLAN_DUMP_CARGO != 0
+    }
+
+    /// Set the tactic nibble, leaving the flags above it alone.
+    pub fn set_tactic(&mut self, tactic: u8) {
+        self.tactic = (self.tactic & 0xF0) | (tactic & 0x0F);
+    }
+
+    /// Set or clear [`PLAN_DUMP_CARGO`].
+    pub fn set_dump_cargo(&mut self, on: bool) {
+        if on {
+            self.tactic |= PLAN_DUMP_CARGO;
+        } else {
+            self.tactic &= !PLAN_DUMP_CARGO;
+        }
     }
 
     /// Decode a **decrypted** type-30 battle-plan block payload.

@@ -164,24 +164,44 @@ pub fn movement_over(speed: u8, rounds: u8) -> u32 {
 }
 
 /// A battle plan's tactic, which decides how a token picks its target.
+///
+/// The six the Battle Plans dialog offers, **in the order it offers them** —
+/// which is the order they are stored in, since the dialog uses the combo's
+/// index as the value (`BattlePlansDlg` fills the tactic combo from strings
+/// `0x198`..`0x19d` and sets the selection to the stored nibble).
+///
+/// Three sources agree on the order: the `BattleTactic` enum in the NB09
+/// symbols, that combo, and `MANUAL.PDF` p. 15-14, which lists the six in the
+/// same sequence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Tactic {
     /// Run for the edge of the board.
     Disengage = 0,
-    /// Run once damaged.
+    /// Run once damaged. Until then it behaves like *maximise damage*, which
+    /// is what the manual says and what the scoring below does.
     DisengageIfChallenged = 1,
     /// Take as little damage as possible.
     MinimiseDamageToSelf = 2,
-    /// Maximise damage dealt, ignoring damage taken.
-    MaximiseDamage = 3,
-    /// Maximise damage dealt minus damage taken.
-    MaximiseNetDamage = 4,
+    /// Maximise damage dealt while always dealing some.
+    MaximiseNetDamage = 3,
     /// Maximise the ratio of damage dealt to damage taken.
-    MaximiseDamageRatio = 5,
+    MaximiseDamageRatio = 4,
+    /// Maximise damage dealt, ignoring damage taken.
+    MaximiseDamage = 5,
 }
 
 impl Tactic {
+    /// Every tactic, in the dialog's order — which is stored-value order.
+    pub const ALL: [Tactic; 6] = [
+        Tactic::Disengage,
+        Tactic::DisengageIfChallenged,
+        Tactic::MinimiseDamageToSelf,
+        Tactic::MaximiseNetDamage,
+        Tactic::MaximiseDamageRatio,
+        Tactic::MaximiseDamage,
+    ];
+
     /// Decode the stored tactic nibble.
     #[must_use]
     pub fn from_raw(v: u8) -> Option<Self> {
@@ -189,11 +209,24 @@ impl Tactic {
             0 => Self::Disengage,
             1 => Self::DisengageIfChallenged,
             2 => Self::MinimiseDamageToSelf,
-            3 => Self::MaximiseDamage,
-            4 => Self::MaximiseNetDamage,
-            5 => Self::MaximiseDamageRatio,
+            3 => Self::MaximiseNetDamage,
+            4 => Self::MaximiseDamageRatio,
+            5 => Self::MaximiseDamage,
             _ => return None,
         })
+    }
+
+    /// What the dialog calls it (strings `0x198`..`0x19d`).
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Disengage => "Disengage",
+            Self::DisengageIfChallenged => "Disengage if challenged",
+            Self::MinimiseDamageToSelf => "Minimize damage to self",
+            Self::MaximiseNetDamage => "Maximize net damage",
+            Self::MaximiseDamageRatio => "Maximize damage ratio",
+            Self::MaximiseDamage => "Maximize damage",
+        }
     }
 }
 
@@ -1529,6 +1562,10 @@ pub fn score_square(tokens: &[CombatToken], mover: usize, square: Square) -> i32
 }
 
 /// What class of ship a battle plan will shoot at.
+///
+/// The eight the Battle Plans dialog's two target combos offer, in the order
+/// they are offered — which is the stored order, as with [`Tactic`]. The
+/// captions are strings `0x190`..`0x197`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum TargetClass {
@@ -1551,6 +1588,33 @@ pub enum TargetClass {
 }
 
 impl TargetClass {
+    /// Every class, in the dialog's order — which is stored-value order.
+    pub const ALL: [TargetClass; 8] = [
+        TargetClass::None,
+        TargetClass::Any,
+        TargetClass::Starbase,
+        TargetClass::ArmedShips,
+        TargetClass::BombersFreighters,
+        TargetClass::UnarmedShips,
+        TargetClass::FuelTransports,
+        TargetClass::Freighters,
+    ];
+
+    /// What the dialog calls it (strings `0x190`..`0x197`).
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::None => "None/Disengage",
+            Self::Any => "Any",
+            Self::Starbase => "Starbase",
+            Self::ArmedShips => "Armed Ships",
+            Self::BombersFreighters => "Bombers/Freighters",
+            Self::UnarmedShips => "Unarmed Ships",
+            Self::FuelTransports => "Fuel Transports",
+            Self::Freighters => "Freighters",
+        }
+    }
+
     /// Decode a stored target nibble.
     #[must_use]
     pub fn from_raw(v: u8) -> Self {
@@ -1729,6 +1793,99 @@ pub fn move_search(tokens: &[CombatToken], mover: usize, primary: bool) -> MoveS
     MoveSearch {
         radius: 1,
         beeline: nearest.map(|(_, square)| square),
+    }
+}
+
+#[cfg(test)]
+mod tactic_tests {
+    use super::*;
+
+    /// The stored order, which the dialog's combo and the manual both give.
+    #[test]
+    fn the_six_tactics_are_stored_in_the_order_the_dialog_lists_them() {
+        let names: Vec<&str> = Tactic::ALL.iter().map(|t| t.name()).collect();
+        assert_eq!(
+            names,
+            [
+                "Disengage",
+                "Disengage if challenged",
+                "Minimize damage to self",
+                "Maximize net damage",
+                "Maximize damage ratio",
+                "Maximize damage",
+            ]
+        );
+        for (value, tactic) in Tactic::ALL.iter().enumerate() {
+            let raw = u8::try_from(value).expect("six of them");
+            assert_eq!(Tactic::from_raw(raw), Some(*tactic));
+            assert_eq!(*tactic as u8, raw);
+        }
+        assert_eq!(Tactic::from_raw(6), None, "the seventh is out of range");
+    }
+
+    /// `ScoreFromGiveAndTakeAndTactic` groups the six into three by **value**:
+    /// `{0, 2}` score by damage taken, `{1, 5}` by damage given, and `{3, 4}`
+    /// by the ratio. The manual agrees on the middle pair — "Disengage if
+    /// challenged behaves like Maximize damage until the token takes damage"
+    /// (p. 15-14).
+    #[test]
+    fn the_scoring_groups_the_tactics_by_their_stored_value() {
+        let score = |value: u8| target_score(40, 10, Tactic::from_raw(value).expect("a tactic"));
+        assert_eq!(score(0), 10, "Disengage scores by damage taken");
+        assert_eq!(score(2), 10, "Minimize damage to self does too");
+        assert_eq!(
+            score(1),
+            -40,
+            "Disengage if challenged scores by damage given"
+        );
+        assert_eq!(score(5), -40, "and so does Maximize damage");
+        // -40 * 100 / (10 + 1)
+        assert_eq!(score(3), -363, "Maximize net damage takes the ratio");
+        assert_eq!(score(4), -363, "and so does Maximize damage ratio");
+    }
+
+    /// The eight target classes, likewise.
+    #[test]
+    fn the_eight_target_classes_are_stored_in_the_order_the_dialog_lists_them() {
+        let names: Vec<&str> = TargetClass::ALL.iter().map(|c| c.name()).collect();
+        assert_eq!(
+            names,
+            [
+                "None/Disengage",
+                "Any",
+                "Starbase",
+                "Armed Ships",
+                "Bombers/Freighters",
+                "Unarmed Ships",
+                "Fuel Transports",
+                "Freighters",
+            ]
+        );
+        for (value, class) in TargetClass::ALL.iter().enumerate() {
+            let raw = u8::try_from(value).expect("eight of them");
+            assert_eq!(TargetClass::from_raw(raw), *class);
+            assert_eq!(*class as u8, raw);
+        }
+    }
+
+    /// The five stock plans, read through the enumerations.
+    #[test]
+    fn the_stock_plans_make_sense_read_this_way() {
+        let plans = crate::default_battle_plans(0);
+        let tactic = |slot: usize| Tactic::from_raw(plans[slot].tactic_nibble()).expect("a tactic");
+        let primary = |slot: usize| TargetClass::from_raw(plans[slot].primary_target);
+
+        // Sniper picks on what cannot shoot back and leaves the moment it is
+        // hit; Chicken does not fight at all. Both only read that way with the
+        // tactics in their stored order.
+        assert_eq!(plans[3].name, "Sniper");
+        assert_eq!(tactic(3), Tactic::DisengageIfChallenged);
+        assert_eq!(primary(3), TargetClass::UnarmedShips);
+        assert_eq!(plans[4].name, "Chicken");
+        assert_eq!(tactic(4), Tactic::Disengage);
+        assert_eq!(primary(4), TargetClass::None);
+        // Kill Starbase does what it says.
+        assert_eq!(primary(1), TargetClass::Starbase);
     }
 }
 

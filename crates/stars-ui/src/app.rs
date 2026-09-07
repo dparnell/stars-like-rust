@@ -293,6 +293,8 @@ pub struct App {
     pub race_viewer: Option<(usize, usize)>,
     /// The Custom Race Wizard, while it is open.
     pub race_wizard: Option<RaceWizard>,
+    /// The Battle Plans dialog, while it is open.
+    pub battle_plans: Option<BattlePlans>,
     /// Whether the Find box is open (View (Find), Ctrl+F).
     pub find_open: bool,
     /// Which of the scanner's six views is showing.
@@ -7555,15 +7557,17 @@ impl App {
         ))
     }
 
-    /// What the wizard refuses to save, in the original's own words (string
-    /// `0x0515`), or `None` when the race is legal.
+    /// Why the wizard will not save this race, or `None` when it is legal.
+    ///
+    /// The original refuses the same thing and says so in a message box
+    /// (string `0x0515`); the wording here is this project's own.
     #[must_use]
     pub fn race_wizard_refusal(&self) -> Option<String> {
         let points = self.race_wizard_points();
         (points < 0).then(|| {
             format!(
-                "Your advantage points are currently in the hole by {} points. \
-                 You cannot save a race definition which has a negative balance.",
+                "This race is {} advantage points over budget. A race can only be \
+                 saved once the balance is back to nothing or better.",
                 -points
             )
         })
@@ -7707,3 +7711,279 @@ impl App {
 
 /// How many pages the wizard has.
 pub const RACE_WIZARD_PAGES: usize = 6;
+
+/// The Battle Plans dialog (`BattlePlansDlg`, `IDD_BATTLE_PLANS`).
+///
+/// Commands (Battle Plans...), **F6**. A player's plans are a short list — at
+/// most sixteen — and this edits one of them at a time: its tactic, its two
+/// target classes, who it will attack and whether it dumps cargo. Every change
+/// is logged as it is made, which is what `LogChangeBtlplan` does when the
+/// original leaves a plan.
+///
+/// See `docs/ui/battle-plans.md`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BattlePlans {
+    /// Which plan is showing.
+    pub selected: usize,
+    /// The rename box, while it is up, holding what has been typed. The
+    /// original puts a modal dialog (`IDD_RENAME`) here, and both `Rename...`
+    /// and `Copy` go through it.
+    pub rename: Option<String>,
+    /// Set while the delete warning is up: the original asks before deleting a
+    /// plan that fleets are using (string `0x035b`).
+    pub confirm_delete: bool,
+}
+
+/// The name a copied plan gets.
+///
+/// `BattlePlansDlg` bumps a trailing `" (n)"` — `'9'` wraps to `'0'` — and
+/// appends `" (2)"` when there is none. It does neither to a name of 28
+/// characters or more, which is the length it checks before touching it.
+#[must_use]
+pub fn copied_plan_name(name: &str) -> String {
+    const LIMIT: usize = 28;
+    if name.len() >= LIMIT {
+        return name.to_string();
+    }
+    let bytes = name.as_bytes();
+    if bytes.len() >= 3 {
+        let tail = &bytes[bytes.len() - 3..];
+        if tail[0] == b'(' && tail[2] == b')' && tail[1].is_ascii_digit() {
+            let mut out = name.to_string();
+            let digit = if tail[1] == b'9' {
+                '0'
+            } else {
+                (tail[1] + 1) as char
+            };
+            out.replace_range(name.len() - 2..name.len() - 1, &digit.to_string());
+            return out;
+        }
+    }
+    format!("{name} (2)")
+}
+
+/// The most plans the dialog will make.
+///
+/// `Copy` refuses once the player has fifteen, though the host accepts a
+/// sixteenth from a log record.
+pub const MAX_BATTLE_PLANS: usize = 15;
+
+impl App {
+    /// Open the dialog.
+    ///
+    /// It opens on the selected fleet's plan when a fleet is selected, which is
+    /// what `WM_INITDIALOG` does with `sel.fl.iplan`; otherwise on the first.
+    pub fn open_battle_plans(&mut self) {
+        let selected = self
+            .selection
+            .fleet
+            .and_then(|index| Some(self.game.as_ref()?.fleets.get(index)?.battle_plan))
+            .map(usize::from)
+            .filter(|slot| *slot < self.battle_plan_count())
+            .unwrap_or(0);
+        self.battle_plans = Some(BattlePlans {
+            selected,
+            rename: None,
+            confirm_delete: false,
+        });
+    }
+
+    /// Close it.
+    pub fn close_battle_plans(&mut self) {
+        self.battle_plans = None;
+    }
+
+    /// How many plans the local player has.
+    #[must_use]
+    pub fn battle_plan_count(&self) -> usize {
+        self.game.as_ref().map_or(0, |game| {
+            game.players
+                .get(self.local_player())
+                .map_or(0, |player| player.battle_plans.len())
+        })
+    }
+
+    /// The local player's plans.
+    #[must_use]
+    pub fn battle_plan_list(&self) -> &[stars_formats::BattlePlanRecord] {
+        self.game
+            .as_ref()
+            .and_then(|game| game.players.get(self.local_player()))
+            .map_or(&[], |player| player.battle_plans.as_slice())
+    }
+
+    /// The plan the dialog is showing.
+    #[must_use]
+    pub fn selected_battle_plan(&self) -> Option<&stars_formats::BattlePlanRecord> {
+        let slot = self.battle_plans.as_ref()?.selected;
+        self.battle_plan_list().get(slot)
+    }
+
+    /// Show another plan.
+    pub fn select_battle_plan(&mut self, slot: usize) {
+        let count = self.battle_plan_count();
+        if let Some(dialog) = self.battle_plans.as_mut() {
+            if slot < count {
+                dialog.selected = slot;
+                dialog.rename = None;
+                dialog.confirm_delete = false;
+            }
+        }
+    }
+
+    /// Edit the plan on show, through `edit`, and log the result.
+    ///
+    /// Returns whether the change was accepted; the bounds are the host's.
+    fn edit_battle_plan(
+        &mut self,
+        edit: impl FnOnce(&mut stars_formats::BattlePlanRecord),
+    ) -> bool {
+        let Some(slot) = self.battle_plans.as_ref().map(|d| d.selected) else {
+            return false;
+        };
+        let Some(mut plan) = self.battle_plan_list().get(slot).cloned() else {
+            return false;
+        };
+        edit(&mut plan);
+        self.set_battle_plan_definition(slot, &plan)
+    }
+
+    /// Choose the tactic, leaving the flags in the same byte alone.
+    pub fn set_battle_plan_tactic(&mut self, tactic: stars_core::battle::Tactic) -> bool {
+        self.edit_battle_plan(|plan| plan.set_tactic(tactic as u8))
+    }
+
+    /// Choose the primary or secondary target class.
+    pub fn set_battle_plan_target(
+        &mut self,
+        primary: bool,
+        class: stars_core::battle::TargetClass,
+    ) -> bool {
+        self.edit_battle_plan(|plan| {
+            if primary {
+                plan.primary_target = class as u8;
+            } else {
+                plan.secondary_target = class as u8;
+            }
+        })
+    }
+
+    /// Choose who the plan attacks, as the stored byte.
+    pub fn set_battle_plan_attack_who(&mut self, who: u8) -> bool {
+        self.edit_battle_plan(|plan| plan.attack_who = who)
+    }
+
+    /// Turn *dump cargo* on or off.
+    pub fn set_battle_plan_dump_cargo(&mut self, on: bool) -> bool {
+        self.edit_battle_plan(|plan| plan.set_dump_cargo(on))
+    }
+
+    /// Rename the plan on show.
+    ///
+    /// Plan 0 cannot be renamed — the original disables the button for it, and
+    /// the fleet panes name that plan in their own right.
+    pub fn rename_battle_plan(&mut self, name: &str) -> bool {
+        if self.battle_plans.as_ref().is_none_or(|d| d.selected == 0) {
+            return false;
+        }
+        let name = name.to_string();
+        self.edit_battle_plan(|plan| plan.name = name)
+    }
+
+    /// Copy the plan on show to a new slot at the end of the list.
+    ///
+    /// Refuses once the player has [`MAX_BATTLE_PLANS`]. The copy is selected
+    /// and its rename box opened, which is what the original does — `Copy`
+    /// falls straight through into the rename dialog.
+    pub fn copy_battle_plan(&mut self) -> bool {
+        let count = self.battle_plan_count();
+        let Some(dialog) = self.battle_plans.as_ref() else {
+            return false;
+        };
+        if count >= MAX_BATTLE_PLANS {
+            return false;
+        }
+        let Some(mut plan) = self.battle_plan_list().get(dialog.selected).cloned() else {
+            return false;
+        };
+        plan.name = copied_plan_name(&plan.name);
+        if !self.set_battle_plan_definition(count, &plan) {
+            return false;
+        }
+        if let Some(dialog) = self.battle_plans.as_mut() {
+            dialog.selected = count;
+            dialog.rename = Some(plan.name.clone());
+        }
+        true
+    }
+
+    /// How many of the local player's fleets use a plan.
+    ///
+    /// The original warns before deleting one that is in use, because the
+    /// fleets using it are moved to the plan before it.
+    #[must_use]
+    pub fn fleets_using_battle_plan(&self, slot: usize) -> usize {
+        let owner = i16::try_from(self.local_player()).unwrap_or(-1);
+        self.game.as_ref().map_or(0, |game| {
+            game.fleets
+                .iter()
+                .filter(|f| f.owner == owner && usize::from(f.battle_plan) == slot)
+                .count()
+        })
+    }
+
+    /// Delete the plan on show and select the one before it.
+    ///
+    /// Plan 0 cannot be deleted, as the original's disabled button says.
+    pub fn delete_selected_battle_plan(&mut self) -> bool {
+        let Some(slot) = self.battle_plans.as_ref().map(|d| d.selected) else {
+            return false;
+        };
+        if slot == 0 || !self.delete_battle_plan(slot) {
+            return false;
+        }
+        if let Some(dialog) = self.battle_plans.as_mut() {
+            dialog.selected = slot - 1;
+            dialog.confirm_delete = false;
+            dialog.rename = None;
+        }
+        true
+    }
+
+    /// What the *Attack Who* combo offers, as `(stored value, caption)`.
+    ///
+    /// Four fixed choices (strings `0x78`..`0x7b`) and then **every other**
+    /// player by name, stored as `4 + player`. A single-player game offers only
+    /// `Everyone`, which is what the original leaves in the combo before
+    /// disabling it.
+    #[must_use]
+    pub fn battle_plan_attack_options(&self) -> Vec<(u8, String)> {
+        const FIXED: [&str; 4] = ["Nobody", "Enemies", "Neutrals & Enemies", "Everyone"];
+        let single = self
+            .game
+            .as_ref()
+            .is_none_or(|game| game.single_player || game.players.len() < 2);
+        if single {
+            return vec![(3, "Everyone".to_string())];
+        }
+        let me = self.local_player();
+        let mut out: Vec<(u8, String)> = FIXED
+            .iter()
+            .enumerate()
+            .map(|(value, name)| (u8::try_from(value).unwrap_or(0), (*name).to_string()))
+            .collect();
+        let Some(game) = self.game.as_ref() else {
+            return out;
+        };
+        for player in 0..game.players.len() {
+            if player == me {
+                continue;
+            }
+            out.push((
+                u8::try_from(player + 4).unwrap_or(u8::MAX),
+                self.player_name(player),
+            ));
+        }
+        out
+    }
+}

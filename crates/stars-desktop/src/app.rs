@@ -470,6 +470,18 @@ impl eframe::App for StarsApp {
             }
         }
 
+        // Commands (Battle Plans...) is F6.
+        if self.app.game.is_some()
+            && self.app.setup.is_none()
+            && ctx.input(|i| i.key_pressed(egui::Key::F6))
+        {
+            if self.app.battle_plans.is_some() {
+                self.app.close_battle_plans();
+            } else {
+                self.app.open_battle_plans();
+            }
+        }
+
         if self.app.game.is_some()
             && self.app.setup.is_none()
             && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F))
@@ -537,6 +549,20 @@ impl eframe::App for StarsApp {
                 });
             if !open {
                 self.app.find_open = false;
+            }
+        }
+
+        if self.app.battle_plans.is_some() {
+            let mut open = true;
+            egui::Window::new("Battle Plans")
+                .open(&mut open)
+                .resizable(false)
+                .default_width(400.0)
+                .show(ctx, |ui| {
+                    stars_ui::views::battleplans::view(&mut self.app, ui);
+                });
+            if !open {
+                self.app.close_battle_plans();
             }
         }
 
@@ -854,6 +880,15 @@ impl eframe::App for StarsApp {
                     .clicked()
                 {
                     self.app.open_score_sheet();
+                }
+                if ui
+                    .add_enabled(
+                        self.app.game.is_some() && self.app.setup.is_none(),
+                        egui::Button::new("Battle Plans…").shortcut_text("F6"),
+                    )
+                    .clicked()
+                {
+                    self.app.open_battle_plans();
                 }
                 if ui
                     .add_enabled(

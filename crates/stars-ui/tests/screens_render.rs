@@ -464,3 +464,49 @@ fn every_race_wizard_page_draws() {
         );
     }
 }
+
+/// The Battle Plans dialog lays out, including its rename box and its delete
+/// warning, which are drawn in place rather than as dialogs of their own.
+#[test]
+fn the_battle_plans_dialog_draws() {
+    use stars_core::newgame::{NewGame, NewPlayer, Size};
+    use stars_core::{opponents, Race};
+
+    let mut app = App::new();
+    app.new_game(&NewGame {
+        name: "Plans".to_string(),
+        size: Size::Small,
+        players: vec![
+            NewPlayer::human(Race::humanoid()),
+            opponents::opponent(1, 1).expect("an opponent").as_player(),
+        ],
+        ..NewGame::default()
+    })
+    .expect("creates the game");
+    app.open_battle_plans();
+
+    let frame = |app: &mut App| {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                stars_ui::views::battleplans::view(app, ui);
+            });
+        });
+    };
+
+    for slot in 0..app.battle_plan_count() {
+        app.select_battle_plan(slot);
+        frame(&mut app);
+    }
+    app.select_battle_plan(2);
+    if let Some(dialog) = app.battle_plans.as_mut() {
+        dialog.rename = Some("Renamed".to_string());
+    }
+    frame(&mut app);
+    if let Some(dialog) = app.battle_plans.as_mut() {
+        dialog.rename = None;
+        dialog.confirm_delete = true;
+    }
+    frame(&mut app);
+    assert!(app.battle_plans.is_some(), "drawing should not close it");
+}

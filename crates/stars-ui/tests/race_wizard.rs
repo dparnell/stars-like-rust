@@ -137,7 +137,10 @@ fn spending_past_the_budget_is_illegal_and_says_so() {
     assert!(app.race_wizard_points() < 0);
     assert!(!app.race_wizard_is_legal());
     let refusal = app.race_wizard_refusal().expect("a refusal");
-    assert!(refusal.starts_with("Your advantage points are currently in the hole by"));
+    assert!(
+        refusal.contains("over budget"),
+        "the refusal should say what is wrong: {refusal}"
+    );
 }
 
 #[test]

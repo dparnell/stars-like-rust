@@ -14,11 +14,12 @@ battle plan describes how a fleet assigned to it behaves in combat.
 |--------|-------------|------------------|--------------------------------------|
 | 0      | low 4 bits  | race / player id | the owner                            |
 | 0      | high 4 bits | battle-plan id   | the slot; see the caveat below       |
-| 1      | low 4 bits  | tactic           | `0..=6`                              |
+| 1      | low 4 bits  | tactic           | `0..=5`; the host accepts `0..=6`    |
 | 1      | bit 6       | deleted          | `PLAN_DELETED`, `0x40`               |
-| 1      | bits 4,5,7  | unread           | zero in every fixture, preserved     |
-| 2      | low 4 bits  | primary target   | `0..=8`                              |
-| 2      | high 4 bits | secondary target | `0..=8`                              |
+| 1      | bit 7       | dump cargo       | `PLAN_DUMP_CARGO`, `0x80`            |
+| 1      | bits 4,5    | unread           | zero in every fixture, preserved     |
+| 2      | low 4 bits  | primary target   | `0..=7`; the host accepts `0..=8`    |
+| 2      | high 4 bits | secondary target | `0..=7`; the host accepts `0..=8`    |
 | 3      | 1 byte      | attack who       | see below                            |
 | 4      | 1 byte      | name length      |                                      |
 | 5..    | var         | name             | Stars! packed-string encoding        |
@@ -31,14 +32,37 @@ Names use the packed-string codec documented in `strings.md`.
 The **bounds** come from the host's replay of a type-30 order record
 (`1048:c287`), which is the only place the game validates one: it refuses a
 tactic above 6 (`1048:c324`) and either target above 8 (`1048:c336`,
-`1048:c350`), and accepts at most 16 plans per player (`1048:c36f`). What each
-tactic and target *value* means is still not decoded; the code and the UI carry
-them raw rather than guess at names.
+`1048:c350`), and accepts at most 16 plans per player (`1048:c36f`). The
+validator is looser than anything the game can produce — the dialog offers six
+tactics and eight targets, and its own dialog stops at fifteen plans.
 
 Byte 1 is therefore not a whole tactic value: the replay reads the tactic from
-its low nibble and the deleted flag from bit 6. Every plan in the fixtures has
-a zero high nibble, so the field decodes the same either way; `BattlePlanRecord`
-keeps the byte whole and offers `tactic_nibble()` and `deleted()` over it.
+its low nibble, the deleted flag from bit 6 and *dump cargo* from bit 7. Every
+plan in the fixtures has both flags clear, so the field decodes the same either
+way; `BattlePlanRecord` keeps the byte whole and offers `tactic_nibble()`,
+`deleted()` and `dump_cargo()` over it.
+
+## What the values mean
+
+The Battle Plans dialog fills each combo with consecutive strings and uses the
+combo index as the stored value, so its lists **are** the enumerations. See
+`../ui/battle-plans.md`, which gives the full tables and their strings; in
+short:
+
+| tactic | | target | |
+|-------:|--|-------:|--|
+| 0 | Disengage               | 0 | None/Disengage     |
+| 1 | Disengage if challenged | 1 | Any                |
+| 2 | Minimize damage to self | 2 | Starbase           |
+| 3 | Maximize net damage     | 3 | Armed Ships        |
+| 4 | Maximize damage ratio   | 4 | Bombers/Freighters |
+| 5 | Maximize damage         | 5 | Unarmed Ships      |
+|   |                         | 6 | Fuel Transports    |
+|   |                         | 7 | Freighters         |
+
+Modelled as `stars_core::battle::Tactic` and `TargetClass`, whose values the
+combat code has always used — with the last three tactics in the wrong order
+until the dialog was built. See `../ui/battle-plans.md`.
 
 ## The plan id is not reliably the slot
 
@@ -86,6 +110,5 @@ carrying plan id 0 and `race_id = 0`.
 
 ## Open questions
 
-- The exact enumerations for `tactic` and primary/secondary target values. Only
-  their ranges are recovered (above); the names the dialog shows live in the
-  executable's resource strings, which this project does not read yet.
+- Bits 4 and 5 of byte 1, which are zero in every fixture and in everything the
+  dialog can produce.

@@ -70,11 +70,20 @@ Each token scores candidate targets and takes the lowest score. What is being
 minimised depends on the battle plan's tactic
 (`ScoreFromGiveAndTakeAndTactic`):
 
-| Tactic | Score |
-|--------|-------|
-| Disengage, Minimise damage to self | damage taken |
-| Disengage if challenged, Maximise damage | `-damage given` |
-| Maximise net damage, Maximise damage ratio | `-damage given * 100 / (damage taken + 1)`, capped at `-1` |
+| Tactic | Stored | Score |
+|--------|-------|-------|
+| Disengage, Minimise damage to self | 0, 2 | damage taken |
+| Disengage if challenged, Maximise damage | 1, 5 | `-damage given` |
+| Maximise net damage, Maximise damage ratio | 3, 4 | `-damage given * 100 / (damage taken + 1)`, capped at `-1` |
+
+The **stored** column is the tactic byte, and it is not in the order the pairs
+above suggest: the six are stored in the order the Battle Plans dialog lists
+them (`Disengage`, `Disengage if challenged`, `Minimize damage to self`,
+`Maximize net damage`, `Maximize damage ratio`, `Maximize damage`). This
+project had the last three shuffled until that dialog was built, so values 3
+and 5 were scored by each other's rule; see `../ui/battle-plans.md`. The manual
+describes the same pairing from the other side: "Disengage if challenged
+behaves like Maximize damage until the token takes damage" (p. 15-14).
 
 The cap matters: any damage dealt at all must beat dealing none, however much
 is taken in return.

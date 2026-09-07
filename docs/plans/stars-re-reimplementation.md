@@ -2110,8 +2110,9 @@ disagree.
 66. ~~**The Custom Race Wizard.**~~ **Done.** File (Custom Race Wizard) opens
     the same six pages with everything editable, with the advantage-points
     counter recomputed on every change and drawn in red when the race is over
-    budget — which is the whole point of the dialog. Finish writes a `.rN`
-    file. Spec in `docs/ui/race-wizard.md`.
+    budget — which is the whole point of the dialog. A race over budget cannot
+    be saved, as in the original. Finish writes a `.rN` file. Spec in
+    `docs/ui/race-wizard.md`.
 
     Three things came out of it:
 
@@ -2135,7 +2136,32 @@ disagree.
     handler**, so each drew only on the frame that key was pressed. They are
     modeless windows and now draw every frame, alongside the wizard.
 
-67. **What is still missing to call it playable.** Every waypoint task is now
+67. ~~**The Battle Plans dialog.**~~ **Done.** Commands (Battle Plans...), F6.
+    Spec in `docs/ui/battle-plans.md`. Every control the template holds: the
+    plan list, the two target combos, the tactic combo, Attack Who, Dump Cargo,
+    and Rename / Copy / Delete with the rules behind each.
+
+    The dialog is where the type-30 record's **enumerations** were hiding.
+    Every combo is filled with consecutive strings and its index *is* the
+    stored value, so the lists settle what `docs/formats/battleplan.md` had
+    left open: six tactics, eight target classes, and byte 1 bit 7 as
+    `fDumpCargo`.
+
+    That turned up a **combat bug**. `stars_core::battle::Tactic` had the last
+    three tactics shuffled — *Maximise damage* at 3 instead of 5 — and
+    `target_score` transcribes a function that groups the six by value, so
+    plans stored as 3 or 5 scored their targets by each other's rule. The NB09
+    `BattleTactic` enum, the dialog's combo and `MANUAL.PDF` p. 15-14 all give
+    the same corrected order, and so does the shape of the stock plans:
+    *Sniper* is `Disengage if challenged` against `Unarmed Ships` and
+    *Chicken* is `Disengage` against nothing, which only read that way with the
+    values right. The battle-replay differential is unchanged by the fix.
+
+    The stopgap plan editor on the Players screen is gone; the original has no
+    such thing there, and that screen now names the plans and offers the
+    dialog.
+
+68. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

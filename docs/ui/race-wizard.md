@@ -79,10 +79,10 @@ when it is negative (`DrawRaceAdvantagePoints`, `10e0:55c6`). It is
 see `docs/formulas/new-game.md`.
 
 A race that costs more than the budget **cannot be saved**, and the original
-says so in as many words (string `0x0515`): *"Your advantage points are
-currently in the hole by %d points. You cannot save a race definition which has
-a negative balance."* Finish is disabled here and carries that sentence, rather
-than accepting the press and putting up a message box.
+says so in a message box naming the shortfall (string `0x0515`). Finish is
+disabled here and carries the reason as its hover text — worded by this
+project, as the game's own message text always is — rather than accepting the
+press and refusing afterwards.
 
 ### The seven predefined races
 
