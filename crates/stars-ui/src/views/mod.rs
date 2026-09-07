@@ -15,6 +15,7 @@ pub mod galaxy;
 pub mod messages;
 pub mod newgame;
 pub mod parameters;
+pub mod password;
 pub mod planet;
 pub mod planets;
 pub mod players;

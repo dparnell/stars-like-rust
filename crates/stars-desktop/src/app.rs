@@ -475,6 +475,20 @@ impl eframe::App for StarsApp {
             && self.app.setup.is_none()
             && ctx.input(|i| i.key_pressed(egui::Key::F6))
         {
+            if self.app.password_dialog.is_some() {
+                let mut open = true;
+                egui::Window::new("Change Password")
+                    .open(&mut open)
+                    .resizable(false)
+                    .default_width(320.0)
+                    .show(ctx, |ui| {
+                        stars_ui::views::password::view(&mut self.app, ui);
+                    });
+                if !open {
+                    self.app.close_password_dialog();
+                }
+            }
+
             if self.app.battle_plans.is_some() {
                 self.app.close_battle_plans();
             } else {
@@ -898,6 +912,18 @@ impl eframe::App for StarsApp {
                     .clicked()
                 {
                     self.app.open_relations();
+                }
+                // The last item of the original's Commands menu, with no
+                // accelerator of its own.
+                if ui
+                    .add_enabled(
+                        self.app.game.is_some() && self.app.setup.is_none(),
+                        egui::Button::new("Change Password…"),
+                    )
+                    .clicked()
+                {
+                    ui.close_menu();
+                    self.app.open_password_dialog();
                 }
                 ui.separator();
                 for screen in Screen::ALL {

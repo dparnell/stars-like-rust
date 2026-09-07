@@ -438,7 +438,10 @@ the first added, the second multiplied — into a 32-bit accumulator that wraps,
 with each byte sign-extended. An empty password is `0`; a non-empty one that
 happens to fold to `0` is bumped to `1`, so `0` unambiguously means *no
 password*. The dialog reads at most seventeen characters
-(`GetWindowText(..., 0x12)`). Transcribed in [`stars_formats::password`].
+(`GetWindowText(..., 0x12)`) but lets only sixteen be typed — its
+`WM_INITDIALOG` sends both edit boxes `EM_LIMITTEXT` with 16. Transcribed in
+[`stars_formats::password`]; the dialog itself is in
+[`../ui/change-password.md`](../ui/change-password.md).
 
 This is a checksum, not a password hash, and it was never more than a way to
 stop the other players in a play-by-mail game opening each other's turns by

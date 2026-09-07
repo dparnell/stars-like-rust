@@ -295,6 +295,8 @@ pub struct App {
     pub race_wizard: Option<RaceWizard>,
     /// The Battle Plans dialog, while it is open.
     pub battle_plans: Option<BattlePlans>,
+    /// The Change Password dialog, while it is open.
+    pub password_dialog: Option<PasswordDialog>,
     /// Whether the Find box is open (View (Find), Ctrl+F).
     pub find_open: bool,
     /// Which of the scanner's six views is showing.
@@ -398,9 +400,6 @@ pub struct App {
     pub warp: u8,
     /// The name the fleet screen's rename box holds.
     pub fleet_name: String,
-    /// What the player screen's password box holds. Never saved anywhere: only
-    /// its salt reaches the game, the file and the order log.
-    pub password_box: String,
     /// The order log for this turn, in the order the player made the moves.
     ///
     /// A Stars! order log is **not** a list of intentions: it records what the
@@ -7985,5 +7984,84 @@ impl App {
             ));
         }
         out
+    }
+}
+
+/// The Change Password dialog (`NewPasswordDlg`, `IDD_NEW_PASSWORD`).
+///
+/// Commands (Change Password...), the last item of that menu. Two boxes — the
+/// password and the same password again — and nothing else: what is kept is a
+/// salt of what was typed, so there is nothing to show back and no old
+/// password to ask for.
+///
+/// See `docs/ui/change-password.md`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PasswordDialog {
+    /// `New Password:`.
+    pub new: String,
+    /// `Retype Password:`.
+    pub retype: String,
+    /// What went wrong with the last attempt, if anything.
+    pub error: Option<String>,
+}
+
+impl App {
+    /// Open the dialog, empty.
+    pub fn open_password_dialog(&mut self) {
+        self.password_dialog = Some(PasswordDialog::default());
+    }
+
+    /// Close it, keeping nothing.
+    pub fn close_password_dialog(&mut self) {
+        self.password_dialog = None;
+    }
+
+    /// Whether the local player has a turn password.
+    #[must_use]
+    pub fn has_password(&self) -> bool {
+        let me = self.local_player();
+        self.game
+            .as_ref()
+            .and_then(|game| game.players.get(me))
+            .is_some_and(|player| player.password != 0)
+    }
+
+    /// The note the dialog carries under its two boxes.
+    ///
+    /// The original picks between two (strings `0x035c` and `0x035d`) by
+    /// whether it is in host mode: a host's password takes effect at once
+    /// because the host writes its own file there and then, while a player's
+    /// travels in the turn they submit and so only binds from the next turn.
+    /// This project has no host mode, so only the player's note applies. The
+    /// wording is its own, as the game's message text always is.
+    #[must_use]
+    pub fn password_note(&self) -> &'static str {
+        "The new password takes effect with the next turn, not this one."
+    }
+
+    /// Accept what is typed: check the two boxes against each other and set
+    /// the password.
+    ///
+    /// Returns whether the dialog should close. The two are compared **by
+    /// salt** rather than by text, which is what `NewPasswordDlg` does — two
+    /// different strings that fold to the same salt are the same password as
+    /// far as the game is ever concerned. An empty pair clears the password.
+    pub fn submit_password(&mut self) -> bool {
+        let Some(dialog) = self.password_dialog.as_ref() else {
+            return false;
+        };
+        let (new, retype) = (dialog.new.clone(), dialog.retype.clone());
+        if stars_formats::password_salt(&new) != stars_formats::password_salt(&retype) {
+            if let Some(dialog) = self.password_dialog.as_mut() {
+                dialog.error =
+                    Some("The two boxes do not hold the same password. Type it again.".to_string());
+                dialog.new.clear();
+                dialog.retype.clear();
+            }
+            return false;
+        }
+        self.set_password(&new);
+        self.password_dialog = None;
+        true
     }
 }

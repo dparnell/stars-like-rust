@@ -510,3 +510,41 @@ fn the_battle_plans_dialog_draws() {
     frame(&mut app);
     assert!(app.battle_plans.is_some(), "drawing should not close it");
 }
+
+/// The Change Password dialog lays out, empty and with an error showing.
+#[test]
+fn the_change_password_dialog_draws() {
+    use stars_core::newgame::{NewGame, NewPlayer, Size};
+    use stars_core::{opponents, Race};
+
+    let mut app = App::new();
+    app.new_game(&NewGame {
+        name: "Password".to_string(),
+        size: Size::Small,
+        players: vec![
+            NewPlayer::human(Race::humanoid()),
+            opponents::opponent(1, 1).expect("an opponent").as_player(),
+        ],
+        ..NewGame::default()
+    })
+    .expect("creates the game");
+    app.open_password_dialog();
+
+    let frame = |app: &mut App| {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                stars_ui::views::password::view(app, ui);
+            });
+        });
+    };
+
+    frame(&mut app);
+    if let Some(dialog) = app.password_dialog.as_mut() {
+        dialog.new = "one".to_string();
+        dialog.retype = "two".to_string();
+    }
+    app.submit_password();
+    frame(&mut app);
+    assert!(app.password_dialog.is_some(), "a mismatch keeps it open");
+}

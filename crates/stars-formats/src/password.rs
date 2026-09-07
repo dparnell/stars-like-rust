@@ -20,12 +20,19 @@
 /// (`PLAYER + 0x0c`, `1048:c692`).
 pub const PASSWORD_OFFSET: usize = 12;
 
-/// The longest password the game's dialog accepts.
+/// The longest password the game's dialog can read.
 ///
 /// `NewPasswordDlg` reads the edit box into an 18-byte buffer
 /// (`GetWindowText(..., 0x12)`, `1040:5dfc`), so seventeen characters and a
-/// terminator.
+/// terminator. What can actually be typed is one less — see
+/// [`PASSWORD_FIELD_LIMIT`].
 pub const MAX_PASSWORD_LEN: usize = 17;
+
+/// The longest password the Change Password dialog will let you **type**.
+///
+/// `NewPasswordDlg`'s `WM_INITDIALOG` sends both edit boxes `EM_LIMITTEXT` with
+/// 16, so the seventeenth character the buffer would hold can never be entered.
+pub const PASSWORD_FIELD_LIMIT: usize = 16;
 
 /// The salt the game stores for `text`, from `LSaltFromSz` (`1040:59ce`).
 ///

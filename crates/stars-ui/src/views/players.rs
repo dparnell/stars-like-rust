@@ -85,8 +85,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     let mut open_relations = false;
     let mut default_queue: Option<stars_formats::DefaultQueue> = None;
     let mut open_battle_plans = false;
-    let mut password: Option<String> = None;
-    let mut password_box = app.password_box.clone();
+    let mut change_password = false;
     let me = app.local_player();
 
     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -189,27 +188,20 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                         });
                         ui.end_row();
 
-                        // The turn password. What is kept is a checksum of
-                        // the typed text, which is all the game ever kept —
-                        // enough to stop another player in a play-by-mail game
-                        // opening this turn by accident, and no more than that.
+                        // The turn password is set in its own dialog, which is
+                        // where the original sets it; this row says whether
+                        // there is one and opens it. What is kept is a
+                        // checksum of the typed text, so there is nothing to
+                        // show back.
                         ui.label("turn password");
                         ui.horizontal(|ui| {
-                            ui.add(
-                                egui::TextEdit::singleline(&mut password_box)
-                                    .password(true)
-                                    .hint_text(if player.password == 0 {
-                                        "none set"
-                                    } else {
-                                        "one is set"
-                                    })
-                                    .desired_width(120.0),
-                            );
-                            if ui.button("set").clicked() {
-                                password = Some(password_box.clone());
-                            }
-                            if player.password != 0 && ui.button("clear").clicked() {
-                                password = Some(String::new());
+                            ui.label(if player.password == 0 {
+                                "none set"
+                            } else {
+                                "one is set"
+                            });
+                            if ui.button("Change Password…").clicked() {
+                                change_password = true;
                             }
                         });
                         ui.end_row();
@@ -254,11 +246,9 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     });
 
     app.art = art;
-    if let Some(text) = password {
-        app.set_password(&text);
-        password_box.clear();
+    if change_password {
+        app.open_password_dialog();
     }
-    app.password_box = password_box;
     if open_battle_plans {
         app.open_battle_plans();
     }

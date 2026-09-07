@@ -105,7 +105,8 @@ pub use orders::{
     ResearchOrder, ShipDesignChange, ThingParam, WaypointOrder, LOG_HEADER_BLOCK,
 };
 pub use password::{
-    salt as password_salt, salt_bytes as password_salt_bytes, MAX_PASSWORD_LEN, PASSWORD_OFFSET,
+    salt as password_salt, salt_bytes as password_salt_bytes, MAX_PASSWORD_LEN,
+    PASSWORD_FIELD_LIMIT, PASSWORD_OFFSET,
 };
 pub use planet::{
     planet_records, planet_records_in, Concentration, Environment, Installations, Minerals,

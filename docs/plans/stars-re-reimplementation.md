@@ -2161,7 +2161,27 @@ disagree.
     such thing there, and that screen now names the plans and offers the
     dialog.
 
-68. **What is still missing to call it playable.** Every waypoint task is now
+68. ~~**The Change Password dialog.**~~ **Done.** Commands (Change Password...),
+    the last item of that menu. Spec in `docs/ui/change-password.md`.
+
+    Two boxes and no third: the game keeps a salt of the password rather than
+    the password, so there is nothing to check an *old* one against and the
+    dialog never asks for it. `NewPasswordDlg` compares the two boxes **by
+    salt** rather than by text, limits each to sixteen characters where the
+    buffer behind them would take seventeen, and logs the result as an
+    `rtChgPassword` record — the forward direction this project already had.
+
+    The note under the boxes is the visible half of a difference worth
+    recording: a player's password travels in the turn they submit and binds
+    from the next one, while a host's is effective immediately because the host
+    writes its own file on the spot. This project has no host mode, so only the
+    player's half is built.
+
+    The stopgap password box on the Players screen is gone, as the battle-plan
+    editor was: that screen now says whether a password is set and offers the
+    dialog.
+
+69. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
