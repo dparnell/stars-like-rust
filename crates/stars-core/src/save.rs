@@ -105,6 +105,13 @@ pub fn host_file(state: &GameState) -> Result<Vec<u8>> {
         record.planets = if index == 0 { planets } else { 0 };
         body.push(block(6, record.encode()?)?);
     }
+    // The host's password, straight after the player blocks and only when
+    // there is one — `save.c`'s `if (iPlayer == iNoPlayer && lSaltCur != 0)`.
+    // A host file with no password carries no such block, which is why every
+    // fixture in this repository has none.
+    if state.host_password != 0 {
+        body.push(block(36, state.host_password.to_le_bytes().to_vec())?);
+    }
     for planet in all_planets(state) {
         body.push(block(13, planet_record(planet).encode())?);
         if !planet.queue.is_empty() {

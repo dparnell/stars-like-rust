@@ -1,8 +1,7 @@
 # The password dialogs
 
-Status: **built**, for a player — both the dialog that sets a password and the
-prompt that asks for one. The host branch is recovered and documented here but
-has nothing to attach to: this project has no host mode.
+Status: **built** — the dialog that sets a password, the prompt that asks for
+one, and both faces of the first: a player's password and the host's.
 
 Two dialogs, and they are not the same one. `IDD_NEW_PASSWORD` (141) sets the
 password; `IDD_PASSWORD` (140) asks for it.
@@ -56,7 +55,11 @@ When they match:
 * **a player** logs the salt as an `rtChgPassword` record — `WriteMemRt(0x24, 4,
   &lSalt)`, order type 36 with a four-byte payload;
 * **the host** (`idPlayer == -1`) sets the salt and writes the host file there
-  and then, rolling back if the write fails.
+  and then, rolling back if the write fails. The salt goes into the `.hst` as a
+  type-36 block after the player blocks — see
+  [`../formats/hst.md`](../formats/hst.md#the-hosts-password-changepassword-type-36).
+  Here it is written on the next save rather than immediately, which is what
+  the note says.
 
 That difference is what the note at the bottom of the dialog says: string
 `0x035c` for a player, because the new password travels in the turn they submit
@@ -94,9 +97,9 @@ asking, because there is nobody there to answer.
 
 Which salt is being asked for comes from the file being loaded: a player's file
 names its player in the header and that player's salt is the one
-(`lSaltCur = rgplr[iPlayer].lSalt`), while a host file names none and the
-original takes the host's from a leading `rtChgPassword` record that this
-project neither writes nor reads. So a `.hst` asks for nothing here.
+(`lSaltCur = rgplr[iPlayer].lSalt`), while a host file names none and is guarded
+by the host's own salt, which it carries in a type-36 block after the player
+blocks. Both are asked for here.
 
 ### Getting it wrong
 
@@ -137,9 +140,8 @@ test that re-encodes them all is exactly this case.
 
 ## What is not
 
-* The **host password**, and so the second note and the alternative caption.
-  There is a host mode now (`host-mode.md`), but its `Password...` button is
-  disabled: the salt has nowhere to go until the `.hst`'s leading
-  `rtChgPassword` record is written and read.
+* Nothing of the two dialogs themselves. The host's password reaches the file
+  on the next save rather than the instant OK is pressed, which is the one
+  difference from the original's host branch.
 * **Validate mode**, which fails rather than asking.
 * The **Help** buttons.

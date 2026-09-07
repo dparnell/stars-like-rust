@@ -2230,14 +2230,32 @@ disagree.
     `DrawHostOptions`, a stub in the reconstruction, so how they are edited is
     not recovered.
 
-    The **host password** is the piece left over, and it is a format job rather
-    than a UI one: the original keeps the host's salt in a leading
-    `rtChgPassword` record inside the `.hst`, which this project neither writes
-    nor reads. Doing that would give the Password... button somewhere to write
-    to and would make a `.hst` ask for a password when it is opened, which is
-    the one thing the password prompt cannot yet do.
+    The **host password** was the piece left over; it is item 71.
 
-71. **What is still missing to call it playable.** Every waypoint task is now
+71. ~~**The host's password.**~~ **Done.** A format job rather than a UI one,
+    and the last piece of both the password dialogs and host mode.
+
+    The host's salt lives in the `.hst` as a **type-36 block after the player
+    blocks**, written only for a host file and only when there is a password:
+    `save.c` writes it as `if (iPlayer == iNoPlayer && lSaltCur != 0)` and the
+    loader reads it in that exact position. It is the same number as the
+    `rtChgPassword` order operation and a different thing — a block in a host
+    file is the *host's* password, that record in a `.xN` is a *player*
+    changing their own. Spec in
+    `docs/formats/hst.md#the-hosts-password-changepassword-type-36`.
+
+    `GameState::host_password` carries it, `save::host_file` writes it, the
+    loader reads it, and the edit-preserving save path replaces, inserts or
+    drops that one block without touching anything else — so a host file whose
+    password nobody changed still comes back byte for byte, which is what the
+    fixture differential asserts.
+
+    That completes three things at once: the Host Mode dialog's `Password...`
+    button now has somewhere to write; the Change Password dialog gains its
+    host face, with the caption and the note the original swaps in; and the
+    password prompt now guards a `.hst`, which it could not before.
+
+72. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

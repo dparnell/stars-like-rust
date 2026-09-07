@@ -340,6 +340,18 @@ impl GameState {
 
         let mut state = Self::new(segment.header.game_id);
         state.turn = i16::try_from(segment.header.turn).unwrap_or(0);
+        // The host's password, which only a host file carries: a type-36 block
+        // after the player blocks (`file.c`, read as `lSaltCur` when the file
+        // is a `.hst`). In any other file that block type is an order record
+        // and means something else, so the file type is checked first.
+        if segment.header.file_type == stars_formats::FileType::Host {
+            state.host_password = blocks
+                .iter()
+                .find(|b| b.type_id == 36)
+                .and_then(|b| b.data.get(0..4))
+                .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                .unwrap_or(0);
+        }
 
         // Players, indexed by player number so a sparse file still lines up.
         if let Ok(records) = player_records_in(blocks) {

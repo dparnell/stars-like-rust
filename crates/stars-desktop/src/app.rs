@@ -321,6 +321,7 @@ impl StarsApp {
                     Err(e) => self.app.error = Some(e),
                 }
             }
+            Action::Password => self.app.open_host_password_dialog(),
             Action::Close => self.app.close_host_mode(),
         }
     }
@@ -580,7 +581,8 @@ impl eframe::App for StarsApp {
 
             if self.app.password_dialog.is_some() {
                 let mut open = true;
-                egui::Window::new("Change Password")
+                egui::Window::new(self.app.password_title())
+                    .id(egui::Id::new("change-password"))
                     .open(&mut open)
                     .resizable(false)
                     .default_width(320.0)

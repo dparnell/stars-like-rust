@@ -30,6 +30,8 @@ use crate::App;
 pub enum Action {
     /// Generate this many turns in a row.
     Generate(u16),
+    /// Set the host's password.
+    Password,
     /// Leave host mode.
     Close,
 }
@@ -109,15 +111,15 @@ pub fn view(app: &mut App, ui: &mut egui::Ui, elapsed: f64) -> Option<Action> {
                     "Generating on a timer needs the Auto Generate Options dialog, \
                      which is painted rather than laid out and is not recovered.",
                 );
-            // The host's password lives in a record inside the `.hst` that
-            // this project does not write, so there is nowhere to put one; the
-            // button would otherwise set the local player's, which is not what
-            // it means.
-            ui.add_enabled(false, egui::Button::new("Password…"))
-                .on_disabled_hover_text(
-                    "A host password is kept inside the host file, in a record this \
-                     project does not write yet.",
-                );
+            // The host's own password, which is not the local player's: it
+            // goes into the host file rather than a player block.
+            if ui
+                .button("Password…")
+                .on_hover_text("The password that guards host mode, kept in the host file.")
+                .clicked()
+            {
+                action = Some(Action::Password);
+            }
             if ui.button("Close").clicked() {
                 action = Some(Action::Close);
             }

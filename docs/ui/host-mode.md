@@ -1,6 +1,6 @@
 # The Host Mode dialog
 
-Status: **built**, except for the auto-generate timer and the host password.
+Status: **built**, except for the auto-generate timer.
 
 `HostModeDialog`, `IDD_HOST_MODE` (115). In the original this is not a dialog
 over the game — it **is** host mode. `BringUpHostDlg` hides the map window and
@@ -92,12 +92,11 @@ then `m:ss`, then `h:mm:ss`, then `d days h:mm:ss`.
   `DrawHostOptions`, which is a stub in the reconstruction, so how they are
   edited is not recovered. The button is where the original leaves it with no
   option set: disabled.
-* The **host password**. The button is here but disabled: the original
-  keeps the host's salt in a leading `rtChgPassword` record inside the `.hst`
-  (`file.c` reads it right after the player blocks), and this project neither
-  writes nor reads that record, so there is nowhere to put one — and opening
-  the player's Change Password dialog here would set the wrong password. See
-  `docs/ui/change-password.md` for the dialog's host face.
+* Nothing else of the dialog. `Password...` sets the **host's** password —
+  which is not the local player's — and it is written into the host file on the
+  next save rather than the instant it is chosen, where the original writes the
+  file on the spot. See `change-password.md` and
+  `../formats/hst.md#the-hosts-password-changepassword-type-36`.
 * **Right-clicking a player** to switch them between a person and a computer
   player, which flips their password salt and re-marks the files.
 * The **Help** button.

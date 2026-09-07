@@ -429,3 +429,52 @@ fn minefields_load_and_save() {
     let (again, _) = GameState::from_file(&reread);
     assert_eq!(again.minefields, state.minefields, "field for field");
 }
+
+/// The host's password rides in the host file, and only there.
+///
+/// `WriteDataFile` writes it as a type-36 record straight after the player
+/// blocks, for a host file with a password set and nothing else, so a game
+/// without one writes exactly the bytes it always did.
+#[test]
+fn a_host_password_is_written_after_the_player_blocks_and_read_back() {
+    let made = a_game();
+    let mut state = made.state.clone();
+    assert_eq!(state.host_password, 0, "a new game has no host password");
+
+    let without = save::host_file(&state).expect("writes");
+    let file = StarsFile::decode(&without).expect("decodes");
+    assert!(
+        !file.blocks.iter().any(|b| b.type_id == 36),
+        "no password, so no block"
+    );
+    let (read, _) = GameState::from_file(&file);
+    assert_eq!(read.host_password, 0);
+
+    // With one, the block appears in the right place: after the last player
+    // block and before the first planet.
+    state.host_password = stars_formats::password_salt("orbital");
+    let with = save::host_file(&state).expect("writes");
+    let file = StarsFile::decode(&with).expect("decodes");
+    let kinds: Vec<u8> = file.blocks.iter().map(|b| b.type_id).collect();
+    let salt_at = kinds.iter().position(|t| *t == 36).expect("the salt block");
+    let last_player = kinds
+        .iter()
+        .rposition(|t| *t == 6)
+        .expect("the player blocks");
+    let first_planet = kinds.iter().position(|t| *t == 13).expect("a planet block");
+    assert!(last_player < salt_at && salt_at < first_planet);
+    assert_eq!(
+        file.blocks[salt_at].data,
+        stars_formats::password_salt("orbital").to_le_bytes()
+    );
+
+    let (read, _) = GameState::from_file(&file);
+    assert_eq!(read.host_password, state.host_password);
+
+    // A player's file never carries it: the record is the host's alone.
+    let player = save::player_file(&state, 0).expect("writes");
+    let file = StarsFile::decode(&player).expect("decodes");
+    assert!(!file.blocks.iter().any(|b| b.type_id == 36));
+    let (read, _) = GameState::from_file(&file);
+    assert_eq!(read.host_password, 0);
+}

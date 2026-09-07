@@ -24,6 +24,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     };
     let mut submit = false;
     let mut cancel = false;
+    let host = dialog.host;
 
     egui::Grid::new("password-fields")
         .num_columns(2)
@@ -57,14 +58,23 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         cancel |= ui.button("Cancel").clicked();
         // An empty password is how the original clears one, so this is only a
         // shortcut for typing nothing in both boxes.
+        let set = if host {
+            app.has_host_password()
+        } else {
+            app.has_password()
+        };
         clear = ui
-            .add_enabled(app.has_password(), egui::Button::new("Clear"))
+            .add_enabled(set, egui::Button::new("Clear"))
             .on_hover_text("Play without a password. The same as leaving both boxes empty.")
             .clicked();
     });
 
     if clear {
-        app.set_password("");
+        if host {
+            app.set_host_password("");
+        } else {
+            app.set_password("");
+        }
         app.close_password_dialog();
     } else if cancel {
         app.close_password_dialog();

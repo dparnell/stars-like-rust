@@ -325,3 +325,136 @@ fn choosing_a_password_counts_as_giving_it() {
     app.set_password("");
     assert_eq!(app.password_given, None);
 }
+
+// --- The host's password -----------------------------------------------
+//
+// It guards host mode rather than a turn, and it rides in the host file as a
+// type-36 block after the player blocks.
+
+/// Write a game and open it from its **host** file.
+fn a_hosted_game(name: &str) -> (std::path::PathBuf, App) {
+    use stars_core::newgame::{NewGame, NewPlayer, Size};
+
+    let mut app = asking();
+    app.new_game(&NewGame {
+        name: name.to_string(),
+        size: Size::Small,
+        players: vec![
+            NewPlayer::human(Race::humanoid()),
+            opponents::opponent(1, 1).expect("an opponent").as_player(),
+        ],
+        ..NewGame::default()
+    })
+    .expect("creates the game");
+
+    let dir = std::env::temp_dir().join(format!("stars-ui-hostpw-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    app.save_new_game(&dir.join(format!("{name}.hst")))
+        .expect("writes the game");
+    (dir, app)
+}
+
+#[test]
+fn the_host_dialog_sets_the_host_password_not_the_player_s() {
+    let (dir, mut app) = a_hosted_game("Host");
+    app.open_host_password_dialog();
+    assert_eq!(app.password_title(), "Change Host Password");
+    assert!(app.password_note().contains("as soon as the game is saved"));
+
+    if let Some(dialog) = app.password_dialog.as_mut() {
+        dialog.new = "deimos".to_string();
+        dialog.retype = "deimos".to_string();
+    }
+    assert!(app.submit_password());
+    assert!(app.has_host_password());
+    assert_eq!(
+        app.game.as_ref().expect("a game").host_password,
+        stars_formats::password_salt("deimos")
+    );
+    // The player's own password is untouched: they are different things.
+    assert!(!app.has_password());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The salt survives a save and reopen, and guards the file when it comes back.
+#[test]
+fn a_host_password_is_saved_and_then_asked_for() {
+    let (dir, mut app) = a_hosted_game("Guard");
+    let host = dir.join("Guard.hst");
+    app.open_host_password_dialog();
+    if let Some(dialog) = app.password_dialog.as_mut() {
+        dialog.new = "phobos".to_string();
+        dialog.retype = "phobos".to_string();
+    }
+    app.submit_password();
+    app.save(&host).expect("saves");
+
+    // Reopened by somebody who has not given it, the host file now asks.
+    let mut fresh = asking();
+    fresh.open(&host).expect("reads the file");
+    assert!(fresh.game.is_none(), "it should be waiting on the password");
+    let prompt = fresh.password_prompt.as_ref().expect("a prompt");
+    assert_eq!(prompt.salt, stars_formats::password_salt("phobos"));
+
+    if let Some(prompt) = fresh.password_prompt.as_mut() {
+        prompt.typed = "phobos".to_string();
+    }
+    assert!(fresh.submit_password_prompt(0.0));
+    assert_eq!(
+        fresh.game.as_ref().expect("open now").host_password,
+        stars_formats::password_salt("phobos")
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Clearing it takes the block back out, and the file opens freely again.
+#[test]
+fn clearing_the_host_password_removes_it_from_the_file() {
+    let (dir, mut app) = a_hosted_game("Cleared");
+    let host = dir.join("Cleared.hst");
+    app.set_host_password("ceres");
+    app.save(&host).expect("saves");
+
+    let with = std::fs::read(&host).expect("reads");
+    let file = stars_formats::StarsFile::decode(&with).expect("decodes");
+    assert!(
+        file.blocks.iter().any(|b| b.type_id == 36),
+        "the salt block"
+    );
+
+    app.set_host_password("");
+    app.save(&host).expect("saves again");
+    let without = std::fs::read(&host).expect("reads");
+    let file = stars_formats::StarsFile::decode(&without).expect("decodes");
+    assert!(
+        !file.blocks.iter().any(|b| b.type_id == 36),
+        "no password, so no block"
+    );
+
+    let mut fresh = asking();
+    fresh.open(&host).expect("opens");
+    assert!(fresh.password_prompt.is_none());
+    assert!(fresh.game.is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Saving a game whose host password nobody touched changes nothing at all.
+#[test]
+fn an_untouched_host_file_is_written_back_unchanged() {
+    let (dir, mut app) = a_hosted_game("Same");
+    let host = dir.join("Same.hst");
+    let before = std::fs::read(&host).expect("reads");
+
+    let mut reopened = App::new();
+    reopened.open(&host).expect("opens");
+    assert_eq!(reopened.to_bytes().expect("writes"), before);
+
+    // And one that only the player's password was set on keeps its own shape.
+    app.set_password("elsewhere");
+    app.save(&host).expect("saves");
+    let after = std::fs::read(&host).expect("reads");
+    let file = stars_formats::StarsFile::decode(&after).expect("decodes");
+    assert!(!file.blocks.iter().any(|b| b.type_id == 36));
+    let _ = std::fs::remove_dir_all(&dir);
+}

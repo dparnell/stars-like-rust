@@ -35,6 +35,7 @@ Decoded via `StarsFile::block_counts`. In file order the blocks are:
 |---------------------------------|------:|-----------------------------------------------|
 | `FileHeader` (8)                | 1     | plaintext; seeds the cipher                   |
 | `Player` (6)                    | 3     | one full player record per player             |
+| `ChangePassword` (36)           | 0..1  | the **host's** password salt; only when one is set (see below) |
 | `Planet` (13)                   | 128   | one per planet; ids `0..=127` (see below)     |
 | `Design` (26)                   | 15    | ship/starbase designs (all players)           |
 | `Fleet` (16) + `Waypoint` (20)  | 14+14 | starting fleets, each followed by a waypoint  |
@@ -45,6 +46,37 @@ Decoded via `StarsFile::block_counts`. In file order the blocks are:
 
 `.mN` files have the same shape but only the owning player's `Player` block and a
 much smaller planet/fleet set (only what that player has seen/owns).
+
+## The host's password (`ChangePassword`, type 36)
+
+Four bytes, little-endian: the salt of the host's password, the same value and
+the same `LSaltFromSz` fold a player's password uses (`../ui/change-password.md`).
+
+It is **written only in a host file and only when there is a password**, in the
+one position the loader looks for it — straight after the last `Player` block:
+
+```c
+/* save.c, WriteDataFile */
+for (i = 0; i < game.cPlayer; i++) ... WriteRtPlr(&rgplr[i], NULL);
+if (iPlayer == iNoPlayer && lSaltCur != 0)
+    WriteRt(rtChgPassword, 4, &lSaltCur);
+```
+
+```c
+/* file.c, the loader */
+if (dt != dtHost)                       lSaltCur = rgplr[iPlayer].lSalt;
+else if (hdrCur.rt == rtChgPassword)  { lSaltCur = *(int32_t *)rgbCur; ReadRt(); }
+else                                    lSaltCur = 0;
+```
+
+So a host file with no password carries no such block, which is why **no fixture
+in this repository has one** — none of those games was hosted with a password.
+The block type is the same number as the `rtChgPassword` order operation, which
+is a different thing in a different file: there it is a *player* changing their
+own turn password (`orders-x.md`).
+
+`stars_core::GameState::host_password` carries it, and the writer puts it back
+in the same place.
 
 ## Planet record (`Planet`, type 13)
 

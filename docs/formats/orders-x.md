@@ -415,9 +415,16 @@ block holds at offset 12, and `0` means the password was cleared. Decoded by
 [`PasswordChange`].
 
 `NewPasswordDlg` writes it at `1040:5ec7` — but only when a player's game is
-open (`iplrMe != -1`). Asked the same question with no game loaded, the dialog
-is setting the **host's** password and stores it in a global instead of logging
-anything, which is why a `.hst` never needs this record.
+open (`iplrMe != -1`). Asked the same question in **host mode**, the dialog is
+setting the host's password: it puts the salt in `lSaltCur` and writes the host
+file on the spot, which is why the note under its boxes says the change is
+effective immediately rather than next turn.
+
+That salt is not logged, but it is not lost either: `WriteDataFile` writes it
+into the `.hst` as a **type-36 block** after the player blocks, and the loader
+reads it from there. Same number, different file, different meaning — a block
+in a host file is the host's password, while this record in a `.xN` is a player
+changing their own. See [`hst.md`](hst.md#the-hosts-password-changepassword-type-36).
 
 The replay arm is `1048:c65c`:
 

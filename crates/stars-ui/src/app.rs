@@ -444,6 +444,9 @@ pub struct App {
     research_edited: bool,
     /// Whether anything in the local player's own block was changed.
     player_edited: bool,
+    /// Whether the host's password was changed. It lives in a block of its own
+    /// rather than in a player block, so it is tracked separately.
+    host_password_edited: bool,
     /// Whether the local player's battle plans were changed. They live in
     /// their own blocks, so those are rewritten rather than patched.
     battle_plans_edited: bool,
@@ -587,15 +590,15 @@ impl App {
 
         // Whose password guards this file. A player's file names its player in
         // the header and that player's salt is the one to ask for
-        // (`lSaltCur = rgplr[iPlayer].lSalt`); a host file names none, and the
-        // original takes the host's salt from a leading type-36 record that
-        // this project neither writes nor reads. So a `.hst` asks for nothing.
+        // (`lSaltCur = rgplr[iPlayer].lSalt`); a host file names none and is
+        // guarded by the host's own salt, which it carries in a type-36 block
+        // after the player blocks.
         let player = usize::from(header.player);
-        let password = state
-            .players
-            .get(player)
-            .filter(|_| player < stars_core::newgame::MAX_PLAYERS)
-            .map_or(0, |p| p.password);
+        let password = if player < stars_core::newgame::MAX_PLAYERS {
+            state.players.get(player).map_or(0, |p| p.password)
+        } else {
+            state.host_password
+        };
 
         Ok(Loaded {
             state,
@@ -636,6 +639,7 @@ impl App {
         self.renamed.clear();
         self.fleet_edits.clear();
         self.player_edited = false;
+        self.host_password_edited = false;
         self.battle_plans_edited = false;
         self.orders.clear();
         self.error = None;
@@ -687,6 +691,13 @@ impl App {
         // one can change how many there are, so the whole run is replaced at
         // the first of them rather than patched block by block.
         let mut wrote_battle_plans = false;
+        // A host password only belongs in a host file, and it is only written
+        // when it was changed here: an untouched file keeps whatever it had.
+        let host_file = latest.header.file_type == stars_formats::FileType::Host;
+        let rewrite_host_password = host_file && self.host_password_edited;
+        let had_salt_block = source[first..last].iter().any(|b| b.type_id == 36);
+        let insert_host_password =
+            rewrite_host_password && !had_salt_block && game.host_password != 0;
 
         for (index, block) in source.iter().enumerate() {
             if index < first || index >= last {
@@ -753,14 +764,39 @@ impl App {
                     continue;
                 }
             }
-            if block.type_id == 6 && self.player_edited {
-                if let Some(patched) = self.patched_player(game, &block.data) {
+            // The host's password is a type-36 block straight after the last
+            // player block, and only a host file has one. Changing it replaces
+            // that block, clearing it drops the block, and setting one on a
+            // file that never had a password puts it where the game would.
+            if block.type_id == 36 && rewrite_host_password {
+                if game.host_password != 0 {
                     blocks.push(
+                        Block::new(36, game.host_password.to_le_bytes().to_vec())
+                            .map_err(|e| format!("cannot write the host password: {e}"))?,
+                    );
+                }
+                continue;
+            }
+            if block.type_id == 6 {
+                match self
+                    .player_edited
+                    .then(|| self.patched_player(game, &block.data))
+                    .flatten()
+                {
+                    Some(patched) => blocks.push(
                         Block::new(6, patched)
                             .map_err(|e| format!("cannot write a player: {e}"))?,
-                    );
-                    continue;
+                    ),
+                    None => blocks.push(block.clone()),
                 }
+                let last_player = !source.get(index + 1).is_some_and(|b| b.type_id == 6);
+                if last_player && insert_host_password {
+                    blocks.push(
+                        Block::new(36, game.host_password.to_le_bytes().to_vec())
+                            .map_err(|e| format!("cannot write the host password: {e}"))?,
+                    );
+                }
+                continue;
             }
             if matches!(block.type_id, 16..=18) {
                 pending_name = self.fleet_name_block(game, &block.data, block.type_id);
@@ -940,6 +976,7 @@ impl App {
         self.renamed.clear();
         self.fleet_edits.clear();
         self.player_edited = false;
+        self.host_password_edited = false;
         self.battle_plans_edited = false;
         self.orders.clear();
         self.error = None;
@@ -1273,6 +1310,7 @@ impl App {
         self.orders.clear();
         self.research_edited = false;
         self.player_edited = false;
+        self.host_password_edited = false;
         self.battle_plans_edited = false;
         // A new year's messages: the pane goes back to the first of them.
         self.show_first_message();
@@ -8088,12 +8126,66 @@ pub struct PasswordDialog {
     pub retype: String,
     /// What went wrong with the last attempt, if anything.
     pub error: Option<String>,
+    /// Whether this is the **host's** password rather than a player's, which
+    /// the original decides by `idPlayer == -1`. It changes the caption, the
+    /// note and where the salt goes.
+    pub host: bool,
 }
 
 impl App {
-    /// Open the dialog, empty.
+    /// Open the dialog, empty, for the local player's password.
     pub fn open_password_dialog(&mut self) {
         self.password_dialog = Some(PasswordDialog::default());
+    }
+
+    /// Open it for the **host's** password, which is what the Host Mode
+    /// dialog's `Password...` button does.
+    pub fn open_host_password_dialog(&mut self) {
+        self.password_dialog = Some(PasswordDialog {
+            host: true,
+            ..PasswordDialog::default()
+        });
+    }
+
+    /// The dialog's caption: the original renames it in host mode (string
+    /// `0x035e`).
+    #[must_use]
+    pub fn password_title(&self) -> &'static str {
+        if self.password_dialog.as_ref().is_some_and(|d| d.host) {
+            "Change Host Password"
+        } else {
+            "Change Password"
+        }
+    }
+
+    /// Whether the game has a host password.
+    #[must_use]
+    pub fn has_host_password(&self) -> bool {
+        self.game
+            .as_ref()
+            .is_some_and(|game| game.host_password != 0)
+    }
+
+    /// Set or clear the **host's** password.
+    ///
+    /// It goes in the host file rather than a player block — a type-36 record
+    /// after the player blocks — and takes effect at once, because the host
+    /// writes its own file rather than submitting a turn.
+    ///
+    /// Returns whether it changed.
+    pub fn set_host_password(&mut self, text: &str) -> bool {
+        let salt = stars_formats::password_salt(text);
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        if game.host_password == salt {
+            return false;
+        }
+        game.host_password = salt;
+        self.host_password_edited = true;
+        self.dirty = true;
+        self.password_given = (salt != 0).then_some(salt);
+        true
     }
 
     /// Close it, keeping nothing.
@@ -8117,11 +8209,14 @@ impl App {
     /// whether it is in host mode: a host's password takes effect at once
     /// because the host writes its own file there and then, while a player's
     /// travels in the turn they submit and so only binds from the next turn.
-    /// This project has no host mode, so only the player's note applies. The
-    /// wording is its own, as the game's message text always is.
+    /// The wording is this project's own, as the game's message text always is.
     #[must_use]
     pub fn password_note(&self) -> &'static str {
-        "The new password takes effect with the next turn, not this one."
+        if self.password_dialog.as_ref().is_some_and(|d| d.host) {
+            "The new password takes effect as soon as the game is saved."
+        } else {
+            "The new password takes effect with the next turn, not this one."
+        }
     }
 
     /// Accept what is typed: check the two boxes against each other and set
@@ -8135,7 +8230,7 @@ impl App {
         let Some(dialog) = self.password_dialog.as_ref() else {
             return false;
         };
-        let (new, retype) = (dialog.new.clone(), dialog.retype.clone());
+        let (new, retype, host) = (dialog.new.clone(), dialog.retype.clone(), dialog.host);
         if stars_formats::password_salt(&new) != stars_formats::password_salt(&retype) {
             if let Some(dialog) = self.password_dialog.as_mut() {
                 dialog.error =
@@ -8145,7 +8240,11 @@ impl App {
             }
             return false;
         }
-        self.set_password(&new);
+        if host {
+            self.set_host_password(&new);
+        } else {
+            self.set_password(&new);
+        }
         self.password_dialog = None;
         true
     }

@@ -308,6 +308,16 @@ pub struct GameState {
     /// Read by the Mystery Trader, which withholds its late-game bonus of
     /// extra ships from a single-player game — see [`crate::wormhole`].
     pub single_player: bool,
+    /// The salt of the **host's** password; `0` when there is none.
+    ///
+    /// It guards host mode rather than a turn, and it lives in the host file
+    /// alone: `WriteDataFile` writes it as a type-36 record straight after the
+    /// player blocks, and only for a host file with a password set
+    /// (`save.c`, `if (iPlayer == iNoPlayer && lSaltCur != 0)`). The loader
+    /// reads it from the same place (`file.c`). Like every password in Stars!,
+    /// what is stored is a salt of the typed text and never the text — see
+    /// [`stars_formats::password`].
+    pub host_password: u32,
     /// How many planets the whole galaxy has (`GAME.cPlanMax`), which the
     /// "owns a percentage of all planets" victory condition is measured
     /// against. Zero when the file did not say.
@@ -404,6 +414,7 @@ impl GameState {
             designs: Vec::new(),
             slow_tech: false,
             single_player: false,
+            host_password: 0,
             galaxy_planets: 0,
             victory: [0; stars_formats::victory::COUNT],
             messages: Vec::new(),
