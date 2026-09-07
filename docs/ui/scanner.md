@@ -178,12 +178,33 @@ cycling swaps between the planet's tiles and the fleet's as it goes.
 
 ## Player colours
 
-`grbitScan & 0x2000` is **Player Colors**, the View menu's own item — the one
-bit of `grbitScan` no toolbar button touches. `DrawScanFleetCount` reads it to
-decide whether a ship count is written in the owner's colour: with it off every
-count is white, and with it on a count is drawn in that player's colour only
-when every fleet at that spot belongs to one player, white otherwise. The
-manual (p. 5-15) puts it as your own numbers always appearing white.
+`grbitScan & 0x2000` is **Player Colors**, the **View menu's** own item
+(`0x98d`, in submenu 1) and the one bit of `grbitScan` no toolbar button
+touches. It starts **off**: the `0xe0` `stars.ini` defaults to does not include
+it.
+
+It colours exactly two things, and the handler says so itself — after toggling
+the bit it redraws the scanner only when `grbitScan & 0x1400` is set, which is
+planet names or ship counts.
+
+**Planet names.** An owned planet's name takes its owner's colour and this
+player's own is white. An **unowned** planet's name is left in the ordinary
+colour: the original only reaches for a colour once it has established the
+planet has an owner, so the third case is not white but "unchanged".
+
+Names have a limit of their own, unrelated to this: they are not drawn at all
+below `iScanZoom > -2`, where the dots are too close together for a name to sit
+beside one.
+
+**Ship counts.** `DrawScanFleetCount` (`1058:47d2`) writes **one number per
+location**, not per fleet: it walks the fleets at a point as a single list and
+adds them up, which is what the manual means by "the number of ships at a
+location" (p. 5-15). Two details come with that — the total is **capped at
+999**, and a spot totalling nothing gets no number.
+
+The colour is that player's only when every fleet at the spot belongs to one
+player. Mixed spots, and your own, stay white — the manual puts it as your own
+numbers always appearing white.
 
 ## Giving orders by dragging
 
@@ -317,8 +338,9 @@ flip; all six views and their names; the names, scanner coverage, mine fields,
 fleet paths, ship counts and idle-fleets overlays; the **orbit rings**, in the
 game's own three colours and narrowed by the ship filters as the original
 narrows them; the **fleet arrows**, in all eight directions and from both
-sources; click-to-select, and **clicking the same spot again** to walk what is
-on it; and
+sources; **Player Colors** and the two things it colours, with the counts
+gathered per location as the original gathers them; click-to-select, and
+**clicking the same spot again** to walk what is on it; and
 **waypoint dragging** — adding a leg, moving one, dropping one, and the warp the
 client suggests, both halves of it. Every edit writes the order record the real
 client writes, so a host replaying the log reaches the same orders. And the

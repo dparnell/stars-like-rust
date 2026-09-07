@@ -550,6 +550,22 @@ impl eframe::App for StarsApp {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 });
+                // The original's View menu. Only its one checkable item so
+                // far — the rest of what it holds (Toolbar, Zoom, Window
+                // Layout, Race, Game Parameters) has no home here yet.
+                ui.menu_button("View", |ui| {
+                    let mut on = self.app.scan_overlays.player_colours;
+                    if ui
+                        .checkbox(&mut on, "Player Colors")
+                        .on_hover_text(
+                            "Write planet names and ship counts in each player's \
+                             own colour. Yours stay white.",
+                        )
+                        .changed()
+                    {
+                        self.app.scan_overlays.player_colours = on;
+                    }
+                });
                 ui.separator();
                 if ui
                     .add_enabled(

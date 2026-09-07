@@ -219,6 +219,14 @@ pub struct ScanOverlays {
     /// `Enemy Ship Class Filter`: count only the chosen classes, in everybody
     /// else's fleets (`grbitScan & 0x800`).
     pub enemy_class_filter: bool,
+    /// `Player Colors` (`grbitScan & 0x2000`).
+    ///
+    /// The one bit of `grbitScan` with no button on the toolbar: it is the
+    /// **View menu's** own item, `0x98d`. It changes nothing on its own —
+    /// toggling it only redraws the scanner when `grbitScan & 0x1400` is set,
+    /// which is to say when planet names or ship counts are being drawn, since
+    /// those are the only two things it colours.
+    pub player_colours: bool,
 }
 
 /// What the survey pane is looking at.
@@ -6951,5 +6959,101 @@ impl App {
         let side: u32 = if self.scan_zoom < 0 { 7 } else { 9 };
         let x = if self.scan_zoom < 0 { 0 } else { 7 };
         (x, u32::from(arrow) * side, side)
+    }
+}
+
+// --- Player colours -------------------------------------------------------
+
+/// A ship count the scanner writes on the map.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShipCount {
+    /// Where it goes.
+    pub position: stars_core::movement::Point,
+    /// How many, already capped at 999.
+    pub ships: i32,
+    /// The one player whose fleets these are, when they all belong to one.
+    /// `None` when several players have fleets at the spot.
+    pub owner: Option<usize>,
+}
+
+impl App {
+    /// The ship counts to write on the map, one per **location**.
+    ///
+    /// `DrawScanFleetCount` (`1058:47d2`) walks the fleets at a point as one
+    /// list and writes a single number for the lot, which is what the manual
+    /// means by "the number of ships at a location". Two details come with it:
+    /// the total is **capped at 999**, and a spot totalling nothing is not
+    /// written at all.
+    ///
+    /// Each fleet contributes what the ship filters allow, so a filtered-out
+    /// fleet can leave a location with no number even though ships are there.
+    #[must_use]
+    pub fn ship_counts(&self) -> Vec<ShipCount> {
+        let Some(game) = self.game.as_ref() else {
+            return Vec::new();
+        };
+        let mut totals: std::collections::BTreeMap<(i16, i16), (i64, Option<usize>, bool)> =
+            std::collections::BTreeMap::new();
+        for fleet in &game.fleets {
+            let ships = i64::from(self.filtered_ship_count(fleet));
+            if ships <= 0 {
+                continue;
+            }
+            let owner = usize::try_from(fleet.owner).ok();
+            let entry = totals
+                .entry((fleet.position.x, fleet.position.y))
+                .or_insert((0, owner, true));
+            entry.0 += ships;
+            if entry.1 != owner {
+                // More than one player's fleets here.
+                entry.2 = false;
+            }
+        }
+        totals
+            .into_iter()
+            .map(|((x, y), (ships, owner, one_owner))| ShipCount {
+                position: stars_core::movement::Point::new(x, y),
+                ships: i32::try_from(ships.min(999)).unwrap_or(999),
+                owner: if one_owner { owner } else { None },
+            })
+            .collect()
+    }
+
+    /// What colour to write a ship count in.
+    ///
+    /// White unless **Player Colors** is on, the fleets at that spot all
+    /// belong to one player, and that player is not this one — the original
+    /// keeps your own numbers white whatever the setting.
+    #[must_use]
+    pub fn ship_count_colour(&self, count: &ShipCount) -> Option<usize> {
+        if !self.scan_overlays.player_colours {
+            return None;
+        }
+        let owner = count.owner?;
+        (owner != self.local_player()).then_some(owner)
+    }
+
+    /// What colour to write a planet's name in.
+    ///
+    /// `None` means the ordinary colour, which is what an **unowned** planet
+    /// keeps: the original only reaches for a colour when the planet has an
+    /// owner. `Some(None)` is white — this player's own. `Some(Some(p))` is
+    /// player `p`'s colour.
+    #[must_use]
+    pub fn planet_name_colour(&self, owner: Option<i16>) -> Option<Option<usize>> {
+        if !self.scan_overlays.player_colours {
+            return None;
+        }
+        let owner = usize::try_from(owner?).ok()?;
+        Some((owner != self.local_player()).then_some(owner))
+    }
+
+    /// Whether planet names are drawn at all at this zoom.
+    ///
+    /// The original hides them below `iScanZoom > -2`, where the dots are too
+    /// close together for a name to mean anything.
+    #[must_use]
+    pub fn planet_names_visible(&self) -> bool {
+        self.scan_overlays.names && self.scan_zoom > -2
     }
 }

@@ -115,6 +115,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         .as_ref()
         .and_then(|g| g.players.get(app.local_player()))
         .map(|p| p.race.clone());
+    let names_visible = app.planet_names_visible();
     // Which planets have fleets in orbit, and whose. Collected here and drawn
     // after the loop, because painting the game's own ring sprite needs the
     // app mutably and the loop is holding it.
@@ -194,14 +195,22 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 to_ring.push((at, *ring, Some(planet.id) == selected));
             }
         }
-        if app.scan_overlays.names {
+        if names_visible {
             if let Some(name) = planet.name {
+                // Player Colors, when it is on, writes an owned planet's name
+                // in its owner's colour and this player's own in white. An
+                // unowned planet keeps the ordinary colour either way.
+                let colour = match app.planet_name_colour(planet.owner) {
+                    None => Color32::from_gray(170),
+                    Some(None) => Color32::WHITE,
+                    Some(Some(owner)) => player_colour(i16::try_from(owner).unwrap_or(0)),
+                };
                 painter.text(
                     at + Vec2::new(0.0, radius + 2.0),
                     egui::Align2::CENTER_TOP,
                     name,
                     egui::FontId::proportional(9.0),
-                    Color32::from_gray(170),
+                    colour,
                 );
             }
         }
@@ -298,21 +307,29 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                     from = to;
                 }
             }
-            if app.scan_overlays.ship_counts {
-                // The two ship filters narrow this: the design filter on this
-                // player's own fleets, the class filter on everybody else's.
-                let ships = app.filtered_ship_count(fleet);
-                painter.text(
-                    at + Vec2::new(9.0, -9.0),
-                    egui::Align2::LEFT_BOTTOM,
-                    ships.to_string(),
-                    egui::FontId::proportional(9.0),
-                    colour,
-                );
-            }
         }
     }
     fleet_arrows(app, ui, &to_arrow);
+
+    // The ship counts, one per **location** rather than per fleet, which is
+    // what the original writes. The two ship filters have already narrowed
+    // what each fleet contributes.
+    if app.scan_overlays.ship_counts {
+        for count in app.ship_counts() {
+            let at = to_screen(f32::from(count.position.x), f32::from(count.position.y));
+            let colour = match app.ship_count_colour(&count) {
+                Some(owner) => player_colour(i16::try_from(owner).unwrap_or(0)),
+                None => Color32::WHITE,
+            };
+            painter.text(
+                at + Vec2::new(9.0, -9.0),
+                egui::Align2::LEFT_BOTTOM,
+                count.ships.to_string(),
+                egui::FontId::proportional(9.0),
+                colour,
+            );
+        }
+    }
 
     // The measuring tape: a right-drag from anywhere to anywhere, snapping to
     // whatever it passes over (`FHandleMeasuringTape`, `1058:9974`). Shift

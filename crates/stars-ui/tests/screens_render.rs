@@ -73,6 +73,7 @@ fn every_scanner_view_draws() {
         idle_fleets: true,
         ship_design_filter: true,
         enemy_class_filter: true,
+        player_colours: true,
     };
     draw(&mut app, Screen::Galaxy);
 }

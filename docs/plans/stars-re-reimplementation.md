@@ -2027,7 +2027,29 @@ disagree.
     raw byte and applies the bias in an accessor, which round-trips byte-exact
     as before.
 
-63. **What is still missing to call it playable.** Every waypoint task is now
+63. ~~**Player Colors.**~~ **Done.** The View menu's own item (`0x98d`) and
+    the one bit of `grbitScan` — `0x2000` — that no toolbar button touches.
+    Spec in `docs/ui/scanner.md`.
+
+    The handler says what it affects: after toggling the bit it redraws the
+    scanner only when `grbitScan & 0x1400` is set, which is planet names or
+    ship counts. Nothing else in the game reads it.
+
+    Two things came out of implementing it. **An unowned planet's name is not
+    white** — the original only reaches for a colour once it has established
+    the planet has an owner, so the third case is "leave it alone" rather than
+    a colour of its own. And `DrawScanFleetCount` writes **one number per
+    location**, walking the fleets at a point as a single list and adding them
+    up, capped at 999, with nothing written for a spot totalling zero. This
+    project had been writing a number per fleet, which made the "one owner"
+    rule meaningless; the counts are now gathered per location, which is also
+    what the manual describes.
+
+    The desktop frontend gained a **View menu** to hold it — the first item of
+    one. The rest of what that menu holds in the original (Toolbar, Zoom,
+    Window Layout, Race, Game Parameters) still has no home here.
+
+64. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -2042,8 +2064,9 @@ disagree.
       scaling and shield absorption.
     - A loaded state file still cannot carry structural fleet changes back —
       the game does not either; the order log does.
-    - **Player Colors**, which is recovered but has no menu item here to turn
-      it on.
+    - **The rest of the View menu**: Toolbar (hiding the toolbar), Zoom,
+      Window Layout, Race and Game Parameters. Player Colors is the only item
+      of it this frontend has.
     - **`stars.ini` does not keep the scanner's settings** between sessions —
       the view, the overlays, the three filter masks and the coverage. Their
       defaults are honoured; the saving is not.
