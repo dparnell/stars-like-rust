@@ -1,6 +1,7 @@
 # The Host Mode dialog
 
-Status: **built**, except for the auto-generate timer.
+Status: **built**. What is missing is missing from the game as well — see
+*Auto Generate* below.
 
 `HostModeDialog`, `IDD_HOST_MODE` (115). In the original this is not a dialog
 over the game — it **is** host mode. `BringUpHostDlg` hides the map window and
@@ -73,6 +74,57 @@ generation is: the submitted orders are replayed, the year runs, and every
 player gets a turn file. That is `save_new_game`, the same writer a new game
 uses.
 
+## Auto Generate
+
+The button starts a watch: every ten seconds host mode counts the turns still
+out, and the moment none are it generates the year and writes everybody's
+files. That is `HostTimerProc`, on the `SetTimer(NULL, 0x0D, 10000, ...)` beat
+`BringUpHostDlg` starts when the dialog returns `-1`. While it waits, the
+original writes what it is waiting for into the frame's title — `Host Mode %d
+Player(s) Out`, strings `0x031b`, `0x0421` and `0x031c` — which this shows in
+the dialog, since the dialog is still on screen here.
+
+One thing stops it: `gd.fAllAis`, every player being a computer player. Then
+there is nobody to wait for and the host would generate for ever, so the button
+is disabled and the original says why (string `0x02c8`).
+
+### The options that are not there
+
+`IDD_HOST_OPTIONS` (1026), `Auto Generate Options`, is in the resources — a
+checkbox *When all players are in.* and three force-generate radio buttons, two
+with empty captions to be filled at run time from the fragments `Every …
+hours.` and `Up to … minutes after … player(s) are left out.` (strings
+`0x050c`, `0x050d`, `0x0510`, `0x0511`, `0x0518`). The `TIMER` struct behind it
+has the fields to match: `mdForce`, `fAutoGenWhenIn`, and a union of `hrsForce`
+with `minForce:12, cPlr:4`.
+
+**None of it works in 2.7j.** Read out of `stars.2.7j.exe`:
+
+* `DrawHostOptions` (`1020:7706`) is ten instructions — `push bp; mov bp,sp;
+  sub sp,2; push si; push di; pop di; pop si; mov sp,bp; pop bp; retf`. It
+  draws nothing, so the two empty captions stay empty and the numbers are never
+  painted.
+* `HostOptionsDialog` (`1020:75ce`) handles `WM_PAINT` (calling that stub),
+  `WM_ERASEBKGND`, `WM_INITDIALOG`, `WM_CTLCOLOR` and `WM_COMMAND` for OK,
+  Cancel and Help — and nothing else. It never reads a control, and never sets
+  one from `vtimer`.
+* Nothing in the program writes `vtimer` (`1120:3ef0`) except one instruction
+  in `InitStuff`, `mov word ptr [0x3ef2], 1` — `fAutoGenWhenIn = 1`. Every
+  other reference is the same four-part test
+  `(!gd.fAllAis && (vtimer.fAutoGenWhenIn || vtimer.mdForce))`, and `mdForce`
+  is never anything but zero.
+* The host dialog's template has no `Options` button either: `IDC_HOST_OPTIONS`
+  (`0x405`) is handled in `HostModeDialog` but no control carries that id.
+
+So the feature was taken out of the interface and left in the code. Auto
+generate has exactly one setting, hard-wired on: *when all players are in*.
+That is what is built here, and there is nothing to configure.
+
+> This corrects what this file said when host mode was first built — that Auto
+> Generate was disabled "where the original leaves it with none set". The
+> original's own `fAutoGenWhenIn = 1` means the button is live in every game
+> with a person in it; the button here now is too.
+
 ## Time since last change
 
 `ctickLast` is reset whenever a player's status changes, and the dialog redraws
@@ -83,15 +135,9 @@ then `m:ss`, then `h:mm:ss`, then `d days h:mm:ss`.
 
 ## What is not
 
-* **Auto Generate**, and the `Auto Generate Options` dialog behind it
-  (`IDD_HOST_OPTIONS`, 1026). The template has the checkbox *When all players
-  are in* and three force-generate radio buttons, two of them with empty
-  captions that are filled at run time from fragments — `Every … hours.` and
-  `Up to … minutes after … player(s) are left out.` (strings `0x050c`,
-  `0x050d`, `0x0510`, `0x0511`, `0x0518`). The numbers in them are painted by
-  `DrawHostOptions`, which is a stub in the reconstruction, so how they are
-  edited is not recovered. The button is where the original leaves it with no
-  option set: disabled.
+* The **Auto Generate Options** dialog, because there is nothing behind it —
+  see above. A dialog that reads nothing and writes nothing is not worth
+  reproducing.
 * Nothing else of the dialog. `Password...` sets the **host's** password —
   which is not the local player's — and it is written into the host file on the
   next save rather than the instant it is chosen, where the original writes the

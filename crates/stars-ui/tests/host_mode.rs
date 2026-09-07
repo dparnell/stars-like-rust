@@ -165,3 +165,72 @@ fn the_elapsed_clock_reads_as_the_original_writes_it() {
     assert_eq!(elapsed_text(3_600.0), "1:00:00");
     assert_eq!(elapsed_text(90_061.0), "1 days 1:01:01");
 }
+
+// --- Auto Generate -----------------------------------------------------
+//
+// There are no options behind it in 2.7j: `DrawHostOptions` draws nothing and
+// nothing in the program ever writes the force-generate fields, so what the
+// button does is the one thing `HostTimerProc` implements — look every ten
+// seconds and generate the year when every turn is in.
+
+#[test]
+fn the_watch_looks_on_the_ten_second_beat() {
+    let (dir, mut app) = a_hosted_game("Watch");
+    assert!(!app.auto_generate);
+    assert!(!app.auto_generate_due(0.0), "not watching, nothing is due");
+
+    app.set_auto_generate(true, 100.0);
+    assert!(app.auto_generate);
+    // It has just looked, so it is not due again until the beat comes round.
+    assert!(!app.auto_generate_due(100.0));
+    assert!(!app.auto_generate_due(109.9));
+    assert!(app.auto_generate_due(110.0));
+    assert_eq!(App::HOST_TICK_SECONDS, 10.0);
+
+    app.auto_generate_looked(110.0);
+    assert!(!app.auto_generate_due(115.0));
+
+    app.set_auto_generate(false, 120.0);
+    assert!(!app.auto_generate_due(200.0));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A game with nobody in it cannot be watched: there is nothing to wait for.
+#[test]
+fn a_game_of_computer_players_cannot_auto_generate() {
+    use stars_core::newgame::{NewGame, Size};
+
+    let mut app = App::new();
+    app.new_game(&NewGame {
+        name: "Ai".to_string(),
+        size: Size::Small,
+        players: vec![
+            opponents::opponent(0, 1).expect("an opponent").as_player(),
+            opponents::opponent(1, 1).expect("an opponent").as_player(),
+        ],
+        ..NewGame::default()
+    })
+    .expect("creates the game");
+    assert!(app.auto_generate_blocked());
+    app.set_auto_generate(true, 0.0);
+    assert!(!app.auto_generate, "it should refuse to watch");
+
+    // A game with a person in it is fine.
+    let (dir, mut app) = a_hosted_game("Person");
+    assert!(!app.auto_generate_blocked());
+    app.set_auto_generate(true, 0.0);
+    assert!(app.auto_generate);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// What host mode says while it waits — the line the original writes into the
+/// frame's title bar.
+#[test]
+fn the_watch_says_how_many_are_out() {
+    let (dir, app) = a_hosted_game("Waiting");
+    assert_eq!(app.host_title(), "Host Mode 1 Player Out");
+    let year = app.game.as_ref().expect("a game").turn;
+    submit(&dir, "Waiting", 0, &app, true, year);
+    assert_eq!(app.host_title(), "Host Mode 0 Players Out");
+    let _ = std::fs::remove_dir_all(&dir);
+}

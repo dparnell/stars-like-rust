@@ -301,6 +301,10 @@ pub struct App {
     pub password_prompt: Option<PasswordPrompt>,
     /// Whether the Host Mode dialog is open.
     pub host_mode: bool,
+    /// Whether host mode is watching for turns and generating on its own.
+    pub auto_generate: bool,
+    /// When the watch last looked, on the frontend's clock.
+    pub auto_generate_checked: Option<f64>,
     /// The salt last accepted at that prompt (`lSaltLast`), so the same
     /// password is asked for once a session and not once a file.
     pub password_given: Option<u32>,
@@ -8531,6 +8535,59 @@ impl App {
             (true, false) => 9,
             (true, true) => 999,
         }
+    }
+
+    /// The beat host mode runs on, in seconds.
+    ///
+    /// `SetTimer(NULL, 0x0D, 10000, HostTimerProc)`: the host looks for new
+    /// turn files every ten seconds, and that is also how often the dialog
+    /// redraws.
+    pub const HOST_TICK_SECONDS: f64 = 10.0;
+
+    /// Whether auto-generating is possible at all.
+    ///
+    /// `gd.fAllAis` — every player is a computer player — is the one thing
+    /// that stops it: there is nobody to wait for, so the host would generate
+    /// year after year for ever. The original disables the button and says so
+    /// (string `0x02c8`).
+    #[must_use]
+    pub fn auto_generate_blocked(&self) -> bool {
+        self.game.as_ref().is_none_or(|game| {
+            game.players
+                .iter()
+                .all(|player| !matches!(player.control, stars_core::ai::Control::Human))
+        })
+    }
+
+    /// Start or stop watching for turns.
+    pub fn set_auto_generate(&mut self, on: bool, now: f64) {
+        self.auto_generate = on && !self.auto_generate_blocked();
+        self.auto_generate_checked = self.auto_generate.then_some(now);
+    }
+
+    /// Whether the watch is due to look again.
+    #[must_use]
+    pub fn auto_generate_due(&self, now: f64) -> bool {
+        self.auto_generate
+            && self
+                .auto_generate_checked
+                .is_none_or(|last| now - last >= Self::HOST_TICK_SECONDS)
+    }
+
+    /// Note that the watch has just looked.
+    pub fn auto_generate_looked(&mut self, now: f64) {
+        self.auto_generate_checked = Some(now);
+    }
+
+    /// What host mode reports while it waits, which the original writes into
+    /// the frame's title bar (strings `0x031b`, `0x0421` and `0x031c`).
+    #[must_use]
+    pub fn host_title(&self) -> String {
+        let out = self.turns_outstanding();
+        format!(
+            "Host Mode {out} Player{} Out",
+            if out == 1 { "" } else { "s" }
+        )
     }
 
     /// Generate `passes` turns in a row.

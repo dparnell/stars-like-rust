@@ -543,61 +543,77 @@ impl eframe::App for StarsApp {
             && self.app.setup.is_none()
             && ctx.input(|i| i.key_pressed(egui::Key::F6))
         {
-            // The password prompt holds a save that is not open yet, so it is put
-            // up on its own, with no close button — Cancel gives up on the file,
-            // as the original's loader does.
-            if self.app.password_prompt.is_some() {
-                let now = ctx.input(|i| i.time);
-                egui::Window::new("Stars!")
-                    .id(egui::Id::new("password-prompt"))
-                    .collapsible(false)
-                    .resizable(false)
-                    .default_width(260.0)
-                    .show(ctx, |ui| {
-                        stars_ui::views::password::prompt(&mut self.app, ui, now);
-                    });
-            }
-
-            if self.app.host_mode {
-                let mut open = true;
-                // The original hides everything else and runs this modally; here it
-                // is a window, so the map is still there behind it.
-                let elapsed = ctx.input(|i| i.time) - self.host_since;
-                let mut action = None;
-                egui::Window::new("Stars! Host Mode")
-                    .open(&mut open)
-                    .resizable(false)
-                    .default_width(440.0)
-                    .show(ctx, |ui| {
-                        action = stars_ui::views::host::view(&mut self.app, ui, elapsed);
-                    });
-                if !open {
-                    self.app.close_host_mode();
-                }
-                if let Some(action) = action {
-                    self.host(action, ctx.input(|i| i.time));
-                }
-            }
-
-            if self.app.password_dialog.is_some() {
-                let mut open = true;
-                egui::Window::new(self.app.password_title())
-                    .id(egui::Id::new("change-password"))
-                    .open(&mut open)
-                    .resizable(false)
-                    .default_width(320.0)
-                    .show(ctx, |ui| {
-                        stars_ui::views::password::view(&mut self.app, ui);
-                    });
-                if !open {
-                    self.app.close_password_dialog();
-                }
-            }
-
             if self.app.battle_plans.is_some() {
                 self.app.close_battle_plans();
             } else {
                 self.app.open_battle_plans();
+            }
+        }
+
+        if self.app.game.is_some()
+            && self.app.setup.is_none()
+            && ctx.input(|i| i.key_pressed(egui::Key::F7))
+        {
+            if self.app.relations_dialog.is_some() {
+                self.app.close_relations();
+            } else {
+                // Refused outright in a single-player game, as the original
+                // refuses it: the menu item is there and does nothing.
+                self.app.open_relations();
+            }
+        }
+
+        // The modeless windows, which draw every frame. They belong out
+        // here rather than inside a key handler: a window nested in one
+        // is drawn only on the frame that key is pressed.
+        // The password prompt holds a save that is not open yet, so it is put
+        // up on its own, with no close button — Cancel gives up on the file,
+        // as the original's loader does.
+        if self.app.password_prompt.is_some() {
+            let now = ctx.input(|i| i.time);
+            egui::Window::new("Stars!")
+                .id(egui::Id::new("password-prompt"))
+                .collapsible(false)
+                .resizable(false)
+                .default_width(260.0)
+                .show(ctx, |ui| {
+                    stars_ui::views::password::prompt(&mut self.app, ui, now);
+                });
+        }
+
+        if self.app.host_mode {
+            let mut open = true;
+            // The original hides everything else and runs this modally; here it
+            // is a window, so the map is still there behind it.
+            let elapsed = ctx.input(|i| i.time) - self.host_since;
+            let mut action = None;
+            egui::Window::new("Stars! Host Mode")
+                .open(&mut open)
+                .resizable(false)
+                .default_width(440.0)
+                .show(ctx, |ui| {
+                    action = stars_ui::views::host::view(&mut self.app, ui, elapsed);
+                });
+            if !open {
+                self.app.close_host_mode();
+            }
+            if let Some(action) = action {
+                self.host(action, ctx.input(|i| i.time));
+            }
+        }
+
+        if self.app.password_dialog.is_some() {
+            let mut open = true;
+            egui::Window::new(self.app.password_title())
+                .id(egui::Id::new("change-password"))
+                .open(&mut open)
+                .resizable(false)
+                .default_width(320.0)
+                .show(ctx, |ui| {
+                    stars_ui::views::password::view(&mut self.app, ui);
+                });
+            if !open {
+                self.app.close_password_dialog();
             }
         }
 
@@ -621,22 +637,6 @@ impl eframe::App for StarsApp {
             }
         }
 
-        if self.app.game.is_some()
-            && self.app.setup.is_none()
-            && ctx.input(|i| i.key_pressed(egui::Key::F7))
-        {
-            if self.app.relations_dialog.is_some() {
-                self.app.close_relations();
-            } else {
-                // Refused outright in a single-player game, as the original
-                // refuses it: the menu item is there and does nothing.
-                self.app.open_relations();
-            }
-        }
-
-        // The modeless windows, which draw every frame. They belong out
-        // here rather than inside a key handler: a window nested in one
-        // is drawn only on the frame that key is pressed.
         if self.app.find_open {
             let mut open = true;
             egui::Window::new("Find")
@@ -1271,5 +1271,49 @@ fn sanitise(name: &str) -> String {
         "game".to_string()
     } else {
         trimmed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// A window drawn inside a key handler is drawn only on the frame that key
+    /// is pressed, so it flashes and vanishes.
+    ///
+    /// This has happened twice — first with Find, Race and Game Parameters
+    /// inside the F7 handler, then with the password prompt, Host Mode and
+    /// Change Password inside F6 — because a new window is easy to anchor on
+    /// the wrong neighbour. The modeless windows all belong at the top level of
+    /// `update`, and this checks that they are there.
+    #[test]
+    fn no_window_is_drawn_inside_a_key_handler() {
+        let source = include_str!("app.rs");
+        let mut depth: i32 = 0;
+        // The depth a key handler's body sits at, while one is open.
+        let mut handler: Option<i32> = None;
+        let mut offenders = Vec::new();
+
+        for (number, line) in source.lines().enumerate() {
+            // Braces inside strings and comments are not structure.
+            let code = line.split("//").next().unwrap_or("");
+            let code: String = code.split('"').step_by(2).collect::<Vec<_>>().join("");
+
+            if code.contains("key_pressed(") {
+                handler = Some(depth);
+            }
+            if handler.is_some_and(|at| depth > at) && code.contains("egui::Window::new") {
+                offenders.push(format!("line {}: {}", number + 1, line.trim()));
+            }
+            depth += i32::try_from(code.matches('{').count()).unwrap_or(0);
+            depth -= i32::try_from(code.matches('}').count()).unwrap_or(0);
+            if handler.is_some_and(|at| depth <= at) && !code.contains("key_pressed(") {
+                handler = None;
+            }
+        }
+
+        assert!(
+            offenders.is_empty(),
+            "these windows only draw on the frame their key is pressed:\n{}",
+            offenders.join("\n")
+        );
     }
 }

@@ -2255,7 +2255,38 @@ disagree.
     host face, with the caption and the note the original swaps in; and the
     password prompt now guards a `.hst`, which it could not before.
 
-72. **What is still missing to call it playable.** Every waypoint task is now
+72. ~~**Auto Generate.**~~ **Done**, and the answer to "do the auto generate
+    options" turned out to be that **there are none**. Spec in
+    `docs/ui/host-mode.md`.
+
+    `IDD_HOST_OPTIONS` is in the resources, the `TIMER` struct has the fields
+    it would fill, and the string fragments for its two run-time captions are
+    in the table. None of it works in 2.7j, and the binary says so plainly:
+    `DrawHostOptions` (`1020:7706`) is ten instructions of prologue and
+    epilogue and draws nothing; `HostOptionsDialog` (`1020:75ce`) handles paint,
+    erase, init, colour and OK/Cancel/Help and never touches a control;
+    `vtimer` (`1120:3ef0`) is written by exactly one instruction in the whole
+    program, `fAutoGenWhenIn = 1` in `InitStuff`, so `mdForce` is never
+    anything but zero; and the host dialog's template has no `Options` button,
+    though `HostModeDialog` still handles one. The feature was taken out of the
+    interface and left in the code.
+
+    So auto generate has one hard-wired setting — *when all players are in* —
+    and that is what is built: a ten-second watch that counts the turns still
+    out and generates the year the moment none are, disabled only for a game
+    with no person left in it (`gd.fAllAis`), which is the one guard the
+    original keeps. It also corrects the previous entry: Auto Generate is live
+    in the original, not disabled.
+
+    **A bug of mine went with it.** The password prompt, the Host Mode window
+    and the Change Password window had all been nested inside the **F6** key
+    handler, so each drew only on the frame that key was pressed — the same
+    mistake as the F7 one fixed in item 66, made again by anchoring new windows
+    on the wrong neighbour. They are back at the top level, and
+    `crates/stars-desktop/src/app.rs` now carries a test that reads its own
+    source and fails if any `egui::Window` is opened inside a key handler.
+
+73. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
