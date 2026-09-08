@@ -29,6 +29,13 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 ui.label(egui::RichText::new(line).small());
             }
         }
+        // A space object: a few lines and nothing else, as the original draws
+        // them.
+        SurveySubject::Thing(_) => {
+            for line in app.survey_thing_rows() {
+                ui.label(egui::RichText::new(line).small());
+            }
+        }
         SurveySubject::Planet(_) => {
             egui::Grid::new("survey-planet")
                 .num_columns(2)

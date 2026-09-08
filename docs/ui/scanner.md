@@ -202,12 +202,28 @@ your own. The separator is dropped when there are no fleets to put under it
 (`if (c == 2 && planet) c = 1`), and the current selection is passed to
 `PopupMenu` as `iChecked`, which ticks it.
 
-The original's list also carries the `THING`s at that point — minefields,
-wormholes and packets, tagged `0x2000`. They are left out here because this
-project's selection holds a planet or a fleet and has nowhere to put one.
+After the fleets come the `THING`s at that point — minefields, packets and
+wormholes, tagged `0x2000` — behind a separator of their own, which the original
+writes only when something came before them. Choosing one selects it, and the
+**Mine Survey pane** switches to its summary; see `mine-survey-pane.md`.
+
+A space object never takes part in the click-again cycle: `FGetNextObjHere` is
+reached only when what was clicked is a fleet or a planet. The right-click menu
+is how you get to one, which is what it is for.
+
+The Mystery Trader is the fourth kind of `THING` and is not here: this engine
+does not model one.
 
 The menu is placed on the object rather than on the pointer, so it stays with
 what it is about; Escape or a click elsewhere puts it away.
+
+### Packets and wormholes on the map
+
+Neither was drawn at all before the menu needed them to be clickable. They are
+plain marks — a diamond in the owner's colour for a packet, two rings for a
+wormhole — where the original has sprites out of the scanner's own sheet, in the
+same spirit as the minefield circles beside them. Planets and fleets outrank
+them under the pointer, which is the order `FFindNearestObject`'s mask implies.
 
 ## Player colours
 

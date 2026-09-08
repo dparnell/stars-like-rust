@@ -26,6 +26,7 @@ use egui::{Color32, Pos2, Rect, Sense, Stroke, Vec2};
 
 use crate::app as stars_ui_arrow;
 use crate::app::ScanObject;
+use crate::app::ScanThing;
 use crate::views::{colonists, player_colour};
 use crate::OrbitRing;
 use crate::{App, ScanView};
@@ -88,12 +89,14 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     let pointer = (response.clicked() || response.secondary_clicked())
         .then(|| response.interact_pointer_pos())
         .flatten();
+    // A space object under the pointer, which planets and fleets outrank.
+    let mut thing_hit: Option<ScanThing> = None;
 
     // Minefields first, so they lie under the planets rather than over them. A
     // field is a circle whose radius is the square root of its mine count,
     // which is exactly how the game draws one. It is an overlay of its own.
     if let Some(game) = app.game.as_ref().filter(|_| app.scan_overlays.minefields) {
-        for field in &game.minefields {
+        for (field_index, field) in game.minefields.iter().enumerate() {
             // The menu behind the Mine Fields button chooses whose are drawn.
             if !app.shows_minefield(field.owner) {
                 continue;
@@ -102,6 +105,12 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             #[allow(clippy::cast_possible_truncation)]
             let radius = field.radius() as f32 * scale;
             let colour = player_colour(field.owner);
+            // A field's own centre is clickable, under the planets and fleets.
+            if let Some(p) = pointer {
+                if (p - at).length() <= 6.0 {
+                    thing_hit.get_or_insert(ScanThing::Minefield(field_index));
+                }
+            }
             painter.circle_filled(
                 at,
                 radius,
@@ -267,6 +276,51 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         }
     }
 
+    // Mineral packets and wormholes. The original draws both with sprites out
+    // of the scanner's sheet; these are plain marks, as the minefields above
+    // are — enough to see one and to click it.
+    if let Some(game) = app.game.as_ref() {
+        for (index, packet) in game.packets.iter().enumerate() {
+            if !packet.include {
+                continue;
+            }
+            let at = to_screen(f32::from(packet.position.x), f32::from(packet.position.y));
+            if let Some(p) = pointer {
+                if (p - at).length() <= 6.0 {
+                    thing_hit.get_or_insert(ScanThing::Packet(index));
+                }
+            }
+            // A diamond, in the colour of whoever threw it.
+            let colour = player_colour(packet.owner);
+            let half = 3.5;
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    at + Vec2::new(0.0, -half),
+                    at + Vec2::new(half, 0.0),
+                    at + Vec2::new(0.0, half),
+                    at + Vec2::new(-half, 0.0),
+                ],
+                colour,
+                Stroke::NONE,
+            ));
+        }
+        for (index, hole) in game.wormholes.iter().enumerate() {
+            if !hole.include {
+                continue;
+            }
+            let at = to_screen(f32::from(hole.position.x), f32::from(hole.position.y));
+            if let Some(p) = pointer {
+                if (p - at).length() <= 7.0 {
+                    thing_hit.get_or_insert(ScanThing::Wormhole(index));
+                }
+            }
+            // Two rings, which is as close to a swirl as a circle gets.
+            let colour = Color32::from_rgb(180, 140, 220);
+            painter.circle_stroke(at, 6.0, Stroke::new(1.0_f32, colour));
+            painter.circle_stroke(at, 3.0, Stroke::new(1.0_f32, colour));
+        }
+    }
+
     // Fleets, as small marks offset from their planet so they do not hide it.
     let mut to_arrow: Vec<(egui::Pos2, u8, Color32)> = Vec::new();
     if let Some(game) = app.game.as_ref() {
@@ -375,6 +429,15 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         painter.circle_stroke(b, 4.0, Stroke::new(1.0_f32, Color32::from_gray(230)));
     }
 
+    // A space object counts as a click of its own when no planet or fleet was
+    // under the pointer: the original's `FFindNearestObject` mask takes things
+    // as well, and the panes above simply outrank them.
+    let clicked = clicked.or_else(|| {
+        thing_hit
+            .and_then(|thing| app.object_position(ScanObject::Thing(thing)))
+            .map(|at| (at.x, at.y, None, None))
+    });
+
     // Add Way Points Mode: the map gives orders instead of selecting. A drag
     // that starts on one of the selected fleet's waypoints moves it; anything
     // else appends a leg (`FHandleWayPointDrag`, `1058:8176`).
@@ -415,7 +478,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         let hit = match (planet, fleet) {
             (Some(id), _) => Some(ScanObject::Planet(id)),
             (None, Some(index)) => Some(ScanObject::Fleet(index)),
-            _ => None,
+            _ => thing_hit.map(ScanObject::Thing),
         };
         if let Some(hit) = hit {
             if response.secondary_clicked() {

@@ -119,6 +119,12 @@ pub struct Selection {
     /// status bar wants the planet either way; this says which one clicking
     /// last landed on, and so which pane is showing.
     pub on_fleet: bool,
+    /// The space object selected, when one is — the original's
+    /// `sel.grobj == grobjThing`, which wins over both of the above.
+    ///
+    /// Only the right-click menu selects one: they take no part in the
+    /// click-again cycle, which is planets and fleets only.
+    pub thing: Option<ScanThing>,
 }
 
 /// What the Find dialog found.
@@ -238,6 +244,8 @@ pub enum SurveySubject {
     Planet(i16),
     /// A fleet, by index into [`GameState::fleets`].
     Fleet(usize),
+    /// A space object, which the scanner's right-click menu selects.
+    Thing(ScanThing),
 }
 
 /// One of the survey pane's bars: a label, a reading, and where it sits in a
@@ -638,6 +646,7 @@ impl App {
             planet: state.planets.first().map(|p| p.id),
             fleet: (!state.fleets.is_empty()).then_some(0),
             on_fleet: false,
+            thing: None,
         };
         self.vcr = None;
         self.playing = false;
@@ -974,6 +983,7 @@ impl App {
                 .map(|p| p.id),
             fleet: (!state.fleets.is_empty()).then_some(0),
             on_fleet: false,
+            thing: None,
         };
         self.game = Some(state);
         self.universe = Some(universe);
@@ -3005,6 +3015,12 @@ impl App {
         // The Fleets screen is always about a fleet; the scanner is about
         // whichever of the two was last clicked, so that cycling through the
         // things at one spot swaps the pane as it goes.
+        // A space object wins, as `sel.grobj == grobjThing` does.
+        if self.screen == Screen::Galaxy {
+            if let Some(thing) = self.selection.thing {
+                return SurveySubject::Thing(thing);
+            }
+        }
         if self.screen == Screen::Fleets
             || (self.screen == Screen::Galaxy && self.selection.on_fleet)
         {
@@ -3028,6 +3044,126 @@ impl App {
             SurveySubject::DeepSpace => "Deep Space".to_string(),
             SurveySubject::Planet(_) => format!("{} Summary", self.planet_pane_title()),
             SurveySubject::Fleet(index) => format!("{} Summary", self.fleet_display_name(index)),
+            SurveySubject::Thing(thing) => format!("{} Summary", self.thing_name(thing)),
+        }
+    }
+
+    /// What the pane says about the space object selected.
+    ///
+    /// `DrawMineSurvey` (`1028:065a`) switches on the object's `ith` and writes
+    /// a few lines for each kind; the rows are in
+    /// `docs/ui/mine-survey-pane.md`. The Mystery Trader is the fourth kind and
+    /// is not here, because this engine does not model one.
+    #[must_use]
+    pub fn survey_thing_rows(&self) -> Vec<String> {
+        let SurveySubject::Thing(thing) = self.survey_subject() else {
+            return Vec::new();
+        };
+        let Some(game) = self.game.as_ref() else {
+            return Vec::new();
+        };
+        match thing {
+            ScanThing::Minefield(index) => {
+                let Some(field) = game.minefields.get(index) else {
+                    return Vec::new();
+                };
+                let kind = MINEFIELD_KINDS
+                    .get(usize::from(field.kind))
+                    .copied()
+                    .unwrap_or("Mine Field");
+                #[allow(clippy::cast_possible_truncation)]
+                let radius = field.radius() as i32;
+                // The rate the pane prints is what the field would lose this
+                // year, which counts the planets inside it.
+                let inside = game
+                    .planets
+                    .iter()
+                    .chain(game.known_planets.iter())
+                    .filter_map(|planet| planet.position)
+                    .filter(|at| field.contains(*at))
+                    .count();
+                let demolition = usize::try_from(field.owner)
+                    .ok()
+                    .and_then(|owner| game.players.get(owner))
+                    .is_some_and(|player| player.race.prt() == Some(stars_core::race::Prt::Sd));
+                let decay = stars_core::minefield::decay_amount(
+                    field,
+                    i32::try_from(inside).unwrap_or(i32::MAX),
+                    demolition,
+                );
+                let mut rows = vec![
+                    format!("Location:  ({}, {})", field.position.x, field.position.y),
+                    format!("Field Type:  {kind}"),
+                    format!("Field Radius:  {radius} l.y. ({} mines)", field.mines),
+                    format!("Decay rate:  {decay} / year"),
+                ];
+                // One's own fields are counted: this one of that many.
+                if usize::try_from(field.owner).is_ok_and(|owner| owner == self.local_player()) {
+                    let mine = game
+                        .minefields
+                        .iter()
+                        .filter(|other| other.owner == field.owner)
+                        .collect::<Vec<_>>();
+                    let which = mine
+                        .iter()
+                        .position(|other| other.id == field.id)
+                        .map_or(1, |at| at + 1);
+                    rows.push(format!("Field:  {which} of {}", mine.len()));
+                }
+                rows
+            }
+            ScanThing::Packet(index) => {
+                let Some(packet) = game.packets.get(index) else {
+                    return Vec::new();
+                };
+                let mut rows = vec![format!(
+                    "Traveling at Warp {}",
+                    packet.warp + stars_core::packet::WARP_BIAS
+                )];
+                let target = game
+                    .planets
+                    .iter()
+                    .chain(game.known_planets.iter())
+                    .find(|planet| planet.id == i16::try_from(packet.target).unwrap_or(-1));
+                rows.push(format!(
+                    "Destination:  {}",
+                    target.map_or_else(
+                        || "Unknown".to_string(),
+                        |planet| self.planet_name(planet.id)
+                    )
+                ));
+                for (name, amount) in ["Ironium", "Boranium", "Germanium"]
+                    .iter()
+                    .zip(packet.minerals.iter())
+                {
+                    rows.push(format!("{name}  {amount}kT"));
+                }
+                rows
+            }
+            ScanThing::Wormhole(index) => {
+                let Some(hole) = game.wormholes.get(index) else {
+                    return Vec::new();
+                };
+                // The far end is another wormhole, named by the low nine bits
+                // of its `idFull` — the same mask the mover uses.
+                let far = hole
+                    .dest_known
+                    .then(|| {
+                        game.wormholes
+                            .iter()
+                            .find(|other| other.id == hole.partner & 0x01FF)
+                            .map(|other| format!("({}, {})", other.position.x, other.position.y))
+                    })
+                    .flatten();
+                vec![
+                    format!("Location:  ({}, {})", hole.position.x, hole.position.y),
+                    format!(
+                        "Destination:  {}",
+                        far.unwrap_or_else(|| "Unknown".to_string())
+                    ),
+                    format!("Stability:  {}", wormhole_stability(hole)),
+                ]
+            }
         }
     }
 
@@ -6964,6 +7100,10 @@ impl App {
 
 // --- Clicking the same spot again -----------------------------------------
 
+/// What the three kinds of minefield are called (`rgszMineFieldTypes`, the
+/// table `Field Type:` is indexed into).
+pub const MINEFIELD_KINDS: [&str; 3] = ["Mine Field", "Heavy Mine Field", "Speed Bump Field"];
+
 /// One line of the scanner's right-click menu.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScanMenuItem {
@@ -6985,6 +7125,23 @@ pub enum ScanObject {
     Planet(i16),
     /// A fleet, by index into `GameState::fleets`.
     Fleet(usize),
+    /// A space object — the original's `grobjThing`.
+    Thing(ScanThing),
+}
+
+/// One space object, by the list that holds it.
+///
+/// The original keeps all four kinds in one `lpThings` array and tells them
+/// apart by `ith`; this engine keeps a list per kind, so the kind and the index
+/// travel together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanThing {
+    /// A minefield (`ithMinefield`).
+    Minefield(usize),
+    /// A mineral packet in flight (`ithMineralPacket`).
+    Packet(usize),
+    /// A wormhole (`ithWormhole`).
+    Wormhole(usize),
 }
 
 impl App {
@@ -7027,6 +7184,9 @@ impl App {
     /// What the scanner has selected, as one object.
     #[must_use]
     pub fn selected_object(&self) -> Option<ScanObject> {
+        if let Some(thing) = self.selection.thing {
+            return Some(ScanObject::Thing(thing));
+        }
         if self.selection.on_fleet {
             if let Some(index) = self.selection.fleet {
                 return Some(ScanObject::Fleet(index));
@@ -7048,12 +7208,25 @@ impl App {
                     .position
             }
             ScanObject::Fleet(index) => Some(game.fleets.get(index)?.position),
+            ScanObject::Thing(thing) => match thing {
+                ScanThing::Minefield(index) => Some(game.minefields.get(index)?.position),
+                ScanThing::Packet(index) => Some(game.packets.get(index)?.position),
+                ScanThing::Wormhole(index) => Some(game.wormholes.get(index)?.position),
+            },
         }
     }
 
     /// Select one thing the scanner found.
     pub fn select_object(&mut self, object: ScanObject) {
+        // A planet or a fleet takes the selection off whatever space object had
+        // it: `sel.grobj` names one thing at a time.
+        if !matches!(object, ScanObject::Thing(_)) {
+            self.selection.thing = None;
+        }
         match object {
+            ScanObject::Thing(thing) => {
+                self.selection.thing = Some(thing);
+            }
             ScanObject::Planet(id) => {
                 self.selection.planet = Some(id);
                 self.selection.on_fleet = false;
@@ -7093,6 +7266,15 @@ impl App {
     ///
     /// Returns whether the selection moved.
     pub fn scan_click_on(&mut self, hit: ScanObject) -> bool {
+        // A space object never cycles: `FGetNextObjHere` is reached only when
+        // what was clicked is a fleet or a planet.
+        if matches!(hit, ScanObject::Thing(_)) {
+            if Some(hit) == self.selected_object() {
+                return false;
+            }
+            self.select_object(hit);
+            return true;
+        }
         let same_spot = self
             .object_position(hit)
             .and_then(|at| {
@@ -7164,7 +7346,94 @@ impl App {
                 first_of_group: planets > 0 && out.len() == planets,
             });
         }
+
+        // Then the space objects, behind a separator of their own — the
+        // original writes one `-1` before the first of them and only if
+        // something came before.
+        let before = out.len();
+        for thing in self.things_at(x, y) {
+            let object = ScanObject::Thing(thing);
+            out.push(ScanMenuItem {
+                object,
+                label: self.thing_name(thing),
+                checked: Some(object) == selected,
+                first_of_group: before > 0 && out.len() == before,
+            });
+        }
         out
+    }
+
+    /// The space objects at a point, in the order the original's `lpThings`
+    /// walk finds them: minefields, packets, then wormholes.
+    ///
+    /// Only what this player can see. A minefield is listed once it has been
+    /// detected, and a packet or a wormhole when the player's own view carries
+    /// it, which is what the loader wrote into `include`.
+    #[must_use]
+    pub fn things_at(&self, x: i16, y: i16) -> Vec<ScanThing> {
+        let Some(game) = self.game.as_ref() else {
+            return Vec::new();
+        };
+        let at = stars_core::movement::Point::new(x, y);
+        let me = u32::try_from(self.local_player()).unwrap_or(0);
+        let seen = 1u16 << (me & 0x0F);
+        let mut out = Vec::new();
+        for (index, field) in game.minefields.iter().enumerate() {
+            if field.position == at
+                && (field.detected_by & seen != 0 || field.owner == i16::try_from(me).unwrap_or(-1))
+            {
+                out.push(ScanThing::Minefield(index));
+            }
+        }
+        for (index, packet) in game.packets.iter().enumerate() {
+            if packet.position == at && packet.include {
+                out.push(ScanThing::Packet(index));
+            }
+        }
+        for (index, hole) in game.wormholes.iter().enumerate() {
+            if hole.position == at && hole.include {
+                out.push(ScanThing::Wormhole(index));
+            }
+        }
+        out
+    }
+
+    /// What a space object is called, which is what the menu and the pane's
+    /// title use.
+    #[must_use]
+    pub fn thing_name(&self, thing: ScanThing) -> String {
+        let Some(game) = self.game.as_ref() else {
+            return String::new();
+        };
+        match thing {
+            ScanThing::Minefield(index) => match game.minefields.get(index) {
+                Some(field) => {
+                    let kind = MINEFIELD_KINDS
+                        .get(usize::from(field.kind))
+                        .copied()
+                        .unwrap_or("Mine Field");
+                    match usize::try_from(field.owner)
+                        .ok()
+                        .and_then(|owner| game.players.get(owner))
+                    {
+                        Some(player) => format!("{} {kind}", player.name),
+                        None => kind.to_string(),
+                    }
+                }
+                None => String::new(),
+            },
+            ScanThing::Packet(index) => match game.packets.get(index) {
+                Some(packet) => match usize::try_from(packet.owner)
+                    .ok()
+                    .and_then(|owner| game.players.get(owner))
+                {
+                    Some(player) => format!("{} Mineral Packet", player.name),
+                    None => "Mineral Packet".to_string(),
+                },
+                None => String::new(),
+            },
+            ScanThing::Wormhole(_) => "Wormhole".to_string(),
+        }
     }
 
     /// The scanner's left click, at a galaxy point.
@@ -8834,4 +9103,28 @@ impl FleetGauges {
     pub fn cargo(&self) -> i32 {
         self.minerals.iter().sum::<i32>() + self.colonists
     }
+}
+
+/// How settled a wormhole reads.
+///
+/// **Not** the stored `iStable`: the pane shows one of seven words indexed by
+/// `PctWormholeMoves`, the chance the end jumps this year — so the player is
+/// shown the formula's answer rather than the field. See
+/// `docs/ui/mine-survey-pane.md`.
+#[must_use]
+pub fn wormhole_stability(hole: &stars_core::wormhole::Wormhole) -> &'static str {
+    const WORDS: [&str; 7] = [
+        "Rock Solid",
+        "Stable",
+        "Mostly Stable",
+        "Average",
+        "Slightly Volatile",
+        "Volatile",
+        "Extremely Volatile",
+    ];
+    let chance = stars_core::wormhole::jump_chance(hole.stability, hole.years_still);
+    WORDS
+        .get(usize::try_from(chance).unwrap_or(0))
+        .copied()
+        .unwrap_or("Average")
 }

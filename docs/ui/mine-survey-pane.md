@@ -1,6 +1,7 @@
 # The mine survey pane
 
-Status: **layout and text recovered**; the planet and fleet summaries are
+Status: **layout and text recovered**; the planet, fleet and space-object
+summaries are
 reimplemented, the space objects are specified but not drawn.
 
 The third pane down the left of the frame, and the one that answers *"what is
@@ -127,11 +128,24 @@ owner and the rows that follow; the environment bars with the race's habitable
 band and the planet's marker; the mineral bars with surface stock against
 concentration; and the fleet's ships, mass, cargo, waypoint, task and speed.
 
+The **space objects** are reproduced too, now that the scanner's right-click
+menu can select one (`scanner.md`): the minefield's four rows and its `Field:
+%d of %d` for one's own, the packet's warp, destination and load, and the
+wormhole's location, far end and stability. Two of them are worth a note:
+
+* the minefield's **decay rate** is what the field would lose this year, which
+  counts the planets inside it and halves for a Space Demolition owner — it is
+  `stars_core::minefield::decay_amount`, the same figure the turn applies;
+* the wormhole's **stability** is the jump chance as a word, so the stored
+  stability and the word run *opposite* ways round. A wormhole stored as `0`,
+  the least settled kind, reads `Rock Solid` until it has sat still for ten
+  years, while one stored as `3` is restless from the first and reads `Stable`.
+
 Not reproduced: the planet and fleet pictures and race emblems; the terraforming
 extension on the environment bars; the mineral scale's tick labels and the
 mining estimate added to the bars; the fuel and cargo *gauges* (the figures are
-given as text); the space objects, which this project's scanner cannot select
-yet; and the detonate checkbox.
+given as text); the **Mystery Trader**, the fourth kind of space object, which
+this engine does not model; and the detonate checkbox.
 
 One gap is in the model rather than the pane: the original prints how old a
 planet's report is from `PLANET.turn`, and this engine does not keep that stamp.

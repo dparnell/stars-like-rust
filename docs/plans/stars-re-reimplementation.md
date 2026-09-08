@@ -2328,7 +2328,31 @@ disagree.
     visits. The original's list also carries the `THING`s there; this project's
     selection has nowhere to put one, so they are left out.
 
-75. **What is still missing to call it playable.** Every waypoint task is now
+75. ~~**The space objects.**~~ **Done.** The `THING`s the right-click menu was
+    leaving out: minefields, mineral packets and wormholes. Specs in
+    `docs/ui/scanner.md` and `docs/ui/mine-survey-pane.md`.
+
+    The selection can hold one now — `sel.grobj == grobjThing`, which wins over
+    the planet and the fleet — and the **Mine Survey pane** summarises it, which
+    is where `DrawMineSurvey` (`1028:065a`) puts it. There is no third tile
+    table: selecting a space object leaves the planet/fleet pane alone and
+    changes the survey pane, which is why the rows had already been written down
+    in that file and only wanted something to select.
+
+    Two of the rows are more than a field read out. The minefield's decay rate
+    is what it would lose this year — planets inside it and a Space Demolition
+    owner both count, so it is `minefield::decay_amount`, the figure the turn
+    itself applies. And the wormhole's stability is the **jump chance as a
+    word**, which runs opposite to the stored field: a wormhole stored as
+    rickety reads `Rock Solid` until it has sat still for ten years. A test
+    pins that inversion, because the obvious expectation is the wrong one — I
+    wrote it the wrong way round first.
+
+    Packets and wormholes were not drawn on the map at all, so nothing could be
+    clicked; they are marks now, as the minefields are, with planets and fleets
+    outranking them under the pointer.
+
+76. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

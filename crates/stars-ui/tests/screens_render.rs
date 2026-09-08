@@ -668,7 +668,29 @@ fn the_scanner_menu_draws() {
         .and_then(|p| p.position)
         .expect("a homeworld");
     app.scan_menu_at = Some((at.x, at.y));
+    // With a space object at the same place, so the menu draws one of each and
+    // the survey pane has a thing to summarise.
+    if let Some(game) = app.game.as_mut() {
+        game.minefields = vec![stars_core::minefield::Minefield {
+            id: 1,
+            owner: 0,
+            position: at,
+            mines: 400,
+            kind: 1,
+            detonating: false,
+            detected_by: 0xFFFF,
+            visible_to: 0xFFFF,
+            turn: 0,
+        }];
+    }
 
     draw(&mut app, Screen::Galaxy);
     assert!(app.scan_menu_at.is_some(), "drawing should not close it");
+
+    // And with the field selected, the survey pane draws its summary.
+    app.select_object(stars_ui::ScanObject::Thing(stars_ui::ScanThing::Minefield(
+        0,
+    )));
+    draw(&mut app, Screen::Galaxy);
+    assert!(!app.survey_thing_rows().is_empty());
 }

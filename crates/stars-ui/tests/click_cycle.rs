@@ -349,3 +349,177 @@ fn an_empty_spot_has_an_empty_menu() {
     let app = a_game();
     assert!(app.scan_menu(1, 1).is_empty());
 }
+
+// --- The space objects in the menu --------------------------------------
+
+use stars_core::minefield::Minefield;
+use stars_ui::ScanThing;
+
+/// A minefield of ours, centred at `at`.
+fn minefield(owner: i16, at: Point, mines: i32) -> Minefield {
+    Minefield {
+        id: 1,
+        owner,
+        position: at,
+        mines,
+        kind: 0,
+        detonating: false,
+        detected_by: 0xFFFF,
+        visible_to: 0xFFFF,
+        turn: 0,
+    }
+}
+
+/// The menu puts the space objects behind a separator of their own, after the
+/// planet and the fleets.
+#[test]
+fn the_menu_lists_the_space_objects_last() {
+    let mut app = a_game();
+    let (planet, at) = homeworld(&app);
+    {
+        let game = app.game.as_mut().expect("a game");
+        game.fleets = vec![fleet(0, at, Some(0))];
+        game.minefields = vec![minefield(0, at, 400)];
+    }
+    let menu = app.scan_menu(at.x, at.y);
+    assert_eq!(menu.len(), 3);
+    assert_eq!(menu[0].object, ScanObject::Planet(planet));
+    assert_eq!(menu[1].object, ScanObject::Fleet(0));
+    assert!(menu[1].first_of_group);
+    assert_eq!(
+        menu[2].object,
+        ScanObject::Thing(ScanThing::Minefield(0)),
+        "the field is last"
+    );
+    assert!(menu[2].first_of_group, "behind a separator of its own");
+    assert_eq!(menu[2].label, "Humanoid Mine Field");
+}
+
+/// Choosing one selects it, and the survey pane switches to it.
+#[test]
+fn selecting_a_minefield_shows_it_in_the_survey_pane() {
+    let mut app = a_game();
+    let at = Point::new(30, 30);
+    app.game.as_mut().expect("a game").minefields = vec![minefield(0, at, 400)];
+    app.screen = Screen::Galaxy;
+
+    assert!(app.scan_click_on(ScanObject::Thing(ScanThing::Minefield(0))));
+    assert_eq!(
+        app.selected_object(),
+        Some(ScanObject::Thing(ScanThing::Minefield(0)))
+    );
+    assert_eq!(
+        app.survey_subject(),
+        SurveySubject::Thing(ScanThing::Minefield(0))
+    );
+    assert_eq!(app.survey_title(), "Humanoid Mine Field Summary");
+
+    let rows = app.survey_thing_rows();
+    assert_eq!(rows[0], "Location:  (30, 30)");
+    assert_eq!(rows[1], "Field Type:  Mine Field");
+    // 400 mines is a radius of 20.
+    assert_eq!(rows[2], "Field Radius:  20 l.y. (400 mines)");
+    assert!(rows[3].starts_with("Decay rate:  "));
+    assert_eq!(rows[4], "Field:  1 of 1", "one's own fields are counted");
+
+    // Clicking it again has nowhere to go: a thing never cycles.
+    assert!(!app.scan_click_on(ScanObject::Thing(ScanThing::Minefield(0))));
+}
+
+/// Selecting a planet or a fleet takes the selection off the object again —
+/// `sel.grobj` names one thing at a time.
+#[test]
+fn selecting_a_planet_lets_go_of_the_space_object() {
+    let mut app = a_game();
+    let (planet, at) = homeworld(&app);
+    app.game.as_mut().expect("a game").minefields = vec![minefield(0, at, 100)];
+    app.screen = Screen::Galaxy;
+
+    app.select_object(ScanObject::Thing(ScanThing::Minefield(0)));
+    assert!(app.selection.thing.is_some());
+    app.select_object(ScanObject::Planet(planet));
+    assert!(app.selection.thing.is_none());
+    assert_eq!(app.selected_object(), Some(ScanObject::Planet(planet)));
+    assert_eq!(app.survey_subject(), SurveySubject::Planet(planet));
+}
+
+/// A wormhole reads its **jump chance** as a word, not its stored stability.
+#[test]
+fn a_wormhole_reads_its_stability_as_a_word() {
+    use stars_core::wormhole::Wormhole;
+
+    let mut app = a_game();
+    let at = Point::new(11, 22);
+    let hole = |id: u16, position: Point, partner: u16, years: u16, stability: u8| Wormhole {
+        id,
+        position,
+        stability,
+        years_still: years,
+        dest_known: true,
+        include: true,
+        detected_by: 0xFFFF,
+        traversed_by: 0,
+        partner,
+        turn: 0,
+    };
+    // Stored stability 0 is the *least* settled kind, and it is the one that
+    // reads `Rock Solid`: the word is the jump chance, and a rickety wormhole
+    // has to sit still for ten years before it has any.
+    app.game.as_mut().expect("a game").wormholes =
+        vec![hole(1, at, 2, 0, 0), hole(2, Point::new(90, 91), 1, 0, 0)];
+    app.screen = Screen::Galaxy;
+    app.select_object(ScanObject::Thing(ScanThing::Wormhole(0)));
+
+    let rows = app.survey_thing_rows();
+    assert_eq!(rows[0], "Location:  (11, 22)");
+    assert_eq!(
+        rows[1], "Destination:  (90, 91)",
+        "the far end, by partner id"
+    );
+    assert_eq!(rows[2], "Stability:  Rock Solid");
+
+    // A settled one, stored as stability 3, is restless from the first year —
+    // which the pane calls `Stable` rather than rock solid.
+    app.game.as_mut().expect("a game").wormholes[0].stability = 3;
+    assert_eq!(app.survey_thing_rows()[2], "Stability:  Stable");
+
+    // And forty quiet years take any of them to the cap.
+    app.game.as_mut().expect("a game").wormholes[0].years_still = 40;
+    assert_eq!(app.survey_thing_rows()[2], "Stability:  Extremely Volatile");
+
+    // An unknown far end says so.
+    app.game.as_mut().expect("a game").wormholes[0].dest_known = false;
+    assert_eq!(app.survey_thing_rows()[1], "Destination:  Unknown");
+}
+
+/// A packet says how fast it is going, where to, and what it is carrying.
+#[test]
+fn a_packet_reads_its_speed_and_load() {
+    use stars_core::packet::Packet;
+
+    let mut app = a_game();
+    let (planet, _) = homeworld(&app);
+    let at = Point::new(40, 50);
+    app.game.as_mut().expect("a game").packets = vec![Packet {
+        id: 1,
+        owner: 0,
+        position: at,
+        target: u16::try_from(planet).expect("a planet id"),
+        warp: 6,
+        minerals: [100, 20, 3],
+        decay_rate: 0,
+        moved: false,
+        include: true,
+        turn: 0,
+    }];
+    app.screen = Screen::Galaxy;
+    app.select_object(ScanObject::Thing(ScanThing::Packet(0)));
+
+    let rows = app.survey_thing_rows();
+    // The stored warp is biased by four.
+    assert_eq!(rows[0], "Traveling at Warp 10");
+    assert!(rows[1].starts_with("Destination:  "));
+    assert_eq!(rows[2], "Ironium  100kT");
+    assert_eq!(rows[3], "Boranium  20kT");
+    assert_eq!(rows[4], "Germanium  3kT");
+}
