@@ -7195,6 +7195,42 @@ pub const WORMHOLE_MASK: (u32, u32) = (9, 0x5c);
 /// How big both are.
 pub const WORMHOLE_SIDE: u32 = 9;
 
+/// The course line through a scanned object — see [`App::scan_scale_line`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScaleLine {
+    /// Where the object is.
+    pub at: stars_core::movement::Point,
+    /// Which way it is going, as a vector of no particular length.
+    pub heading: (i32, i32),
+    /// The warp it is going at.
+    pub warp: i32,
+}
+
+impl ScaleLine {
+    /// How far it travels in a year: the square of the warp.
+    #[must_use]
+    pub fn year(&self) -> i32 {
+        self.warp * self.warp
+    }
+
+    /// How far the line reaches each way — five years of that.
+    #[must_use]
+    pub fn reach(&self) -> i32 {
+        self.year() * SCALE_YEARS
+    }
+}
+
+/// One leg of the selected fleet's path — see [`App::selected_fleet_path`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PathLeg {
+    /// The waypoint it leaves.
+    pub from: stars_core::movement::Point,
+    /// The waypoint it reaches.
+    pub to: stars_core::movement::Point,
+    /// Whether the fleet travels this leg **twice**, which draws it yellow.
+    pub doubled: bool,
+}
+
 /// One disc of the **scanner coverage** overlay — see
 /// [`App::scanner_coverage`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -7208,15 +7244,50 @@ pub struct CoverageDisc {
 }
 
 /// The colour the **Ship Paths** overlay draws in — `hpenStarbase`, a solid
-/// one-pixel `RGB(0xff, 0, 0)` pen, the same red whoever owns the fleet.
-pub const PATH_COLOUR: [u8; 3] = [0xff, 0x00, 0x00];
+/// one-pixel pen, the same **blue** whoever owns the fleet.
+///
+/// The constant is `0x00ff0000`, and a COLORREF is `0x00bbggrr`: the low byte
+/// is red and the high one blue, so that value is pure blue. The community
+/// reconstruction's `init.c` writes it as `RGB(0xff, 0, 0)`, which is red —
+/// its `RGB()` arguments are reversed throughout, and the raw constants in its
+/// own disassembly (and in ours, at `1000:01af` onwards) are what to trust.
+/// The pen's **name** is the other check: a starbase's square on the map is
+/// blue, and so is this.
+pub const PATH_COLOUR: [u8; 3] = [0x00, 0x00, 0xff];
 
-/// The colour a normal coverage disc is filled with — `hbrRadar`,
-/// `RGB(0, 0, 0x7f)`.
-pub const COVERAGE_NORMAL: [u8; 3] = [0x00, 0x00, 0x7f];
-/// And a penetrating one — `hbrRadarNear`, which is `RGB(0x60, 0x60, 0)` on
-/// any screen deeper than eight colours and `RGB(0x7f, 0x7f, 0)` on one that
-/// is not.
+/// The colour the **selected** fleet's own path is drawn in — `hpenShip`,
+/// `0x0000ff00`, green.
+pub const SHIP_PATH_COLOUR: [u8; 3] = [0x00, 0xff, 0x00];
+
+/// And the colour a leg the fleet travels **twice** takes — `hpenYellow`,
+/// `0x0000ffff`. With the Ship Paths overlay off it is the stock white pen
+/// instead, which is [`DOUBLED_LEG_PLAIN`].
+pub const DOUBLED_LEG_COLOUR: [u8; 3] = [0xff, 0xff, 0x00];
+
+/// The doubled leg's colour when Ship Paths is **off**: `GetStockObject(6)`,
+/// `WHITE_PEN`.
+pub const DOUBLED_LEG_PLAIN: [u8; 3] = [0xff, 0xff, 0xff];
+
+/// The line from a planet to the planet it **routes** to — `hpenDkGreen`,
+/// `0x00007f00`.
+pub const ROUTE_COLOUR: [u8; 3] = [0x00, 0x7f, 0x00];
+
+/// How many years either way the scale line through a scanned object covers.
+pub const SCALE_YEARS: i32 = 5;
+
+/// The colour a normal coverage disc is filled with — `hbrRadar`, the constant
+/// `0x0000007f`.
+///
+/// A COLORREF is `0x00bbggrr`, so that is **dark red**, not the dark blue this
+/// project first had: the community reconstruction's `init.c` writes the
+/// creation as `RGB(0x00, 0x00, 0x7f)` but its `RGB()` arguments are reversed
+/// throughout. Our own binary passes `0x7f` at `1000:019f`, and the same
+/// file's `hbrTooltip` — `0x9fffff`, which has to be the pale yellow Windows
+/// tooltips use — settles which byte is which.
+pub const COVERAGE_NORMAL: [u8; 3] = [0x7f, 0x00, 0x00];
+/// And a penetrating one — `hbrRadarNear`, `0x00006060` on any screen deeper
+/// than eight colours and `0x00007f7f` on one that is not: dark yellow either
+/// way.
 pub const COVERAGE_PENETRATING: [u8; 3] = [0x60, 0x60, 0x00];
 
 /// The three colours the scanner tells sides apart with — `rgcrScanMine`
@@ -7661,6 +7732,157 @@ impl App {
             })
             .map(|(_, fleet)| fleet.waypoints.iter().map(|way| way.position).collect())
             .collect()
+    }
+
+    /// The **scale line** through whatever the scanner has selected, when that
+    /// object's course is known.
+    ///
+    /// `DrawShipScanPath` (`1058:540c`) draws a line through the selection
+    /// along its heading, `warp² × 5` galaxy units each way — the square of
+    /// the warp is a year's travel, so the line reaches **five years** back
+    /// and five forward — with a mark at every year. It is the answer to
+    /// "where will that thing be?", and this project had none of it.
+    ///
+    /// Three kinds of object have a course to draw:
+    ///
+    /// * a **fleet**, from the direction and warp stored with the sighting.
+    ///   Both are only recorded for a fleet described in part — somebody
+    ///   else's — so a fleet of your own gets no scale line and its
+    ///   [waypoints](Self::selected_fleet_path) instead;
+    /// * a **mineral packet**, whose heading is the vector to the planet it
+    ///   was flung at and whose warp is the stored nibble plus four;
+    /// * the **Mystery Trader**, likewise towards its destination.
+    #[must_use]
+    pub fn scan_scale_line(&self) -> Option<ScaleLine> {
+        let game = self.game.as_ref()?;
+        let at;
+        let heading;
+        let warp;
+        match self.selected_object()? {
+            ScanObject::Fleet(index) => {
+                let fleet = game.fleets.get(index)?;
+                at = fleet.position;
+                heading = fleet.direction?;
+                warp = i32::from(fleet.warp?);
+            }
+            ScanObject::Thing(ScanThing::Packet(index)) => {
+                let packet = game.packets.get(index)?;
+                if packet.warp == 0 {
+                    return None;
+                }
+                let target = self.planet_position(packet.target)?;
+                at = packet.position;
+                heading = (target.x - at.x, target.y - at.y);
+                warp = packet.speed();
+            }
+            ScanObject::Thing(ScanThing::Trader(index)) => {
+                let trader = game.traders.get(index)?;
+                at = trader.position;
+                heading = (trader.destination.x - at.x, trader.destination.y - at.y);
+                warp = i32::from(trader.warp);
+            }
+            _ => return None,
+        }
+        if warp <= 0 || (heading.0 == 0 && heading.1 == 0) {
+            return None;
+        }
+        Some(ScaleLine {
+            at,
+            heading: (i32::from(heading.0), i32::from(heading.1)),
+            warp,
+        })
+    }
+
+    /// Where a planet is, by id.
+    fn planet_position(&self, id: u16) -> Option<stars_core::movement::Point> {
+        let game = self.game.as_ref()?;
+        let id = i16::try_from(id).ok()?;
+        game.planets
+            .iter()
+            .chain(game.known_planets.iter())
+            .find(|planet| planet.id == id)?
+            .position
+    }
+
+    /// The **selected fleet's own path**, leg by leg, as `DrawShipScanPath`
+    /// draws it under the waypoints.
+    ///
+    /// The line runs from waypoint to waypoint in `hpenShip` green, and a leg
+    /// the fleet travels **twice** — the same pair of points again later, in
+    /// either direction, as a there-and-back shuttle has — is drawn **once**,
+    /// in yellow, with the repeat left out. Compare
+    /// [`App::fleet_paths`](Self::fleet_paths), which is the overlay drawn for
+    /// every fleet; this is the selected one's, drawn over it.
+    ///
+    /// The original walks its `rgDup` table with the two loops one index
+    /// apart, which would colour a leg either side of the doubled one; the
+    /// reading that makes them agree — and the only one that draws what the
+    /// game plainly draws — is that the entry belongs to the leg **into**
+    /// waypoint `i`, which is what this does.
+    #[must_use]
+    pub fn selected_fleet_path(&self) -> Vec<PathLeg> {
+        let Some(game) = self.game.as_ref() else {
+            return Vec::new();
+        };
+        let Some(fleet) = self
+            .selection
+            .fleet
+            .filter(|_| self.selection.thing.is_none())
+            .and_then(|index| game.fleets.get(index))
+        else {
+            return Vec::new();
+        };
+        let points: Vec<_> = fleet.waypoints.iter().map(|way| way.position).collect();
+        if points.len() < 2 {
+            return Vec::new();
+        }
+        // Which legs are travelled twice: the first of a pair is drawn in
+        // yellow and the second not at all.
+        let mut doubled = vec![false; points.len()];
+        let mut repeat = vec![false; points.len()];
+        for i in 1..points.len() {
+            if doubled[i] || repeat[i] {
+                continue;
+            }
+            let leg = (points[i - 1], points[i]);
+            for j in i + 1..points.len() {
+                let other = (points[j - 1], points[j]);
+                if other == leg || other == (leg.1, leg.0) {
+                    doubled[i] = true;
+                    repeat[j] = true;
+                }
+            }
+        }
+        (1..points.len())
+            .filter(|i| !repeat[*i])
+            .map(|i| PathLeg {
+                from: points[i - 1],
+                to: points[i],
+                doubled: doubled[i],
+            })
+            .collect()
+    }
+
+    /// The line from a selected planet to the planet it **routes** to.
+    ///
+    /// `DrawShipScanPath`'s last arm: a dark-green line to `PLANET.idRoute`,
+    /// so a planet set to send its new fleets somewhere shows where. The same
+    /// arm draws a **dark purple** line to a starbase's mass-driver target
+    /// first, and this engine does not carry that field on a planet yet, so
+    /// only the route is drawn.
+    #[must_use]
+    pub fn planet_route_line(
+        &self,
+    ) -> Option<(stars_core::movement::Point, stars_core::movement::Point)> {
+        if self.selection.on_fleet || self.selection.thing.is_some() {
+            return None;
+        }
+        let id = self.selection.planet?;
+        let from = self.planet_position(u16::try_from(id).ok()?)?;
+        let game = self.game.as_ref()?;
+        let planet = game.planets.iter().find(|planet| planet.id == id)?;
+        let to = self.planet_position(u16::try_from(planet.route_dest?).ok()?)?;
+        Some((from, to))
     }
 
     /// The 11x11 cell a fleet **at the selected point** is drawn with, in place

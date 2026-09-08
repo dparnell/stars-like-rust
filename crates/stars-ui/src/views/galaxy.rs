@@ -166,6 +166,12 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         }
     }
 
+    // What the selection draws for itself — `DrawShipScanPath`. The scale line
+    // through a scanned object goes under the planets with the paths; the
+    // selected fleet's own path and a planet's route line go over them, so
+    // they are drawn later.
+    scale_line(app, ui, &to_screen, scale);
+
     let names_visible = app.planet_names_visible();
     let name_style = app.planet_name_style();
     // Which planets have fleets in orbit, and whose. Collected here and drawn
@@ -502,6 +508,48 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     }
     fleet_arrows(app, ui, &to_arrow);
     fleet_glyphs(app, ui, &to_fleet_glyph);
+
+    // The selected fleet's own path, over the marks: green, with a leg it
+    // travels twice in yellow and drawn once, and a hole at every waypoint so
+    // the line does not run through the markers.
+    {
+        let hole = 5.0_f32;
+        for leg in app.selected_fleet_path() {
+            let from = to_screen(f32::from(leg.from.x), f32::from(leg.from.y));
+            let to = to_screen(f32::from(leg.to.x), f32::from(leg.to.y));
+            let along = to - from;
+            let length = along.length();
+            if length <= hole * 2.0 {
+                continue;
+            }
+            let step = along / length * hole;
+            let [r, g, b] = if leg.doubled {
+                if app.scan_overlays.fleet_paths {
+                    stars_ui_arrow::DOUBLED_LEG_COLOUR
+                } else {
+                    stars_ui_arrow::DOUBLED_LEG_PLAIN
+                }
+            } else {
+                stars_ui_arrow::SHIP_PATH_COLOUR
+            };
+            painter.line_segment(
+                [from + step, to - step],
+                Stroke::new(1.0_f32, Color32::from_rgb(r, g, b)),
+            );
+        }
+    }
+
+    // And the line from a selected planet to the planet it routes to.
+    if let Some((from, to)) = app.planet_route_line() {
+        let [r, g, b] = stars_ui_arrow::ROUTE_COLOUR;
+        painter.line_segment(
+            [
+                to_screen(f32::from(from.x), f32::from(from.y)),
+                to_screen(f32::from(to.x), f32::from(to.y)),
+            ],
+            Stroke::new(1.0_f32, Color32::from_rgb(r, g, b)),
+        );
+    }
 
     // The ship counts, one per **location** rather than per fleet, which is
     // what the original writes. The two ship filters have already narrowed
@@ -1014,6 +1062,60 @@ fn planet_marks(
             0.0,
             *colour,
         );
+    }
+}
+
+/// Draw the scale line through whatever the scanner has selected.
+///
+/// `DrawShipScanPath` (`1058:540c`) runs it through the object along its
+/// heading, `warp² × 5` galaxy units each way, and marks every year: a
+/// **tick** — a short perpendicular — for each of the five years behind, and
+/// an **arrow head** of two five-pixel barbs for each of the five ahead. The
+/// ticks and the barbs are fixed pixel sizes; only the line itself scales with
+/// the map. The pen is `hpenStarbase`, the same blue the fleet paths use.
+fn scale_line(app: &App, ui: &mut egui::Ui, to_screen: &impl Fn(f32, f32) -> Pos2, scale: f32) {
+    let Some(line) = app.scan_scale_line() else {
+        return;
+    };
+    let painter = ui.painter().clone();
+    let [r, g, b] = stars_ui_arrow::PATH_COLOUR;
+    let stroke = Stroke::new(1.0_f32, Color32::from_rgb(r, g, b));
+    let at = to_screen(f32::from(line.at.x), f32::from(line.at.y));
+    // The heading in screen terms: the map draws the galaxy upside down, so
+    // the y component turns over.
+    #[allow(clippy::cast_precision_loss)]
+    let along = Vec2::new(line.heading.0 as f32, -line.heading.1 as f32);
+    let length = along.length();
+    if length <= 0.0 {
+        return;
+    }
+    let unit = along / length;
+    #[allow(clippy::cast_precision_loss)]
+    let reach = line.reach() as f32 * scale;
+    painter.line_segment([at - unit * reach, at + unit * reach], stroke);
+
+    // A mark at each year, five back and five forward.
+    let tick = Vec2::new(-unit.y, unit.x) * 4.9;
+    #[allow(clippy::cast_precision_loss)]
+    let year = line.year() as f32 * scale;
+    for step in -stars_ui_arrow::SCALE_YEARS..=stars_ui_arrow::SCALE_YEARS {
+        if step == 0 {
+            continue;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let mark = at + unit * (year * step as f32);
+        if step < 0 {
+            painter.line_segment([mark + tick, mark - tick], stroke);
+        } else {
+            // The two barbs of an arrow head, five pixels back from the mark
+            // at forty-five degrees either side.
+            for turn in [-std::f32::consts::FRAC_PI_4, std::f32::consts::FRAC_PI_4] {
+                let (sin, cos) = turn.sin_cos();
+                let barb =
+                    Vec2::new(-unit.x * cos - -unit.y * sin, -unit.x * sin + -unit.y * cos) * 5.0;
+                painter.line_segment([mark + barb, mark], stroke);
+            }
+        }
     }
 }
 

@@ -2577,7 +2577,34 @@ disagree.
     object, `warp² × 5` long with ticks and an arrow head, toggled by
     `fOrdersVis`.
 
-86. **What is still missing to call it playable.** Every waypoint task is now
+86. ~~**What the selection draws for itself.**~~ **Done.** Spec in
+    `docs/ui/scanner.md`. `DrawShipScanPath` (`1058:540c`) is a second overlay,
+    for the **selection** rather than for every fleet, drawn with XOR so that
+    calling it again rubs it out — `fOrdersVis` remembers which way round it
+    is. A window redrawn every frame keeps the shapes and drops the toggling.
+
+    **The scale line** is the piece that was missing entirely: a line through a
+    scanned object along its heading, `warp² × 5` each way, with a tick for
+    each of the five years behind and a two-barbed arrow head for each of the
+    five ahead. A **fleet** has one only when the sighting recorded a direction
+    and a warp — which is to say only somebody else's — so an enemy shows where
+    it is going and one of yours shows its waypoints. A **packet** aims at the
+    planet it was flung at, the **Mystery Trader** at its destination.
+
+    **The selected fleet's own path** is drawn over the marks in green, with a
+    leg travelled twice drawn once in yellow (white when Ship Paths is off) and
+    a hole at every waypoint. **A planet's route line** is drawn in dark green;
+    the dark purple mass-driver line needs a field this engine does not carry
+    on a planet yet.
+
+    And a correction to items 84 and 85. A COLORREF is `0x00bbggrr`, so
+    `hbrRadar` (`0x7f`) is dark **red** and `hpenStarbase` (`0xff0000`) is
+    **blue** — this project had them as dark blue and red. The community
+    reconstruction's `init.c` reverses the arguments of every `RGB()` call it
+    writes; its raw constants and its variable names are both sound, and
+    `hbrTooltip = 0x9fffff` (the pale yellow Windows uses) settles the order.
+
+87. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

@@ -284,8 +284,10 @@ overlay is gated on the same count, so the filters narrow that too.
 planets are drawn — so the lines lie under the planet dots and the fleet marks
 rather than over them.
 
-The pen is `hpenStarbase`: solid, one pixel, `RGB(0xff, 0, 0)`. **Red for every
+The pen is `hpenStarbase`: solid, one pixel, `0x00ff0000`. **Blue for every
 fleet**, whoever owns it — a path is not tinted the way an arrow or a name is.
+(The pen's name is the cross-check: a starbase's own square on the map is blue
+too. See [the colours](#the-colours).)
 The line starts at **waypoint 0**, which is where the fleet is, and joins each
 waypoint after it in turn.
 
@@ -309,6 +311,51 @@ scale line through the selection along its heading — length `warp² × 5`, wit
 ticks every tenth and an arrow head — to show a year's travel, and it is
 toggled by `fOrdersVis` rather than by `grbitScan`. This project does not draw
 it yet.
+
+### What the selection draws for itself
+
+`DrawShipScanPath` (`1058:540c`) is a **second** overlay, and not the same
+thing as the fleet paths: it draws for whatever is **selected** rather than for
+every fleet, and it draws with `SetROP2(hdc, 7)` — XOR — so that calling it
+again rubs the same lines out. `fOrdersVis` remembers which way round it is,
+and a drag hides the overlay and puts it back. A window redrawn from scratch
+every frame has no use for either, so this project keeps the shapes and drops
+the toggling.
+
+It has three arms.
+
+**The scale line.** When the scanner has selected something whose course is
+known, a line is run through it along its heading, `warp² × 5` galaxy units
+each way — the square of the warp is a year's travel, so the line reaches five
+years back and five forward — and each year is marked: a **tick**, a
+perpendicular about five pixels long, for each year behind, and an **arrow
+head** of two five-pixel barbs at forty-five degrees for each year ahead. The
+line scales with the map; the ticks and the barbs are fixed pixel sizes. Three
+kinds of object have a course:
+
+* a **fleet**, from the direction and warp stored with the sighting. Only a
+  fleet described in part — somebody else's — carries those, so this is the
+  answer to "where is that enemy going?" and a fleet of your own gets its
+  waypoints instead;
+* a **mineral packet**, heading for the planet it was flung at, at the stored
+  warp plus four;
+* the **Mystery Trader**, heading for its destination.
+
+**The selected fleet's own path**, over the marks rather than under them, in
+`hpenShip` green. A leg the fleet travels **twice** — the same two points
+again later, in either direction, as a shuttle run has — is drawn **once** in
+yellow (or in the stock white pen when the Ship Paths overlay is off) and the
+repeat is left out. Every waypoint has an 11x11 hole excluded from the clip, so
+the line stops short of the waypoint markers rather than running through them.
+The original walks its `rgDup` table with the two loops an index apart, which
+would colour a leg either side of the doubled one; the reading that makes them
+agree, and that matches what the game draws, is that the entry belongs to the
+leg **into** waypoint `i`.
+
+**A selected planet's lines.** A dark purple one to the planet its starbase's
+**mass driver** is aimed at, and a dark green one to the planet it **routes**
+new fleets to. This project draws the route; the driver's target is not carried
+on a planet in this engine yet, only in the file layer.
 
 ## Clicking the same spot again
 
@@ -498,9 +545,10 @@ clears the map — so the discs lie under the minefields, the planets and the
 fleets alike, which is what makes them read as ground rather than as rings
 round things.
 
-Each is a **filled ellipse**, brush and pen the same colour: `hbrRadar`,
-`RGB(0, 0, 0x7f)`, a flat dark blue. The overlapping discs are opaque, so two
-coverages look exactly like one.
+Each is a **filled ellipse**, brush and pen the same colour: `hbrRadar`, the
+constant `0x0000007f` — a flat **dark red**. The overlapping discs are opaque,
+so two coverages look exactly like one. (On the byte order, see
+[the colours](#the-colours) below; this project had it as dark blue at first.)
 
 It goes round twice. The **first pass** takes the normal range of
 
@@ -512,9 +560,9 @@ It goes round twice. The **first pass** takes the normal range of
   range among the fleet's designs: the fourth-root combination applies between
   the scanners **within** one design, never across the designs in a fleet.
 
-The **second pass** swaps the brush for `hbrRadarNear` — `RGB(0x60, 0x60, 0)`
-on any screen deeper than eight colours, `RGB(0x7f, 0x7f, 0)` on one that is
-not — and draws the penetrating ranges over the top:
+The **second pass** swaps the brush for `hbrRadarNear` — `0x00006060` on any
+screen deeper than eight colours and `0x00007f7f` on one that is not, dark
+yellow either way — and draws the penetrating ranges over the top:
 
 * a **planet**'s is drawn as its **normal range halved**. The routine shifts
   the normal range right by one rather than using the penetrating range it was
@@ -602,6 +650,39 @@ Planets and fleets outrank all three under the pointer, which is the order
 `FFindNearestObject`'s mask implies. Without a copy of the original the
 wormhole falls back to two rings, as everything else falls back when the
 artwork is missing.
+
+## The colours
+
+Every colour in this file is a Windows **COLORREF**, `0x00bbggrr`: the low byte
+is red and the high one blue. The constants are created in `FCreateStuff`
+(`1000:0014`), and reading them the other way round is an easy mistake — this
+project made it twice and had to come back and fix the scanner coverage and the
+fleet paths.
+
+Two checks settle the order without any guessing. `hbrTooltip` is `0x9fffff`,
+which under this reading is the pale yellow Windows paints tooltips with, and
+under the other would be a pale blue nobody uses for one. And `rgcrScanMine` —
+verified in our own binary at `1058:0026` — is `{0x00ff0000, 0x0000ffff,
+0x000000ff}`, which the manual says is **yours blue, a friend's yellow, anybody
+else's red**, in that order.
+
+The community reconstruction's `init.c` writes these as `RGB()` calls with the
+arguments **reversed** (`hpenStarbase = CreatePen(0, 1, RGB(0xff, 0, 0))` for a
+constant that is blue). Its variable *names* are sound — `hbrBlue` really is
+`0x7f0000` and `hpenYellow` really is `0x00ffff` — so name and raw constant
+agree with each other and disagree with the `RGB()` transcription.
+
+The ones this file uses:
+
+| name | constant | colour |
+|---|---|---|
+| `hbrRadar` | `0x00007f` | dark red — scanner coverage |
+| `hbrRadarNear` | `0x006060` | dark yellow — penetrating coverage |
+| `hpenStarbase` | `0xff0000` | blue — the fleet paths |
+| `hpenShip` | `0x00ff00` | green — the selected fleet's path |
+| `hpenYellow` | `0x00ffff` | yellow — a leg travelled twice |
+| `hpenDkGreen` | `0x007f00` | dark green — a planet's route line |
+| `hpenDkPurple` | `0x7f007f` | purple — a mass driver's target line |
 
 ## Player colours
 
