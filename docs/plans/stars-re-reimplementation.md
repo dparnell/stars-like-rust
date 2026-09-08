@@ -2505,7 +2505,30 @@ disagree.
     this project already grouped by location, and now cites the routine that
     does it.
 
-83. **What is still missing to call it playable.** Every waypoint task is now
+83. ~~**The planet names, drawn properly.**~~ **Done.** Spec in
+    `docs/ui/scanner.md`. Three corrections. The **ordinary colour is white**,
+    not the grey this project used: `DrawScanner` sets white before the name
+    pass and puts it back after every coloured name, and an unowned planet is
+    never given a colour at all. The name sits **five pixels under the planet's
+    own point**, centred — `CtrTextOut` is `TextOut(x - width/2, y, …)` — not
+    an offset scaled off the dot's radius, and **eleven pixels lower** in the
+    Population view once the zoom is 3 or better, which is the one view with
+    something drawn under the planet.
+
+    And the **font follows the zoom** through a jump table (`1058:2d63`):
+    Arial 6 at -1, Arial 8 at 0–2, Arial 8 **bold** at 3 and Arial 10 **bold**
+    at 4. `FCreateFonts` never sets `lfWeight` — the weight is in the face
+    name, `idsArial2 + 1` being `Arial Bold` — and the ids constant `0x0537` is
+    confirmed in our own binary. Points become pixels as
+    `MulDiv(points, 96, 72)`. egui has no bold family loaded, so the two bold
+    sizes are faked by writing the name twice half a pixel apart; that is the
+    one departure.
+
+    Not needed here: the pass draws names for planets up to 50 units left or
+    right and 20 above or below the visible rectangle, which matters to a map
+    that scrolls and not to one that fits the galaxy in the window.
+
+84. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

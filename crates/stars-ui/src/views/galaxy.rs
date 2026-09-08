@@ -137,6 +137,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         .and_then(|g| g.players.get(app.local_player()))
         .map(|p| p.race.clone());
     let names_visible = app.planet_names_visible();
+    let name_style = app.planet_name_style();
     // Which planets have fleets in orbit, and whose. Collected here and drawn
     // after the loop, because painting the game's own ring sprite needs the
     // app mutably and the loop is holding it.
@@ -279,20 +280,31 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         if names_visible {
             if let Some(name) = planet.name {
                 // Player Colors, when it is on, writes an owned planet's name
-                // in its owner's colour and this player's own in white. An
-                // unowned planet keeps the ordinary colour either way.
+                // in its owner's colour and this player's own in white. Every
+                // other name is white too: that is the colour the loop sets
+                // before it starts and puts back after each coloured one.
                 let colour = match app.planet_name_colour(planet.owner) {
-                    None => Color32::from_gray(170),
-                    Some(None) => Color32::WHITE,
+                    None | Some(None) => Color32::WHITE,
                     Some(Some(owner)) => player_colour(i16::try_from(owner).unwrap_or(0)),
                 };
-                painter.text(
-                    at + Vec2::new(0.0, radius + 2.0),
-                    egui::Align2::CENTER_TOP,
-                    name,
-                    egui::FontId::proportional(9.0),
-                    colour,
-                );
+                // Centred on the planet and five pixels under it — eleven more
+                // in the Population view, where the ladder is in the way.
+                let where_ = at + Vec2::new(0.0, f32::from(name_style.below));
+                let font = egui::FontId::proportional(name_style.pixels());
+                painter.text(where_, egui::Align2::CENTER_TOP, name, font.clone(), colour);
+                if name_style.bold {
+                    // The original asks Windows for the Arial Bold face at the
+                    // two zoomed-in sizes. egui has no bold family loaded, so
+                    // the weight is faked by writing the name again half a
+                    // pixel across, which thickens the stems the same way.
+                    painter.text(
+                        where_ + Vec2::new(0.5, 0.0),
+                        egui::Align2::CENTER_TOP,
+                        name,
+                        font,
+                        colour,
+                    );
+                }
             }
         }
         if let Some(p) = pointer {

@@ -200,6 +200,51 @@ Information a fleet in orbit writes no number at all, while one in deep space
 at the same point still writes one — the numbers over the colonies simply
 disappear in those three views.
 
+### The planet names
+
+The names are not drawn with the planets. They come in a **second pass** over
+every planet, after the fleets, which also draws the base dots — the "thousand
+dim points of light" — and it is that pass, not the first, which the **Planet
+Names** bit (`grbitScan & 0x400`) turns on.
+
+**Where.** `CtrTextOut(hdc, pt.x, pt.y + 5 + iVar21, name, 0)`, and
+`CtrTextOut` (`1040:2534`) is `TextOut(hdc, x - width/2, y, …)` — so the name
+is **centred on the planet** and its **top** sits five pixels under the
+planet's own point. `iVar21` is **11 more** when `iScanZoom >= 3` *and* the
+view is **Population** (`1058:2db1`): that is the one view with something of
+its own drawn under the planet for the name to clear.
+
+**In what.** A jump table on `iScanZoom` (`1058:2d63`) picks one of four font
+globals:
+
+| zoom | font |
+|---|---|
+| -1 | `rghfontArial6[0]` — Arial 6pt |
+| 0, 1, 2 | `rghfontArial8[0]` — Arial 8pt |
+| 3 | `rghfontArial8[1]` — Arial 8pt, **bold** |
+| 4 | `rghfontArial10[1]` — Arial 10pt, **bold** |
+
+`FCreateFonts` (`1000:0ab2`) builds each array by asking for face names from
+the string table at `idsArial2 + i`, and the constant `0x0537` is there in our
+own binary. It never sets `lfWeight`, so the weight is carried by the **face
+name**: index 0 is `Arial` and index 1 `Arial Bold`. The point size becomes
+pixels through `MulDiv(points, LOGPIXELSY, 72)` — four thirds of a pixel per
+point at the 96 dpi the game ran on. egui has no bold family loaded, so this
+project fakes the two bold sizes by writing the name twice half a pixel apart;
+everything else is transcribed.
+
+The background is left alone: `SetBkMode(hdc, TRANSPARENT)` before the loop,
+so a name never carries a box.
+
+**Which planets get one.** Names are drawn for planets **slightly off-screen**
+as well. The pass skips a planet outside the visible rectangle — unless names
+are on, in which case it carries on to the name with the dot suppressed, and
+draws it as long as the planet is within **50 units left or right** and **20
+above or below** the edges (`1058:2f6d` onwards). Names also stop entirely
+below `iScanZoom > -2` (`1058:2f63`), where the dots are too close together for
+a name to sit beside one. This project fits the whole galaxy in the window, so
+the margin has nothing to do; the zoom cut-off is reproduced.
+
 ## Orbit rings
 
 A planet with fleets in orbit is drawn with a ring round it, and the ring's
@@ -493,14 +538,12 @@ It colours exactly two things, and the handler says so itself — after toggling
 the bit it redraws the scanner only when `grbitScan & 0x1400` is set, which is
 planet names or ship counts.
 
-**Planet names.** An owned planet's name takes its owner's colour and this
-player's own is white. An **unowned** planet's name is left in the ordinary
-colour: the original only reaches for a colour once it has established the
-planet has an owner, so the third case is not white but "unchanged".
-
-Names have a limit of their own, unrelated to this: they are not drawn at all
-below `iScanZoom > -2`, where the dots are too close together for a name to sit
-beside one.
+**Planet names.** An owned planet's name takes its owner's colour out of
+`rgcrPlrHistory` and this player's own is written as literal white rather than
+looked up. An **unowned** planet's name is never coloured at all — the routine
+only reaches for a colour once it has established the planet has an owner — so
+it keeps the white the loop starts with. See [the planet names](#the-planet-names)
+below for where and in what the name is actually written.
 
 **Ship counts.** See [the ship counts](#the-ship-counts) below for how the
 number is built and drawn. The colour is that player's only when every fleet at

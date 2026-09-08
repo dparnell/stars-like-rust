@@ -8318,10 +8318,14 @@ impl App {
 
     /// What colour to write a planet's name in.
     ///
-    /// `None` means the ordinary colour, which is what an **unowned** planet
-    /// keeps: the original only reaches for a colour when the planet has an
-    /// owner. `Some(None)` is white — this player's own. `Some(Some(p))` is
-    /// player `p`'s colour.
+    /// `None` means the ordinary colour, which is **white**: `DrawScanner`
+    /// sets `SetTextColor(hdc, 0xffffff)` before the loop (`1058:2d74`) and
+    /// puts it back after every coloured name, and an **unowned** planet is
+    /// never given a colour at all — the routine only reaches for one once it
+    /// has established the planet has an owner. `Some(None)` is white too —
+    /// this player's own, which the original writes as literal white rather
+    /// than out of the colour table. `Some(Some(p))` is player `p`'s colour
+    /// from `rgcrPlrHistory`.
     #[must_use]
     pub fn planet_name_colour(&self, owner: Option<i16>) -> Option<Option<usize>> {
         if !self.scan_overlays.player_colours {
@@ -8333,11 +8337,79 @@ impl App {
 
     /// Whether planet names are drawn at all at this zoom.
     ///
-    /// The original hides them below `iScanZoom > -2`, where the dots are too
-    /// close together for a name to mean anything.
+    /// The original hides them below `iScanZoom > -2` (`1058:2f63`), where the
+    /// dots are too close together for a name to mean anything.
     #[must_use]
     pub fn planet_names_visible(&self) -> bool {
         self.scan_overlays.names && self.scan_zoom > -2
+    }
+
+    /// How a planet name is written at the zoom showing.
+    ///
+    /// `DrawScanner` picks the font out of a jump table on `iScanZoom`
+    /// (`1058:2d63`), and the four it can land on are four different globals:
+    /// `rghfontArial6[0]` at -1, `rghfontArial8[0]` at 0, 1 and 2,
+    /// `rghfontArial8[1]` at 3 and `rghfontArial10[1]` at 4. `FCreateFonts`
+    /// (`1000:0ab2`) builds each array from the string table at `idsArial2 + i`
+    /// — the constant `0x0537` is there in our own binary — and never touches
+    /// `lfWeight`, so the weight is in the **face name**: index 0 is `Arial`
+    /// and index 1 `Arial Bold`. The two zoomed-in sizes are therefore bold.
+    ///
+    /// The size is in points, converted with `MulDiv(points, LOGPIXELSY, 72)`;
+    /// at the 96 dpi the original ran on that is four thirds of a pixel per
+    /// point, which is what [`PlanetNameStyle::pixels`] carries.
+    #[must_use]
+    pub fn planet_name_style(&self) -> PlanetNameStyle {
+        let (points, bold) = match self.scan_zoom {
+            i8::MIN..=-1 => (6.0, false),
+            0..=2 => (8.0, false),
+            3 => (8.0, true),
+            _ => (10.0, true),
+        };
+        PlanetNameStyle {
+            points,
+            bold,
+            below: self.planet_name_below(),
+        }
+    }
+
+    /// How far below a planet's own point its name is written.
+    ///
+    /// `CtrTextOut(hdc, pt.x, pt.y + 5 + iVar21, …)` — centred on the planet
+    /// and five pixels under it, `iVar21` being **11 more** when the zoom is 3
+    /// or better *and* the view is Population (`1058:2db1`), which is the one
+    /// view that draws something of its own under the planet for the name to
+    /// clear.
+    #[must_use]
+    pub fn planet_name_below(&self) -> i16 {
+        let population = self.scan_view == ScanView::Population && self.scan_zoom >= 3;
+        if population {
+            5 + 11
+        } else {
+            5
+        }
+    }
+}
+
+/// How a planet's name is written: which font, and how far under the planet.
+///
+/// See [`App::planet_name_style`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlanetNameStyle {
+    /// The point size the original asks Windows for.
+    pub points: f32,
+    /// Whether it asks for the **Arial Bold** face rather than Arial.
+    pub bold: bool,
+    /// Pixels below the planet's own point that the top of the name sits at.
+    pub below: i16,
+}
+
+impl PlanetNameStyle {
+    /// The size in pixels: `MulDiv(points, 96, 72)`, the conversion the
+    /// original makes against the screen's `LOGPIXELSY`.
+    #[must_use]
+    pub fn pixels(&self) -> f32 {
+        self.points * 4.0 / 3.0
     }
 }
 
