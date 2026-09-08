@@ -7195,6 +7195,23 @@ pub const WORMHOLE_MASK: (u32, u32) = (9, 0x5c);
 /// How big both are.
 pub const WORMHOLE_SIDE: u32 = 9;
 
+/// The three colours the scanner tells sides apart with — `rgcrScanMine`
+/// (`1058:0026`, file offset `0x58526`), which the minefields and the fleet
+/// arrows both index.
+///
+/// The table holds pure blue, yellow and red as COLORREFs
+/// (`0x00ff0000`, `0x0000ffff`, `0x000000ff`); this project lightens all three
+/// by the same amount so they read against the map's black, and uses them
+/// wherever the original picks a colour out of that table.
+///
+/// This player's.
+pub const SCAN_YOURS: [u8; 3] = [0x40, 0x80, 0xff];
+/// A friend's.
+pub const SCAN_FRIEND: [u8; 3] = [0xff, 0xd0, 0x40];
+/// Anybody else's — neutrals and enemies share it here, though the menus that
+/// set relations keep the two apart.
+pub const SCAN_OTHER: [u8; 3] = [0xff, 0x40, 0x40];
+
 /// What the three kinds of minefield are called (`rgszMineFieldTypes`, the
 /// table `Field Type:` is indexed into).
 pub const MINEFIELD_KINDS: [&str; 3] = ["Mine Field", "Heavy Mine Field", "Speed Bump Field"];
@@ -7529,6 +7546,81 @@ impl App {
         }
     }
 
+    /// What colour a fleet's arrow is drawn in.
+    ///
+    /// `DrawScanner` sets the text colour before blitting the arrow, and the
+    /// three values it picks from are `rgcrScanMine`'s: **blue** for this
+    /// player, **yellow** for a friend, **red** for anybody else. It is not a
+    /// colour per player — two enemies' fleets are the same red.
+    #[must_use]
+    pub fn fleet_arrow_colour(&self, fleet: &stars_core::fleet::Fleet) -> [u8; 3] {
+        let me = self.local_player();
+        let Ok(owner) = usize::try_from(fleet.owner) else {
+            return SCAN_OTHER;
+        };
+        if owner == me {
+            return SCAN_YOURS;
+        }
+        let Some(game) = self.game.as_ref() else {
+            return SCAN_OTHER;
+        };
+        if stars_core::relations::regard(game, me, owner) == stars_core::relations::Relation::Friend
+        {
+            SCAN_FRIEND
+        } else {
+            SCAN_OTHER
+        }
+    }
+
+    /// Whether a fleet is drawn on the map at all.
+    ///
+    /// `DrawScanner` skips a fleet whose `CShipsScanVis` count is zero, so the
+    /// two ship filters hide arrows exactly as they hide orbit rings and ship
+    /// counts — **unless it is the selected fleet**, which is always drawn so
+    /// that filtering cannot lose what the pane is showing. (The original
+    /// compares fleet ids alone there, and ids are per player, so another
+    /// player's fleet of the same id escapes the filter too; this compares the
+    /// fleet itself.)
+    #[must_use]
+    pub fn fleet_scan_visible(&self, index: usize, fleet: &stars_core::fleet::Fleet) -> bool {
+        self.selection.fleet == Some(index) || self.filtered_ship_count(fleet) > 0
+    }
+
+    /// The 11x11 cell a fleet **at the selected point** is drawn with, in place
+    /// of its arrow.
+    ///
+    /// `(0xb, 0x24)` for one of this player's and `(0xb, 0x2f)` for anybody
+    /// else's — the two rows of the sheet's arrow glyph, blue and red.
+    #[must_use]
+    pub fn fleet_selected_cell(&self, fleet: &stars_core::fleet::Fleet) -> (u32, u32) {
+        let mine = usize::try_from(fleet.owner).is_ok_and(|owner| owner == self.local_player());
+        (0xb, if mine { 0x24 } else { 0x2f })
+    }
+
+    /// Whether a fleet is drawn as an **arrow of its own** rather than as a
+    /// ring round the planet it orbits.
+    ///
+    /// `DrawScanner` splits the two: `fl->idPlanet == -1` gets the arrow, and
+    /// everything else adds to `rgWhatsHere` for the planet's orbit ring. A
+    /// fleet in orbit has no arrow at all.
+    #[must_use]
+    pub fn fleet_draws_arrow(fleet: &stars_core::fleet::Fleet) -> bool {
+        fleet.orbiting.is_none()
+    }
+
+    /// Whether the orbit rings are drawn in the view showing.
+    ///
+    /// The ring arm is guarded by `uVar8 < 3`, so the three views that redraw
+    /// the planets themselves — Planet Value, Population and No Player
+    /// Information — have no rings.
+    #[must_use]
+    pub fn orbit_rings_visible(&self) -> bool {
+        matches!(
+            self.scan_view,
+            ScanView::Normal | ScanView::SurfaceMineral | ScanView::MineralConcentration
+        )
+    }
+
     /// The two discs the **Planet Value** view draws, outermost first.
     ///
     /// Each is a radius and a colour. The value is `PctPlanetDesirability`,
@@ -7741,19 +7833,19 @@ impl App {
     #[must_use]
     pub fn minefield_colour(&self, field: &stars_core::minefield::Minefield) -> [u8; 3] {
         if field.detonating {
-            return [0xff, 0x00, 0x00];
+            return SCAN_OTHER;
         }
         let me = self.local_player();
         let Some(game) = self.game.as_ref() else {
-            return [0xff, 0x00, 0x00];
+            return SCAN_OTHER;
         };
         let Ok(owner) = usize::try_from(field.owner) else {
-            return [0xff, 0x00, 0x00];
+            return SCAN_OTHER;
         };
         match stars_core::relations::party(game, me, owner) {
-            stars_core::relations::Party::Yours => [0x40, 0x80, 0xff],
-            stars_core::relations::Party::Friends => [0xff, 0xd0, 0x40],
-            _ => [0xff, 0x40, 0x40],
+            stars_core::relations::Party::Yours => SCAN_YOURS,
+            stars_core::relations::Party::Friends => SCAN_FRIEND,
+            _ => SCAN_OTHER,
         }
     }
 

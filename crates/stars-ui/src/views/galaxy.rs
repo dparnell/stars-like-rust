@@ -77,6 +77,11 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     };
 
     let selected = app.selection.planet;
+    // The point the selection is on, which the fleet marks compare against
+    // (`ptSelMain`).
+    let selected_at = app
+        .selected_object()
+        .and_then(|object| app.object_position(object));
     // What the pointer landed on: where it is in galaxy units, and which
     // planet or fleet was hit. The scanner needs the point rather than the
     // object, because clicking the same point again cycles through everything
@@ -304,7 +309,9 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     // red for anybody else's, magenta for both — and uses the **larger** ring
     // when the planet is the selected object rather than at any particular
     // zoom.
-    orbit_rings(app, ui, &to_ring);
+    if app.orbit_rings_visible() {
+        orbit_rings(app, ui, &to_ring);
+    }
 
     // Scanner coverage: a ring round each of the player's planets, showing how
     // far it sees. An overlay of its own.
@@ -438,15 +445,23 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             .collect::<Vec<_>>(),
     );
 
-    // Fleets, as small marks offset from their planet so they do not hide it.
+    // Fleets. A fleet **in orbit** has no mark of its own — it adds to its
+    // planet's orbit ring — and one in deep space is an arrow pointing the way
+    // it is going, in the colour its owner earns. A fleet on the selected point
+    // is drawn as an 11x11 glyph instead of the arrow.
     let mut to_arrow: Vec<(egui::Pos2, u8, Color32)> = Vec::new();
+    let mut to_fleet_glyph: Vec<(egui::Pos2, (u32, u32))> = Vec::new();
     if let Some(game) = app.game.as_ref() {
         for (index, fleet) in game.fleets.iter().enumerate() {
             if fleet.stacks.is_empty() {
                 continue;
             }
-            // The idle filter shows only the fleets with nothing to do.
+            // The idle filter shows only the fleets with nothing to do, and
+            // the two ship filters hide a fleet none of whose ships they count.
             if app.scan_overlays.idle_fleets && fleet.waypoints.len() > 1 {
+                continue;
+            }
+            if !app.fleet_scan_visible(index, fleet) {
                 continue;
             }
             let at = to_screen(f32::from(fleet.position.x), f32::from(fleet.position.y));
@@ -454,16 +469,23 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             // wins: the planet comes first in the cycle too.
             if clicked.is_none() {
                 if let Some(p) = pointer {
-                    if (p - (at + Vec2::new(6.0, -6.0))).length() <= 5.0 {
+                    if (p - at).length() <= 6.0 {
                         clicked = Some((fleet.position.x, fleet.position.y, None, Some(index)));
                     }
                 }
             }
-            let colour = player_colour(fleet.owner);
-            // The mark, which the original draws as an arrow pointing the way
-            // the fleet is going. Gathered here and drawn after the loop,
-            // because tinting the game's own stencil needs the app mutably.
-            to_arrow.push((at + Vec2::new(6.0, -6.0), app.fleet_arrow_of(fleet), colour));
+            let [r, g, b] = app.fleet_arrow_colour(fleet);
+            let colour = Color32::from_rgb(r, g, b);
+            // The mark, gathered here and drawn after the loop because tinting
+            // the game's own stencil needs the app mutably. A fleet in orbit
+            // has none: its planet's ring is its mark.
+            if App::fleet_draws_arrow(fleet) {
+                if Some(fleet.position) == selected_at {
+                    to_fleet_glyph.push((at, app.fleet_selected_cell(fleet)));
+                } else {
+                    to_arrow.push((at, app.fleet_arrow_of(fleet), colour));
+                }
+            }
             // Where it is going, leg by leg.
             if app.scan_overlays.fleet_paths && fleet.waypoints.len() > 1 {
                 let mut from = at;
@@ -490,6 +512,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         }
     }
     fleet_arrows(app, ui, &to_arrow);
+    fleet_glyphs(app, ui, &to_fleet_glyph);
 
     // The ship counts, one per **location** rather than per fleet, which is
     // what the original writes. The two ship filters have already narrowed
@@ -695,8 +718,9 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
 /// Draw the orbit rings gathered while the planets were drawn.
 ///
 /// The game's own sprite when a copy of the original has been found — the
-/// scanner's sheet holds the three colours at 11 pixels and again at 19 — and
-/// a stroked circle in the same colour when it has not.
+/// scanner's sheet holds the three colours at 11 pixels from `x = 0x10` and
+/// again at 19 from `x = 0x1d`, with one mask for each column at `y = 0x45` —
+/// and a stroked circle in the same colour when it has not.
 fn orbit_rings(app: &mut App, ui: &mut egui::Ui, rings: &[(egui::Pos2, OrbitRing, bool)]) {
     if rings.is_empty() {
         return;
@@ -709,13 +733,15 @@ fn orbit_rings(app: &mut App, ui: &mut egui::Ui, rings: &[(egui::Pos2, OrbitRing
             .art
             .as_mut()
             .and_then(|art| {
-                art.sprite_at(
+                // The two blits the game makes: the mask at `(x, 0x45)` and
+                // then the ring itself, `(n - 1)` rows down its column.
+                let x = if side == 19 { 0x1d } else { 0x10 };
+                art.sprite_masked_at(
                     &ctx,
                     &stars_formats::resources::Name::Text("ScannerBmp".to_string()),
-                    if side == 19 { 29 } else { 16 },
-                    ring.row() * side,
-                    side,
-                    side,
+                    (x, ring.row() * side),
+                    (x, 0x45),
+                    (side, side),
                     egui::vec2(side as f32, side as f32),
                 )
             })
@@ -996,5 +1022,43 @@ fn planet_marks(
             0.0,
             *colour,
         );
+    }
+}
+
+/// Draw the fleets that are sitting on the selected point.
+///
+/// `DrawScanner` puts an 11x11 glyph there rather than the arrow — blue for one
+/// of this player's, red for anybody else's — so the fleet under the cursor is
+/// picked out. Without the game's sheet it is a ring in the same colours.
+fn fleet_glyphs(app: &mut App, ui: &mut egui::Ui, fleets: &[(egui::Pos2, (u32, u32))]) {
+    if fleets.is_empty() {
+        return;
+    }
+    let ctx = ui.ctx().clone();
+    let painter = ui.painter().clone();
+    let sheet = stars_formats::resources::Name::Text("ScannerBmp".to_string());
+    for (at, cell) in fleets {
+        let drawn = app
+            .art
+            .as_mut()
+            .and_then(|art| {
+                art.sprite_at(&ctx, &sheet, cell.0, cell.1, 11, 11, egui::vec2(11.0, 11.0))
+            })
+            .map(|image| {
+                image.paint_at(
+                    ui,
+                    Rect::from_min_size(*at - Vec2::new(5.5, 5.5), egui::vec2(11.0, 11.0)),
+                );
+            })
+            .is_some();
+        if !drawn {
+            let colour = if cell.1 == 0x24 {
+                crate::SCAN_YOURS
+            } else {
+                crate::SCAN_OTHER
+            };
+            let colour = Color32::from_rgb(colour[0], colour[1], colour[2]);
+            painter.circle_stroke(*at, 5.0, Stroke::new(1.5_f32, colour));
+        }
     }
 }

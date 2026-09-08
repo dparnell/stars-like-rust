@@ -123,6 +123,39 @@ bias would be a strong westward heading. It is not a heading at all: filter to
 the fleets whose direction is actually valid and `0x00` drops out of the top
 ten entirely. The spike is the **unset** field.
 
+### The fleets themselves
+
+`DrawScanner`'s fleet loop makes one of **three** decisions per fleet, and the
+first of them is the one this project had wrong: a fleet **in orbit** — its
+`idPlanet` is not `-1` — is **not drawn at all**. It contributes to
+`rgWhatsHere[planet]` instead, and the planet's ring is its mark. Only a fleet
+in **deep space** gets an arrow of its own, centred on its point (`pt - ptD/2`,
+so the sprite is centred rather than hung off the corner).
+
+A fleet sitting on the **selected point** is drawn a third way: an 11x11 glyph
+out of `ScannerBmp` at `(0xb, 0x24)` for one of this player's and `(0xb, 0x2f)`
+for anybody else's, in place of the arrow. The test is against `ptSelMain`, the
+**point**, not against the selected fleet, so every fleet standing there gets
+the glyph — and it is a deep-space branch, so a fleet in orbit at the selected
+point still gets the larger ring instead.
+
+The arrow's colour is set with `SetTextColor` before the blit and comes from
+the same three the minefields use — `rgcrScanMine`, blue / yellow / red by
+**relation**, not a colour per player. Two different enemies' fleets are the
+same red. The selected-point glyph takes no colour: the two cells are already
+coloured in the sheet.
+
+**The ship filters hide arrows too.** The loop skips any fleet whose
+`CShipsScanVis` count is zero, so the design and enemy-class filters narrow
+what is drawn on the map as well as the rings and the counts — with one
+exception: the **selected** fleet is drawn whatever the filters say, so
+filtering cannot lose what the pane is showing.
+
+The **ship count** is drawn above whichever mark was used, when the counts
+overlay is on and the fleet is not marked `fNoCount`: `pt.y - ptD.y/2 - 2`
+above an arrow, `pt.y - 7` above a selected-point glyph, and `pt.y - 5 - 2` or
+`pt.y - 9 - 2` above an orbit ring depending on which of the two sizes it is.
+
 ## Orbit rings
 
 A planet with fleets in orbit is drawn with a ring round it, and the ring's
@@ -142,6 +175,11 @@ the three colours at **11 pixels** and again at **19**, each with a mask below
 them at y = 69. The larger one is used when the planet **is the selected
 object** — `bVar34` is a comparison against `ptSelMain`, not a zoom test, which
 is easy to assume and wrong.
+
+**The rings belong to the first three views.** The whole arm is guarded by
+`uVar8 < 3`, so Normal, Surface Minerals and Mineral Concentration draw rings
+and Planet Value, Population and No Player Information do not — those three
+redraw the planets themselves and would paint over them.
 
 **The ship filters narrow the rings.** A fleet earns its planet a ring only if
 `CShipsScanVis` (`1058:4bf4`) counts it, which is the same function the ship
@@ -390,6 +428,17 @@ wormhole falls back to two rings, as everything else falls back when the
 artwork is missing.
 
 ## Player colours
+
+Two things on the map — a minefield's fill and a fleet's arrow — take their
+colour not from a player but from `rgcrScanMine` (`1058:0026`, file offset
+`0x58526`, which reads `00 00 ff 00 | ff ff 00 00 | ff 00 00 00`): three
+COLORREFs, pure blue, pure yellow and pure red, keyed by **relation**. This
+project keeps the keying and **lightens all three by the same amount**
+(`SCAN_YOURS`, `SCAN_FRIEND`, `SCAN_OTHER`), which is the one deliberate
+departure here: a pure blue arrow a few pixels across is hard to see against
+the map's black on a modern display. The same three stand in for the
+selected-point glyph and the orbit rings when no copy of the game is found and
+the sprites are missing.
 
 `grbitScan & 0x2000` is **Player Colors**, the **View menu's** own item
 (`0x98d`, in submenu 1) and the one bit of `grbitScan` no toolbar button

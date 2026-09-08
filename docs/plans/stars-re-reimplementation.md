@@ -2462,7 +2462,28 @@ disagree.
     **No Player Information** skips the planet loop altogether, leaving the base
     dots the first loop drew: "just a thousand dim points of light".
 
-81. **What is still missing to call it playable.** Every waypoint task is now
+81. ~~**The fleets on the map, drawn properly.**~~ **Done.** Spec in
+    `docs/ui/scanner.md`. `DrawScanner`'s fleet loop makes three decisions and
+    this project had the first one wrong: a fleet **in orbit is not drawn at
+    all** — it only contributes to its planet's ring, which is why the original
+    map is not a thicket of arrows over every colony. A fleet in **deep space**
+    gets the eight-way arrow centred on its point; one on the **selected point**
+    gets an 11x11 glyph from `ScannerBmp` at `(0xb, 0x24)` or `(0xb, 0x2f)`
+    instead.
+
+    The two **ship filters** now narrow the arrows as well: the loop skips a
+    fleet `CShipsScanVis` counts nothing of, which this project applied to the
+    rings and the counts but not to the fleets themselves. The selected fleet
+    is exempt, so filtering cannot hide what the pane is showing.
+
+    Two smaller corrections came with it. The arrow's colour is by **relation**
+    out of `rgcrScanMine` — blue, yellow, red — not a colour per player, and the
+    three constants are now shared with the minefields, which index the same
+    table. And the orbit rings are guarded by `uVar8 < 3`, so they belong to the
+    first three views only; the other three redraw the planets and would paint
+    over them.
+
+82. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

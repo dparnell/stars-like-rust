@@ -231,10 +231,11 @@ fn a_field_is_coloured_by_whose_it_is() {
         "a friend's is yellow: {friend:?}"
     );
 
-    // And one armed to detonate is red whoever owns it.
+    // And one armed to detonate is red whoever owns it — the same red out of
+    // `rgcrScanMine` that anybody else's field is drawn in.
     assert_eq!(
         app.minefield_colour(&field(i16::try_from(me).expect("a player"), true)),
-        [0xff, 0x00, 0x00]
+        stars_ui::SCAN_OTHER
     );
 }
 
