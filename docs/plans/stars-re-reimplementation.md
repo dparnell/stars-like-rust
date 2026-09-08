@@ -2500,7 +2500,7 @@ disagree.
     space keeps its own.
 
     `DrawScanFleetCount` walks the circular list `LinkFleets` (`1038:1bb4`)
-    builds out of the fleets sharing a point and sets `fNoCount` on all of
+    builds out of the fleets sharing a point and sets `fDone` on all of
     them, which is what makes the number per location rather than per fleet —
     this project already grouped by location, and now cites the routine that
     does it.
@@ -2552,7 +2552,32 @@ disagree.
     Not reproduced: `DrawRadarCircle`'s batching and containment tests, which
     are an optimisation invisible in the result.
 
-85. **What is still missing to call it playable.** Every waypoint task is now
+85. ~~**The fleet paths, drawn properly.**~~ **Done.** Spec in
+    `docs/ui/scanner.md`. They were drawn inside the fleet loop, in each
+    fleet's own colour at half alpha, starting from wherever its mark had been
+    put. The original runs a **pass of its own** before the planets — so the
+    lines lie under the planet dots and the fleet marks — draws every one in
+    the same solid one-pixel **red** (`hpenStarbase`), and starts each at
+    **waypoint 0**.
+
+    Three gates this project was missing: **No Player Information** draws no
+    paths at all; a fleet must not be dead; and the record's **detail must be
+    more than 6**, meaning a full record, so **nobody else's path is ever
+    drawn** — the low byte of the word at `FLEET+4` is the detail level, which
+    `docs/formats/fleet.md` already had. The ship filters gate the paths too,
+    which came free with the fleet work.
+
+    Also corrected while reading `FLEET`'s flag word against the NB09 symbols:
+    the bit the ship counts set to mark a location already numbered is
+    **`fDone`**, one of the turn engine's own flags, not a drawing-only
+    `fNoCount`.
+
+    Not done, and now written down: `DrawShipScanPath` (`1058:540c`) is a
+    separate overlay — the XORed year's-travel scale through the **selected**
+    object, `warp² × 5` long with ticks and an arrow head, toggled by
+    `fOrdersVis`.
+
+86. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

@@ -7207,6 +7207,10 @@ pub struct CoverageDisc {
     pub penetrating: bool,
 }
 
+/// The colour the **Ship Paths** overlay draws in — `hpenStarbase`, a solid
+/// one-pixel `RGB(0xff, 0, 0)` pen, the same red whoever owns the fleet.
+pub const PATH_COLOUR: [u8; 3] = [0xff, 0x00, 0x00];
+
 /// The colour a normal coverage disc is filled with — `hbrRadar`,
 /// `RGB(0, 0, 0x7f)`.
 pub const COVERAGE_NORMAL: [u8; 3] = [0x00, 0x00, 0x7f];
@@ -7612,6 +7616,51 @@ impl App {
     #[must_use]
     pub fn fleet_scan_visible(&self, index: usize, fleet: &stars_core::fleet::Fleet) -> bool {
         self.selection.fleet == Some(index) || self.filtered_ship_count(fleet) > 0
+    }
+
+    /// The polylines the **Ship Paths** overlay draws, one per fleet, in
+    /// galaxy units.
+    ///
+    /// `grbitScan & 0x80`, a pass of its own that runs **before** the planets
+    /// are drawn, so the lines lie under the planet dots and the fleet marks.
+    /// Each is drawn with `hpenStarbase` — a solid one-pixel **red** pen,
+    /// `RGB(0xff, 0, 0)` — whoever the fleet belongs to, and it starts at
+    /// **waypoint 0**, the fleet's own position, rather than at wherever the
+    /// fleet has since been drawn.
+    ///
+    /// A fleet is skipped unless all of these hold:
+    ///
+    /// * the view is not **No Player Information**, which draws no paths at
+    ///   all;
+    /// * the fleet is not dead (`fDead`);
+    /// * its record's **detail is more than 6** — that is, 7, a full record.
+    ///   Only a fleet you own is described in that much detail, so in practice
+    ///   nobody else's path is ever drawn; this engine keeps every fleet in
+    ///   one list and no detail level with it, so ownership stands in for the
+    ///   test (see `docs/formats/fleet.md`);
+    /// * it has **more than one** waypoint — a path needs two ends;
+    /// * and `CShipsScanVis` counts something of it, or it is the selected
+    ///   fleet: the two ship filters narrow the paths exactly as they narrow
+    ///   the arrows.
+    #[must_use]
+    pub fn fleet_paths(&self) -> Vec<Vec<stars_core::movement::Point>> {
+        if !self.scan_overlays.fleet_paths || self.scan_view == ScanView::NoPlayerInfo {
+            return Vec::new();
+        }
+        let Some(game) = self.game.as_ref() else {
+            return Vec::new();
+        };
+        let me = self.local_player();
+        game.fleets
+            .iter()
+            .enumerate()
+            .filter(|(index, fleet)| {
+                usize::try_from(fleet.owner).is_ok_and(|owner| owner == me)
+                    && fleet.waypoints.len() > 1
+                    && self.fleet_scan_visible(*index, fleet)
+            })
+            .map(|(_, fleet)| fleet.waypoints.iter().map(|way| way.position).collect())
+            .collect()
     }
 
     /// The 11x11 cell a fleet **at the selected point** is drawn with, in place
@@ -8402,7 +8451,7 @@ impl App {
     /// **circular list** `LinkFleets` (`1038:1bb4`) builds out of the fleets
     /// sharing a point, adding up what `CShipsScanVis` counts of each. So the
     /// number is per location, which is what the manual means by "the number
-    /// of ships at a location". On its way round it sets `fNoCount` on every
+    /// of ships at a location". On its way round it sets `fDone` on every
     /// fleet in the ring, which is how the other fleets at the spot are kept
     /// from writing the same number again.
     ///

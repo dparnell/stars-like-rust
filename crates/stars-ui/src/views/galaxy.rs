@@ -148,6 +148,24 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     minefields(app, ui, &to_minefield, rect.min);
 
     let view = app.scan_view;
+    // The Ship Paths overlay: a pass of its own, before the planets, so the
+    // lines lie under the planet dots and the fleet marks. Each is the fleet's
+    // waypoints joined up from the first, in the same solid red whoever owns
+    // it — not the owner's colour, and not faded.
+    {
+        let [r, g, b] = stars_ui_arrow::PATH_COLOUR;
+        let stroke = Stroke::new(1.0_f32, Color32::from_rgb(r, g, b));
+        for path in app.fleet_paths() {
+            let points: Vec<Pos2> = path
+                .iter()
+                .map(|at| to_screen(f32::from(at.x), f32::from(at.y)))
+                .collect();
+            for leg in points.windows(2) {
+                painter.line_segment([leg[0], leg[1]], stroke);
+            }
+        }
+    }
+
     let names_visible = app.planet_names_visible();
     let name_style = app.planet_name_style();
     // Which planets have fleets in orbit, and whose. Collected here and drawn
@@ -478,29 +496,6 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                     to_fleet_glyph.push((at, app.fleet_selected_cell(fleet)));
                 } else {
                     to_arrow.push((at, app.fleet_arrow_of(fleet), colour));
-                }
-            }
-            // Where it is going, leg by leg.
-            if app.scan_overlays.fleet_paths && fleet.waypoints.len() > 1 {
-                let mut from = at;
-                for waypoint in fleet.waypoints.iter().skip(1) {
-                    let to = to_screen(
-                        f32::from(waypoint.position.x),
-                        f32::from(waypoint.position.y),
-                    );
-                    painter.line_segment(
-                        [from, to],
-                        Stroke::new(
-                            1.0_f32,
-                            Color32::from_rgba_unmultiplied(
-                                colour.r(),
-                                colour.g(),
-                                colour.b(),
-                                140,
-                            ),
-                        ),
-                    );
-                    from = to;
                 }
             }
         }

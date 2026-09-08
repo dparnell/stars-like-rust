@@ -152,7 +152,7 @@ exception: the **selected** fleet is drawn whatever the filters say, so
 filtering cannot lose what the pane is showing.
 
 The **ship count** is drawn above whichever mark was used, when the counts
-overlay is on and the fleet is not marked `fNoCount`: `pt.y - ptD.y/2 - 2`
+overlay is on and the fleet is not marked done: `pt.y - ptD.y/2 - 2`
 above an arrow, `pt.y - 7` above a selected-point glyph, and `pt.y - 5 - 2` or
 `pt.y - 9 - 2` above an orbit ring depending on which of the two sizes it is.
 
@@ -162,10 +162,11 @@ above an arrow, `pt.y - 7` above a selected-point glyph, and `pt.y - 5 - 2` or
 fleet — "the number of ships at a location", as `MANUAL.PDF` p. 5-15 puts it.
 It is handed one fleet and walks the **circular list** `LinkFleets`
 (`1038:1bb4`) builds out of the fleets sharing a point, adding up what
-`CShipsScanVis` counts of each, and on the way round it sets `fNoCount`
-(`wFlags & 0x800`) on every fleet in the ring so that none of the others writes
-the same number again. `LinkFleets` clears that flag when it rebuilds the
-rings.
+`CShipsScanVis` counts of each, and on the way round it sets the bit at
+`wFlags & 0x800` on every fleet in the ring so that none of the others writes
+the same number again; `LinkFleets` clears it when it rebuilds the rings. The
+NB09 symbols name that bit **`fDone`** — the map borrows one of the turn
+engine's own flags as its "already numbered here" mark.
 
 Two limits: the total is **capped at 999**, and a spot totalling nothing is not
 written at all — so the ship filters can empty a location of its number while
@@ -276,6 +277,38 @@ counts go through — so the design and enemy-class filters apply here exactly a
 they apply there. That is what `MANUAL.PDF` p. 5-15 means by "only those planets
 orbited by the selected ships will have orbit rings". The **fleet paths**
 overlay is gated on the same count, so the filters narrow that too.
+
+### The fleet paths
+
+`grbitScan & 0x80`, and a **pass of its own** over every fleet, run before the
+planets are drawn — so the lines lie under the planet dots and the fleet marks
+rather than over them.
+
+The pen is `hpenStarbase`: solid, one pixel, `RGB(0xff, 0, 0)`. **Red for every
+fleet**, whoever owns it — a path is not tinted the way an arrow or a name is.
+The line starts at **waypoint 0**, which is where the fleet is, and joins each
+waypoint after it in turn.
+
+A fleet is skipped unless all of this holds:
+
+* the view is not **No Player Information** (`uVar8 != 5`), which draws no
+  paths at all;
+* it is not dead (`fDead`, bit 10 of the word at `FLEET+4`);
+* the record's **detail is more than 6** — `(wFlags & 0xff) > 6`, and that low
+  byte is the record's detail level, of which 7 means a full one. Only your own
+  fleets are described that fully (see `docs/formats/fleet.md`), so **nobody
+  else's path is ever drawn**, however much of their course you have worked
+  out;
+* it has **more than one** waypoint;
+* and `CShipsScanVis` counts something of it, or it is the selected fleet — the
+  two ship filters narrow the paths exactly as they narrow the arrows.
+
+Not this: `DrawShipScanPath` (`1058:540c`) is a **different** overlay, drawn
+for whatever the scanner has selected rather than for every fleet. It XORs a
+scale line through the selection along its heading — length `warp² × 5`, with
+ticks every tenth and an arrow head — to show a year's travel, and it is
+toggled by `fOrdersVis` rather than by `grbitScan`. This project does not draw
+it yet.
 
 ## Clicking the same spot again
 
