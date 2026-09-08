@@ -193,6 +193,60 @@ pub const LAYOUT: [i8; 29] = [
 /// height of its font; this takes the wider.
 pub const COMBO_WIDTH: u32 = 70;
 
+/// How the toolbar's own three colours come out.
+///
+/// `SetSysColors` (`main.c`, `1000`-segment start-up) takes them straight from
+/// Windows: `GetSysColor(15)` for the face, `20` for the highlight and `16`
+/// for the shadow — `COLOR_BTNFACE`, `COLOR_BTNHIGHLIGHT`, `COLOR_BTNSHADOW`.
+/// A modern desktop has no such colours to give, so these are the **Windows
+/// 3.1 defaults**, which is what every screenshot of the game shows.
+///
+/// The face, which is also the strip's own background (`WM_ERASEBKGND` fills
+/// the client rectangle with it).
+pub const FACE: [u8; 3] = [0xc0, 0xc0, 0xc0];
+/// The lit edge: top and left of a button that is up.
+pub const HILITE: [u8; 3] = [0xff, 0xff, 0xff];
+/// And the shadow: bottom and right of one that is up.
+pub const SHADOW: [u8; 3] = [0x80, 0x80, 0x80];
+
+/// How tall a button is, bevel and all — `DrawBitmapButton` draws rows `y` to
+/// `y + 0x1b`.
+pub const BUTTON_HEIGHT: u32 = 28;
+/// And how tall the strip is: `ItbFromPpt` takes a click on `4 <= y < 0x20`.
+pub const ROW_HEIGHT: u32 = 32;
+/// Where the row of buttons starts, in from the strip's left and top edges.
+pub const MARGIN: u32 = 4;
+
+/// How far into a button its picture is pushed — `fDown` in
+/// `DrawBitmapButton`, which is a **distance and not a flag**.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Press {
+    /// Not pressed: the picture sits at `+2, +2` and the bevel is lit from the
+    /// top left.
+    #[default]
+    Up = 0,
+    /// Latched on — the view showing, or an overlay switched on. The bevel
+    /// turns over and the picture moves a pixel down and right.
+    Latched = 1,
+    /// Held down under the pointer: another pixel again, and the corner the
+    /// latched state leaves dark is lit back up.
+    Held = 2,
+}
+
+impl Press {
+    /// The offset it gives the picture, in pixels.
+    #[must_use]
+    pub fn offset(self) -> f32 {
+        self as u8 as f32
+    }
+
+    /// Whether the bevel is turned over.
+    #[must_use]
+    pub fn is_down(self) -> bool {
+        self != Press::Up
+    }
+}
+
 /// One thing in the toolbar's row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Item {

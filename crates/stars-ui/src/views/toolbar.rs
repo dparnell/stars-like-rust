@@ -15,15 +15,35 @@
 use crate::toolbar::{self, Button, Item};
 use crate::App;
 
-/// How tall a button is, border and all.
-const HEIGHT: f32 = 28.0;
+/// How tall a button is, bevel and all — [`toolbar::BUTTON_HEIGHT`] as a
+/// float, since every rectangle here is one.
+const HEIGHT: f32 = toolbar::BUTTON_HEIGHT as f32;
 
 /// Draw the toolbar. Returns whether anything was pressed.
 pub fn view(app: &mut App, ui: &mut egui::Ui) -> bool {
     let mut acted = false;
+    // The strip itself: `WM_ERASEBKGND` fills its whole client rectangle with
+    // the button face, and the largest window layout puts a black line down
+    // its left edge (`PatBlt(0, 0, 1, rc.bottom, BLACKNESS)`).
+    let [r, g, b] = toolbar::FACE;
+    let top_left = ui.cursor().min;
+    let strip = egui::Rect::from_min_size(
+        top_left,
+        egui::vec2(ui.available_width(), toolbar::ROW_HEIGHT as f32),
+    );
+    ui.painter()
+        .rect_filled(strip, 0.0, egui::Color32::from_rgb(r, g, b));
+    if app.window_layout == crate::WindowLayout::Large {
+        ui.painter().rect_filled(
+            egui::Rect::from_min_size(strip.min, egui::vec2(1.0, strip.height())),
+            0.0,
+            egui::Color32::BLACK,
+        );
+    }
+    ui.add_space(toolbar::MARGIN as f32);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
-        ui.add_space(4.0);
+        ui.add_space(toolbar::MARGIN as f32);
         for item in toolbar::items() {
             match item {
                 Item::Gap(width) => ui.add_space(width as f32),
@@ -42,15 +62,24 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) -> bool {
             }
         }
     });
+    ui.add_space(toolbar::MARGIN as f32);
     acted
 }
 
 /// One button: the frame, the picture, and the click.
+///
+/// `DrawBitmapButton` (`1068:078c`) draws the bevel with eight `PatBlt`s and a
+/// couple of fills, and this follows it rectangle for rectangle: a one-pixel
+/// ring, lit along the top and left and shadowed along the bottom and right —
+/// the two swapping over when the button is down — with the four corner
+/// pixels laid in separately so the ring reads as rounded, and a one-pixel
+/// face inside it. The picture then goes in at `+2, +2`, pushed by another
+/// pixel for each step of [`Press`].
 fn draw_button(app: &mut App, ui: &mut egui::Ui, button: Button) -> (bool, egui::Response) {
     let enabled = app.toolbar_enabled(button);
-    let down = app.toolbar_down(button);
+    let width = button.width() as f32;
     let (rect, response) = ui.allocate_exact_size(
-        egui::vec2(button.width() as f32, HEIGHT),
+        egui::vec2(width, HEIGHT),
         if enabled {
             egui::Sense::click()
         } else {
@@ -58,43 +87,17 @@ fn draw_button(app: &mut App, ui: &mut egui::Ui, button: Button) -> (bool, egui:
         },
     );
 
-    let visuals = ui.visuals();
-    let face = visuals.widgets.inactive.bg_fill;
-    let (top_left, bottom_right) = if down {
-        (
-            visuals.widgets.inactive.bg_stroke.color,
-            visuals.extreme_bg_color,
-        )
+    let press = if enabled && response.is_pointer_button_down_on() {
+        toolbar::Press::Held
+    } else if app.toolbar_down(button) {
+        toolbar::Press::Latched
     } else {
-        (
-            visuals.extreme_bg_color,
-            visuals.widgets.inactive.bg_stroke.color,
-        )
+        toolbar::Press::Up
     };
-    let painter = ui.painter();
-    painter.rect_filled(rect, 1.0, if down { visuals.faint_bg_color } else { face });
-    // The original draws the lit edge top-left and the shadow bottom-right,
-    // and swaps them when the button is down.
-    painter.line_segment(
-        [rect.left_bottom(), rect.left_top()],
-        egui::Stroke::new(1.0_f32, top_left),
-    );
-    painter.line_segment(
-        [rect.left_top(), rect.right_top()],
-        egui::Stroke::new(1.0_f32, top_left),
-    );
-    painter.line_segment(
-        [rect.right_top(), rect.right_bottom()],
-        egui::Stroke::new(1.0_f32, bottom_right),
-    );
-    painter.line_segment(
-        [rect.right_bottom(), rect.left_bottom()],
-        egui::Stroke::new(1.0_f32, bottom_right),
-    );
+    bevel(ui, rect, width, press);
 
-    // The picture, nudged a pixel when the button is down as the original
-    // nudges it.
-    let nudge = if down { 1.0 } else { 0.0 };
+    // The picture, pushed in by however far the button is pressed.
+    let nudge = press.offset();
     let art = egui::Rect::from_min_size(
         rect.min + egui::vec2(2.0 + nudge, 2.0 + nudge),
         egui::vec2(button.art_width() as f32, toolbar::ART.1 as f32),
@@ -111,20 +114,16 @@ fn draw_button(app: &mut App, ui: &mut egui::Ui, button: Button) -> (bool, egui:
         .unwrap_or(false);
     if !drawn {
         ui.painter().text(
-            rect.center(),
+            rect.center() + egui::vec2(nudge, nudge),
             egui::Align2::CENTER_CENTER,
             short_label(button),
             egui::FontId::proportional(9.0),
-            if enabled {
-                ui.visuals().text_color()
-            } else {
-                ui.visuals().weak_text_color()
-            },
+            egui::Color32::BLACK,
         );
     }
     if !enabled {
         ui.painter()
-            .rect_filled(rect, 1.0, egui::Color32::from_black_alpha(80));
+            .rect_filled(rect, 0.0, egui::Color32::from_black_alpha(80));
     }
 
     let response = response.on_hover_text(if enabled {
@@ -143,6 +142,64 @@ fn draw_button(app: &mut App, ui: &mut egui::Ui, button: Button) -> (bool, egui:
         return (true, response);
     }
     (false, response)
+}
+
+/// The eight rectangles of a button's bevel, in the order and the places
+/// `DrawBitmapButton` lays them.
+fn bevel(ui: &egui::Ui, rect: egui::Rect, width: f32, press: toolbar::Press) {
+    let painter = ui.painter();
+    let colour = |[r, g, b]: [u8; 3]| egui::Color32::from_rgb(r, g, b);
+    let face = colour(toolbar::FACE);
+    let (lit, dark) = if press.is_down() {
+        (colour(toolbar::SHADOW), colour(toolbar::HILITE))
+    } else {
+        (colour(toolbar::HILITE), colour(toolbar::SHADOW))
+    };
+    let at = |x: f32, y: f32, w: f32, h: f32, fill: egui::Color32| {
+        painter.rect_filled(
+            egui::Rect::from_min_size(rect.min + egui::vec2(x, y), egui::vec2(w, h)),
+            0.0,
+            fill,
+        );
+    };
+
+    // The face first, since the original leaves the middle of the button to
+    // whatever the strip was filled with and this has no strip behind it.
+    at(1.0, 1.0, width - 2.0, HEIGHT - 2.0, face);
+
+    // Lit along the top and the left, with the two corners it touches.
+    at(2.0, 0.0, width - 4.0, 1.0, lit);
+    at(0.0, 2.0, 1.0, 24.0, lit);
+    at(1.0, 1.0, 1.0, 1.0, lit);
+    at(1.0, 26.0, 1.0, 1.0, lit);
+    // Shadowed along the bottom and the right, likewise.
+    at(2.0, 27.0, width - 4.0, 1.0, dark);
+    at(width - 1.0, 2.0, 1.0, 24.0, dark);
+    at(width - 2.0, 1.0, 1.0, 1.0, dark);
+    at(width - 2.0, 26.0, 1.0, 1.0, dark);
+
+    match press {
+        // Up: the face runs two pixels wide down the inner bottom and right,
+        // which is what gives the button its thickness.
+        toolbar::Press::Up => {
+            at(2.0, 25.0, width - 4.0, 2.0, face);
+            at(width - 3.0, 2.0, 2.0, 24.0, face);
+        }
+        // Down: the face moves to the inner top and left instead, as many
+        // pixels wide as the button is pressed.
+        press => {
+            let deep = press.offset();
+            at(2.0, 2.0, width - 4.0, deep, face);
+            at(2.0, 2.0, deep, 24.0, face);
+            if press == toolbar::Press::Latched {
+                at(2.0, 26.0, width - 4.0, 1.0, face);
+                at(width - 2.0, 2.0, 1.0, 24.0, face);
+            } else {
+                // Held: the bottom-right corner is lit again.
+                at(width - 2.0, 26.0, 1.0, 1.0, colour(toolbar::HILITE));
+            }
+        }
+    }
 }
 
 /// The Zoom button's menu: the nine sizes the original offers, which are the

@@ -2625,7 +2625,28 @@ disagree.
     it as a Chebyshev clip, which is what a rectangular clipping region
     amounts to.
 
-88. **What is still missing to call it playable.** Every waypoint task is now
+88. ~~**The toolbar, drawn properly.**~~ **Done.** Spec in
+    `docs/ui/toolbar.md`. The row, its layout table and its pictures were
+    already right; the **buttons themselves** were an egui-themed rounded
+    rectangle with two strokes. `DrawBitmapButton` (`1068:078c`) draws a
+    one-pixel ring with the corner pixels laid in separately, lit top-left and
+    shadowed bottom-right and swapping over when down, a one-pixel face inside
+    it, and the thickness carried by a two-pixel face along the inner bottom
+    and right. That is now followed rectangle for rectangle.
+
+    The colours are Windows': `GetSysColor(15)`, `(20)`, `(16)`. A modern
+    desktop cannot answer those, so the **3.1 defaults** are used —
+    `C0C0C0`/`FFFFFF`/`808080` — which is what the screenshots show. The same
+    face fills the strip, and the largest window layout puts a black line down
+    its left edge.
+
+    And `fDown` turned out to be a **distance rather than a flag**: 0, 1 or 2,
+    with the picture blitted at `+2 + fDown`. `FIsButtonDown` only answers 0 or
+    1 — the second pixel is the mouse being held — so a latched button and a
+    pressed one do not look the same, which is now reproduced with a `Press`
+    of three states.
+
+89. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

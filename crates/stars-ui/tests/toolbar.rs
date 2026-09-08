@@ -310,3 +310,43 @@ fn the_toolbar_draws() {
         frame(&mut app);
     }
 }
+
+/// `fDown` is a distance, not a flag: a latched button pushes its picture one
+/// pixel and one held under the pointer two.
+#[test]
+fn a_button_is_pressed_by_a_number_of_pixels() {
+    assert_eq!(toolbar::Press::Up.offset(), 0.0);
+    assert_eq!(toolbar::Press::Latched.offset(), 1.0);
+    assert_eq!(toolbar::Press::Held.offset(), 2.0);
+
+    assert!(!toolbar::Press::Up.is_down());
+    assert!(toolbar::Press::Latched.is_down());
+    assert!(toolbar::Press::Held.is_down());
+}
+
+/// The strip's own measurements, straight out of `DrawBitmapButton` and
+/// `ItbFromPpt`.
+#[test]
+fn the_strip_is_the_size_the_original_draws() {
+    assert_eq!(toolbar::BUTTON_HEIGHT, 28, "rows y..y+0x1b");
+    assert_eq!(toolbar::ROW_HEIGHT, 32, "a click lands on 4 <= y < 0x20");
+    assert_eq!(toolbar::MARGIN, 4, "the first button starts at x = 4");
+
+    // And the row adds up the way the original's table does: the margin, then
+    // every item's own width.
+    let width: u32 = toolbar::MARGIN
+        + toolbar::items()
+            .iter()
+            .map(|item| item.width())
+            .sum::<u32>();
+    assert!(width > 400 && width < 700, "a plausible strip: {width}");
+}
+
+/// The three colours are the Windows 3.1 defaults for the button system
+/// colours the original asks for.
+#[test]
+fn the_bevel_is_the_windows_grey() {
+    assert_eq!(toolbar::FACE, [0xc0, 0xc0, 0xc0]);
+    assert_eq!(toolbar::HILITE, [0xff, 0xff, 0xff]);
+    assert_eq!(toolbar::SHADOW, [0x80, 0x80, 0x80]);
+}

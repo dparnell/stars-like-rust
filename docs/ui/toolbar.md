@@ -71,6 +71,39 @@ and every button's picture is used exactly once. `DrawBitmapButton`
 button gets only the first **7** pixels of its cell, and a pressed button has
 both frame and picture nudged a pixel down and right.
 
+## How a button is drawn
+
+`DrawBitmapButton` (`1068:078c`) draws each one with eight `PatBlt`s and a
+couple of fills, and the shape is worth having exactly because it is what makes
+the row look like Windows 3.1 rather than like a modern toolbar.
+
+The button is **28 pixels tall** — rows `y` to `y + 0x1b` — and as wide as
+`DxOfBtn` says. Around it goes a **one-pixel ring**: lit along the top and the
+left, shadowed along the bottom and the right, with the four corner pixels laid
+in one at a time so the ring reads as rounded rather than square. Inside that
+is a one-pixel face. When the button is down the lit and shadowed edges **swap
+over**.
+
+The three colours come from Windows: `GetSysColor(15)`, `(20)` and `(16)` —
+`COLOR_BTNFACE`, `COLOR_BTNHIGHLIGHT`, `COLOR_BTNSHADOW`, kept in
+`crButtonFace` and friends. A modern desktop has no such colours to hand over,
+so this project uses the **3.1 defaults**: `C0C0C0`, `FFFFFF`, `808080`. The
+same face fills the whole strip (`WM_ERASEBKGND`), and the largest window
+layout draws a **black line down the strip's left edge**.
+
+**`fDown` is a distance, not a flag.** It is 0, 1 or 2, and the picture is
+blitted at `pt + (2 + fDown, 2 + fDown)`:
+
+| `fDown` | what it means | what changes |
+|---|---|---|
+| 0 | up | the face runs two pixels wide down the inner bottom and right |
+| 1 | latched — the view showing, or an overlay on | the bevel turns over, the picture moves a pixel, and the inner bottom and right keep a one-pixel face |
+| 2 | held down under the pointer | another pixel again, and the bottom-right corner is lit back up |
+
+`FIsButtonDown` (`1068:0c3a`) only ever answers 0 or 1: the second pixel comes
+from the mouse being held. So a latched button and a pressed one look
+**different**, which a single "is it on" flag cannot say.
+
 ## The coverage combo
 
 An **editable** combo, not a plain list. It reads its text, takes the leading
@@ -164,7 +197,9 @@ command does not either — the original only ever switches it on.
 
 The row and its exact layout — every gap, every width, the combo where the
 table puts it — the eighteen pictures out of the game's own bitmap when a copy
-of the original has been found, the pressed look and its one-pixel nudge, the
+of the original has been found, the bevel rectangle for rectangle in the
+Windows 3.1 button colours, the three-step press with its one- and two-pixel
+nudges, the
 radio group, every overlay toggle this project models, all three menus — mine
 fields and the two ship filters — the zoom menu with the nine sizes the
 original offers, the combo's parsing and clamping, and the state the toolbar
