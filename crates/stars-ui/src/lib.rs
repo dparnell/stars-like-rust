@@ -40,8 +40,8 @@ pub mod views;
 pub use app::{
     copied_plan_name, distance_text, fleet_arrow, App, BattlePlans, Browser, DesignView, Designer,
     DesignerDrag, Editing, FilterCommand, FilterEntry, FindResult, OrbitRing, PartRow,
-    PasswordDialog, PasswordPrompt, Production, RacePage, RaceWizard, ResearchDialog, ScanMenuItem,
-    ScanObject, ScanOverlays, ScanThing, ScanView, SchematicSlot, Screen, Selection, StatusBar,
-    SurveyBar, SurveySubject, TurnStatus, WindowLayout, ARROW_SHEET, MAX_BATTLE_PLANS,
-    RACE_WIZARD_PAGES, WORMHOLE_CELL, WORMHOLE_MASK, WORMHOLE_SIDE,
+    PasswordDialog, PasswordPrompt, PlanetMark, Production, RacePage, RaceWizard, ResearchDialog,
+    ScanMenuItem, ScanObject, ScanOverlays, ScanThing, ScanView, SchematicSlot, Screen, Selection,
+    StatusBar, SurveyBar, SurveySubject, TurnStatus, WindowLayout, ARROW_SHEET, MAX_BATTLE_PLANS,
+    PLANET_UNEXPLORED, RACE_WIZARD_PAGES, WORMHOLE_CELL, WORMHOLE_MASK, WORMHOLE_SIDE,
 };

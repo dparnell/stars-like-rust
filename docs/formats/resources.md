@@ -165,6 +165,10 @@ used, so this does not guess: the crop fails and the caller draws nothing.
   | `(16, row × 11)`, 11x11 | the orbit rings, three colours |
   | `(29, row × 19)`, 19x19 | the same at the larger size, used when the planet is the selected object |
   | `(0, 0x5c)`, 9x9, mask at `(9, 0x5c)` | the wormhole |
+  | `(0xb, 0xf)`, 3x3 | a planet position, unexplored |
+  | `(0xb, 0x12)`, 3x3 | a planet known but unowned |
+  | `(0xb, 0)` / `(0xb, 10)` / `(0xb, 5)`, 5x5 | an owned planet: this player's, a friend's, anybody else's |
+  | `(0, 0)` / `(0, 0x16)` / `(0, 0xb)` / `(0, 0x21)`, 11x11, mask at `(0, 0x45)` | the same four when the planet is selected |
 
 * **The minefield brushes** — `rghbrPat[0..3]`, resources 460, 461 and 462:
   three 8x8 two-colour tiles of scattered dots, one per kind of field. They are

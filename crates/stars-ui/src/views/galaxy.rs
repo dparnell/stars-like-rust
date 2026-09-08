@@ -137,6 +137,23 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     // app mutably and the loop is holding it.
     let rings = app.orbit_rings();
     let mut to_ring: Vec<(egui::Pos2, OrbitRing, bool)> = Vec::new();
+    // The Normal view's planet marks and their starbase flags, likewise: they
+    // are blits out of the scanner's sheet, which needs the app mutably.
+    let mut to_planet: Vec<(egui::Pos2, stars_ui_arrow::PlanetMark)> = Vec::new();
+    let mut to_starbase: Vec<(egui::Pos2, Color32, bool)> = Vec::new();
+
+    // Every planet **position** gets a dot, explored or not: everybody knows
+    // where the planets are, only not what is on them. `DrawScanner` walks
+    // `rgptPlan`, which is the whole universe, before it walks what is known.
+    if view == ScanView::Normal {
+        if let Some(universe) = app.universe.as_ref() {
+            for planet in universe.planets_resolved() {
+                #[allow(clippy::cast_precision_loss)]
+                let at = to_screen(planet.x as f32, planet.y as f32);
+                to_planet.push((at, stars_ui_arrow::PLANET_UNEXPLORED));
+            }
+        }
+    }
     for (planet, owned) in app.visible_planets() {
         let Some(position) = planet.position else {
             continue;
@@ -187,24 +204,30 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 let radius = (2.0 + (amount as f32).sqrt() / 6.0).min(9.0);
                 (crate::views::mineral_colour(best), radius)
             }
-            ScanView::Normal => match planet.owner {
-                Some(owner) => (player_colour(owner), if owned { 4.5 } else { 3.5 }),
-                // Unowned but seen: a faint dot.
-                None => (Color32::from_gray(110), 2.5),
-            },
+            // The Normal view is the game's own marks, gathered here and drawn
+            // after the loop because they come out of the scanner's sheet.
+            ScanView::Normal => {
+                to_planet.push((at, app.planet_mark(planet, Some(planet.id) == selected)));
+                if let Some([r, g, b]) = app.planet_starbase_mark(planet) {
+                    to_starbase.push((at, Color32::from_rgb(r, g, b), Some(planet.id) == selected));
+                }
+                (Color32::TRANSPARENT, 0.0)
+            }
         };
-        painter.circle_filled(at, radius, colour);
-        // A planet the player only knows about is drawn hollow, so the fog of
-        // war is visible at a glance.
-        if !owned {
-            painter.circle_stroke(
-                at,
-                radius + 1.5,
-                Stroke::new(1.0_f32, Color32::from_gray(70)),
-            );
-        }
-        if Some(planet.id) == selected {
-            painter.circle_stroke(at, radius + 4.0, Stroke::new(1.5_f32, Color32::WHITE));
+        if radius > 0.0 {
+            painter.circle_filled(at, radius, colour);
+            // A planet the player only knows about is drawn hollow, so the fog
+            // of war is visible at a glance.
+            if !owned {
+                painter.circle_stroke(
+                    at,
+                    radius + 1.5,
+                    Stroke::new(1.0_f32, Color32::from_gray(70)),
+                );
+            }
+            if Some(planet.id) == selected {
+                painter.circle_stroke(at, radius + 4.0, Stroke::new(1.5_f32, Color32::WHITE));
+            }
         }
         if let Ok(id) = u16::try_from(planet.id) {
             if let Some(ring) = rings.get(&id) {
@@ -236,6 +259,8 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             }
         }
     }
+
+    planet_marks(app, ui, &to_planet, &to_starbase);
 
     // The orbit rings, over the planets. The original blits one of three
     // rings out of the scanner's own sheet — grey for this player's fleets,
@@ -883,4 +908,71 @@ fn pattern_disc(
         }
     }
     egui::Shape::mesh(mesh)
+}
+
+/// Draw the planet marks gathered while the map was drawn.
+///
+/// Each is a blit out of `ScannerBmp`: a 3x3 dot for a position nobody has
+/// explored, a 3x3 for one that is known and unowned, a 5x5 in the owner's
+/// colour, and an 11x11 blob over a mask for whichever is selected. Without the
+/// game's own sheet each falls back to a disc of the same size and colour.
+///
+/// The starbase flag goes on top: a small filled square up and to the right,
+/// blue for a starbase and yellow for an orbital fort.
+fn planet_marks(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    planets: &[(egui::Pos2, stars_ui_arrow::PlanetMark)],
+    starbases: &[(egui::Pos2, Color32, bool)],
+) {
+    let ctx = ui.ctx().clone();
+    let painter = ui.painter().clone();
+    let sheet = stars_formats::resources::Name::Text("ScannerBmp".to_string());
+    for (at, mark) in planets {
+        let side = mark.side as f32;
+        let half = side / 2.0;
+        let rect = Rect::from_min_size(*at - Vec2::new(half, half), egui::vec2(side, side));
+        let drawn = app
+            .art
+            .as_mut()
+            .and_then(|art| match mark.mask {
+                Some(mask) => art.sprite_masked_at(
+                    &ctx,
+                    &sheet,
+                    mark.cell,
+                    mask,
+                    (mark.side, mark.side),
+                    egui::vec2(side, side),
+                ),
+                None => art.sprite_at(
+                    &ctx,
+                    &sheet,
+                    mark.cell.0,
+                    mark.cell.1,
+                    mark.side,
+                    mark.side,
+                    egui::vec2(side, side),
+                ),
+            })
+            .map(|image| image.paint_at(ui, rect))
+            .is_some();
+        if !drawn {
+            let [r, g, b] = mark.colour;
+            painter.circle_filled(*at, half, Color32::from_rgb(r, g, b));
+        }
+    }
+    for (at, colour, selected) in starbases {
+        // `pt + (3, -4)` and three pixels across, or `pt + (4, -6)` and five
+        // when the planet is the selected one.
+        let (offset, side) = if *selected {
+            (Vec2::new(4.0, -6.0), 5.0)
+        } else {
+            (Vec2::new(3.0, -4.0), 3.0)
+        };
+        painter.rect_filled(
+            Rect::from_min_size(*at + offset, egui::vec2(side, side)),
+            0.0,
+            *colour,
+        );
+    }
 }

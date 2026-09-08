@@ -216,6 +216,78 @@ All four kinds are listed, the Mystery Trader included.
 The menu is placed on the object rather than on the pointer, so it stays with
 what it is about; Escape or a click elsewhere puts it away.
 
+### The planets
+
+`DrawScanner` draws the planets in **two loops**, and which is which matters.
+
+The first walks `rgptPlan` — **every position in the universe**, not only what
+this player knows — and puts a 3x3 dot from `ScannerBmp` at `(0xb, 0xf)` on
+each. Everybody knows where the planets are; only what is on them is unknown,
+so an unexplored system is still on the map. (The selected position gets the
+11x11 starburst at `(0, 0x21)` here instead, in views 0 to 2.)
+
+The second walks the planets this player knows about and puts the real mark on
+top — `SCAN_LNormalScannerMode`, which the Normal view and the other views'
+fallbacks share:
+
+| what | cell | size |
+|------|------|------|
+| nobody owns it | `(0xb, 0x12)` | 3x3 |
+| this player's | `(0xb, 0)` | 5x5 |
+| a **friend's** | `(0xb, 10)` | 5x5 |
+| anybody else's | `(0xb, 5)` | 5x5 |
+| and selected | `(0, 0)`, `(0, 0x16)`, `(0, 0xb)`, or `(0, 0x21)` unowned | 11x11 over the mask at `(0, 0x45)` |
+
+The sheet's own colours are green for this player, yellow for a friend and red
+for the rest. Only a **friend** is set apart: the original reads the relations
+table for `== 1`, so a neutral is drawn exactly like an enemy.
+
+Three flags go on top of an owned planet, each a small filled square with a
+black edge — 3x3 at the offsets below, and 5x5 a pixel further out when the
+planet is the selected one:
+
+| flag | where | colour |
+|------|-------|--------|
+| starbase | `pt + (3, -4)` | **blue**, or **yellow** when the design's hull is `0x20` — hull 32, the Orbital Fort, so a fort is yellow and anything built beyond one is blue |
+| stargate | `pt + (-5, -4)` | green |
+| mass driver | `pt + (-1, -6)` | purple |
+
+Only the starbase flag is drawn here: this engine has no equivalent of
+`IStargateFromLppl` or `IWarpMAFromLppl`, which look through a starbase's slots
+for the two parts.
+
+### The other views
+
+`Planet Value` (view 3) draws **two concentric discs** rather than a dot: an
+outer ring and a brighter core, sized and coloured by
+`PctPlanetDesirability` — and by `PctPlanetOptValue`, what the planet would be
+worth terraformed, when the plain value is negative.
+
+| value | outer | inner | radius |
+|-------|-------|-------|--------|
+| `>= 0` | green | white | `value / 11 + 2`, capped at 10 |
+| `>= 0` only after terraforming | dark yellow | yellow | as above |
+| `< 0` | grey | red | `-value / 5 + 2`, capped at 10 |
+
+The inner disc is `r - 2`, or `r - 1` when that would be under 3, and at least
+1. A **Claim Adjuster** takes the terraformed value straight, and is never
+shown the yellow pair, because its planets are at their optimum every year.
+
+`Surface Minerals` and `Mineral Concentration` (views 1 and 2) draw a **three-bar
+histogram** beside each planet, in the three mineral colours, with an axis in
+the button-face colour. The offsets are `vrgScanPO`, five numbers for the
+ordinary zoom and five for the small one: `{7, 12, 19, 4, 6}` and
+`{3, 10, 11, 2, 3}` — x offset, y offset, axis length, bar width, bar spacing.
+A surface bar is `(amount + max/40) / (max/20)` and a concentration bar is
+`conc / 5`, both capped at 20 and halved at the small zoom.
+
+`Population` (view 4) draws a disc whose radius is a step into a nineteen-entry
+table plus two, and another player's population is a **guess** — the planet's
+`uGuesses` field, shifted left twice.
+
+Neither of those last three is transcribed yet: this project still draws its
+own dot for them. The rules above are written down so they can be.
+
 ### Minefields
 
 `grbitScan & 0x40` puts them up, and `DrawScanner` draws each as a circle whose

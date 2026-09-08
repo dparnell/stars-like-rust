@@ -7120,6 +7120,35 @@ impl App {
 
 // --- Clicking the same spot again -----------------------------------------
 
+/// How a planet is drawn on the map: which cell of `ScannerBmp`, and how big.
+///
+/// `DrawScanner` draws every planet **position** as a small dot and then puts
+/// something over the ones the player knows about, so an unexplored planet is
+/// still on the map — everybody knows where the planets are, only not what is
+/// on them.
+///
+/// The cells are three columns of the sheet: 3x3 dots and 5x5 dots at `x = 11`,
+/// and 11x11 blobs at `x = 0` with one mask for all of them at `y = 0x45`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlanetMark {
+    /// The cell's corner in `ScannerBmp`.
+    pub cell: (u32, u32),
+    /// How big the cell is, square.
+    pub side: u32,
+    /// The mask's corner, for the blobs that have one.
+    pub mask: Option<(u32, u32)>,
+    /// What to draw when there is no copy of the original to draw from.
+    pub colour: [u8; 3],
+}
+
+/// The 3x3 dot every planet position gets, explored or not (`(0xb, 0xf)`).
+pub const PLANET_UNEXPLORED: PlanetMark = PlanetMark {
+    cell: (0xb, 0xf),
+    side: 3,
+    mask: None,
+    colour: [0x80, 0x80, 0x80],
+};
+
 /// Where the wormhole glyph sits in `ScannerBmp`: a nine-pixel cell at `(0,
 /// 0x5c)` with its mask beside it at `(9, 0x5c)`.
 ///
@@ -7395,6 +7424,105 @@ impl App {
             });
         }
         out
+    }
+
+    /// How a planet the player knows about is drawn.
+    ///
+    /// `SCAN_LNormalScannerMode`, the arm the Normal view and the fallbacks use:
+    ///
+    /// * **nobody owns it** — a white 3x3 at `(0xb, 0x12)`, unless it is the
+    ///   selected point, which the base loop has already drawn as the grey
+    ///   11x11 starburst at `(0, 0x21)`;
+    /// * **somebody owns it** — a 5x5 at `(0xb, y)`, `y` being `0` for this
+    ///   player, `10` for a friend and `5` for anybody else;
+    /// * **and it is selected** — the 11x11 blob at `(0, y)` with the same
+    ///   three-way choice, `0`, `0x16` and `0xb`, over the mask at `(0, 0x45)`.
+    ///
+    /// The three colours are the sheet's own: green for this player, yellow for
+    /// a friend, red for the rest.
+    #[must_use]
+    pub fn planet_mark(&self, planet: &Planet, selected: bool) -> PlanetMark {
+        let me = self.local_player();
+        let Some(owner) = planet.owner else {
+            return if selected {
+                PlanetMark {
+                    cell: (0, 0x21),
+                    side: 11,
+                    mask: Some((0, 0x45)),
+                    colour: [0xc0, 0xc0, 0xc0],
+                }
+            } else {
+                PlanetMark {
+                    cell: (0xb, 0x12),
+                    side: 3,
+                    mask: None,
+                    colour: [0xff, 0xff, 0xff],
+                }
+            };
+        };
+        // Which of the three the owner earns. The original reads the relations
+        // table straight, so only a **friend** is set apart; a neutral is drawn
+        // like an enemy.
+        let friend = usize::try_from(owner).is_ok_and(|owner| {
+            self.game.as_ref().is_some_and(|game| {
+                stars_core::relations::regard(game, me, owner)
+                    == stars_core::relations::Relation::Friend
+            })
+        });
+        let mine = usize::try_from(owner).is_ok_and(|owner| owner == me);
+        let (small, big, colour) = if mine {
+            (0, 0, [0x00, 0xc0, 0x00])
+        } else if friend {
+            (10, 0x16, [0xff, 0xff, 0x00])
+        } else {
+            (5, 0xb, [0xff, 0x00, 0x00])
+        };
+        if selected {
+            PlanetMark {
+                cell: (0, big),
+                side: 11,
+                mask: Some((0, 0x45)),
+                colour,
+            }
+        } else {
+            PlanetMark {
+                cell: (0xb, small),
+                side: 5,
+                mask: None,
+                colour,
+            }
+        }
+    }
+
+    /// The **starbase** mark beside a planet, if it has one.
+    ///
+    /// A filled square at `pt + (3, -4)`, or `pt + (4, -6)` and larger when the
+    /// planet is the selected one. It is **blue** for a full starbase and
+    /// **yellow** otherwise — `fStarbase` is 2 when the design's hull is
+    /// `0x20`, which is 32, the first of the starbase hulls: the **Orbital
+    /// Fort**. So a fort is yellow and everything built beyond one is blue.
+    #[must_use]
+    pub fn planet_starbase_mark(&self, planet: &Planet) -> Option<[u8; 3]> {
+        if !planet.starbase {
+            return None;
+        }
+        let full = self.starbase_hull(planet).is_some_and(|hull| hull != 32);
+        Some(if full {
+            [0x40, 0x80, 0xff]
+        } else {
+            [0xff, 0xd0, 0x40]
+        })
+    }
+
+    /// The hull a planet's starbase is built on.
+    fn starbase_hull(&self, planet: &Planet) -> Option<i16> {
+        let game = self.game.as_ref()?;
+        let owner = usize::try_from(planet.owner?).ok()?;
+        let design = planet.starbase_design?;
+        game.designs
+            .get(owner)?
+            .get(usize::from(design))
+            .map(|design| design.hull_id)
     }
 
     /// What colour a minefield is drawn in.

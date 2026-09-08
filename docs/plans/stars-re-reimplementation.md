@@ -2410,7 +2410,32 @@ disagree.
     brush painting an overlap twice. Two circles of the same anchored pattern
     land their dots in the same places, so it comes to the same thing here.
 
-79. **What is still missing to call it playable.** Every waypoint task is now
+79. ~~**The planets, drawn properly.**~~ **Done** for the Normal view, which is
+    the default and the one the other views fall back to. Spec in
+    `docs/ui/scanner.md`.
+
+    `DrawScanner` draws them in **two loops**, and the first is the surprise:
+    it walks `rgptPlan`, **every position in the universe**, and dots each one
+    — everybody knows where the planets are, only not what is on them, so an
+    unexplored system is still on the map. This project had been drawing only
+    what the player knows. The second loop puts the real mark on top, out of
+    the scanner's sheet: a 3x3 for an unowned planet, a 5x5 in green, yellow or
+    red for an owned one, and an 11x11 blob over a shared mask for whichever is
+    selected. Only a **friend** is set apart from a stranger — the original
+    tests the relations table for `== 1`, so a neutral is drawn like an enemy.
+
+    The **starbase flag** goes on top: blue for a starbase and yellow when the
+    design's hull is `0x20`, which is hull 32, the Orbital Fort. The stargate
+    and mass-driver flags beside it are not drawn, because this engine has no
+    equivalent of `IStargateFromLppl` or `IWarpMAFromLppl`.
+
+    The other views' rules are recovered and written down but not yet
+    transcribed: Planet Value's two concentric discs with their sizes and three
+    colour pairs, the three-bar mineral histograms with the `vrgScanPO` offsets,
+    and Population's table-step radius with its `uGuesses` estimate for another
+    player's planets.
+
+80. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
