@@ -687,6 +687,78 @@ fn the_scanner_menu_draws() {
     draw(&mut app, Screen::Galaxy);
     assert!(app.scan_menu_at.is_some(), "drawing should not close it");
 
+    // With one of each space object on the map, so every glyph is drawn: the
+    // packet's two shapes, the wormhole pair and its line, and the Trader.
+    if let Some(game) = app.game.as_mut() {
+        game.packets = vec![
+            stars_core::packet::Packet {
+                id: 1,
+                owner: 0,
+                position: at,
+                target: 0,
+                warp: 0,
+                minerals: [1, 2, 3],
+                decay_rate: 0,
+                moved: false,
+                include: true,
+                turn: 0,
+            },
+            stars_core::packet::Packet {
+                id: 2,
+                owner: 1,
+                position: stars_core::movement::Point::new(at.x + 5, at.y),
+                target: 0,
+                warp: 6,
+                minerals: [1, 2, 3],
+                decay_rate: 0,
+                moved: false,
+                include: true,
+                turn: 0,
+            },
+        ];
+        game.wormholes = vec![
+            stars_core::wormhole::Wormhole {
+                id: 1,
+                position: stars_core::movement::Point::new(at.x + 9, at.y),
+                stability: 1,
+                years_still: 0,
+                dest_known: true,
+                include: true,
+                detected_by: 0xFFFF,
+                traversed_by: 0xFFFF,
+                partner: 2,
+                turn: 0,
+            },
+            stars_core::wormhole::Wormhole {
+                id: 2,
+                position: stars_core::movement::Point::new(at.x + 20, at.y + 20),
+                stability: 1,
+                years_still: 0,
+                dest_known: true,
+                include: true,
+                detected_by: 0xFFFF,
+                traversed_by: 0xFFFF,
+                partner: 1,
+                turn: 0,
+            },
+        ];
+        game.traders = vec![stars_core::wormhole::MysteryTrader {
+            id: 1,
+            position: stars_core::movement::Point::new(at.x - 9, at.y),
+            destination: stars_core::movement::Point::new(at.x + 40, at.y + 5),
+            warp: 9,
+            include: true,
+            detected_by: 0,
+            part: 0,
+            turn: 0,
+        }];
+    }
+    for zoom in [-4, 0, 4] {
+        app.scan_zoom = zoom;
+        draw(&mut app, Screen::Galaxy);
+    }
+    app.scan_zoom = 0;
+
     // And with the field selected, the survey pane draws its summary.
     app.select_object(stars_ui::ScanObject::Thing(stars_ui::ScanThing::Minefield(
         0,

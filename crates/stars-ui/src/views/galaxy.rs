@@ -276,49 +276,66 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         }
     }
 
-    // Mineral packets and wormholes. The original draws both with sprites out
-    // of the scanner's sheet; these are plain marks, as the minefields above
-    // are — enough to see one and to click it.
+    // Mineral packets, wormholes and the Mystery Trader, as `DrawScanner`
+    // draws them: a packet is an outline whose shape and size the game picks,
+    // a wormhole is a masked blit out of the scanner's own sheet with a line to
+    // its far end, and the Trader is a fleet arrow tinted yellow.
+    let mut to_wormhole: Vec<egui::Pos2> = Vec::new();
+    let mut to_trader: Vec<(egui::Pos2, u8)> = Vec::new();
     if let Some(game) = app.game.as_ref() {
+        // The line between a pair of wormholes goes under the glyphs.
+        for (index, hole) in game.wormholes.iter().enumerate() {
+            if !hole.include {
+                continue;
+            }
+            if let Some(far) = app.wormhole_line(index) {
+                let from = to_screen(f32::from(hole.position.x), f32::from(hole.position.y));
+                let to = to_screen(
+                    f32::from(game.wormholes[far].position.x),
+                    f32::from(game.wormholes[far].position.y),
+                );
+                painter.line_segment(
+                    [from, to],
+                    Stroke::new(1.0_f32, Color32::from_rgb(90, 0, 110)),
+                );
+            }
+        }
+
+        let radius = app.packet_mark_radius();
         for (index, packet) in game.packets.iter().enumerate() {
             if !packet.include {
                 continue;
             }
             let at = to_screen(f32::from(packet.position.x), f32::from(packet.position.y));
             if let Some(p) = pointer {
-                if (p - at).length() <= 6.0 {
+                if (p - at).length() <= radius + 3.0 {
                     thing_hit.get_or_insert(ScanThing::Packet(index));
                 }
             }
-            // A diamond, in the colour of whoever threw it.
-            let colour = player_colour(packet.owner);
-            let half = 3.5;
-            painter.add(egui::Shape::convex_polygon(
-                vec![
-                    at + Vec2::new(0.0, -half),
-                    at + Vec2::new(half, 0.0),
-                    at + Vec2::new(0.0, half),
-                    at + Vec2::new(-half, 0.0),
-                ],
-                colour,
-                Stroke::NONE,
-            ));
-        }
-        for (index, trader) in game.traders.iter().enumerate() {
-            if !trader.include {
-                continue;
-            }
-            let at = to_screen(f32::from(trader.position.x), f32::from(trader.position.y));
-            if let Some(p) = pointer {
-                if (p - at).length() <= 7.0 {
-                    thing_hit.get_or_insert(ScanThing::Trader(index));
-                }
-            }
-            // A star, for the one wanderer that gives something back.
-            let colour = Color32::from_rgb(240, 220, 120);
-            for (dx, dy) in [(0.0, 6.0), (6.0, 0.0), (4.0, 4.0), (4.0, -4.0)] {
-                painter.line_segment(
-                    [at - Vec2::new(dx, dy), at + Vec2::new(dx, dy)],
+            if App::packet_is_diamond(packet) {
+                // A packet with no speed: a yellow diamond, a pixel outside the
+                // radius on every side.
+                let r = radius + 1.0;
+                painter.add(egui::Shape::closed_line(
+                    vec![
+                        at + Vec2::new(0.0, -r),
+                        at + Vec2::new(-r, 0.0),
+                        at + Vec2::new(0.0, r),
+                        at + Vec2::new(r, 0.0),
+                    ],
+                    Stroke::new(1.0_f32, Color32::from_rgb(255, 255, 0)),
+                ));
+            } else {
+                // One under way: a square, red unless it is ours.
+                let mine = usize::try_from(packet.owner).is_ok_and(|o| o == app.local_player());
+                let colour = if mine {
+                    Color32::from_gray(200)
+                } else {
+                    Color32::from_rgb(255, 0, 0)
+                };
+                painter.rect_stroke(
+                    egui::Rect::from_center_size(at, egui::vec2(radius * 2.0, radius * 2.0)),
+                    0.0,
                     Stroke::new(1.0_f32, colour),
                 );
             }
@@ -329,16 +346,37 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             }
             let at = to_screen(f32::from(hole.position.x), f32::from(hole.position.y));
             if let Some(p) = pointer {
-                if (p - at).length() <= 7.0 {
+                if (p - at).length() <= 6.0 {
                     thing_hit.get_or_insert(ScanThing::Wormhole(index));
                 }
             }
-            // Two rings, which is as close to a swirl as a circle gets.
-            let colour = Color32::from_rgb(180, 140, 220);
-            painter.circle_stroke(at, 6.0, Stroke::new(1.0_f32, colour));
-            painter.circle_stroke(at, 3.0, Stroke::new(1.0_f32, colour));
+            to_wormhole.push(at);
+        }
+        for (index, trader) in game.traders.iter().enumerate() {
+            if !trader.include {
+                continue;
+            }
+            let at = to_screen(f32::from(trader.position.x), f32::from(trader.position.y));
+            if let Some(p) = pointer {
+                if (p - at).length() <= 6.0 {
+                    thing_hit.get_or_insert(ScanThing::Trader(index));
+                }
+            }
+            if let Some(arrow) = app.trader_arrow(index) {
+                to_trader.push((at, arrow));
+            }
         }
     }
+    wormholes(app, ui, &to_wormhole);
+    // The Trader's arrow is the fleets' own sheet, tinted yellow.
+    fleet_arrows(
+        app,
+        ui,
+        &to_trader
+            .iter()
+            .map(|(at, arrow)| (*at, *arrow, Color32::from_rgb(255, 255, 0)))
+            .collect::<Vec<_>>(),
+    );
 
     // Fleets, as small marks offset from their planet so they do not hide it.
     let mut to_arrow: Vec<(egui::Pos2, u8, Color32)> = Vec::new();
@@ -700,6 +738,51 @@ fn fleet_arrows(app: &mut App, ui: &mut egui::Ui, arrows: &[(egui::Pos2, u8, Col
             .is_some();
         if !drawn {
             painter.rect_filled(Rect::from_center_size(*at, Vec2::splat(3.0)), 0.0, *colour);
+        }
+    }
+}
+
+/// Draw the wormholes gathered while the map was drawn.
+///
+/// `DrawScanner` blits a nine-pixel cell out of `ScannerBmp` with the mask
+/// beside it, centred on the wormhole. Without the game's own sheet it is two
+/// rings, which is as close to a swirl as a circle gets.
+fn wormholes(app: &mut App, ui: &mut egui::Ui, holes: &[egui::Pos2]) {
+    if holes.is_empty() {
+        return;
+    }
+    let ctx = ui.ctx().clone();
+    let painter = ui.painter().clone();
+    let side = stars_ui_arrow::WORMHOLE_SIDE;
+    for at in holes {
+        let drawn = app
+            .art
+            .as_mut()
+            .and_then(|art| {
+                art.sprite_masked_at(
+                    &ctx,
+                    &stars_formats::resources::Name::Text("ScannerBmp".to_string()),
+                    stars_ui_arrow::WORMHOLE_CELL,
+                    stars_ui_arrow::WORMHOLE_MASK,
+                    (side, side),
+                    egui::vec2(side as f32, side as f32),
+                )
+            })
+            .map(|image| {
+                let half = side as f32 / 2.0;
+                image.paint_at(
+                    ui,
+                    Rect::from_min_size(
+                        *at - Vec2::new(half, half),
+                        egui::vec2(side as f32, side as f32),
+                    ),
+                );
+            })
+            .is_some();
+        if !drawn {
+            let colour = Color32::from_rgb(180, 140, 220);
+            painter.circle_stroke(*at, 4.0, Stroke::new(1.0_f32, colour));
+            painter.circle_stroke(*at, 2.0, Stroke::new(1.0_f32, colour));
         }
     }
 }

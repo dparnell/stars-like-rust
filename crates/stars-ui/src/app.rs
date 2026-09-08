@@ -7120,6 +7120,17 @@ impl App {
 
 // --- Clicking the same spot again -----------------------------------------
 
+/// Where the wormhole glyph sits in `ScannerBmp`: a nine-pixel cell at `(0,
+/// 0x5c)` with its mask beside it at `(9, 0x5c)`.
+///
+/// `DrawScanner` blits the mask and then the image, centred on the wormhole
+/// (`pt - 4`).
+pub const WORMHOLE_CELL: (u32, u32) = (0, 0x5c);
+/// Its mask.
+pub const WORMHOLE_MASK: (u32, u32) = (9, 0x5c);
+/// How big both are.
+pub const WORMHOLE_SIDE: u32 = 9;
+
 /// What the three kinds of minefield are called (`rgszMineFieldTypes`, the
 /// table `Field Type:` is indexed into).
 pub const MINEFIELD_KINDS: [&str; 3] = ["Mine Field", "Heavy Mine Field", "Speed Bump Field"];
@@ -7384,6 +7395,67 @@ impl App {
             });
         }
         out
+    }
+
+    /// Half the width of a mineral packet's mark, by zoom.
+    ///
+    /// `DrawScanner` picks 2, 3 or 5 from `iScanZoom` — the mark is drawn a
+    /// pixel outside that either way, so the shape spans `2r + 3`.
+    #[must_use]
+    pub fn packet_mark_radius(&self) -> f32 {
+        if self.scan_zoom < 1 {
+            2.0
+        } else if self.scan_zoom < 3 {
+            3.0
+        } else {
+            5.0
+        }
+    }
+
+    /// Whether a packet is drawn as a **diamond** rather than a square.
+    ///
+    /// `DrawScanner` switches on the packet's warp field — `(wFlags >> 10) &
+    /// 0xf`, which is where the speed is stored — and draws a yellow diamond
+    /// when it is zero, a square in the owner's colour otherwise. A packet
+    /// with no speed is one that has arrived and is waiting to be caught.
+    #[must_use]
+    pub fn packet_is_diamond(packet: &stars_core::packet::Packet) -> bool {
+        packet.warp == 0
+    }
+
+    /// The wormhole at the far end of `index`, when the line between the two
+    /// should be drawn.
+    ///
+    /// `DrawScanner` joins a pair with a line, but only from the **lower** of
+    /// the two ids, so it is drawn once, and only for a player who has been
+    /// through it (`grbitPlr`, which this engine keeps as `traversed_by`).
+    #[must_use]
+    pub fn wormhole_line(&self, index: usize) -> Option<usize> {
+        let game = self.game.as_ref()?;
+        let hole = game.wormholes.get(index)?;
+        let me = u32::try_from(self.local_player()).unwrap_or(0);
+        if hole.traversed_by & (1u16 << (me & 0x0F)) == 0 {
+            return None;
+        }
+        let partner = hole.partner & 0x01FF;
+        if hole.id >= partner {
+            return None;
+        }
+        game.wormholes.iter().position(|other| other.id == partner)
+    }
+
+    /// Which way the Mystery Trader is drawn pointing.
+    ///
+    /// It is a **fleet arrow** — `DrawScanner` selects `hbmpScanShip`, tints it
+    /// yellow and orients it with `GetDxDyOrientation` on the way to its
+    /// destination — so it uses the same eight-way sheet the fleets do.
+    #[must_use]
+    pub fn trader_arrow(&self, index: usize) -> Option<u8> {
+        let trader = self.game.as_ref()?.traders.get(index)?;
+        Some(fleet_arrow(
+            trader.destination.x - trader.position.x,
+            trader.destination.y - trader.position.y,
+        ))
     }
 
     /// The space objects at a point, in the order the original's `lpThings`

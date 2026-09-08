@@ -43,5 +43,5 @@ pub use app::{
     PasswordDialog, PasswordPrompt, Production, RacePage, RaceWizard, ResearchDialog, ScanMenuItem,
     ScanObject, ScanOverlays, ScanThing, ScanView, SchematicSlot, Screen, Selection, StatusBar,
     SurveyBar, SurveySubject, TurnStatus, WindowLayout, ARROW_SHEET, MAX_BATTLE_PLANS,
-    RACE_WIZARD_PAGES,
+    RACE_WIZARD_PAGES, WORMHOLE_CELL, WORMHOLE_MASK, WORMHOLE_SIDE,
 };

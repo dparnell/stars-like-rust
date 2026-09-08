@@ -2368,7 +2368,25 @@ disagree.
     That also corrects the previous two entries, which said this engine had no
     model for a Mystery Trader. It has one; only the interface did not.
 
-77. **What is still missing to call it playable.** Every waypoint task is now
+77. ~~**The space objects, drawn properly.**~~ **Done.** The marks put up when
+    the right-click menu needed something to click are gone; all three are
+    drawn as `DrawScanner`'s own loop over `lpThings` draws them. Spec in
+    `docs/ui/scanner.md`.
+
+    A **packet** is an outline the game sizes by zoom (2, 3 or 5 half-width)
+    and shapes by its warp field: zero is a yellow diamond, anything else a
+    square, red when it is not this player's. A **wormhole** is a nine-pixel
+    masked blit out of `ScannerBmp` at `(0, 0x5c)` with its mask at `(9,
+    0x5c)`, plus a line to its far end drawn from the lower id and only for a
+    player who has been through it. The **Mystery Trader** turns out to have no
+    glyph of its own: it is the fleets' arrow sheet tinted yellow and pointed
+    at its destination, so it goes through the same code the fleet arrows do.
+
+    `Art` gained `sprite_masked_at` for the wormhole, which is the game's
+    two-blit `SRCAND`/`SRCPAINT` pair done once into a texture — the first
+    thing here to need a real mask rather than a stencil or a plain cell.
+
+78. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

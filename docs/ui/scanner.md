@@ -218,12 +218,33 @@ what it is about; Escape or a click elsewhere puts it away.
 
 ### Packets, wormholes and the Trader on the map
 
-None of the three was drawn at all before the menu needed them to be clickable.
-They are plain marks — a diamond in the owner's colour for a packet, two rings
-for a wormhole, a star for the Mystery Trader — where the original has sprites
-out of the scanner's own sheet, in the same spirit as the minefield circles
-beside them. Planets and fleets outrank them under the pointer, which is the
-order `FFindNearestObject`'s mask implies.
+`DrawScanner`'s own loop over `lpThings` draws the three of them, each a
+different way, and none of it is a sprite chosen by this project:
+
+**A mineral packet** is an outline the game draws itself, sized by the zoom —
+`iScanZoom < 1` gives a half-width of 2, under 3 gives 3, and 5 above that. Its
+shape says whether it is going anywhere: a packet whose **warp field is zero**
+is a yellow **diamond**, drawn a pixel outside that half-width on each side,
+and one under way is a **square**, in the ship colour or **red** when it is not
+this player's.
+
+**A wormhole** is a nine-pixel blit out of `ScannerBmp` at `(0, 0x5c)` with its
+mask beside it at `(9, 0x5c)`, centred on the hole — the mask `AND`ed in
+(`0x8800c6`) and then the image `OR`ed (`0xee0086`), which is the ordinary way
+of putting a shaped glyph on a background. `Art::sprite_masked_at` does that
+pair in one texture. A **line joins a pair**, drawn from the lower of the two
+ids so it is drawn once, and only for a player who has **been through it**
+(`grbitPlr`, this engine's `traversed_by`).
+
+**The Mystery Trader** is not a glyph of its own at all: `DrawScanner` selects
+`hbmpScanShip` — the fleets' own eight-way arrow sheet — tints it **yellow**
+and orients it with `GetDxDyOrientation` along the way to its destination. So
+it is a fleet arrow in another colour, and it goes through the same code here.
+
+Planets and fleets outrank all three under the pointer, which is the order
+`FFindNearestObject`'s mask implies. Without a copy of the original the
+wormhole falls back to two rings, as everything else falls back when the
+artwork is missing.
 
 ## Player colours
 

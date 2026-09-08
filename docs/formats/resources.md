@@ -157,6 +157,21 @@ used, so this does not guess: the crop fails and the caller draws nothing.
   16 pixels on the 64-pixel picture, 8 on the 32-pixel one — from the medium
   and small emblem sheets.
 
+* **The scanner's own glyphs** — `ScannerBmp`, a 48x101 sheet the map draws
+  several things out of, by fixed corner rather than by index:
+
+  | cell | what |
+  |------|------|
+  | `(16, row × 11)`, 11x11 | the orbit rings, three colours |
+  | `(29, row × 19)`, 19x19 | the same at the larger size, used when the planet is the selected object |
+  | `(0, 0x5c)`, 9x9, mask at `(9, 0x5c)` | the wormhole |
+
+  The wormhole is the one that needs its **mask**: `DrawScanner` blits the mask
+  with `SRCAND` and then the glyph with `SRCPAINT`, which is how a shaped
+  sprite goes on a background. `Art::sprite_masked_at` folds the pair into one
+  texture — a Windows AND-mask is white where the background shows through, so
+  that is where the alpha goes to zero. See `../ui/scanner.md`.
+
 ## Source
 
 - `InitStuff` (`init.c`), where every bitmap is loaded.

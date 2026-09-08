@@ -566,3 +566,106 @@ fn the_mystery_trader_is_listed_and_summarised() {
     let rows = app.survey_thing_rows();
     assert_eq!(rows, vec!["Trader is traveling at Warp 9.".to_string()]);
 }
+
+// --- How the space objects are drawn ------------------------------------
+//
+// `DrawScanner`'s thing loop: a packet is an outline the game sizes by zoom, a
+// wormhole is a masked blit with a line to its far end, and the Trader is a
+// fleet arrow tinted yellow.
+
+/// The packet's mark grows with the zoom, in the original's three steps.
+#[test]
+fn a_packet_s_mark_grows_with_the_zoom() {
+    let mut app = a_game();
+    for (zoom, radius) in [(-4, 2.0), (0, 2.0), (1, 3.0), (2, 3.0), (3, 5.0), (4, 5.0)] {
+        app.scan_zoom = zoom;
+        assert_eq!(app.packet_mark_radius(), radius, "at zoom {zoom}");
+    }
+}
+
+/// A packet with no speed is a diamond; one under way is a square.
+#[test]
+fn a_packet_with_no_speed_is_a_diamond() {
+    use stars_core::packet::Packet;
+
+    let packet = |warp: u8| Packet {
+        id: 1,
+        owner: 0,
+        position: Point::new(5, 5),
+        target: 0,
+        warp,
+        minerals: [0, 0, 0],
+        decay_rate: 0,
+        moved: false,
+        include: true,
+        turn: 0,
+    };
+    assert!(App::packet_is_diamond(&packet(0)));
+    assert!(!App::packet_is_diamond(&packet(6)));
+}
+
+/// The line between a pair of wormholes is drawn once, from the lower id, and
+/// only for a player who has been through it.
+#[test]
+fn the_line_between_wormholes_is_drawn_once() {
+    use stars_core::wormhole::Wormhole;
+
+    let mut app = a_game();
+    let hole = |id: u16, partner: u16, traversed: u16| Wormhole {
+        id,
+        position: Point::new(i16::try_from(id).unwrap_or(0) * 10, 20),
+        stability: 1,
+        years_still: 0,
+        dest_known: true,
+        include: true,
+        detected_by: 0xFFFF,
+        traversed_by: traversed,
+        partner,
+        turn: 0,
+    };
+    app.game.as_mut().expect("a game").wormholes = vec![hole(1, 2, 1), hole(2, 1, 1)];
+
+    assert_eq!(app.wormhole_line(0), Some(1), "from the lower id");
+    assert_eq!(app.wormhole_line(1), None, "and not back again");
+
+    // A player who has not been through sees no line at all.
+    for hole in &mut app.game.as_mut().expect("a game").wormholes {
+        hole.traversed_by = 0;
+    }
+    assert_eq!(app.wormhole_line(0), None);
+}
+
+/// The Trader points where it is going, on the fleets' own eight-way sheet.
+#[test]
+fn the_trader_points_at_its_destination() {
+    use stars_core::wormhole::MysteryTrader;
+
+    let mut app = a_game();
+    let trader = |dest: Point| MysteryTrader {
+        id: 1,
+        position: Point::new(50, 50),
+        destination: dest,
+        warp: 9,
+        include: true,
+        detected_by: 0,
+        part: 0,
+        turn: 0,
+    };
+    // Due east and due west are different arrows, and both are on the sheet.
+    app.game.as_mut().expect("a game").traders = vec![trader(Point::new(90, 50))];
+    let east = app.trader_arrow(0).expect("an arrow");
+    app.game.as_mut().expect("a game").traders = vec![trader(Point::new(10, 50))];
+    let west = app.trader_arrow(0).expect("an arrow");
+    assert_ne!(east, west);
+    assert!(east < 8 && west < 8, "eight ways round the sheet");
+    // The same way the fleets are pointed, so the same function decides.
+    assert_eq!(east, stars_ui::fleet_arrow(40, 0));
+}
+
+/// Where the wormhole glyph and its mask sit in the scanner's sheet.
+#[test]
+fn the_wormhole_glyph_is_where_the_blit_says() {
+    assert_eq!(stars_ui::WORMHOLE_CELL, (0, 0x5c));
+    assert_eq!(stars_ui::WORMHOLE_MASK, (9, 0x5c));
+    assert_eq!(stars_ui::WORMHOLE_SIDE, 9);
+}

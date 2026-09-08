@@ -30,9 +30,16 @@ pub struct Art {
     /// Monochrome sheets uploaded as **stencils** — the drawn part opaque and
     /// the rest clear, so the caller can tint it.
     stencils: HashMap<Name, egui::TextureHandle>,
+    /// Single cells uploaded with a **mask** cell applied as their alpha, keyed
+    /// by the sheet and the two cells' corners.
+    masked: HashMap<MaskedKey, egui::TextureHandle>,
     /// Where it came from, for the frontend to show.
     pub source: String,
 }
+
+/// What a masked cell is cached under: the sheet, the cell's corner, the
+/// mask's corner and the size of both.
+type MaskedKey = (Name, u32, u32, u32, u32, u32, u32);
 
 impl Art {
     /// Take a copy of the executable and check that it really has the
@@ -56,6 +63,7 @@ impl Art {
             decoded: HashMap::new(),
             textures: HashMap::new(),
             stencils: HashMap::new(),
+            masked: HashMap::new(),
             source: source.to_string(),
         })
     }
@@ -214,6 +222,70 @@ pub fn draw_with(art: Option<&mut Art>, ui: &mut egui::Ui, cell: Cell, size: f32
 }
 
 impl Art {
+    /// One cell of a sheet, with a second cell used as its **mask**.
+    ///
+    /// This is the pair of blits the game uses for a glyph that has to sit on
+    /// whatever is behind it — the mask `AND`ed in and then the image `OR`ed
+    /// (`0x8800c6` then `0xee0086`). A Windows AND-mask is **white where the
+    /// background shows through**, so that is where the alpha goes to zero.
+    pub fn sprite_masked_at(
+        &mut self,
+        ctx: &egui::Context,
+        name: &Name,
+        cell: (u32, u32),
+        mask: (u32, u32),
+        size: (u32, u32),
+        draw_at: egui::Vec2,
+    ) -> Option<egui::Image<'_>> {
+        let key = (name.clone(), cell.0, cell.1, mask.0, mask.1, size.0, size.1);
+        if !self.masked.contains_key(&key) {
+            let sheet = self.sheet(name)?;
+            let (width, height) = (size.0 as usize, size.1 as usize);
+            let mut pixels = Vec::with_capacity(width * height * 4);
+            for row in 0..height {
+                for column in 0..width {
+                    let at = |x: u32, y: u32| -> Option<[u8; 4]> {
+                        let x = x as usize + column;
+                        let y = y as usize + row;
+                        let (sheet_w, sheet_h) = (sheet.width as usize, sheet.height as usize);
+                        if x >= sheet_w || y >= sheet_h {
+                            return None;
+                        }
+                        let i = (y * sheet_w + x) * 4;
+                        Some([
+                            sheet.pixels[i],
+                            sheet.pixels[i + 1],
+                            sheet.pixels[i + 2],
+                            sheet.pixels[i + 3],
+                        ])
+                    };
+                    let (Some(colour), Some(mask)) = (at(cell.0, cell.1), at(mask.0, mask.1))
+                    else {
+                        return None;
+                    };
+                    // White in the mask is background; anything darker is the
+                    // glyph.
+                    let clear = mask[0] > 0x7f && mask[1] > 0x7f && mask[2] > 0x7f;
+                    pixels.extend_from_slice(&[
+                        colour[0],
+                        colour[1],
+                        colour[2],
+                        if clear { 0x00 } else { 0xff },
+                    ]);
+                }
+            }
+            let image = egui::ColorImage::from_rgba_unmultiplied([width, height], &pixels);
+            let handle = ctx.load_texture(
+                format!("stars-masked-{:?}-{}-{}", name, cell.0, cell.1),
+                image,
+                egui::TextureOptions::NEAREST,
+            );
+            self.masked.insert(key.clone(), handle);
+        }
+        let handle = self.masked.get(&key)?;
+        Some(egui::Image::new((handle.id(), draw_at)).fit_to_exact_size(draw_at))
+    }
+
     /// A rectangle of a **monochrome** sheet, as a stencil to be tinted.
     ///
     /// The game's one-bit sheets are not pictures: they are shapes, blitted
