@@ -166,6 +166,12 @@ used, so this does not guess: the crop fails and the caller draws nothing.
   | `(29, row × 19)`, 19x19 | the same at the larger size, used when the planet is the selected object |
   | `(0, 0x5c)`, 9x9, mask at `(9, 0x5c)` | the wormhole |
 
+* **The minefield brushes** — `rghbrPat[0..3]`, resources 460, 461 and 462:
+  three 8x8 two-colour tiles of scattered dots, one per kind of field. They are
+  pattern brushes rather than pictures, tiled across a circle and anchored to
+  the map's origin; `Art::pattern` uploads one with `Repeat` wrapping and the
+  drawn pixel opaque, so a caller tiles and tints it.
+
   The wormhole is the one that needs its **mask**: `DrawScanner` blits the mask
   with `SRCAND` and then the glyph with `SRCPAINT`, which is how a shaped
   sprite goes on a background. `Art::sprite_masked_at` folds the pair into one

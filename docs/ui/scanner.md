@@ -61,7 +61,7 @@ planet stored near `y = 0` appears at the *bottom* of the scanner.
 |---|---|
 | `Planet Names Overlay` | names beside the dots |
 | `Scanner Coverage Overlay` | how far each scanner sees |
-| `Mine Fields Overlay` | the fields, as circles |
+| `Mine Fields Overlay` | the fields, as patterned circles |
 | `Fleet Paths Overlay` | each fleet's waypoints, leg by leg |
 | `Ship Counts Overlay` | how many ships in each fleet |
 | `Idle Fleets Filter` | show only the fleets with nothing to do |
@@ -215,6 +215,34 @@ All four kinds are listed, the Mystery Trader included.
 
 The menu is placed on the object rather than on the pointer, so it stays with
 what it is about; Escape or a click elsewhere puts it away.
+
+### Minefields
+
+`grbitScan & 0x40` puts them up, and `DrawScanner` draws each as a circle whose
+radius is the **square root of its mine count** — but not as a flat disc. It
+walks the fields in three groups, and inside each group by kind, filling every
+one with a **pattern brush**:
+
+* **the fill** is `rghbrPat[kind]`, one of three 8x8 monochrome brushes
+  (resources 460, 461 and 462), so the hatch says whether the field is
+  standard, heavy or a speed bump. `SetBrushOrg` anchors it to the map's
+  origin, so the dots hold still when the map moves rather than sliding with
+  each circle;
+* **the colour** is `rgcrScanMine[group]`, and `MANUAL.PDF` p. 5-14 names the
+  three: **yours blue, a friend's yellow, and anybody else's red**. The map
+  shares one colour between neutrals and enemies where the menu keeps them
+  apart;
+* a field **armed to detonate** is drawn **red** whoever owns it. That is the
+  second pass the loop makes over kind 0 — and only kind 0, since a standard
+  field is the only one that can be armed;
+* the centre gets a small mark of its own, but only when **no planet is
+  sitting on it** (`rgptPlan` is searched for the point first), since a planet
+  would cover it anyway.
+
+Not reproduced: `DrawRadarCircle`'s `fHollowOut`, which hollows each circle out
+of the ones already drawn so a pattern brush cannot paint an overlap twice.
+Drawing the same anchored pattern twice comes to the same thing here, because
+the dots land in the same places either way.
 
 ### Packets, wormholes and the Trader on the map
 

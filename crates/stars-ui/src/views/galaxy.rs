@@ -92,9 +92,12 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     // A space object under the pointer, which planets and fleets outrank.
     let mut thing_hit: Option<ScanThing> = None;
 
-    // Minefields first, so they lie under the planets rather than over them. A
-    // field is a circle whose radius is the square root of its mine count,
-    // which is exactly how the game draws one. It is an overlay of its own.
+    // Minefields first, so they lie under the planets rather than over them.
+    // A field is a circle whose radius is the square root of its mine count,
+    // filled with one of the game's three pattern brushes — the hatch says
+    // which kind of field it is — in the colour its owner earns. It is an
+    // overlay of its own.
+    let mut to_minefield: Vec<(egui::Pos2, f32, u16, Color32, bool)> = Vec::new();
     if let Some(game) = app.game.as_ref().filter(|_| app.scan_overlays.minefields) {
         for (field_index, field) in game.minefields.iter().enumerate() {
             // The menu behind the Mine Fields button chooses whose are drawn.
@@ -104,28 +107,23 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             let at = to_screen(f32::from(field.position.x), f32::from(field.position.y));
             #[allow(clippy::cast_possible_truncation)]
             let radius = field.radius() as f32 * scale;
-            let colour = player_colour(field.owner);
             // A field's own centre is clickable, under the planets and fleets.
             if let Some(p) = pointer {
                 if (p - at).length() <= 6.0 {
                     thing_hit.get_or_insert(ScanThing::Minefield(field_index));
                 }
             }
-            painter.circle_filled(
+            let [r, g, b] = app.minefield_colour(field);
+            to_minefield.push((
                 at,
                 radius,
-                Color32::from_rgba_unmultiplied(colour.r(), colour.g(), colour.b(), 24),
-            );
-            painter.circle_stroke(
-                at,
-                radius,
-                Stroke::new(
-                    1.0_f32,
-                    Color32::from_rgba_unmultiplied(colour.r(), colour.g(), colour.b(), 90),
-                ),
-            );
+                App::minefield_pattern(field),
+                Color32::from_rgb(r, g, b),
+                app.minefield_centre_marked(field),
+            ));
         }
     }
+    minefields(app, ui, &to_minefield, rect.min);
 
     let view = app.scan_view;
     let race = app
@@ -785,4 +783,104 @@ fn wormholes(app: &mut App, ui: &mut egui::Ui, holes: &[egui::Pos2]) {
             painter.circle_stroke(*at, 2.0, Stroke::new(1.0_f32, colour));
         }
     }
+}
+
+/// Draw the minefields gathered while the map was drawn.
+///
+/// `DrawScanner` fills each with one of three 8x8 pattern brushes
+/// (`rghbrPat`, resources 460 to 462, one per kind) in the field's own colour,
+/// anchored to the map's origin with `SetBrushOrg` so the dots hold still when
+/// the map moves — which is why the pattern is tiled from `origin` here rather
+/// than from each circle.
+///
+/// Without the game's own brushes it is the translucent disc this project drew
+/// before.
+///
+/// Not reproduced: the original hollows each circle out of the ones already
+/// drawn (`fHollowOut`), which keeps a pattern brush from painting an overlap
+/// twice. Drawing the same pattern twice at the same anchor comes to the same
+/// thing here, since the dots land in the same places.
+fn minefields(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    fields: &[(egui::Pos2, f32, u16, Color32, bool)],
+    origin: egui::Pos2,
+) {
+    if fields.is_empty() {
+        return;
+    }
+    let ctx = ui.ctx().clone();
+    let painter = ui.painter().clone();
+    for (at, radius, pattern, colour, mark_centre) in fields {
+        let name = stars_formats::resources::Name::Id(*pattern);
+        let tile = app
+            .art
+            .as_mut()
+            .and_then(|art| Some((art.pattern(&ctx, &name)?, art.sheet_size(&name)?)));
+        match tile {
+            Some((texture, (width, height))) => {
+                painter.add(pattern_disc(
+                    *at,
+                    *radius,
+                    texture,
+                    egui::vec2(width as f32, height as f32),
+                    origin,
+                    *colour,
+                ));
+            }
+            None => {
+                painter.circle_filled(
+                    *at,
+                    *radius,
+                    Color32::from_rgba_unmultiplied(colour.r(), colour.g(), colour.b(), 24),
+                );
+                painter.circle_stroke(
+                    *at,
+                    *radius,
+                    Stroke::new(
+                        1.0_f32,
+                        Color32::from_rgba_unmultiplied(colour.r(), colour.g(), colour.b(), 90),
+                    ),
+                );
+            }
+        }
+        // The centre gets a mark of its own when no planet is sitting on it.
+        if *mark_centre {
+            let half = 2.0;
+            painter.rect_filled(
+                Rect::from_center_size(*at, egui::vec2(half * 2.0, half * 2.0)),
+                0.0,
+                *colour,
+            );
+        }
+    }
+}
+
+/// A disc filled with a tiling pattern, anchored to `origin`.
+fn pattern_disc(
+    at: egui::Pos2,
+    radius: f32,
+    texture: egui::TextureId,
+    tile: Vec2,
+    origin: egui::Pos2,
+    colour: Color32,
+) -> egui::Shape {
+    let mut mesh = egui::Mesh::with_texture(texture);
+    let uv = |p: egui::Pos2| egui::pos2((p.x - origin.x) / tile.x, (p.y - origin.y) / tile.y);
+    mesh.colored_vertex(at, colour);
+    mesh.vertices[0].uv = uv(at);
+    // A fan, fine enough that the edge reads as a circle at any zoom.
+    let steps = ((radius * 1.5) as usize).clamp(16, 96);
+    for step in 0..=steps {
+        #[allow(clippy::cast_precision_loss)]
+        let angle = step as f32 / steps as f32 * std::f32::consts::TAU;
+        let p = at + Vec2::new(angle.cos(), angle.sin()) * radius;
+        mesh.colored_vertex(p, colour);
+        let last = mesh.vertices.len() - 1;
+        mesh.vertices[last].uv = uv(p);
+        if step > 0 {
+            mesh.add_triangle(0, last as u32 - 1, last as u32);
+        }
+    }
+    egui::Shape::mesh(mesh)
 }

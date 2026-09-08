@@ -192,3 +192,99 @@ fn the_menu_has_two_commands_not_three() {
         ]
     );
 }
+
+// --- How a field is drawn -----------------------------------------------
+//
+// `DrawScanner` walks the fields in three groups, each with its own colour,
+// and fills each field with one of three pattern brushes by kind.
+
+/// Yours blue, a friend's yellow, anybody else's red — the grouping the manual
+/// gives on p. 5-14.
+#[test]
+fn a_field_is_coloured_by_whose_it_is() {
+    let mut app = a_game();
+    let me = app.local_player();
+    let field = |owner: i16, detonating: bool| stars_core::minefield::Minefield {
+        id: 1,
+        owner,
+        position: stars_core::movement::Point::new(10, 10),
+        mines: 100,
+        kind: 0,
+        detonating,
+        detected_by: 0xFFFF,
+        visible_to: 0xFFFF,
+        turn: 0,
+    };
+    let mine = app.minefield_colour(&field(i16::try_from(me).expect("a player"), false));
+    let theirs = app.minefield_colour(&field(1, false));
+    assert_ne!(mine, theirs);
+    assert!(mine[2] > mine[0], "ours is blue: {mine:?}");
+    assert_eq!(theirs, [0xff, 0x40, 0x40], "a stranger's is red");
+
+    // A friend's is yellow.
+    if let Some(game) = app.game.as_mut() {
+        game.players[me].relations = vec![0, 1];
+    }
+    let friend = app.minefield_colour(&field(1, false));
+    assert!(
+        friend[0] > 0x80 && friend[1] > 0x80 && friend[2] < 0x80,
+        "a friend's is yellow: {friend:?}"
+    );
+
+    // And one armed to detonate is red whoever owns it.
+    assert_eq!(
+        app.minefield_colour(&field(i16::try_from(me).expect("a player"), true)),
+        [0xff, 0x00, 0x00]
+    );
+}
+
+/// One pattern brush per kind: 460 standard, 461 heavy, 462 speed bump.
+#[test]
+fn the_hatch_says_which_kind_of_field_it_is() {
+    let field = |kind: u8| stars_core::minefield::Minefield {
+        id: 1,
+        owner: 0,
+        position: stars_core::movement::Point::new(10, 10),
+        mines: 100,
+        kind,
+        detonating: false,
+        detected_by: 0xFFFF,
+        visible_to: 0xFFFF,
+        turn: 0,
+    };
+    assert_eq!(App::minefield_pattern(&field(0)), 460);
+    assert_eq!(App::minefield_pattern(&field(1)), 461);
+    assert_eq!(App::minefield_pattern(&field(2)), 462);
+    // Nothing else is a kind, and nothing else has a brush.
+    assert_eq!(App::minefield_pattern(&field(9)), 462);
+}
+
+/// A field centred on a planet gets no centre mark: the planet's own dot is
+/// already there.
+#[test]
+fn only_a_field_away_from_a_planet_marks_its_centre() {
+    let app = a_game();
+    let at = app
+        .game
+        .as_ref()
+        .expect("a game")
+        .planets
+        .iter()
+        .find_map(|p| p.position)
+        .expect("a planet");
+    let field = |position| stars_core::minefield::Minefield {
+        id: 1,
+        owner: 0,
+        position,
+        mines: 100,
+        kind: 0,
+        detonating: false,
+        detected_by: 0xFFFF,
+        visible_to: 0xFFFF,
+        turn: 0,
+    };
+    assert!(!app.minefield_centre_marked(&field(at)));
+    assert!(
+        app.minefield_centre_marked(&field(stars_core::movement::Point::new(at.x + 3, at.y + 3)))
+    );
+}

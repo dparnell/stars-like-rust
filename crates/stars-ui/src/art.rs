@@ -33,6 +33,9 @@ pub struct Art {
     /// Single cells uploaded with a **mask** cell applied as their alpha, keyed
     /// by the sheet and the two cells' corners.
     masked: HashMap<MaskedKey, egui::TextureHandle>,
+    /// Monochrome sheets uploaded as **tiling** stencils, for the pattern
+    /// brushes the map fills with.
+    patterns: HashMap<Name, egui::TextureHandle>,
     /// Where it came from, for the frontend to show.
     pub source: String,
 }
@@ -64,6 +67,7 @@ impl Art {
             textures: HashMap::new(),
             stencils: HashMap::new(),
             masked: HashMap::new(),
+            patterns: HashMap::new(),
             source: source.to_string(),
         })
     }
@@ -222,6 +226,43 @@ pub fn draw_with(art: Option<&mut Art>, ui: &mut egui::Ui, cell: Cell, size: f32
 }
 
 impl Art {
+    /// A whole monochrome sheet as a **tiling** stencil, for a pattern brush.
+    ///
+    /// The map fills a minefield with one of three 8x8 brushes rather than a
+    /// colour (`rghbrPat`, resources 460 to 462), anchored to the map's origin
+    /// with `SetBrushOrg` so the dots stay still when the map moves. This
+    /// uploads one with `Repeat` wrapping, drawn part opaque and ground clear,
+    /// so a caller can tile and tint it.
+    pub fn pattern(&mut self, ctx: &egui::Context, name: &Name) -> Option<egui::TextureId> {
+        if !self.patterns.contains_key(name) {
+            let image = self.sheet(name)?;
+            let pixels: Vec<u8> = image
+                .pixels
+                .chunks(4)
+                .flat_map(|p| {
+                    // As with a stencil: the shape is the black pixel.
+                    let drawn = p[0] == 0 && p[1] == 0 && p[2] == 0;
+                    [0xff, 0xff, 0xff, if drawn { 0xff } else { 0x00 }]
+                })
+                .collect();
+            let size = [image.width as usize, image.height as usize];
+            let colour = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
+            let handle = ctx.load_texture(
+                format!("stars-pattern-{name:?}"),
+                colour,
+                egui::TextureOptions::NEAREST_REPEAT,
+            );
+            self.patterns.insert(name.clone(), handle);
+        }
+        Some(self.patterns.get(name)?.id())
+    }
+
+    /// The size of a sheet, in pixels.
+    pub fn sheet_size(&mut self, name: &Name) -> Option<(u32, u32)> {
+        let image = self.sheet(name)?;
+        Some((image.width, image.height))
+    }
+
     /// One cell of a sheet, with a second cell used as its **mask**.
     ///
     /// This is the pair of blits the game uses for a glyph that has to sit on

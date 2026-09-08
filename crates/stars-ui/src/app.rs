@@ -7397,6 +7397,60 @@ impl App {
         out
     }
 
+    /// What colour a minefield is drawn in.
+    ///
+    /// `DrawScanner` walks the fields in three groups and gives each its own
+    /// colour from `rgcrScanMine`, which `MANUAL.PDF` p. 5-14 names: **yours
+    /// blue, a friend's yellow, and anybody else's red**. The map shares one
+    /// colour between neutrals and enemies where the menu keeps them apart.
+    ///
+    /// A field **armed to detonate** is drawn red whoever owns it: it is the
+    /// second pass the loop makes over the standard fields, and the only kind
+    /// that can be armed.
+    #[must_use]
+    pub fn minefield_colour(&self, field: &stars_core::minefield::Minefield) -> [u8; 3] {
+        if field.detonating {
+            return [0xff, 0x00, 0x00];
+        }
+        let me = self.local_player();
+        let Some(game) = self.game.as_ref() else {
+            return [0xff, 0x00, 0x00];
+        };
+        let Ok(owner) = usize::try_from(field.owner) else {
+            return [0xff, 0x00, 0x00];
+        };
+        match stars_core::relations::party(game, me, owner) {
+            stars_core::relations::Party::Yours => [0x40, 0x80, 0xff],
+            stars_core::relations::Party::Friends => [0xff, 0xd0, 0x40],
+            _ => [0xff, 0x40, 0x40],
+        }
+    }
+
+    /// Which of the three pattern brushes a field is filled with.
+    ///
+    /// One per kind — `rghbrPat[kind]`, resources 460, 461 and 462 — so the
+    /// hatch says whether a field is standard, heavy or a speed bump.
+    #[must_use]
+    pub fn minefield_pattern(field: &stars_core::minefield::Minefield) -> u16 {
+        460 + u16::from(field.kind.min(2))
+    }
+
+    /// Whether a minefield's centre gets a mark of its own.
+    ///
+    /// `DrawScanner` looks the centre up in `rgptPlan` and only marks it when
+    /// **no planet is there** — a field centred on a planet would have its mark
+    /// buried under the planet's dot anyway.
+    #[must_use]
+    pub fn minefield_centre_marked(&self, field: &stars_core::minefield::Minefield) -> bool {
+        self.game.as_ref().is_none_or(|game| {
+            !game
+                .planets
+                .iter()
+                .chain(game.known_planets.iter())
+                .any(|planet| planet.position == Some(field.position))
+        })
+    }
+
     /// Half the width of a mineral packet's mark, by zoom.
     ///
     /// `DrawScanner` picks 2, 3 or 5 from `iScanZoom` — the mark is drawn a

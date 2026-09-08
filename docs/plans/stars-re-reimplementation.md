@@ -2386,7 +2386,31 @@ disagree.
     two-blit `SRCAND`/`SRCPAINT` pair done once into a texture — the first
     thing here to need a real mask rather than a stencil or a plain cell.
 
-78. **What is still missing to call it playable.** Every waypoint task is now
+78. ~~**The minefields, drawn properly.**~~ **Done.** They were flat translucent
+    discs; `DrawScanner` draws something with more in it. Spec in
+    `docs/ui/scanner.md`.
+
+    Each field is filled with one of **three 8x8 pattern brushes**
+    (`rghbrPat`, resources 460 to 462, one per kind), so the hatch says whether
+    it is standard, heavy or a speed bump — and `SetBrushOrg` anchors the
+    pattern to the map's origin, so the dots hold still when the map moves
+    rather than sliding with each circle. The colour is by group, and the
+    manual names them (p. 5-14): yours blue, a friend's yellow, anybody else's
+    red, with the map sharing one colour between neutrals and enemies where the
+    menu keeps them apart. A field **armed to detonate** is red whoever owns
+    it — the second pass the loop makes over kind 0, which is the only kind
+    that can be armed. And the centre gets a mark of its own only when no
+    planet is sitting on it.
+
+    `Art` gained `pattern`, which uploads a monochrome sheet with `Repeat`
+    wrapping so a circle can be tiled with it; the fill is a mesh whose UVs
+    come from the map origin.
+
+    Not reproduced: `DrawRadarCircle`'s `fHollowOut`, which stops a pattern
+    brush painting an overlap twice. Two circles of the same anchored pattern
+    land their dots in the same places, so it comes to the same thing here.
+
+79. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
