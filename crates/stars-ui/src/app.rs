@@ -7331,6 +7331,14 @@ impl App {
         }
     }
 
+    /// Where the selection is, in galaxy units — the original's `ptSelMain`,
+    /// which several of the scanner's marks compare against.
+    #[must_use]
+    pub fn selected_point(&self) -> Option<stars_core::movement::Point> {
+        self.selected_object()
+            .and_then(|object| self.object_position(object))
+    }
+
     /// Select one thing the scanner found.
     pub fn select_object(&mut self, object: ScanObject) {
         // A planet or a fleet takes the selection off whatever space object had
@@ -8060,6 +8068,19 @@ impl App {
 /// arrows stacked, at 9 pixels in the right-hand column and 7 in the left.
 pub const ARROW_SHEET: u16 = 88;
 
+/// The sheet the scanner writes **ship counts** out of — bitmap **249**,
+/// loaded as `LoadBitmap(hInst, 0xf9)` when the game starts (`hbmpNumbers`).
+///
+/// It is 44x7 and one bit deep: eleven 4x7 cells, the ten digits at
+/// `x = digit * 4` and a star in the eleventh that the counts never touch. The
+/// digits are the **zero** bits, as in every other one-bit sheet, so they are
+/// drawn as a stencil and tinted.
+pub const DIGIT_SHEET: u16 = 249;
+/// How wide one digit is.
+pub const DIGIT_WIDTH: u32 = 4;
+/// And how tall.
+pub const DIGIT_HEIGHT: u32 = 7;
+
 /// The π `GetDxDyOrientation` **adds** to the angle.
 ///
 /// It is a less precise π than the one it then divides by — seven digits
@@ -8158,25 +8179,37 @@ pub struct ShipCount {
     /// The one player whose fleets these are, when they all belong to one.
     /// `None` when several players have fleets at the spot.
     pub owner: Option<usize>,
+    /// How many pixels above the location's own point the number sits — the
+    /// `y` `DrawScanner` hands `DrawScanFleetCount`, which differs by the mark
+    /// the fleet under it was given.
+    pub above: i16,
 }
 
 impl App {
     /// The ship counts to write on the map, one per **location**.
     ///
-    /// `DrawScanFleetCount` (`1058:47d2`) walks the fleets at a point as one
-    /// list and writes a single number for the lot, which is what the manual
-    /// means by "the number of ships at a location". Two details come with it:
-    /// the total is **capped at 999**, and a spot totalling nothing is not
-    /// written at all.
+    /// `DrawScanFleetCount` (`1058:47d2`) is handed one fleet and walks the
+    /// **circular list** `LinkFleets` (`1038:1bb4`) builds out of the fleets
+    /// sharing a point, adding up what `CShipsScanVis` counts of each. So the
+    /// number is per location, which is what the manual means by "the number
+    /// of ships at a location". On its way round it sets `fNoCount` on every
+    /// fleet in the ring, which is how the other fleets at the spot are kept
+    /// from writing the same number again.
     ///
-    /// Each fleet contributes what the ship filters allow, so a filtered-out
-    /// fleet can leave a location with no number even though ships are there.
+    /// Two limits come with it: the total is **capped at 999**, and a spot
+    /// totalling nothing is not written at all. Each fleet contributes only
+    /// what the ship filters allow, so filtering can leave a location with no
+    /// number even though ships are there.
     #[must_use]
     pub fn ship_counts(&self) -> Vec<ShipCount> {
         let Some(game) = self.game.as_ref() else {
             return Vec::new();
         };
         let mut totals: std::collections::BTreeMap<(i16, i16), (i64, Option<usize>, bool)> =
+            std::collections::BTreeMap::new();
+        // Which fleet's mark the number is written above: the first one at the
+        // point whose arm of the loop draws a count at all.
+        let mut anchors: std::collections::BTreeMap<(i16, i16), i16> =
             std::collections::BTreeMap::new();
         for fleet in &game.fleets {
             let ships = i64::from(self.filtered_ship_count(fleet));
@@ -8192,15 +8225,81 @@ impl App {
                 // More than one player's fleets here.
                 entry.2 = false;
             }
+            if let Some(above) = self.ship_count_anchor(fleet) {
+                anchors
+                    .entry((fleet.position.x, fleet.position.y))
+                    .or_insert(above);
+            }
         }
         totals
             .into_iter()
-            .map(|((x, y), (ships, owner, one_owner))| ShipCount {
-                position: stars_core::movement::Point::new(x, y),
-                ships: i32::try_from(ships.min(999)).unwrap_or(999),
-                owner: if one_owner { owner } else { None },
+            .filter_map(|((x, y), (ships, owner, one_owner))| {
+                Some(ShipCount {
+                    position: stars_core::movement::Point::new(x, y),
+                    ships: i32::try_from(ships.min(999)).unwrap_or(999),
+                    owner: if one_owner { owner } else { None },
+                    above: *anchors.get(&(x, y))?,
+                })
             })
             .collect()
+    }
+
+    /// How far above a fleet's own point the count for its location is
+    /// written, or `None` when that fleet's arm of the loop writes none.
+    ///
+    /// `DrawScanner` calls `DrawScanFleetCount` from all three of its arms and
+    /// passes each a different `y`: `pt.y - ptD.y/2 - 2` above a deep-space
+    /// arrow, `pt.y - 7` above the glyph a fleet on the selected point gets,
+    /// and `pt.y - 5 - 2` or `pt.y - 9 - 2` above an orbit ring, by which of
+    /// the two sizes it is.
+    ///
+    /// The orbit call sits **inside the ring arm**, which is guarded by
+    /// `uVar8 < 3`. So in Planet Value, Population and No Player Information a
+    /// fleet in orbit writes no number at all — one in deep space at the same
+    /// point still does.
+    #[must_use]
+    pub fn ship_count_anchor(&self, fleet: &stars_core::fleet::Fleet) -> Option<i16> {
+        let selected = Some(fleet.position) == self.selected_point();
+        if fleet.orbiting.is_some() {
+            if !self.orbit_rings_visible() {
+                return None;
+            }
+            return Some(if selected { 9 + 2 } else { 5 + 2 });
+        }
+        if selected {
+            return Some(7);
+        }
+        let (_, _, side) = self.fleet_arrow_cell(self.fleet_arrow_of(fleet));
+        i16::try_from(side / 2 + 2).ok()
+    }
+
+    /// Where each digit of a count goes, as an offset from the location's own
+    /// x and the digit to draw there.
+    ///
+    /// `DrawScanFleetCount` lays them out by hand, five pixels apart, and the
+    /// three cases do not share a left edge: one digit sits at `x - 1`, two at
+    /// `x - 4` and `x + 1`, three at `x - 6`, `x - 1` and `x + 4`. The top of
+    /// every digit is seven pixels above the `y` it was handed.
+    #[must_use]
+    pub fn ship_count_digits(ships: i32) -> Vec<(i16, u8)> {
+        let mut left = ships.clamp(0, 999);
+        if left < 1 {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        let mut x: i16 = -1;
+        if left > 99 {
+            out.push((-6, u8::try_from(left / 100).unwrap_or(0)));
+            left %= 100;
+            x = 2;
+        }
+        if left > 9 || !out.is_empty() {
+            out.push((x - 3, u8::try_from(left / 10).unwrap_or(0)));
+            x += 2;
+            left %= 10;
+        }
+        out.push((x, u8::try_from(left).unwrap_or(0)));
+        out
     }
 
     /// What colour to write a ship count in.

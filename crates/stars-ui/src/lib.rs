@@ -42,7 +42,8 @@ pub use app::{
     DesignerDrag, Editing, FilterCommand, FilterEntry, FindResult, MineralBar, OrbitRing, PartRow,
     PasswordDialog, PasswordPrompt, PlanetMark, Production, RacePage, RaceWizard, ResearchDialog,
     ScanMenuItem, ScanObject, ScanOverlays, ScanThing, ScanView, SchematicSlot, Screen, Selection,
-    StatusBar, SurveyBar, SurveySubject, TurnStatus, WindowLayout, ARROW_SHEET, MAX_BATTLE_PLANS,
-    MINERAL_BAR_LAYOUT, MINERAL_GRAPH_MAX, PLANET_UNEXPLORED, POPULATION_STEPS, RACE_WIZARD_PAGES,
-    SCAN_FRIEND, SCAN_OTHER, SCAN_YOURS, WORMHOLE_CELL, WORMHOLE_MASK, WORMHOLE_SIDE,
+    StatusBar, SurveyBar, SurveySubject, TurnStatus, WindowLayout, ARROW_SHEET, DIGIT_HEIGHT,
+    DIGIT_SHEET, DIGIT_WIDTH, MAX_BATTLE_PLANS, MINERAL_BAR_LAYOUT, MINERAL_GRAPH_MAX,
+    PLANET_UNEXPLORED, POPULATION_STEPS, RACE_WIZARD_PAGES, SCAN_FRIEND, SCAN_OTHER, SCAN_YOURS,
+    WORMHOLE_CELL, WORMHOLE_MASK, WORMHOLE_SIDE,
 };

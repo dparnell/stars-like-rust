@@ -2483,7 +2483,29 @@ disagree.
     first three views only; the other three redraw the planets and would paint
     over them.
 
-82. **What is still missing to call it playable.** Every waypoint task is now
+82. ~~**The ship counts, drawn properly.**~~ **Done.** Spec in
+    `docs/ui/scanner.md`. The number was being written as proportional text at
+    a fixed offset; the original blits it out of `hbmpNumbers` — bitmap 249, a
+    44x7 one-bit sheet of eleven 4x7 cells — through a mask, so a count is four
+    pixels a digit and takes its colour from the pen. The layout is by hand and
+    the three cases do not share a left edge (`-1`; `-4, +1`; `-6, -1, +4`,
+    five pixels apart), and the digits' top is seven pixels above the `y` the
+    routine was handed.
+
+    That `y` differs by the mark the fleet under it was given, which is how the
+    count follows the arrow, the selected-point glyph or the orbit ring. And
+    because the orbit call sits **inside** the ring arm, a fleet in orbit
+    writes no number in Planet Value, Population or No Player Information —
+    the numbers over the colonies disappear in those three views, while deep
+    space keeps its own.
+
+    `DrawScanFleetCount` walks the circular list `LinkFleets` (`1038:1bb4`)
+    builds out of the fleets sharing a point and sets `fNoCount` on all of
+    them, which is what makes the number per location rather than per fleet —
+    this project already grouped by location, and now cites the routine that
+    does it.
+
+83. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

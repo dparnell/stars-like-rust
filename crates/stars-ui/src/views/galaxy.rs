@@ -29,7 +29,7 @@ use crate::app::ScanObject;
 use crate::app::ScanThing;
 use crate::views::{colonists, player_colour};
 use crate::OrbitRing;
-use crate::{App, ScanView};
+use crate::{App, ScanView, DIGIT_HEIGHT, DIGIT_SHEET, DIGIT_WIDTH};
 
 /// Draw the galaxy.
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
@@ -516,22 +516,25 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
 
     // The ship counts, one per **location** rather than per fleet, which is
     // what the original writes. The two ship filters have already narrowed
-    // what each fleet contributes.
+    // what each fleet contributes, and each number sits above whichever mark
+    // the fleet under it was given.
     if app.scan_overlays.ship_counts {
-        for count in app.ship_counts() {
+        let counts = app.ship_counts();
+        let mut to_digit: Vec<(egui::Pos2, u8, Color32)> = Vec::new();
+        for count in &counts {
             let at = to_screen(f32::from(count.position.x), f32::from(count.position.y));
-            let colour = match app.ship_count_colour(&count) {
+            let colour = match app.ship_count_colour(count) {
                 Some(owner) => player_colour(i16::try_from(owner).unwrap_or(0)),
                 None => Color32::WHITE,
             };
-            painter.text(
-                at + Vec2::new(9.0, -9.0),
-                egui::Align2::LEFT_BOTTOM,
-                count.ships.to_string(),
-                egui::FontId::proportional(9.0),
-                colour,
-            );
+            // The top-left of the first digit: seven pixels above the y the
+            // count was handed, and left of the point by the layout's offset.
+            let top = at.y - f32::from(count.above) - DIGIT_HEIGHT as f32;
+            for (dx, digit) in App::ship_count_digits(count.ships) {
+                to_digit.push((Pos2::new(at.x + f32::from(dx), top), digit, colour));
+            }
         }
+        ship_count_digits(app, ui, &to_digit);
     }
 
     // The measuring tape: a right-drag from anywhere to anywhere, snapping to
@@ -1022,6 +1025,52 @@ fn planet_marks(
             0.0,
             *colour,
         );
+    }
+}
+
+/// Draw the digits of the ship counts.
+///
+/// `DrawScanFleetCount` blits them out of `hbmpNumbers` — bitmap 249, eleven
+/// 4x7 cells — through a mask, so the colour comes from the pen: a stencil
+/// tinted, exactly as the fleet arrows are. Without the game's own sheet the
+/// number is written as text instead, which is what this project drew before.
+fn ship_count_digits(app: &mut App, ui: &mut egui::Ui, digits: &[(egui::Pos2, u8, Color32)]) {
+    if digits.is_empty() {
+        return;
+    }
+    let ctx = ui.ctx().clone();
+    let painter = ui.painter().clone();
+    let size = egui::vec2(DIGIT_WIDTH as f32, DIGIT_HEIGHT as f32);
+    for (at, digit, colour) in digits {
+        let drawn = app
+            .art
+            .as_mut()
+            .and_then(|art| {
+                art.stencil_at(
+                    &ctx,
+                    &stars_formats::resources::Name::Id(DIGIT_SHEET),
+                    u32::from(*digit) * DIGIT_WIDTH,
+                    0,
+                    DIGIT_WIDTH,
+                    DIGIT_HEIGHT,
+                    size,
+                )
+            })
+            .map(|image| {
+                image
+                    .tint(*colour)
+                    .paint_at(ui, Rect::from_min_size(*at, size));
+            })
+            .is_some();
+        if !drawn {
+            painter.text(
+                *at,
+                egui::Align2::LEFT_TOP,
+                digit.to_string(),
+                egui::FontId::monospace(9.0),
+                *colour,
+            );
+        }
     }
 }
 

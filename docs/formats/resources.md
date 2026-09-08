@@ -170,6 +170,15 @@ used, so this does not guess: the crop fails and the caller draws nothing.
   | `(0xb, 0)` / `(0xb, 10)` / `(0xb, 5)`, 5x5 | an owned planet: this player's, a friend's, anybody else's |
   | `(0, 0)` / `(0, 0x16)` / `(0, 0xb)` / `(0, 0x21)`, 11x11, mask at `(0, 0x45)` | the same four when the planet is selected |
 
+* **The scanner's digits** — `hbmpNumbers`, bitmap **249**, loaded as
+  `LoadBitmap(hInst, 0xf9)` at start-up. 44x7 and one bit deep: eleven 4x7
+  cells, the ten digits at `x = digit * 4` and a star in the eleventh. This is
+  what the map's **ship counts** are written with — blitted through a mask like
+  the arrows, never drawn as text — so a count is 4 pixels a digit whatever
+  font the rest of the program is using.
+
+  The eleventh cell is not used by the counts.
+
 * **The minefield brushes** — `rghbrPat[0..3]`, resources 460, 461 and 462:
   three 8x8 two-colour tiles of scattered dots, one per kind of field. They are
   pattern brushes rather than pictures, tiled across a circle and anchored to

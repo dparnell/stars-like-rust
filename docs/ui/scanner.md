@@ -156,6 +156,50 @@ overlay is on and the fleet is not marked `fNoCount`: `pt.y - ptD.y/2 - 2`
 above an arrow, `pt.y - 7` above a selected-point glyph, and `pt.y - 5 - 2` or
 `pt.y - 9 - 2` above an orbit ring depending on which of the two sizes it is.
 
+### The ship counts
+
+`DrawScanFleetCount` (`1058:47d2`) writes **one number per location**, not per
+fleet — "the number of ships at a location", as `MANUAL.PDF` p. 5-15 puts it.
+It is handed one fleet and walks the **circular list** `LinkFleets`
+(`1038:1bb4`) builds out of the fleets sharing a point, adding up what
+`CShipsScanVis` counts of each, and on the way round it sets `fNoCount`
+(`wFlags & 0x800`) on every fleet in the ring so that none of the others writes
+the same number again. `LinkFleets` clears that flag when it rebuilds the
+rings.
+
+Two limits: the total is **capped at 999**, and a spot totalling nothing is not
+written at all — so the ship filters can empty a location of its number while
+ships are still sitting there.
+
+**The digits are a bitmap, not text.** They come from `hbmpNumbers` — bitmap
+**249**, loaded as `LoadBitmap(hInst, 0xf9)` at start-up — a 44x7 one-bit sheet
+of eleven 4x7 cells: the ten digits at `x = digit * 4`, and a star in the
+eleventh that the counts never use. Each is blitted through a mask and then
+painted, so the colour comes from the pen, exactly as the fleet arrows are
+drawn.
+
+**The layout is by hand**, five pixels apart, and the three cases do not share
+a left edge:
+
+| ships | digits at, relative to the location's x |
+|---|---|
+| 1–9 | `-1` |
+| 10–99 | `-4`, `+1` |
+| 100–999 | `-6`, `-1`, `+4` |
+
+The top of every digit is **seven pixels above** the `y` the routine was
+handed, and that `y` differs by the mark the fleet under it was given:
+`pt.y - ptD.y/2 - 2` above a deep-space arrow, `pt.y - 7` above the glyph of a
+fleet on the selected point, and `pt.y - 5 - 2` or `pt.y - 9 - 2` above an
+orbit ring by which of the two sizes it is.
+
+The last of those has a consequence worth knowing: the orbit call sits
+**inside the ring arm**, which is guarded by `uVar8 < 3` (`uVar8` is
+`grbitScan & 0xf`, the view). So in Planet Value, Population and No Player
+Information a fleet in orbit writes no number at all, while one in deep space
+at the same point still writes one — the numbers over the colonies simply
+disappear in those three views.
+
 ## Orbit rings
 
 A planet with fleets in orbit is drawn with a ring round it, and the ring's
@@ -458,15 +502,14 @@ Names have a limit of their own, unrelated to this: they are not drawn at all
 below `iScanZoom > -2`, where the dots are too close together for a name to sit
 beside one.
 
-**Ship counts.** `DrawScanFleetCount` (`1058:47d2`) writes **one number per
-location**, not per fleet: it walks the fleets at a point as a single list and
-adds them up, which is what the manual means by "the number of ships at a
-location" (p. 5-15). Two details come with that — the total is **capped at
-999**, and a spot totalling nothing gets no number.
-
-The colour is that player's only when every fleet at the spot belongs to one
-player. Mixed spots, and your own, stay white — the manual puts it as your own
-numbers always appearing white.
+**Ship counts.** See [the ship counts](#the-ship-counts) below for how the
+number is built and drawn. The colour is that player's only when every fleet at
+the spot belongs to one player, and it comes out of `rgcrPlrHistory` — the
+Score sheet's history colours, which is why the manual (p. 5-16) sends a player
+there to find out whose is whose. Mixed spots, and your own, stay white: the
+routine starts its walk with `iPlr = -1`, sets it to the first owner it counts
+and back to `-2` the moment a second one turns up, and both `-2` and your own
+number come out white.
 
 ## Giving orders by dragging
 
