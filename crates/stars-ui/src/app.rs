@@ -3052,8 +3052,7 @@ impl App {
     ///
     /// `DrawMineSurvey` (`1028:065a`) switches on the object's `ith` and writes
     /// a few lines for each kind; the rows are in
-    /// `docs/ui/mine-survey-pane.md`. The Mystery Trader is the fourth kind and
-    /// is not here, because this engine does not model one.
+    /// `docs/ui/mine-survey-pane.md`.
     #[must_use]
     pub fn survey_thing_rows(&self) -> Vec<String> {
         let SurveySubject::Thing(thing) = self.survey_subject() else {
@@ -3138,6 +3137,27 @@ impl App {
                 {
                     rows.push(format!("{name}  {amount}kT"));
                 }
+                rows
+            }
+            ScanThing::Trader(index) => {
+                let Some(trader) = game.traders.get(index) else {
+                    return Vec::new();
+                };
+                let mut rows = Vec::new();
+                // The notice comes first and only until this player has traded
+                // — `1 << idPlayer & grbitPlr`, the same mask that stops them
+                // trading twice. The wording is this project's own, as the
+                // game's message text always is; `docs/formulas/wanderers.md`
+                // has what it is asking for.
+                let me = u32::try_from(self.local_player()).unwrap_or(0);
+                if trader.detected_by & (1u16 << (me & 0x0F)) == 0 {
+                    rows.push(
+                        "Send it a fleet carrying at least 5,000kT of minerals and it will \
+                         take the fleet, ships and all, in exchange for technology."
+                            .to_string(),
+                    );
+                }
+                rows.push(format!("Trader is traveling at Warp {}.", trader.warp));
                 rows
             }
             ScanThing::Wormhole(index) => {
@@ -7142,6 +7162,8 @@ pub enum ScanThing {
     Packet(usize),
     /// A wormhole (`ithWormhole`).
     Wormhole(usize),
+    /// The Mystery Trader (`ithMysteryTrader`).
+    Trader(usize),
 }
 
 impl App {
@@ -7212,6 +7234,7 @@ impl App {
                 ScanThing::Minefield(index) => Some(game.minefields.get(index)?.position),
                 ScanThing::Packet(index) => Some(game.packets.get(index)?.position),
                 ScanThing::Wormhole(index) => Some(game.wormholes.get(index)?.position),
+                ScanThing::Trader(index) => Some(game.traders.get(index)?.position),
             },
         }
     }
@@ -7395,6 +7418,11 @@ impl App {
                 out.push(ScanThing::Wormhole(index));
             }
         }
+        for (index, trader) in game.traders.iter().enumerate() {
+            if trader.position == at && trader.include {
+                out.push(ScanThing::Trader(index));
+            }
+        }
         out
     }
 
@@ -7433,6 +7461,7 @@ impl App {
                 None => String::new(),
             },
             ScanThing::Wormhole(_) => "Wormhole".to_string(),
+            ScanThing::Trader(_) => "Mystery Trader".to_string(),
         }
     }
 

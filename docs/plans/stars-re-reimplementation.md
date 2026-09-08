@@ -2352,7 +2352,23 @@ disagree.
     clicked; they are marks now, as the minefields are, with planets and fleets
     outranking them under the pointer.
 
-76. **What is still missing to call it playable.** Every waypoint task is now
+76. ~~**The Mystery Trader, on screen.**~~ **Done**, and it was a smaller job
+    than the last entry made it sound: **the engine has modelled the Trader all
+    along** — the object, its movement, the fleets it absorbs, the technology
+    it hands over and the messages that go with it are all in
+    `stars_core::wormhole` and `docs/formulas/wanderers.md`. What was missing
+    was somewhere to select one.
+
+    So it joins the other three space objects: listed in the scanner's
+    right-click menu, drawn on the map as a star, and summarised in the Mine
+    Survey pane — the notice about what it wants, until this player has traded
+    with it, and then its speed. The test for "has traded" is
+    `1 << idPlayer & grbitPlr`, the same bit that stops a player trading twice.
+
+    That also corrects the previous two entries, which said this engine had no
+    model for a Mystery Trader. It has one; only the interface did not.
+
+77. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

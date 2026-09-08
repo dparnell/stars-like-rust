@@ -304,6 +304,25 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 Stroke::NONE,
             ));
         }
+        for (index, trader) in game.traders.iter().enumerate() {
+            if !trader.include {
+                continue;
+            }
+            let at = to_screen(f32::from(trader.position.x), f32::from(trader.position.y));
+            if let Some(p) = pointer {
+                if (p - at).length() <= 7.0 {
+                    thing_hit.get_or_insert(ScanThing::Trader(index));
+                }
+            }
+            // A star, for the one wanderer that gives something back.
+            let colour = Color32::from_rgb(240, 220, 120);
+            for (dx, dy) in [(0.0, 6.0), (6.0, 0.0), (4.0, 4.0), (4.0, -4.0)] {
+                painter.line_segment(
+                    [at - Vec2::new(dx, dy), at + Vec2::new(dx, dy)],
+                    Stroke::new(1.0_f32, colour),
+                );
+            }
+        }
         for (index, hole) in game.wormholes.iter().enumerate() {
             if !hole.include {
                 continue;

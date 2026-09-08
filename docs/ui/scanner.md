@@ -211,19 +211,19 @@ A space object never takes part in the click-again cycle: `FGetNextObjHere` is
 reached only when what was clicked is a fleet or a planet. The right-click menu
 is how you get to one, which is what it is for.
 
-The Mystery Trader is the fourth kind of `THING` and is not here: this engine
-does not model one.
+All four kinds are listed, the Mystery Trader included.
 
 The menu is placed on the object rather than on the pointer, so it stays with
 what it is about; Escape or a click elsewhere puts it away.
 
-### Packets and wormholes on the map
+### Packets, wormholes and the Trader on the map
 
-Neither was drawn at all before the menu needed them to be clickable. They are
-plain marks — a diamond in the owner's colour for a packet, two rings for a
-wormhole — where the original has sprites out of the scanner's own sheet, in the
-same spirit as the minefield circles beside them. Planets and fleets outrank
-them under the pointer, which is the order `FFindNearestObject`'s mask implies.
+None of the three was drawn at all before the menu needed them to be clickable.
+They are plain marks — a diamond in the owner's colour for a packet, two rings
+for a wormhole, a star for the Mystery Trader — where the original has sprites
+out of the scanner's own sheet, in the same spirit as the minefield circles
+beside them. Planets and fleets outrank them under the pointer, which is the
+order `FFindNearestObject`'s mask implies.
 
 ## Player colours
 

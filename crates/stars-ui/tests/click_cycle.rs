@@ -523,3 +523,46 @@ fn a_packet_reads_its_speed_and_load() {
     assert_eq!(rows[3], "Boranium  20kT");
     assert_eq!(rows[4], "Germanium  3kT");
 }
+
+/// The Mystery Trader is the fourth kind of space object, and the engine has
+/// modelled it all along — it only wanted somewhere to be selected.
+#[test]
+fn the_mystery_trader_is_listed_and_summarised() {
+    use stars_core::wormhole::MysteryTrader;
+
+    let mut app = a_game();
+    let at = Point::new(55, 66);
+    app.game.as_mut().expect("a game").traders = vec![MysteryTrader {
+        id: 1,
+        position: at,
+        destination: Point::new(200, 200),
+        warp: 9,
+        include: true,
+        detected_by: 0,
+        part: 0,
+        turn: 0,
+    }];
+    app.screen = Screen::Galaxy;
+
+    let menu = app.scan_menu(at.x, at.y);
+    assert_eq!(menu.len(), 1);
+    assert_eq!(menu[0].object, ScanObject::Thing(ScanThing::Trader(0)));
+    assert_eq!(menu[0].label, "Mystery Trader");
+
+    app.select_object(menu[0].object);
+    assert_eq!(app.survey_title(), "Mystery Trader Summary");
+    let rows = app.survey_thing_rows();
+    assert_eq!(rows.len(), 2, "the notice, then the warp");
+    assert!(
+        rows[0].contains("5,000kT"),
+        "what it is asking for: {}",
+        rows[0]
+    );
+    assert_eq!(rows[1], "Trader is traveling at Warp 9.");
+
+    // Once this player has traded, the notice goes and the warp line stays —
+    // the same `grbitPlr` bit that stops them trading twice.
+    app.game.as_mut().expect("a game").traders[0].detected_by = 1;
+    let rows = app.survey_thing_rows();
+    assert_eq!(rows, vec!["Trader is traveling at Warp 9.".to_string()]);
+}
