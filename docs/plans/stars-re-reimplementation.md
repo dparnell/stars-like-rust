@@ -2611,7 +2611,21 @@ disagree.
     writes; its raw constants and its variable names are both sound, and
     `hbrTooltip = 0x9fffff` (the pale yellow Windows uses) settles the order.
 
-87. **What is still missing to call it playable.** Every waypoint task is now
+87. ~~**The waypoint markers.**~~ **Done, and the answer was that there are
+    none.** `DrawScanner`, `DrawShipScanPath` and `DrawScanXorLines` were all
+    read looking for a glyph at a waypoint and none of them draws one. What
+    marks a waypoint is the **11x11 hole** the selected fleet's path leaves
+    there — `ExcludeClipRect(pt - 5, pt + 6)` before the line is drawn, and the
+    same box at each corner of a drag's rubber band.
+
+    This project had approximated the hole by shortening each leg five pixels
+    along its own direction; the original clips against a **square**, so a
+    diagonal leg loses about seven pixels rather than five, and a leg shorter
+    than the two holes at its ends disappears. `leg_outside_waypoints` now does
+    it as a Chebyshev clip, which is what a rectangular clipping region
+    amounts to.
+
+88. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

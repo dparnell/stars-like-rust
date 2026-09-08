@@ -7220,6 +7220,50 @@ impl ScaleLine {
     }
 }
 
+/// How big the hole a waypoint leaves in the path is, in pixels each way.
+///
+/// `DrawShipScanPath` excludes `pt.x - 5 .. pt.x + 6` by `pt.y - 5 .. pt.y + 6`
+/// from the clip at every waypoint before it draws the line — an **11x11 box
+/// centred on the point**. `DrawScanXorLines` (`1058:8af6`) excludes the same
+/// box at each corner of the drag's rubber band.
+///
+/// Nothing is ever drawn **into** that box: there is no waypoint glyph in the
+/// game at all. The hole is the marker — the line stops short of each
+/// waypoint, which both points it out and leaves whatever is at that place, a
+/// planet or a fleet, unobscured.
+pub const WAYPOINT_HOLE: f32 = 5.0;
+
+/// Clip one leg of a path against the [`WAYPOINT_HOLE`] boxes at its ends.
+///
+/// Returns the piece of the segment that is actually drawn, or `None` when the
+/// two boxes swallow it whole — which is what the original's clipping region
+/// does to a leg shorter than the holes at either end of it.
+///
+/// The box is square, so the distance that matters is the larger of the two
+/// axes (a Chebyshev radius), not the length along the leg: a diagonal leg
+/// loses more of itself than a straight one, exactly as clipping against a
+/// square does.
+#[must_use]
+pub fn leg_outside_waypoints(
+    from: (f32, f32),
+    to: (f32, f32),
+    half: f32,
+) -> Option<((f32, f32), (f32, f32))> {
+    let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+    let reach = dx.abs().max(dy.abs());
+    if reach <= 0.0 {
+        return None;
+    }
+    let cut = half / reach;
+    if cut * 2.0 >= 1.0 {
+        return None;
+    }
+    Some((
+        (from.0 + dx * cut, from.1 + dy * cut),
+        (to.0 - dx * cut, to.1 - dy * cut),
+    ))
+}
+
 /// One leg of the selected fleet's path — see [`App::selected_fleet_path`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PathLeg {

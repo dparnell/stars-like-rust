@@ -345,12 +345,37 @@ kinds of object have a course:
 `hpenShip` green. A leg the fleet travels **twice** — the same two points
 again later, in either direction, as a shuttle run has — is drawn **once** in
 yellow (or in the stock white pen when the Ship Paths overlay is off) and the
-repeat is left out. Every waypoint has an 11x11 hole excluded from the clip, so
-the line stops short of the waypoint markers rather than running through them.
-The original walks its `rgDup` table with the two loops an index apart, which
-would colour a leg either side of the doubled one; the reading that makes them
-agree, and that matches what the game draws, is that the entry belongs to the
-leg **into** waypoint `i`.
+repeat is left out. The original walks its `rgDup` table with the two loops an
+index apart, which would colour a leg either side of the doubled one; the
+reading that makes them agree, and that matches what the game draws, is that
+the entry belongs to the leg **into** waypoint `i`.
+
+### The waypoint markers
+
+There are none — and that is the finding rather than an omission. Nothing in
+the program draws a glyph, a box or a dot at a waypoint: the whole of
+`DrawScanner`, `DrawShipScanPath` and `DrawScanXorLines` were read for it, and
+the only thing any of them does at a waypoint is **take a hole out of the
+line**.
+
+`DrawShipScanPath` calls `ExcludeClipRect(pt.x - 5, pt.y - 5, pt.x + 6,
+pt.y + 6)` at every waypoint before drawing the selected fleet's path, and
+`DrawScanXorLines` (`1058:8af6`) excludes the same box at each corner of the
+rubber band a drag pulls about. So the marker is the **11x11 gap centred on the
+point**: the line stops short of each waypoint, which picks the waypoint out
+and leaves whatever is there — a planet, a fleet — unobscured.
+
+Two details follow from the box being **square**. A diagonal leg loses more of
+its length to a hole than a straight one does, about seven pixels rather than
+five, because the clip is a Chebyshev radius and not a distance along the line.
+And a leg **shorter than the two holes at its ends** vanishes altogether, which
+is what a leg between two waypoints eleven pixels apart does in the original
+too.
+
+The blue **Ship Paths** overlay, drawn for every fleet, has no holes: it is
+drawn before the planets and never touches the clip. So a selected fleet whose
+overlay is on shows a continuous blue line with the green one broken over it at
+each waypoint.
 
 **A selected planet's lines.** A dark purple one to the planet its starbase's
 **mass driver** is aimed at, and a dark green one to the planet it **routes**

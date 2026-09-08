@@ -38,14 +38,15 @@ pub mod vcr;
 pub mod views;
 
 pub use app::{
-    copied_plan_name, distance_text, fleet_arrow, App, BattlePlans, Browser, CoverageDisc,
-    DesignView, Designer, DesignerDrag, Editing, FilterCommand, FilterEntry, FindResult,
-    MineralBar, OrbitRing, PartRow, PasswordDialog, PasswordPrompt, PathLeg, PlanetMark,
-    PlanetNameStyle, Production, RacePage, RaceWizard, ResearchDialog, ScaleLine, ScanMenuItem,
-    ScanObject, ScanOverlays, ScanThing, ScanView, SchematicSlot, Screen, Selection, StatusBar,
-    SurveyBar, SurveySubject, TurnStatus, WindowLayout, ARROW_SHEET, COVERAGE_NORMAL,
-    COVERAGE_PENETRATING, DIGIT_HEIGHT, DIGIT_SHEET, DIGIT_WIDTH, MAX_BATTLE_PLANS,
-    MINERAL_BAR_LAYOUT, MINERAL_GRAPH_MAX, PATH_COLOUR, PLANET_UNEXPLORED, POPULATION_STEPS,
-    RACE_WIZARD_PAGES, SCAN_FRIEND, SCAN_OTHER, SCAN_YOURS, WORMHOLE_CELL, WORMHOLE_MASK,
-    WORMHOLE_SIDE,
+    copied_plan_name, distance_text, fleet_arrow, leg_outside_waypoints, App, BattlePlans, Browser,
+    CoverageDisc, DesignView, Designer, DesignerDrag, Editing, FilterCommand, FilterEntry,
+    FindResult, MineralBar, OrbitRing, PartRow, PasswordDialog, PasswordPrompt, PathLeg,
+    PlanetMark, PlanetNameStyle, Production, RacePage, RaceWizard, ResearchDialog, ScaleLine,
+    ScanMenuItem, ScanObject, ScanOverlays, ScanThing, ScanView, SchematicSlot, Screen, Selection,
+    StatusBar, SurveyBar, SurveySubject, TurnStatus, WindowLayout, ARROW_SHEET, COVERAGE_NORMAL,
+    COVERAGE_PENETRATING, DIGIT_HEIGHT, DIGIT_SHEET, DIGIT_WIDTH, DOUBLED_LEG_COLOUR,
+    DOUBLED_LEG_PLAIN, DRIVER_COLOUR, MAX_BATTLE_PLANS, MINERAL_BAR_LAYOUT, MINERAL_GRAPH_MAX,
+    PATH_COLOUR, PLANET_UNEXPLORED, POPULATION_STEPS, RACE_WIZARD_PAGES, ROUTE_COLOUR, SCALE_YEARS,
+    SCAN_FRIEND, SCAN_OTHER, SCAN_YOURS, SHIP_PATH_COLOUR, WAYPOINT_HOLE, WORMHOLE_CELL,
+    WORMHOLE_MASK, WORMHOLE_SIDE,
 };

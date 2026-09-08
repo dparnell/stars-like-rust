@@ -510,33 +510,32 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     fleet_glyphs(app, ui, &to_fleet_glyph);
 
     // The selected fleet's own path, over the marks: green, with a leg it
-    // travels twice in yellow and drawn once, and a hole at every waypoint so
-    // the line does not run through the markers.
-    {
-        let hole = 5.0_f32;
-        for leg in app.selected_fleet_path() {
-            let from = to_screen(f32::from(leg.from.x), f32::from(leg.from.y));
-            let to = to_screen(f32::from(leg.to.x), f32::from(leg.to.y));
-            let along = to - from;
-            let length = along.length();
-            if length <= hole * 2.0 {
-                continue;
-            }
-            let step = along / length * hole;
-            let [r, g, b] = if leg.doubled {
-                if app.scan_overlays.fleet_paths {
-                    stars_ui_arrow::DOUBLED_LEG_COLOUR
-                } else {
-                    stars_ui_arrow::DOUBLED_LEG_PLAIN
-                }
+    // travels twice in yellow and drawn once. Every waypoint takes an 11x11
+    // bite out of the line — the game draws no marker of its own at a
+    // waypoint, and that hole is what points one out.
+    for leg in app.selected_fleet_path() {
+        let from = to_screen(f32::from(leg.from.x), f32::from(leg.from.y));
+        let to = to_screen(f32::from(leg.to.x), f32::from(leg.to.y));
+        let Some((start, end)) = stars_ui_arrow::leg_outside_waypoints(
+            (from.x, from.y),
+            (to.x, to.y),
+            stars_ui_arrow::WAYPOINT_HOLE,
+        ) else {
+            continue;
+        };
+        let [r, g, b] = if leg.doubled {
+            if app.scan_overlays.fleet_paths {
+                stars_ui_arrow::DOUBLED_LEG_COLOUR
             } else {
-                stars_ui_arrow::SHIP_PATH_COLOUR
-            };
-            painter.line_segment(
-                [from + step, to - step],
-                Stroke::new(1.0_f32, Color32::from_rgb(r, g, b)),
-            );
-        }
+                stars_ui_arrow::DOUBLED_LEG_PLAIN
+            }
+        } else {
+            stars_ui_arrow::SHIP_PATH_COLOUR
+        };
+        painter.line_segment(
+            [Pos2::new(start.0, start.1), Pos2::new(end.0, end.1)],
+            Stroke::new(1.0_f32, Color32::from_rgb(r, g, b)),
+        );
     }
 
     // And a selected planet's own two lines: purple to wherever its mass

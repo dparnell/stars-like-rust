@@ -6,7 +6,7 @@ use stars_core::fleet::{Fleet, ShipStack, Waypoint};
 use stars_core::movement::Point;
 use stars_core::newgame::{NewGame, NewPlayer, Size};
 use stars_core::{opponents, Race};
-use stars_ui::{App, ScanObject, ScanThing};
+use stars_ui::{leg_outside_waypoints, App, ScanObject, ScanThing, WAYPOINT_HOLE};
 
 fn a_game() -> App {
     let mut app = App::new();
@@ -235,4 +235,45 @@ fn a_route_is_a_line_between_two_planets() {
         }
     }
     assert!(app.planet_route_line().is_none());
+}
+
+/// A waypoint has no glyph: what marks it is the 11x11 bite the path line
+/// takes out of itself there, which is a square box and not a distance along
+/// the line.
+#[test]
+fn a_waypoint_is_a_square_hole_in_the_line() {
+    // Straight across: five pixels come off each end.
+    let (start, end) =
+        leg_outside_waypoints((0.0, 0.0), (100.0, 0.0), WAYPOINT_HOLE).expect("a visible leg");
+    assert!((start.0 - 5.0).abs() < 0.001, "{start:?}");
+    assert!((end.0 - 95.0).abs() < 0.001, "{end:?}");
+    assert!(start.1.abs() < 0.001 && end.1.abs() < 0.001);
+
+    // Diagonally: the box is square, so the leg loses more of its length —
+    // five pixels on each axis, which is about seven along the line.
+    let (start, end) =
+        leg_outside_waypoints((0.0, 0.0), (100.0, 100.0), WAYPOINT_HOLE).expect("a visible leg");
+    assert!(
+        (start.0 - 5.0).abs() < 0.001 && (start.1 - 5.0).abs() < 0.001,
+        "{start:?}"
+    );
+    let along = ((start.0 * start.0) + (start.1 * start.1)).sqrt();
+    assert!(
+        along > 7.0 && along < 7.1,
+        "seven pixels along the leg: {along}"
+    );
+    assert!(
+        (end.0 - 95.0).abs() < 0.001 && (end.1 - 95.0).abs() < 0.001,
+        "{end:?}"
+    );
+}
+
+/// A leg the two holes swallow is not drawn at all.
+#[test]
+fn a_short_leg_disappears_into_its_own_holes() {
+    assert!(leg_outside_waypoints((0.0, 0.0), (9.0, 0.0), WAYPOINT_HOLE).is_none());
+    assert!(leg_outside_waypoints((0.0, 0.0), (10.0, 0.0), WAYPOINT_HOLE).is_none());
+    assert!(leg_outside_waypoints((0.0, 0.0), (11.0, 0.0), WAYPOINT_HOLE).is_some());
+    // And one going nowhere has nothing to draw.
+    assert!(leg_outside_waypoints((7.0, 7.0), (7.0, 7.0), WAYPOINT_HOLE).is_none());
 }
