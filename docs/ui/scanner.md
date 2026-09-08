@@ -256,12 +256,12 @@ Only the starbase flag is drawn here: this engine has no equivalent of
 `IStargateFromLppl` or `IWarpMAFromLppl`, which look through a starbase's slots
 for the two parts.
 
-### The other views
+### Planet Value
 
-`Planet Value` (view 3) draws **two concentric discs** rather than a dot: an
-outer ring and a brighter core, sized and coloured by
-`PctPlanetDesirability` — and by `PctPlanetOptValue`, what the planet would be
-worth terraformed, when the plain value is negative.
+View 3 draws **two concentric discs** rather than a dot: an outer ring and a
+brighter core, sized and coloured by `PctPlanetDesirability` — and by
+`PctPlanetOptValue`, what the planet would be worth **terraformed**, when the
+plain value is negative.
 
 | value | outer | inner | radius |
 |-------|-------|-------|--------|
@@ -270,23 +270,66 @@ worth terraformed, when the plain value is negative.
 | `< 0` | grey | red | `-value / 5 + 2`, capped at 10 |
 
 The inner disc is `r - 2`, or `r - 1` when that would be under 3, and at least
-1. A **Claim Adjuster** takes the terraformed value straight, and is never
-shown the yellow pair, because its planets are at their optimum every year.
+1. A **Claim Adjuster** takes the terraformed value straight and is never shown
+the yellow pair, because its planets are at their optimum every year. A planet
+whose environment is not known has no value to show and gets nothing.
 
-`Surface Minerals` and `Mineral Concentration` (views 1 and 2) draw a **three-bar
-histogram** beside each planet, in the three mineral colours, with an axis in
-the button-face colour. The offsets are `vrgScanPO`, five numbers for the
-ordinary zoom and five for the small one: `{7, 12, 19, 4, 6}` and
-`{3, 10, 11, 2, 3}` — x offset, y offset, axis length, bar width, bar spacing.
+`PctPlanetOptValue` is the environment moved as far toward the race's ideal as
+terraforming reaches, then measured — `stars_core::terraform::optimal_env` fed
+to `ai::colonise::pct_planet_opt_value`, both of which this project already had.
+
+Over an inhabited planet the view plants a **flag**: a pole 21 pixels tall with
+a 7x6 banner, over a patch of background cleared with the black stock brush.
+`MANUAL.PDF` p. 5-13 says "Blue flags mark your planets, yellow flags mark your
+friends' planets and red flags mark planets of neutrals and enemies. Planets
+without flags are uninhabited." The code is finer than the manual: a **neutral**
+gets the radar brush and an **enemy** the red one, so the two are told apart on
+the map. This follows the code.
+
+### The mineral views
+
+Views 1 and 2 draw a **three-bar histogram** beside each planet in the three
+mineral colours, with an axis in the button-face colour — a corner, along the
+bottom and up the left.
+
+The offsets are `vrgScanPO`, five numbers for the ordinary zoom and five for
+the small one: `{7, 12, 19, 4, 6}` and `{3, 10, 11, 2, 3}` — x offset, y
+offset, axis length, bar width, bar spacing.
+
 A surface bar is `(amount + max/40) / (max/20)` and a concentration bar is
-`conc / 5`, both capped at 20 and halved at the small zoom.
+`conc / 5`, both capped at 20 pixels and halved when the map is zoomed out
+below life size. `max` is `cMinGrafMax` (`1120:04f8`), which ships at **5000**
+— and the manual notes it is the *same* scale as the Summary pane's mineral
+graph, so rescaling that rescales these bars too.
 
-`Population` (view 4) draws a disc whose radius is a step into a nineteen-entry
-table plus two, and another player's population is a **guess** — the planet's
-`uGuesses` field, shifted left twice.
+Surface minerals need a planet this player has **been to**; a concentration
+needs only one that has been scanned.
 
-Neither of those last three is transcribed yet: this project still draws its
-own dot for them. The rules above are written down so they can be.
+### Population
+
+View 4 draws a disc whose radius is a step up a nineteen-entry ladder, plus
+two. The ladder is at **`1058:0000`** — the very start of the scanner's own
+code segment, which is why the reconstruction shows the lookup with no base at
+all — and holds, in the hundreds of colonists the files count in:
+
+```
+25  50  100  200  400  800  1000  1500  2250  3000
+4000  5000  6000  7500  9000  11000  14000  18000  25000
+```
+
+So 2,500 colonists is radius 2 and 2,500,000 is radius 20. The colours are the
+manual's: green for this player's planets, yellow for a friend's, red for
+everybody else's, and a planet nobody lives on is "small and grey".
+
+Another player's population is a **guess** in the original — the planet's
+`uGuesses` field shifted left twice — which this engine does not keep, so their
+planets are drawn at the smallest size rather than guessed at.
+
+### No Player Information
+
+View 5 skips the whole planet loop (`if (cPlanet != 0 && uVar8 != 5)`), so all
+that is left is the base dot on every position: "just a thousand dim points of
+light", as the manual puts it.
 
 ### Minefields
 

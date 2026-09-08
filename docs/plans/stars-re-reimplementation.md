@@ -2435,7 +2435,34 @@ disagree.
     and Population's table-step radius with its `uGuesses` estimate for another
     player's planets.
 
-80. **What is still missing to call it playable.** Every waypoint task is now
+80. ~~**The scanner's other views.**~~ **Done** — all six are the game's own now.
+    Spec in `docs/ui/scanner.md`.
+
+    **Planet Value** is two concentric discs, sized `value / 11 + 2` or
+    `-value / 5 + 2` and capped at ten, in green/white, dark-yellow/yellow when
+    only terraforming would make the planet habitable, or grey/red when nothing
+    would. Over an inhabited planet it plants a **flag** — a 21-pixel pole with
+    a 7x6 banner — and the code tells a neutral from an enemy where the manual
+    lumps the two together. `PctPlanetOptValue` turned out to be
+    `terraform::optimal_env` fed to `ai::colonise::pct_planet_opt_value`, both
+    of which this project already had.
+
+    **The mineral views** are three-bar histograms with an axis, laid out by
+    `vrgScanPO` — `{7, 12, 19, 4, 6}` at ordinary zoom and `{3, 10, 11, 2, 3}`
+    zoomed out. A surface bar is `(amount + max/40) / (max/20)` against
+    `cMinGrafMax`, which ships at 5000 and is the same scale the Summary pane's
+    mineral graph uses; a concentration bar is a fifth of the reading.
+
+    **Population** is a step up a nineteen-entry ladder plus two, and the ladder
+    was the interesting find: it sits at **`1058:0000`**, the very start of the
+    scanner's code segment, which is why the reconstruction renders the lookup
+    with no base at all — the base really is zero. Another lookup table in the
+    code segment, as with the toolbar's layout and the advantage points.
+
+    **No Player Information** skips the planet loop altogether, leaving the base
+    dots the first loop drew: "just a thousand dim points of light".
+
+81. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

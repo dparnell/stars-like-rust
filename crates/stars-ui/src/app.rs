@@ -7120,6 +7120,41 @@ impl App {
 
 // --- Clicking the same spot again -----------------------------------------
 
+/// The scale the mineral views' bars are drawn against (`cMinGrafMax`,
+/// `1120:04f8`), which ships set to **5000**.
+///
+/// `MANUAL.PDF` p. 5-13: the mineral colours and scale "matches the display in
+/// the Summary pane's mineral content graph. Rescaling that graph rescales the
+/// bars in this view" — one number serves both, and the player can change it.
+pub const MINERAL_GRAPH_MAX: i32 = 5000;
+
+/// The population each step of the Population view's circle stands for, in the
+/// hundreds of colonists this engine counts in.
+///
+/// Nineteen thresholds at **`1058:0000`** — the very start of the scanner's own
+/// code segment, which is why the reconstruction shows the lookup with no base
+/// at all. A planet's circle is the first step its population does **not**
+/// reach, plus two, so 2,500 colonists is radius 2 and 2,500,000 is radius 20.
+pub const POPULATION_STEPS: [i32; 19] = [
+    25, 50, 100, 200, 400, 800, 1000, 1500, 2250, 3000, 4000, 5000, 6000, 7500, 9000, 11000, 14000,
+    18000, 25000,
+];
+
+/// One of the three bars the mineral views draw beside a planet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MineralBar {
+    /// Which mineral, for its colour.
+    pub mineral: usize,
+    /// How tall the bar is, in pixels.
+    pub height: i32,
+}
+
+/// Where the mineral views put their bars, by zoom (`vrgScanPO`, `1120:...`).
+///
+/// Five numbers each, and the second row is used when the map is zoomed out
+/// below life size: x offset, y offset, axis length, bar width, bar spacing.
+pub const MINERAL_BAR_LAYOUT: [[i32; 5]; 2] = [[7, 12, 19, 4, 6], [3, 10, 11, 2, 3]];
+
 /// How a planet is drawn on the map: which cell of `ScannerBmp`, and how big.
 ///
 /// `DrawScanner` draws every planet **position** as a small dot and then puts
@@ -7492,6 +7527,174 @@ impl App {
                 colour,
             }
         }
+    }
+
+    /// The two discs the **Planet Value** view draws, outermost first.
+    ///
+    /// Each is a radius and a colour. The value is `PctPlanetDesirability`,
+    /// and when that is negative the view falls back to `PctPlanetOptValue` —
+    /// what the planet would be worth **terraformed** — which is what the
+    /// yellow pair means. A Claim Adjuster is shown the terraformed value
+    /// straight and never sees yellow, because its planets are at their
+    /// optimum every year.
+    ///
+    /// `None` when the planet's environment is not known: there is no value to
+    /// show.
+    #[must_use]
+    pub fn planet_value_discs(&self, planet: &Planet) -> Option<[(f32, [u8; 3]); 2]> {
+        let me = self.local_player();
+        let player = self.game.as_ref()?.players.get(me)?;
+        let race = &player.race;
+        let adjuster = race.prt() == Some(stars_core::race::Prt::Ca);
+        let known = planet.detail >= stars_core::planet::Detail::Scanned;
+        // What the planet would be worth terraformed, which is what
+        // `PctPlanetOptValue` measures: the environment moved as far toward the
+        // race's ideal as this player's technology reaches.
+        let optimum = || {
+            let reach = stars_core::terraform::optimal_env(planet, race, player.research.levels);
+            stars_core::ai::colonise::pct_planet_opt_value(planet, race, reach)
+        };
+
+        let mut terraformed = false;
+        let value = if known {
+            let value = stars_core::hab::pct_planet_desirability(planet, race);
+            if value < 0 {
+                let optimum = optimum();
+                if optimum >= 0 && !adjuster {
+                    terraformed = true;
+                }
+                optimum
+            } else {
+                value
+            }
+        } else if adjuster {
+            optimum()
+        } else {
+            return None;
+        };
+
+        // The outer disc grows with the value — or with how hostile it is.
+        let radius = if value < 0 { -value / 5 } else { value / 11 };
+        let radius = (radius + 2).min(10);
+        // The inner one is two smaller, or one when that would be under three.
+        let inner = if radius - 2 < 3 {
+            radius - 1
+        } else {
+            radius - 2
+        }
+        .max(1);
+        let (outer_colour, inner_colour) = if value < 0 {
+            ([0x60, 0x70, 0x80], [0xff, 0x00, 0x00])
+        } else if terraformed {
+            ([0x80, 0x80, 0x00], [0xff, 0xff, 0x00])
+        } else {
+            ([0x00, 0x80, 0x00], [0xff, 0xff, 0xff])
+        };
+        #[allow(clippy::cast_precision_loss)]
+        Some([(radius as f32, outer_colour), (inner as f32, inner_colour)])
+    }
+
+    /// The **flag** the Planet Value view plants on an inhabited planet.
+    ///
+    /// A pole and a banner, in the owner's colour: blue for this player,
+    /// yellow for a friend, grey for a neutral and red for an enemy. The
+    /// manual (p. 5-13) lumps the last two together — "red flags mark planets
+    /// of neutrals and enemies" — but the code keeps them apart, and the code
+    /// is what this follows. A planet nobody lives on has no flag.
+    #[must_use]
+    pub fn planet_value_flag(&self, planet: &Planet) -> Option<[u8; 3]> {
+        let owner = usize::try_from(planet.owner?).ok()?;
+        let me = self.local_player();
+        if owner == me {
+            return Some([0x40, 0x80, 0xff]);
+        }
+        let game = self.game.as_ref()?;
+        Some(match stars_core::relations::regard(game, me, owner) {
+            stars_core::relations::Relation::Friend => [0xff, 0xd0, 0x40],
+            stars_core::relations::Relation::Neutral => [0x80, 0x90, 0xa0],
+            stars_core::relations::Relation::Enemy => [0xff, 0x00, 0x00],
+        })
+    }
+
+    /// The three bars the **mineral** views draw beside a planet.
+    ///
+    /// Surface minerals are scaled against [`MINERAL_GRAPH_MAX`] and
+    /// concentrations by a fifth, both capped at twenty pixels and halved when
+    /// the map is zoomed out. A surface reading needs a planet this player has
+    /// **been to**; a concentration only one that has been scanned.
+    #[must_use]
+    pub fn planet_mineral_bars(&self, planet: &Planet, concentration: bool) -> Vec<MineralBar> {
+        use stars_core::planet::Detail;
+        // A concentration reading only wants a planet that has been scanned;
+        // a surface reading wants one this player has been to.
+        let enough = if concentration {
+            planet.detail >= Detail::Scanned
+        } else {
+            planet.detail == Detail::Full
+        };
+        if !enough {
+            return Vec::new();
+        }
+        let small = self.scan_zoom < 0;
+        (0..3)
+            .map(|mineral| {
+                let height = if concentration {
+                    i32::from(planet.min_conc[mineral]) / 5
+                } else {
+                    (planet.surface_min[mineral] + MINERAL_GRAPH_MAX / 40)
+                        / (MINERAL_GRAPH_MAX / 20)
+                }
+                .min(20);
+                MineralBar {
+                    mineral,
+                    height: if small { height / 2 } else { height },
+                }
+            })
+            .collect()
+    }
+
+    /// Where the mineral bars go, by zoom.
+    #[must_use]
+    pub fn mineral_bar_layout(&self) -> [i32; 5] {
+        MINERAL_BAR_LAYOUT[usize::from(self.scan_zoom < 0)]
+    }
+
+    /// The radius of the **Population** view's circle, and its colour.
+    ///
+    /// The circle is the first of [`POPULATION_STEPS`] the population does not
+    /// reach, plus two. Another player's population is not known: the original
+    /// takes the planet's own guess field and shifts it left twice, which this
+    /// engine does not keep, so their planets are drawn at the smallest size
+    /// rather than guessed at.
+    ///
+    /// A planet nobody lives on falls back to the ordinary mark, which is what
+    /// the manual means by "uncolonized planets that you've visited are small
+    /// and grey" (p. 5-13).
+    #[must_use]
+    pub fn planet_population_disc(&self, planet: &Planet) -> Option<(f32, [u8; 3])> {
+        use stars_core::planet::Detail;
+        let owner = usize::try_from(planet.owner?).ok()?;
+        if planet.detail < Detail::Scanned {
+            return None;
+        }
+        let me = self.local_player();
+        let population = if owner == me { planet.pop } else { 0 };
+        let step = POPULATION_STEPS
+            .iter()
+            .position(|threshold| population <= *threshold)
+            .unwrap_or(POPULATION_STEPS.len());
+        let game = self.game.as_ref()?;
+        let colour = if owner == me {
+            [0x00, 0xc0, 0x00]
+        } else if stars_core::relations::regard(game, me, owner)
+            == stars_core::relations::Relation::Friend
+        {
+            [0xff, 0xff, 0x00]
+        } else {
+            [0xff, 0x00, 0x00]
+        };
+        #[allow(clippy::cast_precision_loss)]
+        Some(((step + 2) as f32, colour))
     }
 
     /// The **starbase** mark beside a planet, if it has one.

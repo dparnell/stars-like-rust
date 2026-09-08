@@ -149,3 +149,192 @@ fn the_starbase_flag_tells_a_fort_from_a_starbase() {
         "anything more is blue"
     );
 }
+
+// --- The other views ----------------------------------------------------
+
+/// The Planet Value view: two discs, sized and coloured by what the planet is
+/// worth — and by what it would be worth terraformed when that is negative.
+#[test]
+fn planet_value_draws_two_discs() {
+    let app = a_game();
+    let home = app
+        .game
+        .as_ref()
+        .expect("a game")
+        .planets
+        .iter()
+        .find(|p| p.owner == Some(0))
+        .expect("a homeworld")
+        .clone();
+
+    let [outer, inner] = app.planet_value_discs(&home).expect("a value");
+    // A homeworld is at its race's ideal, so it is green and white and big.
+    assert_eq!(outer.1, [0x00, 0x80, 0x00], "green: habitable");
+    assert_eq!(inner.1, [0xff, 0xff, 0xff]);
+    assert!(outer.0 > inner.0, "the core is the smaller of the two");
+    assert!(outer.0 <= 10.0, "ten is as large as it goes");
+    assert!(inner.0 >= 1.0);
+
+    // A planet nobody has looked at has no value to show.
+    let mut unknown = home.clone();
+    unknown.detail = stars_core::planet::Detail::Minimal;
+    assert!(app.planet_value_discs(&unknown).is_none());
+}
+
+/// A hostile planet is grey and red, and grows with how hostile it is.
+#[test]
+fn a_hostile_planet_is_red_and_grows_with_the_harm() {
+    let app = a_game();
+    let mut planet = app
+        .game
+        .as_ref()
+        .expect("a game")
+        .planets
+        .iter()
+        .find(|p| p.owner == Some(0))
+        .expect("a homeworld")
+        .clone();
+    // Push every variable to an extreme the race cannot reach.
+    planet.env = [0, 0, 100];
+    planet.owner = None;
+    planet.detail = stars_core::planet::Detail::Scanned;
+
+    let [outer, inner] = app.planet_value_discs(&planet).expect("a value");
+    let hostile = outer.1 == [0x60, 0x70, 0x80] && inner.1 == [0xff, 0x00, 0x00];
+    let terraformable = outer.1 == [0x80, 0x80, 0x00] && inner.1 == [0xff, 0xff, 0x00];
+    assert!(
+        hostile || terraformable,
+        "an unlivable planet is red, or yellow if terraforming would fix it: {outer:?} {inner:?}"
+    );
+}
+
+/// The flag says who lives there, and an empty planet has none.
+#[test]
+fn the_value_view_plants_a_flag_on_an_inhabited_planet() {
+    let mut app = a_game();
+    let me = app.local_player();
+    let base = app
+        .game
+        .as_ref()
+        .expect("a game")
+        .planets
+        .first()
+        .expect("a planet")
+        .clone();
+    let planet = |owner: Option<i16>| {
+        let mut planet = base.clone();
+        planet.owner = owner;
+        planet
+    };
+    assert_eq!(
+        app.planet_value_flag(&planet(None)),
+        None,
+        "nobody lives there"
+    );
+    assert_eq!(
+        app.planet_value_flag(&planet(Some(i16::try_from(me).expect("a player")))),
+        Some([0x40, 0x80, 0xff]),
+        "yours is blue"
+    );
+    // A neutral and an enemy are told apart here, where the manual lumps them.
+    assert_eq!(
+        app.planet_value_flag(&planet(Some(1))),
+        Some([0x80, 0x90, 0xa0])
+    );
+    if let Some(game) = app.game.as_mut() {
+        game.players[me].relations = vec![0, 2, 1];
+    }
+    assert_eq!(
+        app.planet_value_flag(&planet(Some(1))),
+        Some([0xff, 0x00, 0x00])
+    );
+    assert_eq!(
+        app.planet_value_flag(&planet(Some(2))),
+        Some([0xff, 0xd0, 0x40])
+    );
+}
+
+/// The mineral views: three bars, scaled two different ways, halved when the
+/// map is zoomed out.
+#[test]
+fn the_mineral_views_draw_three_bars() {
+    let mut app = a_game();
+    let mut planet = app
+        .game
+        .as_ref()
+        .expect("a game")
+        .planets
+        .iter()
+        .find(|p| p.owner == Some(0))
+        .expect("a homeworld")
+        .clone();
+    planet.surface_min = [0, 2500, 100_000];
+    planet.min_conc = [0, 50, 200];
+
+    // Surface: (amount + max/40) / (max/20), capped at 20.
+    let bars = app.planet_mineral_bars(&planet, false);
+    assert_eq!(bars.len(), 3);
+    // (amount + 5000/40) / (5000/20), which is (amount + 125) / 250.
+    assert_eq!(bars[0].height, 0);
+    assert_eq!(bars[1].height, (2500 + 125) / 250);
+    assert_eq!(bars[2].height, 20, "a rich planet tops the scale out");
+
+    // Concentration: a fifth, capped the same way.
+    let bars = app.planet_mineral_bars(&planet, true);
+    assert_eq!(bars[0].height, 0);
+    assert_eq!(bars[1].height, 10);
+    assert_eq!(bars[2].height, 20);
+
+    // Zoomed out, everything is half as tall and the small layout is used.
+    assert_eq!(app.mineral_bar_layout(), [7, 12, 19, 4, 6]);
+    app.scan_zoom = -1;
+    assert_eq!(app.mineral_bar_layout(), [3, 10, 11, 2, 3]);
+    assert_eq!(app.planet_mineral_bars(&planet, true)[1].height, 5);
+
+    // A planet this player has only scanned has concentrations but no surface
+    // reading.
+    planet.detail = stars_core::planet::Detail::Scanned;
+    assert!(app.planet_mineral_bars(&planet, false).is_empty());
+    assert_eq!(app.planet_mineral_bars(&planet, true).len(), 3);
+}
+
+/// The population circle steps up a nineteen-entry ladder.
+#[test]
+fn the_population_circle_steps_up_the_ladder() {
+    let app = a_game();
+    let mut planet = app
+        .game
+        .as_ref()
+        .expect("a game")
+        .planets
+        .iter()
+        .find(|p| p.owner == Some(0))
+        .expect("a homeworld")
+        .clone();
+
+    // The ladder is in hundreds of colonists, and the circle is the step it
+    // does not reach plus two.
+    assert_eq!(stars_ui::POPULATION_STEPS[0], 25);
+    assert_eq!(stars_ui::POPULATION_STEPS[18], 25_000);
+
+    planet.pop = 25;
+    assert_eq!(app.planet_population_disc(&planet).expect("a disc").0, 2.0);
+    planet.pop = 26;
+    assert_eq!(app.planet_population_disc(&planet).expect("a disc").0, 3.0);
+    planet.pop = 25_000;
+    assert_eq!(app.planet_population_disc(&planet).expect("a disc").0, 20.0);
+    planet.pop = 99_999;
+    assert_eq!(
+        app.planet_population_disc(&planet).expect("a disc").0,
+        21.0,
+        "past the end of the ladder it stops growing"
+    );
+
+    // Green for one's own; nothing at all for a planet nobody lives on.
+    assert_eq!(
+        app.planet_population_disc(&planet).expect("a disc").1,
+        [0x00, 0xc0, 0x00]
+    );
+    planet.owner = None;
+    assert!(app.planet_population_disc(&planet).is_none());
+}

@@ -145,7 +145,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     // Every planet **position** gets a dot, explored or not: everybody knows
     // where the planets are, only not what is on them. `DrawScanner` walks
     // `rgptPlan`, which is the whole universe, before it walks what is known.
-    if view == ScanView::Normal {
+    {
         if let Some(universe) = app.universe.as_ref() {
             for planet in universe.planets_resolved() {
                 #[allow(clippy::cast_precision_loss)]
@@ -161,48 +161,85 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         let at = to_screen(f32::from(position.x), f32::from(position.y));
 
         let (colour, radius) = match view {
-            // Everybody's colours taken off: the map as geography.
-            ScanView::NoPlayerInfo => (Color32::from_gray(140), 3.0),
-            // How good the planet is for this race, green through red.
+            // "Just a thousand dim points of light": the planet loop is skipped
+            // altogether, so only the base dots the first loop drew are left.
+            ScanView::NoPlayerInfo => (Color32::TRANSPARENT, 0.0),
+            // Two concentric discs sized and coloured by what the planet is
+            // worth, with a flag over an inhabited one.
             ScanView::PlanetValue => {
-                let value = race.as_ref().map_or(0, |race| {
-                    stars_core::hab::pct_planet_desirability(planet, race)
-                });
-                (value_colour(value), 4.0)
+                if let Some(discs) = app.planet_value_discs(planet) {
+                    for (radius, [r, g, b]) in discs {
+                        painter.circle_filled(at, radius, Color32::from_rgb(r, g, b));
+                    }
+                }
+                if let Some([r, g, b]) = app.planet_value_flag(planet) {
+                    let colour = Color32::from_rgb(r, g, b);
+                    // A pole 21 tall with a 7x6 banner at the top of it.
+                    painter.rect_filled(
+                        Rect::from_min_size(at + Vec2::new(0.0, -19.0), egui::vec2(1.0, 21.0)),
+                        0.0,
+                        colour,
+                    );
+                    painter.rect_filled(
+                        Rect::from_min_size(at + Vec2::new(0.0, -19.0), egui::vec2(7.0, 6.0)),
+                        0.0,
+                        colour,
+                    );
+                }
+                (Color32::TRANSPARENT, 0.0)
             }
-            // How many people live there.
+            // A circle whose width is a step up the population ladder.
             ScanView::Population => {
-                let radius = if planet.pop > 0 {
-                    #[allow(clippy::cast_precision_loss)]
-                    (2.0 + (planet.pop as f32).sqrt() / 25.0).min(9.0)
-                } else {
-                    2.0
-                };
-                (
-                    planet.owner.map_or(Color32::from_gray(110), player_colour),
-                    radius,
-                )
+                match app.planet_population_disc(planet) {
+                    Some((radius, [r, g, b])) => (Color32::from_rgb(r, g, b), radius),
+                    // Nobody lives there: small and grey, as the manual has it.
+                    None => (Color32::from_gray(140), 2.0),
+                }
             }
-            // What is on the surface, or in the ground: drawn as the mineral
-            // whose reading is highest, in that mineral's colour.
+            // Three bars beside the planet, in the mineral colours.
             ScanView::SurfaceMineral | ScanView::MineralConcentration => {
-                let readings: [i32; 3] = if view == ScanView::SurfaceMineral {
-                    planet.surface_min
-                } else {
-                    [
-                        i32::from(planet.min_conc[0]),
-                        i32::from(planet.min_conc[1]),
-                        i32::from(planet.min_conc[2]),
-                    ]
-                };
-                let (best, amount) = readings
-                    .iter()
-                    .enumerate()
-                    .max_by_key(|(_, v)| **v)
-                    .map_or((0, 0), |(i, v)| (i, *v));
-                #[allow(clippy::cast_precision_loss)]
-                let radius = (2.0 + (amount as f32).sqrt() / 6.0).min(9.0);
-                (crate::views::mineral_colour(best), radius)
+                let layout = app.mineral_bar_layout();
+                let bars = app.planet_mineral_bars(planet, view == ScanView::MineralConcentration);
+                if !bars.is_empty() {
+                    #[allow(clippy::cast_precision_loss)]
+                    let origin = at + Vec2::new(-(layout[0] as f32), -(layout[1] as f32));
+                    #[allow(clippy::cast_precision_loss)]
+                    let axis = layout[2] as f32;
+                    // The axis: a corner, along the bottom and up the left.
+                    let frame = Color32::from_gray(110);
+                    painter.rect_filled(
+                        Rect::from_min_size(origin + Vec2::new(-2.0, 0.0), egui::vec2(axis, 1.0)),
+                        0.0,
+                        frame,
+                    );
+                    painter.rect_filled(
+                        Rect::from_min_size(
+                            origin + Vec2::new(-2.0, -axis + 1.0),
+                            egui::vec2(1.0, axis),
+                        ),
+                        0.0,
+                        frame,
+                    );
+                    for bar in &bars {
+                        #[allow(clippy::cast_precision_loss)]
+                        let (width, step) = (layout[3] as f32, layout[4] as f32);
+                        #[allow(clippy::cast_precision_loss)]
+                        let height = bar.height as f32;
+                        #[allow(clippy::cast_precision_loss)]
+                        let x = origin.x + bar.mineral as f32 * step;
+                        if height > 0.0 {
+                            painter.rect_filled(
+                                Rect::from_min_size(
+                                    egui::pos2(x, origin.y - height),
+                                    egui::vec2(width, height),
+                                ),
+                                0.0,
+                                crate::views::mineral_colour(bar.mineral),
+                            );
+                        }
+                    }
+                }
+                (Color32::TRANSPARENT, 0.0)
             }
             // The Normal view is the game's own marks, gathered here and drawn
             // after the loop because they come out of the scanner's sheet.
@@ -653,21 +690,6 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             Color32::from_gray(220),
         );
     }
-}
-
-/// The colour of a planet in the value view: green for a good world down
-/// through yellow to red for a hostile one.
-fn value_colour(value: i16) -> Color32 {
-    if value <= 0 {
-        return Color32::from_rgb(150, 40, 40);
-    }
-    let t = f32::from(value.clamp(0, 100)) / 100.0;
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    Color32::from_rgb(
-        (220.0 * (1.0 - t) + 60.0 * t) as u8,
-        (60.0 * (1.0 - t) + 200.0 * t) as u8,
-        60,
-    )
 }
 
 /// Draw the orbit rings gathered while the planets were drawn.
