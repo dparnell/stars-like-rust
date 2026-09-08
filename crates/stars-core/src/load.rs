@@ -194,6 +194,15 @@ pub fn planet_from_record(record: &PlanetRecord) -> Option<Planet> {
             .filter(|id| *id != 0)
             .and_then(|id| i16::try_from(id).ok())
             .map(|id| id - 1),
+        // The mass driver's target is stored the same way, in the starbase's
+        // own word.
+        fling_dest: record
+            .starbase
+            .map(|s| s.fling_dest)
+            .filter(|id| *id != 0)
+            .and_then(|id| i16::try_from(id).ok())
+            .map(|id| id - 1),
+        fling_warp: record.starbase.map_or(0, |s| s.warp),
     })
 }
 
@@ -218,6 +227,13 @@ pub fn partial_planet_from_record(record: &PlanetRecord) -> Option<Planet> {
     planet.owner = record.owner.map(i16::from);
     planet.starbase = record.has_starbase;
     planet.starbase_design = record.starbase.map(|s| s.design);
+    planet.fling_dest = record
+        .starbase
+        .map(|s| s.fling_dest)
+        .filter(|id| *id != 0)
+        .and_then(|id| i16::try_from(id).ok())
+        .map(|id| id - 1);
+    planet.fling_warp = record.starbase.map_or(0, |s| s.warp);
     planet.homeworld = record.homeworld;
     planet.artifact = record.artifact;
 

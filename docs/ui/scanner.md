@@ -354,8 +354,11 @@ leg **into** waypoint `i`.
 
 **A selected planet's lines.** A dark purple one to the planet its starbase's
 **mass driver** is aimed at, and a dark green one to the planet it **routes**
-new fleets to. This project draws the route; the driver's target is not carried
-on a planet in this engine yet, only in the file layer.
+new fleets to. A planet with **both** shows both: the `goto` that draws the
+purple line jumps into the route loop's body past the assignment that would
+stop it, so the loop runs once more and draws the green one too. Each target is
+stored **one-based**, zero meaning none, and the driver's line needs the planet
+to actually have a starbase.
 
 ## Clicking the same spot again
 

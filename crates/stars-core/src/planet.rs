@@ -116,6 +116,15 @@ pub struct Planet {
     /// the planet id itself. Read by the Route waypoint task — see
     /// [`crate::orders::execute_arrival_tasks`].
     pub route_dest: Option<i16>,
+    /// Where this planet's starbase **mass driver** is aimed, or `None` when
+    /// no fling is set (`STARBASE.idDest`).
+    ///
+    /// Stored one-based in the same way as [`Self::route_dest`], and decoded
+    /// here to the planet id itself. The scanner draws a line to it when the
+    /// planet is selected — see `docs/ui/scanner.md`.
+    pub fling_dest: Option<i16>,
+    /// The warp that mass driver flings at, `0` when none is set.
+    pub fling_warp: u8,
     /// Where the planet sits in the universe.
     ///
     /// Planet coordinates live in the `.xy` universe file, not in the per-player
@@ -154,6 +163,8 @@ impl Planet {
             scanner: None,
             no_research: false,
             route_dest: None,
+            fling_dest: None,
+            fling_warp: 0,
             position: None,
             name: None,
         }

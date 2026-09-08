@@ -464,8 +464,10 @@ fn planet_record(planet: &Planet) -> PlanetRecord {
         starbase: (planet.starbase && owned).then(|| Starbase {
             design: planet.starbase_design.unwrap_or(0) & 0x0F,
             damage_pct: 0,
-            fling_dest: 0,
-            warp: 0,
+            // The mass driver's target is stored one-based, zero meaning it is
+            // not set — the same convention as the route.
+            fling_dest: planet.fling_dest.map_or(0, |id| id.unsigned_abs() + 1),
+            warp: planet.fling_warp,
             no_heal: false,
         }),
         // Stored one-based, zero meaning "no route".

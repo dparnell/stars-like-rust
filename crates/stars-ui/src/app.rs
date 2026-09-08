@@ -7268,6 +7268,10 @@ pub const DOUBLED_LEG_COLOUR: [u8; 3] = [0xff, 0xff, 0x00];
 /// `WHITE_PEN`.
 pub const DOUBLED_LEG_PLAIN: [u8; 3] = [0xff, 0xff, 0xff];
 
+/// The line from a planet to the planet its starbase's **mass driver** is
+/// aimed at — `hpenDkPurple`, `0x007f007f`.
+pub const DRIVER_COLOUR: [u8; 3] = [0x7f, 0x00, 0x7f];
+
 /// The line from a planet to the planet it **routes** to — `hpenDkGreen`,
 /// `0x00007f00`.
 pub const ROUTE_COLOUR: [u8; 3] = [0x00, 0x7f, 0x00];
@@ -7863,13 +7867,37 @@ impl App {
             .collect()
     }
 
+    /// The line from a selected planet to the planet its starbase's **mass
+    /// driver** is aimed at.
+    ///
+    /// `DrawShipScanPath`'s last arm draws this one first, in dark purple, and
+    /// then falls into the route line's loop — the `goto` jumps in past the
+    /// assignment that would stop it — so a planet with **both** a driver
+    /// target and a route shows **both** lines. The planet must actually have
+    /// a starbase for the driver line to be considered.
+    #[must_use]
+    pub fn planet_driver_line(
+        &self,
+    ) -> Option<(stars_core::movement::Point, stars_core::movement::Point)> {
+        if self.selection.on_fleet || self.selection.thing.is_some() {
+            return None;
+        }
+        let id = self.selection.planet?;
+        let game = self.game.as_ref()?;
+        let planet = game.planets.iter().find(|planet| planet.id == id)?;
+        if !planet.starbase {
+            return None;
+        }
+        let from = self.planet_position(u16::try_from(id).ok()?)?;
+        let to = self.planet_position(u16::try_from(planet.fling_dest?).ok()?)?;
+        Some((from, to))
+    }
+
     /// The line from a selected planet to the planet it **routes** to.
     ///
     /// `DrawShipScanPath`'s last arm: a dark-green line to `PLANET.idRoute`,
-    /// so a planet set to send its new fleets somewhere shows where. The same
-    /// arm draws a **dark purple** line to a starbase's mass-driver target
-    /// first, and this engine does not carry that field on a planet yet, so
-    /// only the route is drawn.
+    /// so a planet set to send its new fleets somewhere shows where. See
+    /// [`Self::planet_driver_line`] for the purple one drawn before it.
     #[must_use]
     pub fn planet_route_line(
         &self,

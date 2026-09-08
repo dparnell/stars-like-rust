@@ -2593,9 +2593,16 @@ disagree.
 
     **The selected fleet's own path** is drawn over the marks in green, with a
     leg travelled twice drawn once in yellow (white when Ship Paths is off) and
-    a hole at every waypoint. **A planet's route line** is drawn in dark green;
-    the dark purple mass-driver line needs a field this engine does not carry
-    on a planet yet.
+    a hole at every waypoint. **A planet's two lines** are drawn as well: dark
+    purple to wherever its starbase's mass driver is aimed, then dark green to
+    wherever it routes new fleets, and a planet with both shows both — the
+    `goto` that draws the purple one lands inside the route loop past the
+    assignment that would end it.
+
+    The mass driver's target needed a field: `Planet` now carries `fling_dest`
+    and `fling_warp`, read from the starbase word and written back. The save
+    path had been writing zero for both, so a mass driver set in a loaded game
+    was being dropped on the way out; it survives a round trip now.
 
     And a correction to items 84 and 85. A COLORREF is `0x00bbggrr`, so
     `hbrRadar` (`0x7f`) is dark **red** and `hpenStarbase` (`0xff0000`) is

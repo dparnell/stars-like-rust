@@ -160,6 +160,48 @@ fn an_empty_selection_draws_nothing() {
     assert!(app.scan_scale_line().is_none());
     assert!(app.selected_fleet_path().is_empty());
     assert!(app.planet_route_line().is_none());
+    assert!(app.planet_driver_line().is_none());
+}
+
+/// A planet whose starbase has a mass driver aimed somewhere shows a line to
+/// it, and a planet with a route as well shows both.
+#[test]
+fn a_mass_driver_and_a_route_are_two_lines() {
+    let mut app = a_game();
+    let (from_id, from_at, to_id, to_at) = {
+        let game = app.game.as_ref().expect("a game");
+        let mut all = game.planets.iter().filter(|p| p.position.is_some());
+        let a = all.next().expect("a planet");
+        let b = all.next().expect("another planet");
+        (
+            a.id,
+            a.position.expect("a position"),
+            b.id,
+            b.position.expect("a position"),
+        )
+    };
+    if let Some(game) = app.game.as_mut() {
+        if let Some(planet) = game.planets.iter_mut().find(|p| p.id == from_id) {
+            planet.starbase = true;
+            planet.fling_dest = Some(to_id);
+            planet.route_dest = Some(to_id);
+        }
+    }
+    app.select_object(ScanObject::Planet(from_id));
+    assert_eq!(app.planet_driver_line(), Some((from_at, to_at)));
+    assert_eq!(
+        app.planet_route_line(),
+        Some((from_at, to_at)),
+        "the route line is drawn as well as the driver's"
+    );
+
+    // No starbase, no driver line — the driver belongs to the base.
+    if let Some(game) = app.game.as_mut() {
+        if let Some(planet) = game.planets.iter_mut().find(|p| p.id == from_id) {
+            planet.starbase = false;
+        }
+    }
+    assert!(app.planet_driver_line().is_none());
 }
 
 /// A planet set to route its new fleets somewhere shows the line.

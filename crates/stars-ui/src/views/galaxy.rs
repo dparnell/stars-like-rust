@@ -539,9 +539,17 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         }
     }
 
-    // And the line from a selected planet to the planet it routes to.
-    if let Some((from, to)) = app.planet_route_line() {
-        let [r, g, b] = stars_ui_arrow::ROUTE_COLOUR;
+    // And a selected planet's own two lines: purple to wherever its mass
+    // driver is aimed, then green to wherever it routes new fleets. A planet
+    // with both draws both.
+    for (line, colour) in [
+        (app.planet_driver_line(), stars_ui_arrow::DRIVER_COLOUR),
+        (app.planet_route_line(), stars_ui_arrow::ROUTE_COLOUR),
+    ] {
+        let Some((from, to)) = line else {
+            continue;
+        };
+        let [r, g, b] = colour;
         painter.line_segment(
             [
                 to_screen(f32::from(from.x), f32::from(from.y)),

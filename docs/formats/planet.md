@@ -114,11 +114,16 @@ high32: bits 0..11  defenses    (12 bits)
 ```
 bits 0..3   design      (0..=15)
 bits 4..15  damage %     (12 bits)
-bits 16..25 fling dest   (10 bits, mass-driver target planet)
+bits 16..25 fling dest   (10 bits, mass-driver target planet, one-based)
 bits 26..29 warp         (4 bits)
 bit 30      fNoHeal
 bit 31      unused
 ```
+
+The fling destination is stored **one-based** so that zero can mean "no fling
+set", the same convention as the route destination below.
+`stars_core::planet::Planet` decodes both to the planet id itself; the scanner
+draws a line to each when the planet is selected (`docs/ui/scanner.md`).
 
 ### 5. Route destination — owned and `fRouting`
 
