@@ -458,6 +458,60 @@ View 5 skips the whole planet loop (`if (cPlanet != 0 && uVar8 != 5)`), so all
 that is left is the base dot on every position: "just a thousand dim points of
 light", as the manual puts it.
 
+### Scanner coverage
+
+`grbitScan & 0x20`, and the **first** thing `DrawScanner` paints after it
+clears the map — so the discs lie under the minefields, the planets and the
+fleets alike, which is what makes them read as ground rather than as rings
+round things.
+
+Each is a **filled ellipse**, brush and pen the same colour: `hbrRadar`,
+`RGB(0, 0, 0x7f)`, a flat dark blue. The overlapping discs are opaque, so two
+coverages look exactly like one.
+
+It goes round twice. The **first pass** takes the normal range of
+
+* every **planet** of this player's, from `GetPlanetScannerRange`
+  (`1038:4c02`) — a planet whose `iScanner` is 31 has none, and an
+  **Alternate Reality** race scans from its starbase by population instead;
+* every **fleet** of this player's, from `GetFleetScannerRange` (`1038:4fb8`),
+  and only when that range is positive. That routine keeps the **largest**
+  range among the fleet's designs: the fourth-root combination applies between
+  the scanners **within** one design, never across the designs in a fleet.
+
+The **second pass** swaps the brush for `hbrRadarNear` — `RGB(0x60, 0x60, 0)`
+on any screen deeper than eight colours, `RGB(0x7f, 0x7f, 0)` on one that is
+not — and draws the penetrating ranges over the top:
+
+* a **planet**'s is drawn as its **normal range halved**. The routine shifts
+  the normal range right by one rather than using the penetrating range it was
+  just handed; the two agree for every scanner in the game, since a
+  penetrating scanner's deep range is half its normal one by construction. An
+  AR planet penetrates only when its starbase hull is better than `0x22`, the
+  Space Station;
+* a **fleet**'s is the penetrating range itself;
+* and for a **Packet Physics** race, each of this player's **mineral packets**
+  under way adds a disc of its own, radius `(stored warp + 4)²`. The stored
+  nibble is the warp less four, so that is the square of the real warp — which
+  is how `MANUAL.PDF` p. 20-9 puts it: "the radius of the scan is equal to the
+  square of the packet's warp speed". A packet whose stored warp is zero is not
+  flying and scans nothing.
+
+**The percentage.** Every radius passes through
+`MulDiv(range, vpctRadarView, 100)` when `vpctRadarView` is under a hundred —
+`MulDiv` rounds to nearest, not down. That is the combo in the toolbar: ten
+entries from 100% down in tens, and a typed value clamped to `2..=100`. It
+lives in `stars.ini` and defaults to 100.
+
+Not reproduced, because it cannot be seen: `DrawRadarCircle` (`1058:4e7c`) is a
+**batching** routine. It queues up to 250 circles, drops any that fall outside
+the clipping rectangle, drops a new circle wholly inside one already queued
+(and kills a queued one wholly inside the new), and when a circle covers all
+four corners of the visible rectangle it draws that one immediately and stops
+taking any more, since everything else would be under it. All of that is an
+optimisation over opaque fills: the picture it produces is the picture you get
+by drawing every circle.
+
 ### Minefields
 
 `grbitScan & 0x40` puts them up, and `DrawScanner` draws each as a circle whose

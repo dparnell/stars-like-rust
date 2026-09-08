@@ -2528,7 +2528,31 @@ disagree.
     right and 20 above or below the visible rectangle, which matters to a map
     that scrolls and not to one that fits the galaxy in the window.
 
-84. **What is still missing to call it playable.** Every waypoint task is now
+84. ~~**The scanner coverage, drawn properly.**~~ **Done.** Spec in
+    `docs/ui/scanner.md`. It was a thin blue ring round each of this player's
+    planets. It is really a **filled dark-blue disc** — `RGB(0, 0, 0x7f)`,
+    brush and pen — drawn **before everything else** on the map so the discs
+    lie under the minefields, planets and fleets, and it comes from three
+    sources, not one: planets, **fleets** (the largest range among the fleet's
+    designs, `GetFleetScannerRange` keeping a maximum rather than combining),
+    and a second **penetrating pass** in olive over the top.
+
+    The penetrating pass draws a planet at its normal range **halved** — the
+    code shifts rather than using the penetrating range it was handed — a fleet
+    at its own penetrating range, and, for a **Packet Physics** race, each
+    mineral packet under way at the square of its warp, which is what
+    `MANUAL.PDF` p. 20-9 promises. A planet with no scanner (`iScanner` 31)
+    contributes nothing, which this project was not checking; an AR planet
+    scans from its starbase and penetrates only above hull `0x22`.
+
+    The toolbar's coverage percentage was already read and stored and was
+    simply not being applied; every radius now goes through it, with `MulDiv`'s
+    rounding.
+
+    Not reproduced: `DrawRadarCircle`'s batching and containment tests, which
+    are an optimisation invisible in the result.
+
+85. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

@@ -97,6 +97,23 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     // A space object under the pointer, which planets and fleets outrank.
     let mut thing_hit: Option<ScanThing> = None;
 
+    // Scanner coverage, before anything else: `DrawScanner` paints the discs
+    // straight after it clears the map, so they lie under the minefields, the
+    // planets and the fleets alike. Each is a **filled** ellipse — dark blue
+    // for a normal range and olive for a penetrating one — rather than the
+    // outline this project drew before, and every range this player's planets,
+    // fleets and (for a Packet Physics race) packets reach is one disc.
+    for disc in app.scanner_coverage() {
+        let at = to_screen(f32::from(disc.position.x), f32::from(disc.position.y));
+        let [r, g, b] = if disc.penetrating {
+            stars_ui_arrow::COVERAGE_PENETRATING
+        } else {
+            stars_ui_arrow::COVERAGE_NORMAL
+        };
+        #[allow(clippy::cast_precision_loss)]
+        painter.circle_filled(at, disc.radius as f32 * scale, Color32::from_rgb(r, g, b));
+    }
+
     // Minefields first, so they lie under the planets rather than over them.
     // A field is a circle whose radius is the square root of its mine count,
     // filled with one of the game's three pattern brushes — the hatch says
@@ -131,11 +148,6 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     minefields(app, ui, &to_minefield, rect.min);
 
     let view = app.scan_view;
-    let race = app
-        .game
-        .as_ref()
-        .and_then(|g| g.players.get(app.local_player()))
-        .map(|p| p.race.clone());
     let names_visible = app.planet_names_visible();
     let name_style = app.planet_name_style();
     // Which planets have fleets in orbit, and whose. Collected here and drawn
@@ -323,36 +335,6 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     // zoom.
     if app.orbit_rings_visible() {
         orbit_rings(app, ui, &to_ring);
-    }
-
-    // Scanner coverage: a ring round each of the player's planets, showing how
-    // far it sees. An overlay of its own.
-    if app.scan_overlays.scanner_coverage {
-        let me = app.local_player();
-        if let (Some(game), Some(race)) = (app.game.as_ref(), race.as_ref()) {
-            let levels = game.players.get(me).map_or([0u8; 6], |p| p.research.levels);
-            for planet in &game.planets {
-                let (Some(owner), Some(position)) = (planet.owner, planet.position) else {
-                    continue;
-                };
-                if usize::try_from(owner).is_ok_and(|o| o != me) {
-                    continue;
-                }
-                let range = stars_core::scanning::planet_scanner_range_for_tech(
-                    planet, race, &levels, true,
-                );
-                if range.normal <= 0 {
-                    continue;
-                }
-                let at = to_screen(f32::from(position.x), f32::from(position.y));
-                #[allow(clippy::cast_precision_loss)]
-                painter.circle_stroke(
-                    at,
-                    range.normal as f32 * scale,
-                    Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(90, 150, 220, 60)),
-                );
-            }
-        }
     }
 
     // Mineral packets, wormholes and the Mystery Trader, as `DrawScanner`

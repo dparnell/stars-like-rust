@@ -7195,6 +7195,26 @@ pub const WORMHOLE_MASK: (u32, u32) = (9, 0x5c);
 /// How big both are.
 pub const WORMHOLE_SIDE: u32 = 9;
 
+/// One disc of the **scanner coverage** overlay — see
+/// [`App::scanner_coverage`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CoverageDisc {
+    /// Where its centre is, in galaxy units.
+    pub position: stars_core::movement::Point,
+    /// How far it reaches, after the toolbar's percentage.
+    pub radius: i32,
+    /// Whether it belongs to the second, penetrating pass.
+    pub penetrating: bool,
+}
+
+/// The colour a normal coverage disc is filled with — `hbrRadar`,
+/// `RGB(0, 0, 0x7f)`.
+pub const COVERAGE_NORMAL: [u8; 3] = [0x00, 0x00, 0x7f];
+/// And a penetrating one — `hbrRadarNear`, which is `RGB(0x60, 0x60, 0)` on
+/// any screen deeper than eight colours and `RGB(0x7f, 0x7f, 0)` on one that
+/// is not.
+pub const COVERAGE_PENETRATING: [u8; 3] = [0x60, 0x60, 0x00];
+
 /// The three colours the scanner tells sides apart with — `rgcrScanMine`
 /// (`1058:0026`, file offset `0x58526`), which the minefields and the fleet
 /// arrows both index.
@@ -7627,6 +7647,196 @@ impl App {
             self.scan_view,
             ScanView::Normal | ScanView::SurfaceMineral | ScanView::MineralConcentration
         )
+    }
+
+    /// The discs of the **scanner coverage** overlay, in the order the
+    /// original paints them: every normal range first, then every penetrating
+    /// one on top.
+    ///
+    /// `DrawScanner`'s `grbitScan & 0x20` block. It is the **first** thing
+    /// drawn after the map is cleared, so the discs lie under the planets and
+    /// the fleets rather than over them, and each is a **filled** ellipse —
+    /// `hbrRadar`, `RGB(0, 0, 0x7f)`, with a pen of the same colour — not an
+    /// outline. The penetrating pass swaps in `hbrRadarNear`,
+    /// `RGB(0x60, 0x60, 0)` on any screen deeper than eight colours.
+    ///
+    /// What contributes:
+    ///
+    /// * every planet of this player's, at `GetPlanetScannerRange`;
+    /// * every fleet of this player's, at `GetFleetScannerRange` — the
+    ///   **largest** range among its designs, not a combination of them —
+    ///   and only when that range is positive;
+    /// * the same two again for the penetrating pass, a planet's radius being
+    ///   its **normal range halved** (the code shifts, rather than using the
+    ///   penetrating range it was handed; the two agree for every scanner in
+    ///   the game);
+    /// * and, for a **Packet Physics** race, each of this player's mineral
+    ///   packets under way, at the square of its warp — `(stored + 4)²`,
+    ///   which `MANUAL.PDF` p. 20-9 states as "the square of the packet's
+    ///   warp speed".
+    ///
+    /// Every radius is scaled by the toolbar's coverage percentage
+    /// (`vpctRadarView`) with `MulDiv`, which rounds to nearest.
+    #[must_use]
+    pub fn scanner_coverage(&self) -> Vec<CoverageDisc> {
+        if !self.scan_overlays.scanner_coverage {
+            return Vec::new();
+        }
+        let Some(game) = self.game.as_ref() else {
+            return Vec::new();
+        };
+        let me = self.local_player();
+        let Some(player) = game.players.get(me) else {
+            return Vec::new();
+        };
+        let Ok(mine) = i16::try_from(me) else {
+            return Vec::new();
+        };
+        let race = &player.race;
+        let levels = player.research.levels;
+
+        let mut normal: Vec<CoverageDisc> = Vec::new();
+        let mut deep: Vec<CoverageDisc> = Vec::new();
+
+        for planet in &game.planets {
+            if planet.owner != Some(mine) {
+                continue;
+            }
+            let Some(position) = planet.position else {
+                continue;
+            };
+            let range = self.planet_scan_range(planet, race, &levels);
+            if range.normal > 0 {
+                normal.push(CoverageDisc {
+                    position,
+                    radius: self.coverage_scaled(range.normal),
+                    penetrating: false,
+                });
+            }
+            if range.penetrating > 0 {
+                deep.push(CoverageDisc {
+                    position,
+                    radius: self.coverage_scaled(range.normal / 2),
+                    penetrating: true,
+                });
+            }
+        }
+
+        for fleet in &game.fleets {
+            if fleet.owner != mine {
+                continue;
+            }
+            let range = self.fleet_scan_range(fleet);
+            if range.normal > 0 {
+                normal.push(CoverageDisc {
+                    position: fleet.position,
+                    radius: self.coverage_scaled(range.normal),
+                    penetrating: false,
+                });
+            }
+            if range.penetrating > 0 {
+                deep.push(CoverageDisc {
+                    position: fleet.position,
+                    radius: self.coverage_scaled(range.penetrating),
+                    penetrating: true,
+                });
+            }
+        }
+
+        if race.prt() == Some(stars_core::race::Prt::Pp) {
+            for packet in &game.packets {
+                if packet.owner != mine || packet.warp == 0 {
+                    continue;
+                }
+                // The same number as a year's travel, arrived at separately:
+                // both are the square of the warp.
+                let warp = packet.speed();
+                deep.push(CoverageDisc {
+                    position: packet.position,
+                    radius: self.coverage_scaled(warp * warp),
+                    penetrating: true,
+                });
+            }
+        }
+
+        normal.append(&mut deep);
+        normal
+    }
+
+    /// A planet's two scanner ranges, with the part of the Alternate Reality
+    /// rule that needs the starbase filled in.
+    ///
+    /// `GetPlanetScannerRange` reads the planet's own scanner — `iScanner` of
+    /// 31 means it has none — except for an **AR** race, which scans from its
+    /// starbase by population and penetrates at half range only when that
+    /// starbase's hull is better than `0x22`, the Space Station. The core
+    /// routine cannot see the starbase, so that last part is settled here.
+    fn planet_scan_range(
+        &self,
+        planet: &Planet,
+        race: &stars_core::Race,
+        levels: &[u8; 6],
+    ) -> stars_core::scanning::ScannerRange {
+        let mut range = stars_core::scanning::planet_scanner_range_for_tech(
+            planet,
+            race,
+            levels,
+            planet.scanner.is_some(),
+        );
+        if race.is_ar() && !race.has_lrt(stars_core::race::lrt::NO_ADV_SCANNER) {
+            let big = self.starbase_hull(planet).is_some_and(|hull| hull > 0x22);
+            range.penetrating = if big { range.normal / 2 } else { 0 };
+        }
+        range
+    }
+
+    /// A fleet's two scanner ranges: the **largest** of its designs', each
+    /// counted separately.
+    ///
+    /// `GetFleetScannerRange` (`1038:4fb8`) walks the sixteen design slots and
+    /// keeps the maximum of each range — the fourth-root combination applies
+    /// **within** a design, between its own scanners, and not across the
+    /// designs in a fleet.
+    #[must_use]
+    pub fn fleet_scan_range(
+        &self,
+        fleet: &stars_core::fleet::Fleet,
+    ) -> stars_core::scanning::ScannerRange {
+        let mut out = stars_core::scanning::ScannerRange::default();
+        let Some(game) = self.game.as_ref() else {
+            return out;
+        };
+        let Some(designs) = usize::try_from(fleet.owner)
+            .ok()
+            .and_then(|owner| game.designs.get(owner))
+        else {
+            return out;
+        };
+        for stack in &fleet.stacks {
+            if stack.count <= 0 {
+                continue;
+            }
+            let Some(design) = designs.get(usize::from(stack.design)) else {
+                continue;
+            };
+            let range = design.scanner_range();
+            out.normal = out.normal.max(range.normal);
+            out.penetrating = out.penetrating.max(range.penetrating);
+        }
+        out
+    }
+
+    /// A coverage radius after the toolbar's percentage is applied.
+    ///
+    /// `MulDiv(range, vpctRadarView, 100)` when the percentage is under a
+    /// hundred, and `MulDiv` rounds to nearest rather than truncating.
+    #[must_use]
+    pub fn coverage_scaled(&self, range: i32) -> i32 {
+        let pct = i32::from(self.scan_coverage_pct);
+        if pct >= 100 {
+            return range;
+        }
+        (range * pct + 50) / 100
     }
 
     /// The two discs the **Planet Value** view draws, outermost first.
