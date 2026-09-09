@@ -35,6 +35,7 @@ pub mod app;
 pub mod art;
 pub mod popup;
 pub mod statusbar;
+pub mod survey;
 pub mod toolbar;
 pub mod vcr;
 pub mod views;

@@ -2740,7 +2740,69 @@ disagree.
     Not reproduced: the thirteen other `grPopup` kinds, which belong to the
     panes that raise them.
 
-92. **What is still missing to call it playable.** Every waypoint task is now
+92. ~~**The Selection Summary pane, properly.**~~ **Done.** Spec in
+    `docs/ui/mine-survey-pane.md`. The pane had the right figures in a
+    modernised stack of labels; `DrawMineSurvey` (`1028:065a`) gives it a shape
+    of its own — four lines of text and then **six equal rows**, each forced to
+    an even height, with the label column measured from the widest label plus
+    six and the value column from the literal `999mR` plus six, so a reading
+    never moves the bars about. When four label columns would not fit across
+    the pane it switches to a **narrow** form and every label switches at once;
+    the minerals have no short words of their own, the narrow pane just draws
+    the first four characters.
+
+    Every colour in it is now the game's, out of `FCreateStuff` (`1000:0014`).
+    Gravity is blue, temperature red and radiation green, each in a dark shade
+    for the race's band and a bright one for the planet's diamond; the mineral
+    bars are blue, green and yellow in the same two shades. The labels are
+    `rgcrMin` (`DS:0x448`) and are **not** the same three: boranium's label is
+    the dark green while its bar is the bright one.
+
+    A mineral row draws two bars over each other — the surface stock plus this
+    year's mining first in the dark shade, the surface stock alone over it in
+    the bright one, so the tail that shows is the estimate — with a `+` when it
+    runs past the scale and a separate marker at the concentration, which sits
+    on its own percentage scale rather than the kiloton one. The scale under
+    them measures the widest figure, sees how many of those plus half again
+    would fit, and rounds the step up to a round number on a ladder that
+    depends on `cMinGrafMax`: tens under 500, then 50, 100, 250, 500 and 1000.
+
+    Two finds. A **Claim Adjuster** is shown the *owner's* habitable band on
+    somebody else's planet: the routine copies that race's nine habitability
+    bytes over its own before drawing and puts them back afterwards, because
+    the CA's planet would be terraformed towards that band. And the narrow
+    report-age line is a **bug in the original** — it calls `wsprintf` with
+    `idsOld2`, which is the bare string ` old` with no format specifier, and
+    passes the age anyway, so a stale report in a narrow pane reads just ` old`
+    with no number.
+
+    The **fleet half** went the same way. Its picture sits in a 0x42-pixel
+    black square at `left + 6, top + 6` with the owner's emblem in a second
+    one below and right of it, and the text runs down a column `0x56` in, a
+    line and two pixels apart. The two **gauges** are `DrawFleetGauge`
+    (`1050:4560`) over `LDrawGauge`: a one-pixel frame in the window-text
+    colour, the segments laid left to right as running totals, and the button
+    face for the rest. Fuel is one red segment labelled `"%ld of %ldmg"` — the
+    game measures fuel in **milligrams** — and cargo stacks all four holds in
+    `rghbrMineral`'s blue, dark green, yellow and **white**, labelled
+    `"%ld of %ldkT"`; both labels are centred on the bar and **dropped when
+    they do not fit**, which the original tests against the bar's width less
+    three.
+
+    The waypoint row goes through `PszGetLocName`, the same routine the
+    scanner's status bar uses, so a leg that lands on nothing reads
+    `Space (%d, %d)` rather than a bare pair; the task is a contiguous block of
+    fourteen strings from `idsTaskHere`; and warp **11** is the pseudo-warp
+    that reads `Use Stargate`. How much of all this appears depends on how well
+    the fleet is known: the gauges and the order rows want a fleet the player
+    commands, and somebody else's gets its ship count, its mass and — only
+    because it was scanned — its speed.
+
+    Not reproduced: the **bitmaps** themselves, so the plinths are drawn and
+    left black; the detonate checkbox; and the clicks the pane takes, which
+    raise six more `Popup` kinds.
+
+93. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

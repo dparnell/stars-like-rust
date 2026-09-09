@@ -255,6 +255,14 @@ pub struct SurveyBar {
     /// Whether the race is immune to this variable, in which case the whole
     /// bar is habitable.
     pub immune: bool,
+    /// Where terraforming could move the marker to, when it could
+    /// (`FCanTerraformLppl`). Environment bars only.
+    pub terraform: Option<i32>,
+    /// How far the bar reaches once this year's mining is counted. Mineral
+    /// bars only, and never less than [`SurveyBar::at`]: the original draws
+    /// this first in the dark shade and the surface stock over it in the
+    /// bright one, so the difference is what mining will add.
+    pub sum: i32,
 }
 
 /// The whole application, minus the drawing.
@@ -3395,36 +3403,61 @@ impl App {
         }
     }
 
-    /// The planet's headline rows: how good it is, who lives there, and how
-    /// old the report is.
+    /// The planet's four headline rows: how good it is, who lives there, and
+    /// how old the report is.
+    ///
+    /// `narrow` is the pane's own narrow form — the original switches every
+    /// label when four of the widest would not fit across it, and the pairs
+    /// are the string table's own (`idsVal`/`idsVal + 1` and so on).
     #[must_use]
-    pub fn survey_planet_rows(&self) -> Vec<(String, String)> {
+    pub fn survey_planet_rows(&self, narrow: bool) -> Vec<(String, String)> {
+        let pick = |(wide, short): (&'static str, &'static str)| {
+            if narrow {
+                short
+            } else {
+                wide
+            }
+        };
         let (Some(planet), Some(race)) = (self.pane_planet(), self.pane_race()) else {
             return Vec::new();
         };
         let mut rows = Vec::new();
         if planet.detail != stars_core::planet::Detail::Minimal {
-            rows.push((
-                "Value:".to_string(),
-                format!(
-                    "{}%",
-                    stars_core::hab::pct_planet_desirability(planet, race)
-                ),
-            ));
+            let value = stars_core::hab::pct_planet_desirability(planet, race);
+            // A wide pane also shows what the race could terraform it up to,
+            // and only when that is an improvement and positive
+            // (`PctPlanetOptValue`).
+            let tech = self
+                .game
+                .as_ref()
+                .and_then(|game| game.players.get(self.local_player()))
+                .map_or([0u8; 6], |player| player.research.levels);
+            let reach = stars_core::terraform::optimal_env(planet, race, tech);
+            let optimum = stars_core::ai::colonise::pct_planet_opt_value(planet, race, reach);
+            let text = if !narrow && optimum > value && optimum > 0 {
+                format!("{value}% ({optimum}%)")
+            } else {
+                format!("{value}%")
+            };
+            rows.push((pick(crate::survey::VALUE_LABEL).to_string(), text));
         }
         rows.push((
-            "Population:".to_string(),
+            pick(crate::survey::POPULATION_LABEL).to_string(),
             match (planet.owner, planet.detail) {
-                (None, _) => "Uninhabited".to_string(),
+                (None, _) => crate::survey::UNINHABITED.to_string(),
                 (Some(_), stars_core::planet::Detail::Full) => {
                     comma_format(i64::from(planet.pop) * 100)
                 }
-                // A planet somebody else holds is only ever an estimate, and
-                // one the game will not even guess at without a report.
+                // Somebody else's planet is only ever an estimate, and the
+                // original prints it as `"%c%ld00"` with `%c` a **±**
+                // (`0xb1`) — so no comma grouping, and the hundreds put back
+                // by the format rather than by the arithmetic.
                 (Some(_), stars_core::planet::Detail::Scanned) => {
-                    format!("~{}", comma_format(i64::from(planet.pop) * 100))
+                    format!("\u{b1}{}00", planet.pop)
                 }
-                (Some(_), stars_core::planet::Detail::Minimal) => "???".to_string(),
+                (Some(_), stars_core::planet::Detail::Minimal) => {
+                    crate::survey::UNKNOWN_POPULATION.to_string()
+                }
             },
         ));
         if let Some(owner) = planet.owner {
@@ -3444,7 +3477,15 @@ impl App {
         // always current, and anything else is left unsaid rather than guessed
         // at.
         if planet.detail == stars_core::planet::Detail::Full {
-            rows.push((String::new(), "Report is current".to_string()));
+            rows.push((
+                String::new(),
+                if narrow {
+                    "Current"
+                } else {
+                    "Report is current"
+                }
+                .to_string(),
+            ));
         }
         rows
     }
@@ -3459,18 +3500,52 @@ impl App {
         if planet.detail == stars_core::planet::Detail::Minimal {
             return Vec::new();
         }
-        ["Gravity", "Temperature", "Radiation"]
+        // A **Claim Adjuster** looking at somebody else's planet is shown
+        // *their* habitable band rather than its own, because it is the band
+        // that race's planet will be terraformed towards. The original copies
+        // the owner's nine habitability bytes over its own for the length of
+        // the drawing and puts them back afterwards (`GetRaceStat(rsMajorAdv)
+        // == 3`, and only when the owner's race is known).
+        let band = self.survey_band_race().unwrap_or(race);
+        let tech = self
+            .game
+            .as_ref()
+            .and_then(|game| game.players.get(self.local_player()))
+            .map_or([0u8; 6], |player| player.research.levels);
+        let reach = stars_core::terraform::optimal_env(planet, band, tech);
+        crate::survey::ENV_LABELS
             .iter()
             .enumerate()
-            .map(|(index, label)| SurveyBar {
+            .map(|(index, (label, _))| SurveyBar {
                 label: (*label).to_string(),
                 value: env_text(index, planet.env[index]),
                 at: i32::from(planet.env[index]),
-                low: i32::from(race.env_min[index]),
-                high: i32::from(race.env_max[index]),
-                immune: race.is_immune(index),
+                low: i32::from(band.env_min[index]),
+                high: i32::from(band.env_max[index]),
+                immune: band.is_immune(index),
+                terraform: (reach[index] != planet.env[index]).then(|| i32::from(reach[index])),
+                sum: 0,
             })
             .collect()
+    }
+
+    /// Whose habitable band the environment bars are drawn against.
+    ///
+    /// This player's, except that a **Claim Adjuster** looking at a planet
+    /// held by a race it knows is shown that race's instead.
+    fn survey_band_race(&self) -> Option<&stars_core::Race> {
+        let planet = self.pane_planet()?;
+        let me = self.local_player();
+        let game = self.game.as_ref()?;
+        let mine = game.players.get(me)?;
+        if mine.race.prt() != Some(stars_core::race::Prt::Ca) {
+            return None;
+        }
+        let owner = usize::try_from(planet.owner?).ok()?;
+        if owner == me {
+            return None;
+        }
+        Some(&game.players.get(owner)?.race)
     }
 
     /// The three mineral bars: what is on the surface, and how rich the ground
@@ -3483,7 +3558,12 @@ impl App {
         if planet.detail == stars_core::planet::Detail::Minimal {
             return Vec::new();
         }
-        ["Ironium", "Boranium", "Germanium"]
+        // What this year's mining will add: the planet's own mines for a
+        // planet the player holds, and whatever remote miners of theirs are in
+        // orbit of one nobody holds (`EstMineralsMined`). Somebody else's
+        // planet gets nothing, because none of it is the player's to mine.
+        let mined = self.survey_mining_estimate();
+        crate::survey::MINERAL_LABELS
             .iter()
             .enumerate()
             .map(|(index, label)| SurveyBar {
@@ -3493,60 +3573,207 @@ impl App {
                 low: 0,
                 high: i32::from(planet.min_conc[index]),
                 immune: false,
+                terraform: None,
+                sum: planet.surface_min[index] + mined[index],
             })
             .collect()
     }
 
-    /// A fleet's summary: what it is, what it carries and where it is going.
-    #[must_use]
-    pub fn survey_fleet_rows(&self) -> Vec<String> {
-        let SurveySubject::Fleet(index) = self.survey_subject() else {
-            return Vec::new();
+    /// What this year's mining will add to each mineral, for the bar's dark
+    /// extension.
+    fn survey_mining_estimate(&self) -> [i32; 3] {
+        let none = [0; 3];
+        let (Some(planet), Some(game)) = (self.pane_planet(), self.game.as_ref()) else {
+            return none;
         };
+        let me = self.local_player();
+        match planet.owner {
+            // The player's own planet mines with its own mines.
+            Some(owner) if usize::try_from(owner).is_ok_and(|o| o == me) => {
+                match game.players.get(me) {
+                    Some(player) => {
+                        stars_core::mining::minerals_mined(planet, &player.race, None, None)
+                    }
+                    None => none,
+                }
+            }
+            // Nobody's planet: whatever remote miners the player has in orbit.
+            None => {
+                let Some(player) = game.players.get(me) else {
+                    return none;
+                };
+                let mines: i32 = game
+                    .fleets
+                    .iter()
+                    .filter(|fleet| {
+                        usize::try_from(fleet.owner).is_ok_and(|o| o == me)
+                            && fleet.orbiting == u16::try_from(planet.id).ok()
+                    })
+                    .map(|fleet| self.fleet_remote_mines(fleet))
+                    .sum();
+                if mines <= 0 {
+                    return none;
+                }
+                stars_core::mining::minerals_mined(planet, &player.race, Some(mines), None)
+            }
+            // Somebody else's: the player mines none of it.
+            Some(_) => none,
+        }
+    }
+
+    /// How many robot mines a fleet carries.
+    fn fleet_remote_mines(&self, fleet: &stars_core::fleet::Fleet) -> i32 {
         let Some(game) = self.game.as_ref() else {
-            return Vec::new();
+            return 0;
         };
-        let Some(fleet) = game.fleets.get(index) else {
-            return Vec::new();
+        let Some(designs) = usize::try_from(fleet.owner)
+            .ok()
+            .and_then(|owner| game.designs.get(owner))
+        else {
+            return 0;
+        };
+        stars_core::mining::remote_mines(designs, &fleet.stacks)
+    }
+
+    /// What the pane says about a fleet.
+    ///
+    /// `DrawMineSurvey`'s fleet arm. How much is shown turns on how well the
+    /// fleet is known: the **ship count** and the **mass** are always there,
+    /// the two gauges need a fleet whose insides are visible, and the three
+    /// order rows and the mine-sweeping line need one the player commands.
+    /// Somebody else's fleet gets its speed alone, and only when that is known.
+    ///
+    /// `narrow` is the pane's narrow form, which switches every label at once.
+    #[must_use]
+    pub fn survey_fleet(&self, narrow: bool) -> crate::survey::FleetSummary {
+        let pick = |(wide, short): (&'static str, &'static str)| {
+            if narrow {
+                short
+            } else {
+                wide
+            }
+        };
+        let mut out = crate::survey::FleetSummary::default();
+        let SurveySubject::Fleet(index) = self.survey_subject() else {
+            return out;
+        };
+        let (Some(game), Some(fleet)) = (
+            self.game.as_ref(),
+            self.game.as_ref().and_then(|g| g.fleets.get(index)),
+        ) else {
+            return out;
         };
         let designs = game
             .designs
             .get(usize::try_from(fleet.owner).unwrap_or(usize::MAX))
             .map_or(&[][..], Vec::as_slice);
+        // The original's `det == 7`: a fleet the player commands, and so the
+        // only one whose cargo, orders and hulls are all on file.
+        let ours = usize::try_from(fleet.owner).is_ok_and(|owner| owner == self.local_player());
 
         let ships: i32 = fleet.stacks.iter().map(|s| s.count).sum();
-        let mut rows = vec![format!("Ship Count: {ships}")];
-        if !designs.is_empty() {
-            rows.push(format!("Fleet Mass: {}kT", fleet.mass(designs)));
-            rows.push(format!(
-                "Fuel: {} of {}",
-                fleet.cargo.fuel,
-                fleet.fuel_capacity(designs)
-            ));
-        }
-        let cargo: i32 = fleet.cargo.minerals.iter().sum::<i32>() + fleet.cargo.colonists;
-        rows.push(format!("Cargo: {cargo}kT"));
+        out.ships = format!("Ship Count: {ships}");
+        out.mass = format!(
+            "{}{}kT",
+            pick(crate::survey::MASS_LABEL),
+            fleet.mass(designs)
+        );
 
-        // Where it is going, what it will do there, and how fast.
-        let next = fleet.waypoints.get(1);
-        rows.push(format!(
-            "Next Waypoint: {}",
-            next.map_or_else(
-                || "(none)".to_string(),
-                |w| w.target.map_or_else(
-                    || format!("({}, {})", w.position.x, w.position.y),
-                    |id| format!("#{id}")
-                )
-            )
-        ));
-        if let Some(next) = next {
-            rows.push(format!("Waypoint Task: {}", task_name(next.task)));
+        if ours && !designs.is_empty() {
+            let fuel = fleet.fuel_capacity(designs);
+            out.fuel = Some(crate::survey::Gauge {
+                segments: vec![(fleet.cargo.fuel, crate::survey::CARGO_COLOURS[4])],
+                total: fuel,
+                label: format!("{} of {}mg", fleet.cargo.fuel, fuel),
+            });
+            // The cargo gauge stacks all four holds — the three minerals and
+            // then the colonists — against the fleet's capacity.
+            let hold = fleet.cargo_capacity(designs);
+            let carried: i32 = fleet.cargo.minerals.iter().sum::<i32>() + fleet.cargo.colonists;
+            let mut segments: Vec<(i32, [u8; 3])> = (0..3)
+                .map(|i| (fleet.cargo.minerals[i], crate::survey::CARGO_COLOURS[i]))
+                .collect();
+            segments.push((fleet.cargo.colonists, crate::survey::CARGO_COLOURS[3]));
+            out.cargo = Some(crate::survey::Gauge {
+                segments,
+                total: hold,
+                label: format!("{carried} of {hold}kT"),
+            });
         }
-        rows.push(match fleet.warp {
-            Some(0) | None => "Warp Speed: (stopped)".to_string(),
-            Some(warp) => format!("Warp Speed: {warp}"),
-        });
-        rows
+
+        if ours {
+            // Where it is going. The name is `PszGetLocName`, so a leg that
+            // lands on nothing reads `Space (x, y)` rather than a bare pair.
+            let next = fleet.waypoints.get(1);
+            out.orders.push(format!(
+                "{}{}",
+                pick(crate::survey::WAYPOINT_LABEL),
+                match next {
+                    None => crate::survey::NO_WAYPOINT.to_string(),
+                    Some(w) => self.location_name(w.target_class, w.target, w.position),
+                }
+            ));
+            if let Some(next) = next {
+                out.orders.push(format!(
+                    "{}{}",
+                    pick(crate::survey::TASK_LABEL),
+                    task_name(next.task)
+                ));
+            }
+            out.orders.push(match next.map(|w| w.warp) {
+                None | Some(0) => pick(crate::survey::STOPPED).to_string(),
+                Some(crate::survey::STARGATE_WARP) => crate::survey::USE_STARGATE.to_string(),
+                Some(warp) => format!("{}{warp}", pick(crate::survey::WARP_LABEL)),
+            });
+            let sweep = stars_core::minefield::fleet_sweep(fleet, designs);
+            if sweep > 0 {
+                out.sweeping = Some(format!(
+                    "This fleet can destroy up to {sweep} mines per year."
+                ));
+            }
+        } else if let Some(warp) = fleet.warp {
+            // Somebody else's: the speed, and only because it was scanned.
+            out.orders.push(if warp == 0 {
+                pick(crate::survey::STOPPED).to_string()
+            } else {
+                format!("{}{warp}", pick(crate::survey::WARP_LABEL))
+            });
+        }
+        out
+    }
+
+    /// What the game calls a point a waypoint lands on (`PszGetLocName`,
+    /// `1038:3b08`).
+    ///
+    /// A planet, a fleet or a space object by name; `Deep Space` for the
+    /// nowhere point `(-1, -1)`; and `Space (%d, %d)` for anywhere else.
+    #[must_use]
+    pub fn location_name(
+        &self,
+        class: u8,
+        id: Option<u16>,
+        at: stars_core::movement::Point,
+    ) -> String {
+        if let Some(id) = id {
+            match class {
+                PLANET_CLASS => return self.planet_name(i16::try_from(id).unwrap_or(-1)),
+                FLEET_CLASS => {
+                    if let Some(index) = self
+                        .game
+                        .as_ref()
+                        .and_then(|game| game.fleets.iter().position(|f| f.id == id))
+                    {
+                        return self.fleet_display_name(index);
+                    }
+                }
+                _ => {}
+            }
+        }
+        if at.x == -1 && at.y == -1 {
+            "Deep Space".to_string()
+        } else {
+            format!("Space ({}, {})", at.x, at.y)
+        }
     }
 
     // --- The message pane -------------------------------------------------

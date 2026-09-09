@@ -1152,10 +1152,10 @@ fn the_survey_pane_summarises_a_planet() {
     );
 
     // Value, population, the owner and how old the report is.
-    let rows = app.survey_planet_rows();
-    assert_eq!(rows[0].0, "Value:");
+    let rows = app.survey_planet_rows(false);
+    assert_eq!(rows[0].0, "Value: ");
     assert!(rows[0].1.ends_with('%'), "{}", rows[0].1);
-    assert_eq!(rows[1].0, "Population:");
+    assert_eq!(rows[1].0, "Population:  ");
     assert!(rows[1].1.contains(','), "grouped: {}", rows[1].1);
     assert!(
         rows.iter().any(|(_, v)| v == "Report is current"),
@@ -1210,21 +1210,34 @@ fn the_survey_pane_summarises_a_fleet_and_deep_space() {
     app.screen = Screen::Fleets;
     app.selection.fleet = Some(0);
     assert_eq!(app.survey_subject(), SurveySubject::Fleet(0));
-    let rows = app.survey_fleet_rows();
-    assert!(rows[0].starts_with("Ship Count: "), "{}", rows[0]);
+    let summary = app.survey_fleet(false);
     assert!(
-        rows.iter().any(|r| r.starts_with("Fleet Mass: ")),
-        "{rows:?}"
+        summary.ships.starts_with("Ship Count: "),
+        "{}",
+        summary.ships
     );
-    assert!(rows.iter().any(|r| r.starts_with("Cargo: ")), "{rows:?}");
+    assert!(summary.mass.starts_with("Fleet Mass: "), "{}", summary.mass);
+    // Its own fleet, so both gauges are there: fuel in milligrams and cargo in
+    // kilotons, each labelled `%ld of %ld`.
+    let cargo = summary.cargo.expect("a cargo gauge");
+    assert!(
+        cargo.label.contains(" of ") && cargo.label.ends_with("kT"),
+        "{}",
+        cargo.label
+    );
+    assert_eq!(cargo.segments.len(), 4, "three minerals and the colonists");
+    let fuel = summary.fuel.expect("a fuel gauge");
+    assert!(fuel.label.ends_with("mg"), "{}", fuel.label);
     // A fleet with no orders is stopped, and its next waypoint is (none).
     assert!(
-        rows.iter().any(|r| r == "Next Waypoint: (none)"),
-        "{rows:?}"
+        summary.orders.iter().any(|r| r == "Next Waypoint: (none)"),
+        "{:?}",
+        summary.orders
     );
     assert!(
-        rows.iter().any(|r| r == "Warp Speed: (stopped)"),
-        "{rows:?}"
+        summary.orders.iter().any(|r| r == "Warp Speed: (stopped)"),
+        "{:?}",
+        summary.orders
     );
 
     // Nothing selected at all.
@@ -1232,7 +1245,7 @@ fn the_survey_pane_summarises_a_fleet_and_deep_space() {
     app.selection.planet = None;
     assert_eq!(app.survey_subject(), SurveySubject::DeepSpace);
     assert_eq!(app.survey_title(), "Deep Space");
-    assert!(app.survey_planet_rows().is_empty());
+    assert!(app.survey_planet_rows(false).is_empty());
 
     let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
 }
