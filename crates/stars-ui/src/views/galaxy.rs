@@ -27,7 +27,7 @@ use egui::{Color32, Pos2, Rect, Sense, Stroke, Vec2};
 use crate::app as stars_ui_arrow;
 use crate::app::ScanObject;
 use crate::app::ScanThing;
-use crate::views::{colonists, player_colour};
+use crate::views::player_colour;
 use crate::OrbitRing;
 use crate::{App, ScanView, DIGIT_HEIGHT, DIGIT_SHEET, DIGIT_WIDTH};
 
@@ -54,9 +54,20 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         ui.separator();
     }
 
+    // The scanner keeps `dySBar` of its client area for the status bar and
+    // draws the map in what is left (`GetClientRect` then
+    // `rc.top = rc.bottom - dySBar`, `DrawScannerSBar` `1058:62d8`).
     let available = ui.available_size();
+    let bar_height = crate::views::statusbar::height(ui);
     let (response, painter) = ui.allocate_painter(available, Sense::click_and_drag());
-    let rect = response.rect;
+    let whole = response.rect;
+    let rect = egui::Rect::from_min_max(
+        whole.min,
+        egui::pos2(
+            whole.right(),
+            (whole.bottom() - bar_height).max(whole.top()),
+        ),
+    );
     painter.rect_filled(rect, 0.0, Color32::from_rgb(8, 10, 18));
 
     // Fit the universe into the panel at 100%, keeping it square so distances
@@ -91,9 +102,13 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     // every frame the button is held down, so hit-testing on it alone would
     // act again and again while the button is down — which, with the
     // click-again-to-cycle rule below, spins through everything on the spot.
+    // The status bar is not the map: `ScannerWndProc` peels a mouse message off
+    // for it before any of this, so a click down there never selects anything.
+    let on_map = |p: egui::Pos2| rect.contains(p);
     let pointer = (response.clicked() || response.secondary_clicked())
         .then(|| response.interact_pointer_pos())
-        .flatten();
+        .flatten()
+        .filter(|p| on_map(*p));
     // A space object under the pointer, which planets and fleets outrank.
     let mut thing_hit: Option<ScanThing> = None;
 
@@ -594,7 +609,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         };
         let wide = ui.input(|i| i.modifiers.shift);
         if response.drag_started_by(egui::PointerButton::Secondary) {
-            if let Some(p) = response.interact_pointer_pos() {
+            if let Some(p) = response.interact_pointer_pos().filter(|p| on_map(*p)) {
                 let (x, y) = to_galaxy(p);
                 app.measure_from(x, y);
             }
@@ -641,6 +656,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         if response.drag_started() {
             app.dragging_waypoint = response
                 .interact_pointer_pos()
+                .filter(|p| on_map(*p))
                 .map(to_galaxy)
                 .and_then(|(x, y)| app.waypoint_at(x, y, f64::from(8.0 / scale)));
         }
@@ -656,7 +672,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             app.dragging_waypoint = None;
         }
         if response.clicked() {
-            if let Some(p) = response.interact_pointer_pos() {
+            if let Some(p) = response.interact_pointer_pos().filter(|p| on_map(*p)) {
                 let (x, y) = to_galaxy(p);
                 app.add_waypoint(x, y);
             }
@@ -723,43 +739,12 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         }
     }
 
-    // The status bar the original keeps along the bottom of the scanner: what
-    // is there, where it is, and how far the tape is stretched.
-    {
-        let bar = app.status_bar();
-        let mut text = format!("{}   x: {}   y: {}", bar.name, bar.x, bar.y);
-        if let Some(distance) = bar.distance {
-            text.push_str(&format!("   {distance}"));
-        }
-        painter.text(
-            rect.left_bottom() + Vec2::new(8.0, -24.0),
-            egui::Align2::LEFT_BOTTOM,
-            text,
-            egui::FontId::proportional(11.0),
-            Color32::from_gray(190),
-        );
-    }
-
-    // A short legend for the selected planet, drawn over the map.
-    if let Some(planet) = app.selected_planet() {
-        let text = match planet.owner {
-            Some(owner) => format!(
-                "{} — player {owner}, {} colonists, {} mines, {} factories",
-                planet.name.unwrap_or("unnamed"),
-                colonists(planet.pop),
-                planet.mines,
-                planet.factories
-            ),
-            None => format!("{} — unclaimed", planet.name.unwrap_or("unnamed")),
-        };
-        painter.text(
-            rect.left_bottom() + Vec2::new(8.0, -8.0),
-            egui::Align2::LEFT_BOTTOM,
-            text,
-            egui::FontId::proportional(13.0),
-            Color32::from_gray(220),
-        );
-    }
+    // The status bar, across the strip the map left for it.
+    crate::views::statusbar::view(
+        app,
+        ui,
+        egui::Rect::from_min_max(egui::pos2(whole.left(), rect.bottom()), whole.max),
+    );
 }
 
 /// Draw the orbit rings gathered while the planets were drawn.

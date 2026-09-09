@@ -26,6 +26,7 @@ pub mod race_wizard;
 pub mod relations;
 pub mod research;
 pub mod score;
+pub mod statusbar;
 pub mod survey;
 pub mod toolbar;
 

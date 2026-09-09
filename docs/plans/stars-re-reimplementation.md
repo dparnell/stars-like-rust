@@ -2665,7 +2665,49 @@ disagree.
     a line and a half below it, pulled back from the right edge when it would
     not fit.
 
-90. **What is still missing to call it playable.** Every waypoint task is now
+90. ~~**The scanner's status bar.**~~ **Done.** Spec in `docs/ui/scanner.md`.
+    It was one line of grey text painted over the bottom of the map, plus an
+    invented legend naming the selected planet. `DrawScannerSBar`
+    (`1058:62d8`) draws **two rows** in a strip the map does not get:
+    `dySBar = (dyArial8 + 12) * 2` (`FrameWndProc`, `1020:0714`), filled with
+    the button face, highlighted along its top and left, and holding five cells
+    sunk by `DrawLockLight` (`1058:6b00`).
+
+    The cells are sized from literal samples — `"ID #000"` and `"X: 8888"`,
+    plus six — rather than from the text going in them, and the three left ones
+    appear only past **359 pixels** of client width, which is what
+    `MANUAL.PDF` p. 5-16 means by a scanner "too narrow to display all the
+    status bar information". Only a planet (`ID #`, `idpl + 1`) and a waypoint
+    (`WP #`) reach the id cell; a fleet and a space object get coordinates and
+    a name alone, exactly as the manual promises. A fleet in orbit is named for
+    its **planet**, because `ChangeScanSel` rewrites the scan's class whenever
+    the point has one.
+
+    The bottom row measures, and which of its two forms appears is decided by
+    something easy to miss: the `SBAR` the measuring tape passes carries the
+    anchor's own `SCAN`, and a waypoint drag passes none — a null `pscan` is
+    exactly what adds the `from <name>` clause. So the tape says `50.0 ly` and
+    a waypoint drag says `100.0 light years from Long Range Scout #1`.
+
+    `PszGetDistance`'s own `"%ld.%ld  l.y."` never reaches the screen: its one
+    caller walks to the first space and overwrites the unit with `ly` or
+    `light years` by the **window's** width (349 pixels), collapsing the double
+    space, so the font-height branch inside it is dead code. What survives is
+    the missing leading zero in the hundredths, which is kept.
+
+    Two corrections fell out of reading it. A minefield's kind is `Standard`,
+    `Heavy` or `Speed Bump` — the literals at `DS:0x4d8` — and the words `Mine
+    Field` come from the *name* format `"%s%s Mine Field"`, so the Mine Survey
+    pane's `Field Type:` row was naming the kind wrongly too. And
+    `PszGetThingName` leaves the owner prefix off **your own** objects, as a
+    fleet's name does; this was printing your own race in front of your own
+    minefields.
+
+    Not reproduced: the pop-up summary a left click in the upper row raises
+    (`ScannerWndProc` `1058:043a` → `Popup`, `10c0:0c7c`), which needs the
+    shared pop-up subsystem.
+
+91. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

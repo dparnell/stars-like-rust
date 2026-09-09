@@ -82,6 +82,13 @@ player owns; somebody else's shows its ships, mass and — if known — its warp
 | wormhole | `Location:` `(%d, %d)`, `Destination:` — the far end, or `Unknown` — and `Stability:` |
 | Mystery Trader | the notice asking for a fleet with at least 5,000kT aboard, until this player has traded, then `Trader is traveling at Warp %d.` |
 
+**`Field Type:` names the kind alone.** `DrawMineSurvey` (`1028:1c8a`) indexes
+the pointer table at `DS:0x4f2` into the literals `Standard`, `Heavy` and
+`Speed Bump` at `DS:0x4d8`, so the row reads `Field Type:  Standard`. The same
+table is what `PszGetThingName` puts in front of `Mine Field` when it names the
+object, which is why the words are not part of the kind — see
+`docs/ui/scanner.md`.
+
 **The wormhole's stability is not the `iStable` field.** It is one of seven
 words indexed by `PctWormholeMoves` — the chance the end jumps this year, which
 `docs/formulas/wanderers.md` derives:

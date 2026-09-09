@@ -1487,23 +1487,22 @@ fn the_measuring_tape_measures_and_snaps() {
     use stars_ui::distance_text;
 
     // The original works in hundredths of a light year, rounded to nearest,
-    // and prints them with `%ld.%ld`.
+    // and prints them with `%ld.%ld`. The unit is `ly` in a narrow scanner and
+    // `light years` in a wide one; `PszGetDistance`'s own `l.y.` is always
+    // overwritten before it reaches the screen.
     assert_eq!(
-        distance_text(Point::new(0, 0), Point::new(100, 0)),
-        "100.0 l.y."
+        distance_text(Point::new(0, 0), Point::new(100, 0), false),
+        "100.0 ly"
     );
     assert_eq!(
-        distance_text(Point::new(0, 0), Point::new(3, 4)),
-        "5.0 l.y.",
+        distance_text(Point::new(0, 0), Point::new(3, 4), true),
+        "5.0 light years",
         "a 3-4-5 triangle"
     );
     // And the quirk that comes with `%ld.%ld`: the hundredths carry no leading
     // zero, so 20.02 light years reads "20.2".
-    let d = distance_text(Point::new(0, 0), Point::new(20, 1));
-    assert_eq!(
-        d, "20.2 l.y.",
-        "20.0249… rounds to 20.02 and prints as 20.2"
-    );
+    let d = distance_text(Point::new(0, 0), Point::new(20, 1), false);
+    assert_eq!(d, "20.2 ly", "20.0249… rounds to 20.02 and prints as 20.2");
 
     let (mut app, host) = a_saved_game("tape");
     let (home, at) = {
@@ -1522,8 +1521,20 @@ fn the_measuring_tape_measures_and_snaps() {
     app.measure_to(at.x + 3, at.y, false);
     let bar = app.status_bar();
     assert_eq!(bar.name, app.planet_name(home), "it snapped to the planet");
-    assert_eq!((bar.x, bar.y), (at.x, at.y));
-    assert_eq!(bar.distance.as_deref(), Some("50.0 l.y."));
+    assert_eq!(bar.id, format!("ID #{}", home + 1), "and named its ID");
+    assert_eq!(
+        (bar.x.as_str(), bar.y.as_str()),
+        (
+            format!("X: {}", at.x).as_str(),
+            format!("Y: {}", at.y).as_str()
+        )
+    );
+    let measured = bar.distance.expect("a distance");
+    assert_eq!(measured.figure, "50.0");
+    // The tape hands the bar the anchor's own scan, which is what leaves the
+    // `from <name>` clause off.
+    assert_eq!(measured.from, None);
+    assert_eq!(measured.text(false), "50.0 ly");
 
     // Let go and the tape stops reporting a distance.
     app.measure_end();
@@ -1534,7 +1545,14 @@ fn the_measuring_tape_measures_and_snaps() {
     app.measure_to(at.x + 400, at.y + 400, false);
     let bar = app.status_bar();
     assert_eq!(bar.name, "Deep Space");
-    assert_eq!((bar.x, bar.y), (at.x + 400, at.y + 400));
+    assert_eq!(bar.id, "", "only a planet or a waypoint fills the id cell");
+    assert_eq!(
+        (bar.x.as_str(), bar.y.as_str()),
+        (
+            format!("X: {}", at.x + 400).as_str(),
+            format!("Y: {}", at.y + 400).as_str()
+        )
+    );
 
     let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
 }

@@ -803,15 +803,87 @@ and how far that is (`FHandleMeasuringTape`, `1058:9974`). Three details:
 * nothing is drawn until the pointer has moved **more than two units** from
   where it started, which stops a stray right-click leaving a mark.
 
-### The status bar
+## The status bar
 
-`DrawScannerSBar` (`1058:62d8`) draws two rows along the bottom of the scanner,
-each cell in its own sunken frame (`DrawLockLight`). The top row — only when the
-window is wider than 359 pixels — carries the object's **id**, its **x** and its
-**y**, then its **name**: a planet's, a fleet's, an object's, `Deep Space
-Waypoint`, or the tape's own `Deep Space`. The bottom row carries the
-**distance**, and when the caller has not supplied a second point it adds
-`from <name>` — the selected object.
+`DrawScannerSBar` (`1058:62d8`) draws **two rows** across the bottom of the
+scanner's client area. The scanner keeps them out of the map: the drawing code
+starts from `GetClientRect` and immediately sets `rc.top = rc.bottom - dySBar`,
+and `dySBar` is
+
+```
+dySBar = (dyArial8 + 12) * 2                    FrameWndProc, 1020:0714
+```
+
+— two rows, each a line of Arial 8 plus twelve pixels. The bar's own font is
+`rghfontArial8[1]`, Arial 8 **bold**.
+
+### How it is drawn
+
+A full redraw fills the strip with `hbrButtonFace` and then lays a one-pixel
+`hbrButtonHilite` line down its **left** edge and along its **top**, which is
+what lifts it off the map. Each cell is then sunk into that face by
+`DrawLockLight` (`1058:6b00`):
+
+```
+shadow    1 px down the cell's left edge, 1 px along its top
+highlight 1 px down its right edge, 1 px along its bottom
+```
+
+On a partial redraw `DrawLockLight` skips the frame and simply fills the cell
+less two pixels with the face again, which is how the old text is rubbed out.
+
+Every cell sits four pixels in from its row on all four sides, the next cell
+starts four pixels after the one before, and the text goes at `left + 3`,
+`top + 2`, clipped to the cell less two pixels.
+
+### The cells
+
+The top row's three left cells are drawn **only when the client area is wider
+than 359 pixels** (`if (0x167 < rc.right)`). That is the case `MANUAL.PDF`
+p. 5-16 means by "if the scanner is too narrow to display all the status bar
+information": below it the name has the whole row.
+
+| cell | width | contents |
+| --- | --- | --- |
+| id | `"ID #000"` + 6 | `ID #%d` with `idpl + 1` for a planet, `WP #%d` with `iwp` for a waypoint, **nothing** for a fleet or an object |
+| x | `"X: 8888"` + 6 | `X: %d`, and only when the coordinate is positive |
+| y | the same width again | `Y: %d`, likewise |
+| name | the rest of the row | the object's name, or `Deep Space Waypoint` |
+
+The two samples are literals in the data segment (`DS:0x5a2` and `DS:0x5b8`)
+and the cells are sized from **them**, not from the text about to go in, so
+they do not jump about; the y cell reuses the x cell's measurement.
+
+The manual describes the same split from the outside — "ID#, coordinates and
+name of planet", but for fleets, packets and wormholes only "coordinates and
+name" — and the binary agrees, because only `grobjPlanet` and `grobjOther` ever
+reach the id cell.
+
+The name comes from `sel.scan.grobjFull` rather than `grobj` when the scan is a
+waypoint, so a waypoint that has landed on a planet is named for the planet and
+a bare one falls back to `idsDeepSpaceWaypoint`. And **a fleet in orbit shows
+the planet**: `ChangeScanSel` sets `sel.scan.grobj = grobjPlanet` whenever
+`grobjFull` has the planet bit, which is the manual's "when you select a fleet
+orbiting a planet, only the planet's information is displayed".
+
+### The bottom row
+
+One cell the whole way across, holding a distance — but only when the bar has
+two different points to measure between. It has them in two cases:
+
+* the **measuring tape**, which hands `DrawScannerSBar` an `SBAR` whose `pscan`
+  is the anchor's own scan (`FHandleMeasuringTape`, `1058:9b8b`);
+* a **waypoint being dragged**, which leaves `pscan` null
+  (`FHandleWayPointDrag`, `1058:8551`), and the point measured from is then
+  `sel.pt` — the fleet.
+
+A null `pscan` is exactly what adds the `from <name>` clause, so the tape says
+`50.0 ly` and a waypoint drag says `100.0 light years from Long Range Scout #1`.
+The name is `PszGetLocName` (`1038:3b08`): the planet's, the fleet's or the
+object's, `Deep Space` when the point is `(-1, -1)`, and `Space (%d, %d)`
+otherwise.
+
+Otherwise `sel.pt` and `sel.scan.pt` are the same point and the row is blank.
 
 ### How a distance is worded
 
@@ -819,17 +891,55 @@ Waypoint`, or the tape's own `Deep Space`. The bottom row carries the
 
 ```
 hundredths = (long)(distance * 100 + 0.5)      round to nearest hundredth
-print "%ld.%ld l.y."   with  hundredths / 100  and  hundredths % 100
+print "%ld.%ld  l.y."  with  hundredths / 100  and  hundredths % 100
 ```
 
-(The wide form is `%ld.%ld Light Years`; which one is used depends on the font
-height, not the window.)
+with the wide form `"%ld.%ld  Light Years"` chosen when `dyArial8 < 15`. Both
+formats carry **two** spaces before the unit.
 
-That format carries a **quirk that is the game's, and is kept here**: the
+None of which the player ever sees. `PszGetDistance` has exactly one caller,
+and that caller throws the unit away: the status bar walks to the **first
+space** in the result and overwrites everything after it with `idsLy` (`ly`) or
+`idsLightYears` (`light years`), chosen on the **window's width** — wider than
+349 pixels gets the long one. So the double space is collapsed to one, the
+abbreviation with the full stops never reaches the screen, and the font-height
+branch inside `PszGetDistance` is dead.
+
+What does survive is a **quirk that is the game's, and is kept here**: the
 remainder is printed with `%ld` and so has **no leading zero**. Three and five
 hundredths of a light year reads `3.5`, and twenty and two hundredths reads
 `20.2`. The reconstruction drops both the `× 100` and the `+ 0.5`; the binary
 has them, in two loaded constants at `DS:0x1cc2` and `DS:0x1cba`.
+
+### Clicking it
+
+A left click in the **upper** row puts up a pop-up summary of what the bar is
+naming (`ScannerWndProc`, `1058:043a`): `grPopupFleet` when `sel.scan.grobj` is
+a fleet, `grPopupUnknownObj` — the planet's name, ID, X and Y — otherwise. It
+is not gated on the window's width, though the manual only mentions it as the
+way round a scanner too narrow to show the cells. Not reproduced here; the
+pop-up is a whole shared subsystem (`Popup`, `10c0:0c7c`, and `DrawPopup`,
+`10c0:01c0`).
+
+### How a space object is named
+
+`PszGetThingName` (`1038:26de`), which the name cell, the right-click menu and
+the Selection Summary's title all go through:
+
+| kind | format |
+| --- | --- |
+| minefield | `"%s%s Mine Field"` (`idsSSMineField`) — owner, then `Standard`, `Heavy` or `Speed Bump` |
+| packet | `"%sMineral Packet"` (`idsSmineralPacket`), or `Salvage ` (`idsSalvage`) when it is aimed at no planet |
+| wormhole | `Wormhole` |
+| trader | `Mystery Trader` |
+| anything else | `Mystery Object` |
+
+The three minefield kinds are literals at `DS:0x4d8` reached through the
+pointer table at `DS:0x4f2`, and the **same table** feeds the Mine Survey pane's
+`Field Type:  %s` (`DrawMineSurvey`, `1028:1c8a`) — so the kind is the adjective
+alone and the words `Mine Field` are not part of it. The owner prefix is
+`"%s "` (`DS:0x518`) and is left off your own objects, exactly as a fleet's name
+leaves it off.
 
 ## Find
 
@@ -879,7 +989,8 @@ Everything the scanner does is now reproduced or recorded above.
 
 ## What this project does
 
-`crates/stars-ui/src/views/galaxy.rs`.
+`crates/stars-ui/src/views/galaxy.rs`, with the status bar in
+`crates/stars-ui/src/statusbar.rs` and `crates/stars-ui/src/views/statusbar.rs`.
 
 Reproduced: the nine zoom steps with the original's shift arithmetic; the y
 flip; all six views and their names; the names, scanner coverage, mine fields,
@@ -892,10 +1003,19 @@ gathered per location as the original gathers them; click-to-select, and
 **waypoint dragging** — adding a leg, moving one, dropping one, and the warp the
 client suggests, both halves of it. Every edit writes the order record the real
 client writes, so a host replaying the log reaches the same orders. And the
-**measuring tape**, with its snapping, its Shift, its status bar and the
-original's wording of a distance down to the missing leading zero. **Find**, in
-the original's search order and with its fleet-number grammar, and fleet names
-written the way `PszGetFleetName` writes them.
+**measuring tape**, with its snapping, its Shift and its two-unit threshold.
+
+The **status bar** is reproduced whole: the strip taken out of the map rather
+than drawn over it, the two rows, the sunken cells and their fixed widths, the
+three cells that appear only past 359 pixels, `ID #` on a planet and `WP #` on a
+waypoint and nothing on a fleet, the planet that a fleet in orbit is named for,
+the distance from the tape and from a waypoint drag with the `from <name>`
+clause on exactly one of them, and the unit chosen by the window's width — down
+to the missing leading zero in the figure. Space objects are named the way
+`PszGetThingName` names them, owner prefix and minefield kind and all.
+
+**Find**, in the original's search order and with its fleet-number grammar, and
+fleet names written the way `PszGetFleetName` writes them.
 
 Not reproduced in the warp rule: the push *up* for a comfortable leg to
 somebody else's planet, which needs the fuel model applied leg by leg; the
@@ -905,7 +1025,8 @@ Not reproduced: the artwork — the original draws planets, fleets and objects a
 bitmaps where this draws dots and marks, and the mineral views as small wedges
 where this colours the dot by whichever mineral reads highest; scrolling with
 `xScanTop`/`yScanTop` (the map is fitted to the panel and zoomed about its
-centre); the design and enemy-class filters; the status bar's sunken cells and
-its two-row layout, which is one line here; scrolling the map to what Find
-found, since the map is always fully fitted; and cycling through objects at one
-point. Find is a box on the toolbar rather than the original's modal dialog.
+centre); the design and enemy-class filters; the **pop-up summary** a left
+click in the bar's upper row puts up, which needs the shared `Popup`
+subsystem; scrolling the map to what Find found, since the map is always fully
+fitted; and cycling through objects at one point. Find is a box on the toolbar
+rather than the original's modal dialog.

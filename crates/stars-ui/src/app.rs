@@ -15,6 +15,7 @@ use stars_formats::{
     battle_records_in_with, ActionLayout, BattleRecord, PlanetRecord, StarsFile, Universe,
 };
 
+use crate::statusbar::{Distance, StatusBar};
 use crate::vcr::Vcr;
 
 /// Which screen the frontend is showing.
@@ -134,19 +135,6 @@ pub enum FindResult {
     Planet(i16),
     /// A fleet, by index into [`GameState::fleets`].
     Fleet(usize),
-}
-
-/// What the scanner's status bar has to say.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct StatusBar {
-    /// What is there: a planet, a fleet, an object, or `Deep Space`.
-    pub name: String,
-    /// Where it is.
-    pub x: i16,
-    /// Where it is.
-    pub y: i16,
-    /// How far that is from the other end of the tape, when one is stretched.
-    pub distance: Option<String>,
 }
 
 /// The scanner's six views, named as the original's toolbar names them
@@ -2474,45 +2462,74 @@ impl App {
     /// The nearest thing to a point, within `reach`, and where it is.
     ///
     /// `FFindNearestObject` (`1038:…`) searches planets, fleets and space
-    /// objects together; this searches the same three, nearest first.
+    /// objects together; this searches the same three, nearest first. Planets
+    /// come first, so a fleet in orbit loses the tie to the planet it is at —
+    /// which is the rule the status bar depends on.
     #[must_use]
-    pub fn nearest_object(
+    pub fn nearest_scan(
         &self,
         at: stars_core::movement::Point,
         reach: f64,
-    ) -> Option<(String, stars_core::movement::Point)> {
+    ) -> Option<(ScanObject, stars_core::movement::Point)> {
         let game = self.game.as_ref()?;
-        let mut best: Option<(f64, String, stars_core::movement::Point)> = None;
-        let mut consider = |name: String, p: stars_core::movement::Point| {
+        let mut best: Option<(f64, ScanObject, stars_core::movement::Point)> = None;
+        let mut consider = |object: ScanObject, p: stars_core::movement::Point| {
             let d = stars_core::movement::distance(p, at);
             if d <= reach && best.as_ref().is_none_or(|(b, _, _)| d < *b) {
-                best = Some((d, name, p));
+                best = Some((d, object, p));
             }
         };
         for planet in game.planets.iter().chain(game.known_planets.iter()) {
             if let Some(p) = planet.position {
-                consider(self.planet_name(planet.id), p);
+                consider(ScanObject::Planet(planet.id), p);
             }
         }
         for (index, fleet) in game.fleets.iter().enumerate() {
             if fleet.stacks.is_empty() {
                 continue;
             }
-            consider(self.fleet_display_name(index), fleet.position);
+            consider(ScanObject::Fleet(index), fleet.position);
         }
-        for field in &game.minefields {
-            consider(format!("Mine Field #{}", field.id), field.position);
+        for (index, field) in game.minefields.iter().enumerate() {
+            consider(
+                ScanObject::Thing(ScanThing::Minefield(index)),
+                field.position,
+            );
         }
-        for packet in &game.packets {
-            consider(format!("Mineral Packet #{}", packet.id), packet.position);
+        for (index, packet) in game.packets.iter().enumerate() {
+            consider(ScanObject::Thing(ScanThing::Packet(index)), packet.position);
         }
-        for hole in &game.wormholes {
-            consider(format!("Wormhole #{}", hole.id), hole.position);
+        for (index, hole) in game.wormholes.iter().enumerate() {
+            consider(ScanObject::Thing(ScanThing::Wormhole(index)), hole.position);
         }
-        for trader in &game.traders {
-            consider("Mystery Trader".to_string(), trader.position);
+        for (index, trader) in game.traders.iter().enumerate() {
+            consider(ScanObject::Thing(ScanThing::Trader(index)), trader.position);
         }
-        best.map(|(_, name, p)| (name, p))
+        best.map(|(_, object, p)| (object, p))
+    }
+
+    /// The nearest thing to a point, by the name the game would print for it.
+    #[must_use]
+    pub fn nearest_object(
+        &self,
+        at: stars_core::movement::Point,
+        reach: f64,
+    ) -> Option<(String, stars_core::movement::Point)> {
+        self.nearest_scan(at, reach)
+            .map(|(object, p)| (self.object_name(object), p))
+    }
+
+    /// What the game calls one thing the scanner found.
+    ///
+    /// `PszGetLocName` (`1038:3b08`) picks between `PszGetPlanetName`,
+    /// `PszGetFleetName` and `PszGetThingName` on the object's class.
+    #[must_use]
+    pub fn object_name(&self, object: ScanObject) -> String {
+        match object {
+            ScanObject::Planet(id) => self.planet_name(id),
+            ScanObject::Fleet(index) => self.fleet_display_name(index),
+            ScanObject::Thing(thing) => self.thing_name(thing),
+        }
     }
 
     /// A planet's name, or a stand-in when the universe file is not to hand.
@@ -2529,37 +2546,125 @@ impl App {
             .map_or_else(|| format!("Planet #{id}"), ToString::to_string)
     }
 
-    /// What the scanner's status bar says: what is under the point, where it
-    /// is, and — while the tape is stretched — how far that is from the other
-    /// end (`DrawScannerSBar`, `1058:62d8`).
+    /// What the scanner's status bar says (`DrawScannerSBar`, `1058:62d8`).
     ///
-    /// The four cells are the original's: the object's id, its x, its y, and
-    /// its name, with the distance on a second line.
+    /// The bar reports one point — the original's `sel.scan` — and, on its
+    /// second row, how far that is from another. Three things feed it:
+    ///
+    /// * the **measuring tape**, while it is stretched: the point is its far
+    ///   end and the distance runs back to the anchor. `FHandleMeasuringTape`
+    ///   (`1058:9b8b`) fills in an `SBAR` whose `pscan` is the anchor's own
+    ///   scan, and that is what leaves the `from <name>` clause off;
+    /// * a **waypoint being dragged**: the point is the leg's far end and the
+    ///   distance runs back to the selection, which does get named because
+    ///   `FHandleWayPointDrag` (`1058:8551`) leaves `pscan` null;
+    /// * otherwise the **selection**, whose two points are the same, so the
+    ///   second row stays empty.
+    ///
+    /// Only a planet or a waypoint puts anything in the id cell, which is why
+    /// `MANUAL.PDF` p. 5-16 promises an ID# for a planet and only coordinates
+    /// and a name for a fleet or an object.
     #[must_use]
     pub fn status_bar(&self) -> StatusBar {
-        // While measuring, the bar follows the tape; otherwise the selection.
-        let (from, at) = match self.measuring {
-            Some((from, at)) => (Some(from), at),
-            None => {
-                let at = self
-                    .pane_fleet()
-                    .map(|f| f.position)
-                    .or_else(|| self.pane_planet().and_then(|p| p.position));
-                match at {
-                    Some(at) => (None, at),
-                    None => return StatusBar::default(),
-                }
+        // The tape. Nothing is reported until the far end has moved more than
+        // two units from the anchor, which is the guard that stops a stray
+        // right-click redrawing the bar.
+        if let Some((from, at)) = self.measuring {
+            if (at.x - from.x).abs() > 2 || (at.y - from.y).abs() > 2 {
+                let mut bar = match self.nearest_scan(at, 0.5) {
+                    Some((object, _)) => self.bar_for(object),
+                    // Nothing there: the original hands the bar `idsDeepSpace`
+                    // as a ready-made string and an id of -1.
+                    None => StatusBar {
+                        name: "Deep Space".to_string(),
+                        ..StatusBar::default()
+                    },
+                };
+                bar.place(at);
+                bar.distance = Some(Distance {
+                    figure: distance_figure(from, at),
+                    from: None,
+                });
+                return bar;
             }
-        };
-        let found = self.nearest_object(at, 0.5);
-        StatusBar {
-            name: found
-                .as_ref()
-                .map_or_else(|| "Deep Space".to_string(), |(name, _)| name.clone()),
-            x: at.x,
-            y: at.y,
-            distance: from.map(|from| distance_text(from, at)),
         }
+
+        // A waypoint under the mouse. The leg's far end is a waypoint unless
+        // it has landed on a planet, in which case the planet wins.
+        if let Some(index) = self.dragging_waypoint {
+            if let Some(at) = self.waypoint_point(index) {
+                let mut bar = match self.nearest_scan(at, 0.5) {
+                    Some((object @ ScanObject::Planet(_), _)) => self.bar_for(object),
+                    _ => StatusBar {
+                        id: format!("WP #{index}"),
+                        name: "Deep Space Waypoint".to_string(),
+                        ..StatusBar::default()
+                    },
+                };
+                bar.place(at);
+                bar.distance = self
+                    .selected_point()
+                    .filter(|from| *from != at)
+                    .map(|from| Distance {
+                        figure: distance_figure(from, at),
+                        from: Some(self.selected_object().map_or_else(
+                            || "Deep Space".to_string(),
+                            |object| self.object_name(object),
+                        )),
+                    });
+                return bar;
+            }
+        }
+
+        // The selection. `ChangeScanSel` (`1058:8e5a`) turns the scan into the
+        // planet whenever the point it landed on has one, so a fleet in orbit
+        // shows the planet's ID and name and not the fleet's.
+        let Some(object) = self.selected_object() else {
+            return StatusBar::default();
+        };
+        let Some(at) = self.object_position(object) else {
+            return StatusBar::default();
+        };
+        let object = match object {
+            ScanObject::Fleet(_) => {
+                self.nearest_scan(at, 0.0)
+                    .map_or(object, |(found, _)| match found {
+                        ScanObject::Planet(id) => ScanObject::Planet(id),
+                        _ => object,
+                    })
+            }
+            other => other,
+        };
+        let mut bar = self.bar_for(object);
+        bar.place(at);
+        bar
+    }
+
+    /// The cells one object fills in.
+    fn bar_for(&self, object: ScanObject) -> StatusBar {
+        StatusBar {
+            // `"ID #%d"` with `idpl + 1`: the number the player sees is the
+            // stored index plus one.
+            id: match object {
+                ScanObject::Planet(id) => format!("ID #{}", id + 1),
+                _ => String::new(),
+            },
+            name: self.object_name(object),
+            ..StatusBar::default()
+        }
+    }
+
+    /// Where one of the selected fleet's waypoints is.
+    fn waypoint_point(&self, index: usize) -> Option<stars_core::movement::Point> {
+        let fleet = self.selection.fleet?;
+        let waypoint = self
+            .game
+            .as_ref()?
+            .fleets
+            .get(fleet)?
+            .waypoints
+            .get(index)?;
+        Some(waypoint.position)
     }
 
     // --- Waypoint dragging -------------------------------------------------
@@ -3072,7 +3177,7 @@ impl App {
                 let kind = MINEFIELD_KINDS
                     .get(usize::from(field.kind))
                     .copied()
-                    .unwrap_or("Mine Field");
+                    .unwrap_or("Standard");
                 #[allow(clippy::cast_possible_truncation)]
                 let radius = field.radius() as i32;
                 // The rate the pane prints is what the field would lose this
@@ -4003,7 +4108,7 @@ fn task_name(task: u8) -> &'static str {
     }
 }
 
-/// A distance in the words the game uses (`PszGetDistance`, `1038:3f00`).
+/// The figure a distance is printed as (`PszGetDistance`, `1038:3f00`).
 ///
 /// The original works in **hundredths of a light year, rounded to nearest** —
 /// `(long)(distance * 100 + 0.5)` — and then prints the whole and the remainder
@@ -4013,10 +4118,38 @@ fn task_name(task: u8) -> &'static str {
 /// remainder carries **no leading zero**, so three and five hundredths of a
 /// light year reads `3.5`, not `3.05`.
 #[must_use]
-pub fn distance_text(from: stars_core::movement::Point, to: stars_core::movement::Point) -> String {
+pub fn distance_figure(
+    from: stars_core::movement::Point,
+    to: stars_core::movement::Point,
+) -> String {
     #[allow(clippy::cast_possible_truncation)]
     let hundredths = (stars_core::movement::distance(from, to) * 100.0 + 0.5) as i64;
-    format!("{}.{} l.y.", hundredths / 100, hundredths % 100)
+    format!("{}.{}", hundredths / 100, hundredths % 100)
+}
+
+/// A distance in the words the player actually sees.
+///
+/// `PszGetDistance` appends `"  l.y."` or `"  Light Years"` — the choice is on
+/// the font's height, `dyArial8 < 15` — but its only caller is the status bar,
+/// which throws that away: `DrawScannerSBar` finds the first space in the
+/// result and overwrites everything after it with `idsLy` (`ly`) or
+/// `idsLightYears` (`light years`), chosen on the **window's** width. So the
+/// double space in the format never reaches the screen and neither does the
+/// abbreviation with the full stops.
+///
+/// `wide` is whether the scanner is wider than
+/// [`crate::statusbar::WIDE_UNIT_WIDTH`].
+#[must_use]
+pub fn distance_text(
+    from: stars_core::movement::Point,
+    to: stars_core::movement::Point,
+    wide: bool,
+) -> String {
+    Distance {
+        figure: distance_figure(from, to),
+        from: None,
+    }
+    .text(wide)
 }
 
 #[cfg(test)]
@@ -7358,9 +7491,14 @@ pub const SCAN_FRIEND: [u8; 3] = [0xff, 0xd0, 0x40];
 /// set relations keep the two apart.
 pub const SCAN_OTHER: [u8; 3] = [0xff, 0x40, 0x40];
 
-/// What the three kinds of minefield are called (`rgszMineFieldTypes`, the
-/// table `Field Type:` is indexed into).
-pub const MINEFIELD_KINDS: [&str; 3] = ["Mine Field", "Heavy Mine Field", "Speed Bump Field"];
+/// What the three kinds of minefield are called: the table of literals at
+/// `DS:0x4d8`, reached through the pointers at `DS:0x4f2`.
+///
+/// Two places index it — `DrawMineSurvey` (`1028:1c8a`) for the pane's
+/// `Field Type:  %s`, and `PszGetThingName` (`1038:279e`) for the object's own
+/// name, which is `"%s%s Mine Field"` — so the kind is the adjective and the
+/// words `Mine Field` are not part of it.
+pub const MINEFIELD_KINDS: [&str; 3] = ["Standard", "Heavy", "Speed Bump"];
 
 /// One line of the scanner's right-click menu.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -8539,12 +8677,32 @@ impl App {
         out
     }
 
-    /// What a space object is called, which is what the menu and the pane's
-    /// title use.
+    /// What a space object is called, which is what the menu, the pane's title
+    /// and the status bar's name cell use.
+    ///
+    /// `PszGetThingName` (`1038:26de`) has one format per kind, all from the
+    /// string table: a minefield is `"%s%s Mine Field"` (`idsSSMineField`)
+    /// with the owner and the kind from [`MINEFIELD_KINDS`], a packet is
+    /// `"%sMineral Packet"` (`idsSmineralPacket`) — or `Salvage`
+    /// (`idsSalvage`, trailing space and all) when it is aimed at no planet —
+    /// and a wormhole and the Mystery Trader are named outright.
+    ///
+    /// The owner prefix is `"%s "` (`DS:0x518`) and is left off **your own**
+    /// objects, exactly as a fleet's name leaves it off.
     #[must_use]
     pub fn thing_name(&self, thing: ScanThing) -> String {
         let Some(game) = self.game.as_ref() else {
             return String::new();
+        };
+        let me = self.local_player();
+        let prefix = |owner: i16| -> String {
+            match usize::try_from(owner) {
+                Ok(owner) if owner != me => match game.players.get(owner) {
+                    Some(player) => format!("{} ", player.name),
+                    None => format!("player {} ", owner + 1),
+                },
+                _ => String::new(),
+            }
         };
         match thing {
             ScanThing::Minefield(index) => match game.minefields.get(index) {
@@ -8552,25 +8710,16 @@ impl App {
                     let kind = MINEFIELD_KINDS
                         .get(usize::from(field.kind))
                         .copied()
-                        .unwrap_or("Mine Field");
-                    match usize::try_from(field.owner)
-                        .ok()
-                        .and_then(|owner| game.players.get(owner))
-                    {
-                        Some(player) => format!("{} {kind}", player.name),
-                        None => kind.to_string(),
-                    }
+                        .unwrap_or("Standard");
+                    format!("{}{kind} Mine Field", prefix(field.owner))
                 }
                 None => String::new(),
             },
             ScanThing::Packet(index) => match game.packets.get(index) {
-                Some(packet) => match usize::try_from(packet.owner)
-                    .ok()
-                    .and_then(|owner| game.players.get(owner))
-                {
-                    Some(player) => format!("{} Mineral Packet", player.name),
-                    None => "Mineral Packet".to_string(),
-                },
+                // A packet aimed at no planet is salvage, and salvage is not
+                // named for whoever dropped it.
+                Some(packet) if packet.target == 0 => "Salvage".to_string(),
+                Some(packet) => format!("{}Mineral Packet", prefix(packet.owner)),
                 None => String::new(),
             },
             ScanThing::Wormhole(_) => "Wormhole".to_string(),

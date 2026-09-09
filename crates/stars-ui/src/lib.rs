@@ -33,17 +33,20 @@
 
 pub mod app;
 pub mod art;
+pub mod statusbar;
 pub mod toolbar;
 pub mod vcr;
 pub mod views;
 
+pub use statusbar::{Distance, StatusBar};
+
 pub use app::{
-    copied_plan_name, distance_text, fleet_arrow, leg_outside_waypoints, App, BattlePlans, Browser,
-    CoverageDisc, DesignView, Designer, DesignerDrag, Editing, FilterCommand, FilterEntry,
-    FindResult, MineralBar, OrbitRing, PartRow, PasswordDialog, PasswordPrompt, PathLeg,
-    PlanetMark, PlanetNameStyle, Production, RacePage, RaceWizard, ResearchDialog, ScaleLine,
-    ScanMenuItem, ScanObject, ScanOverlays, ScanThing, ScanView, SchematicSlot, Screen, Selection,
-    StatusBar, SurveyBar, SurveySubject, TurnStatus, WindowLayout, ARROW_SHEET, COVERAGE_NORMAL,
+    copied_plan_name, distance_figure, distance_text, fleet_arrow, leg_outside_waypoints, App,
+    BattlePlans, Browser, CoverageDisc, DesignView, Designer, DesignerDrag, Editing, FilterCommand,
+    FilterEntry, FindResult, MineralBar, OrbitRing, PartRow, PasswordDialog, PasswordPrompt,
+    PathLeg, PlanetMark, PlanetNameStyle, Production, RacePage, RaceWizard, ResearchDialog,
+    ScaleLine, ScanMenuItem, ScanObject, ScanOverlays, ScanThing, ScanView, SchematicSlot, Screen,
+    Selection, SurveyBar, SurveySubject, TurnStatus, WindowLayout, ARROW_SHEET, COVERAGE_NORMAL,
     COVERAGE_PENETRATING, DIGIT_HEIGHT, DIGIT_SHEET, DIGIT_WIDTH, DOUBLED_LEG_COLOUR,
     DOUBLED_LEG_PLAIN, DRIVER_COLOUR, MAX_BATTLE_PLANS, MINERAL_BAR_LAYOUT, MINERAL_GRAPH_MAX,
     PATH_COLOUR, PLANET_UNEXPLORED, POPULATION_STEPS, RACE_WIZARD_PAGES, ROUTE_COLOUR, SCALE_YEARS,

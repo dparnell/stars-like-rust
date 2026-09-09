@@ -392,7 +392,9 @@ fn the_menu_lists_the_space_objects_last() {
         "the field is last"
     );
     assert!(menu[2].first_of_group, "behind a separator of its own");
-    assert_eq!(menu[2].label, "Humanoid Mine Field");
+    // Your own field is not prefixed with your own name: `PszGetThingName`
+    // leaves the owner off, exactly as a fleet's name does.
+    assert_eq!(menu[2].label, "Standard Mine Field");
 }
 
 /// Choosing one selects it, and the survey pane switches to it.
@@ -412,11 +414,11 @@ fn selecting_a_minefield_shows_it_in_the_survey_pane() {
         app.survey_subject(),
         SurveySubject::Thing(ScanThing::Minefield(0))
     );
-    assert_eq!(app.survey_title(), "Humanoid Mine Field Summary");
+    assert_eq!(app.survey_title(), "Standard Mine Field Summary");
 
     let rows = app.survey_thing_rows();
     assert_eq!(rows[0], "Location:  (30, 30)");
-    assert_eq!(rows[1], "Field Type:  Mine Field");
+    assert_eq!(rows[1], "Field Type:  Standard");
     // 400 mines is a radius of 20.
     assert_eq!(rows[2], "Field Radius:  20 l.y. (400 mines)");
     assert!(rows[3].starts_with("Decay rate:  "));
