@@ -43,6 +43,23 @@ impl Cargo {
     }
 }
 
+/// The `grobj` classes a waypoint's target can belong to.
+///
+/// These are the game's own `GrobjClass` bits, and the value stored in a
+/// waypoint's high nibble is the class of whatever it landed on
+/// (`FAddWayPoint`, `1058:7504`). They are also the bits
+/// `FFindNearestObject` (`1038:4070`) is asked to search with.
+pub mod grobj {
+    /// A planet.
+    pub const PLANET: u8 = 1;
+    /// A fleet.
+    pub const FLEET: u8 = 2;
+    /// Nothing — a point in deep space, or one of the fleet's own waypoints.
+    pub const POSITION: u8 = 4;
+    /// A `THING`: a minefield, a packet, a wormhole or the Mystery Trader.
+    pub const THING: u8 = 8;
+}
+
 /// A point a fleet is ordered to travel to, and how fast.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Waypoint {
@@ -50,9 +67,9 @@ pub struct Waypoint {
     pub position: Point,
     /// The planet or fleet it refers to, if any.
     pub target: Option<u16>,
-    /// What kind of object [`Self::target`] names (`grobj`): 1 a planet, 2 a
-    /// fleet, 4 nothing, 8 a `THING`. The Merge task needs it — a bare id
-    /// cannot say whether it means planet 7 or fleet 7.
+    /// What kind of object [`Self::target`] names — one of [`grobj`]. The
+    /// Merge task needs it: a bare id cannot say whether it means planet 7 or
+    /// fleet 7.
     pub target_class: u8,
     /// Warp factor for the leg **into** this waypoint.
     pub warp: u8,

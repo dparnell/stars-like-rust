@@ -56,11 +56,7 @@ pub enum SkippedStep {
     Scores,
 }
 
-/// `grobj` for a waypoint that names no object at all: a bare position.
-const GROBJ_POSITION: u8 = 4;
-/// `grobj` for a waypoint aimed at a `THING` — a wormhole, a Trader, a
-/// minefield.
-const GROBJ_THING: u8 = 8;
+use crate::fleet::grobj::{POSITION as GROBJ_POSITION, THING as GROBJ_THING};
 
 /// Whether a waypoint aimed at a `THING` names this particular object.
 ///

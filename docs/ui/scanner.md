@@ -67,7 +67,7 @@ planet stored near `y = 0` appears at the *bottom* of the scanner.
 | `Idle Fleets Filter` | show only the fleets with nothing to do |
 | `Ship Design Filter` | show only chosen designs, in this player's own fleets |
 | `Enemy Ship Class Filter` | show only chosen classes, in everybody else's |
-| `Add Way Points Mode` | clicking the map adds a waypoint instead of selecting |
+| `Add Way Points Mode` | clicking the map adds a waypoint instead of selecting — the same thing shift-click does |
 
 There is also a `Scanner Effective %` slider (`vpctRadarView`) and a
 `Zoom Menu`.
@@ -750,14 +750,78 @@ routine starts its walk with `iPlr = -1`, sets it to the first owner it counts
 and back to `-2` the moment a second one turns up, and both `-2` and your own
 number come out white.
 
-## Giving orders by dragging
+## Giving orders by clicking
 
-`Add Way Points Mode` turns the map from something you look at into something
-you give orders with: a click appends a leg to the selected fleet
-(`FAddWayPoint`, `1058:7504`), and a drag that starts on one of that fleet's
-existing waypoints moves it instead (`FHandleWayPointDrag`, `1058:8176`,
-finding the waypoint with `FNearAWayPoint`, `1058:8074`). Waypoint 0 is where
-the fleet *is* and cannot be dragged.
+`ScannerWndProc` (`1058:0ae1`) sends a left click to `FAddWayPoint`
+(`1058:7504`) when the selection is a **fleet** and either of two things is
+true:
+
+```c
+if (sel.grobj == grobjFleet)
+    if ((wParam & MK_SHIFT) || (grbitScan & 0x10))
+        FAddWayPoint(x, y, pscan);
+```
+
+— so **shift-click** and `Add Way Points Mode` are one code path, not two.
+Shift is how you lay a course without leaving select mode, and the mode is how
+you lay several without holding a key. Neither works with a planet selected;
+you have to have a fleet in hand.
+
+Everything else falls through to the branch below, which is where a drag that
+starts on one of the selected fleet's existing waypoints moves it
+(`FHandleWayPointDrag`, `1058:8176`, finding the waypoint with
+`FNearAWayPoint`, `1058:8074`). Waypoint 0 is where the fleet *is* and cannot
+be dragged.
+
+### A waypoint lands on what it is near
+
+A new waypoint is not simply dropped where the pointer was. The click handler
+has already asked `FFindNearestObject` (`1038:4070`) what the nearest object
+is — with no radius at all, so it always answers something — and
+`FAddWayPoint` then measures the click against it:
+
+```c
+dx = ptIn.x - pscan->pt.x;  dy = ptIn.y - pscan->pt.y;
+r  = ScanToPt(0x14);
+if (r*r < dx*dx + dy*dy) {          /* too far: deep space */
+    pscan->grobj = grobjOther;  pscan->idpl = -1;  pscan->ifl = -1;
+    pscan->pt = ptIn;
+}
+```
+
+`ScanToPt` (`1058:0fc2`) is the zoom applied backwards, so the reach is
+**twenty screen pixels** whatever the zoom — about 20 light years at 100%, 5 at
+400%, 80 at 25%. Within it the waypoint takes the object's **own** position;
+outside it, the raw point, and the status bar says `Deep Space Waypoint`.
+
+The snap is not decoration. The waypoint stores what it landed on — the id, and
+the `grobj` class beside it, because a bare id cannot say whether it means
+planet 7 or fleet 7 — and only a waypoint that names an object can be given a
+task there. A leg that stops half a light year short of a planet cannot be told
+to unload at it.
+
+| lands on | class | id stored |
+|----------|-------|-----------|
+| a planet | 1 | `pscan->idpl` |
+| a fleet | 2 | the fleet's own id |
+| nothing, or one of this fleet's waypoints | 4 | the waypoint index |
+| a `THING` — minefield, packet, wormhole, Trader | 8 | the thing's id |
+
+`FFindNearestObject`'s search order settles the ties: planets first, then
+fleets, then things, then the selected fleet's own waypoints. A fleet exactly
+on a planet does not displace it, and among fleets at the same point **your
+own** wins.
+
+Two clicks are refused outright rather than adding a leg that goes nowhere: one
+that resolves to the waypoint the fleet is already at, and one that resolves to
+the *next* waypoint along. And a fleet may hold **87** orders including
+waypoint 0; the 88th beeps and puts up an alert, whose text says 86 because it
+counts the legs rather than the entries.
+
+`FHandleWayPointDrag` snaps the same way while a waypoint is being dragged, but
+with a wrinkle: it passes mask `0x4f` normally and `0x8f` while a key is held,
+and `0x80` sets the reach to **zero**. The key turns snapping off rather than
+widening it.
 
 **The client picks the warp for you**, and the rule is worth having in full.
 

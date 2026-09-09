@@ -31,6 +31,16 @@ use crate::views::player_colour;
 use crate::OrbitRing;
 use crate::{App, ScanView, DIGIT_HEIGHT, DIGIT_SHEET, DIGIT_WIDTH};
 
+/// How far a new waypoint reaches for something to land on, **in pixels**.
+///
+/// `FAddWayPoint` (`1058:7504`) compares the click against the nearest object
+/// and keeps the object's own position when the two are within
+/// `ScanToPt(0x14)` of each other. `ScanToPt` (`1058:0fc2`) is the zoom
+/// applied backwards, so the constant is twenty *screen* pixels however far
+/// the map is zoomed in, and it is the view rather than the model that knows
+/// how to convert it.
+pub const SNAP_PIXELS: f32 = 20.0;
+
 /// Draw the galaxy.
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
     let Some((min_x, min_y, max_x, max_y)) = app.extent() else {
@@ -640,10 +650,15 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             .map(|at| (at.x, at.y, None, None))
     });
 
-    // Add Way Points Mode: the map gives orders instead of selecting. A drag
-    // that starts on one of the selected fleet's waypoints moves it; anything
-    // else appends a leg (`FHandleWayPointDrag`, `1058:8176`).
-    if app.add_waypoints && app.selection.fleet.is_some() {
+    // Giving orders instead of selecting. `ScannerWndProc` (`1058:0ae1`) takes
+    // this branch when a **fleet** is selected and either shift is held or Add
+    // Way Points mode is on — the two are the same path, and shift is how you
+    // lay a course without leaving select mode.
+    //
+    // In the mode, a drag that starts on one of the selected fleet's waypoints
+    // moves it instead (`FHandleWayPointDrag`, `1058:8176`).
+    let shift_click = ui.input(|i| i.modifiers.shift);
+    if app.selection.fleet.is_some() && (app.add_waypoints || shift_click) {
         let to_galaxy = |p: Pos2| -> (i16, i16) {
             #[allow(clippy::cast_possible_truncation)]
             let x = (min_x + (p.x - rect.left() - margin) / scale) as i16;
@@ -651,30 +666,32 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             let y = (max_y - (p.y - rect.top() - margin) / scale) as i16;
             (x, y)
         };
-        // A waypoint under the pointer, in galaxy units — the tolerance is the
-        // grab radius in pixels converted back.
-        if response.drag_started() {
-            app.dragging_waypoint = response
-                .interact_pointer_pos()
-                .filter(|p| on_map(*p))
-                .map(to_galaxy)
-                .and_then(|(x, y)| app.waypoint_at(x, y, f64::from(8.0 / scale)));
-        }
-        if response.dragged() {
-            if let (Some(waypoint), Some(p)) =
-                (app.dragging_waypoint, response.interact_pointer_pos())
-            {
-                let (x, y) = to_galaxy(p);
-                app.move_waypoint(waypoint, x, y);
+        if app.add_waypoints {
+            // A waypoint under the pointer, in galaxy units — the tolerance is
+            // the grab radius in pixels converted back.
+            if response.drag_started() {
+                app.dragging_waypoint = response
+                    .interact_pointer_pos()
+                    .filter(|p| on_map(*p))
+                    .map(to_galaxy)
+                    .and_then(|(x, y)| app.waypoint_at(x, y, f64::from(8.0 / scale)));
             }
-        }
-        if response.drag_stopped() {
-            app.dragging_waypoint = None;
+            if response.dragged() {
+                if let (Some(waypoint), Some(p)) =
+                    (app.dragging_waypoint, response.interact_pointer_pos())
+                {
+                    let (x, y) = to_galaxy(p);
+                    app.move_waypoint(waypoint, x, y);
+                }
+            }
+            if response.drag_stopped() {
+                app.dragging_waypoint = None;
+            }
         }
         if response.clicked() {
             if let Some(p) = response.interact_pointer_pos().filter(|p| on_map(*p)) {
                 let (x, y) = to_galaxy(p);
-                app.add_waypoint(x, y);
+                app.add_waypoint(x, y, f64::from(SNAP_PIXELS / scale));
             }
         }
     } else if let Some((x, y, planet, fleet)) = clicked {

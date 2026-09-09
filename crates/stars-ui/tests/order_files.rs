@@ -1404,7 +1404,7 @@ fn waypoints_are_dragged_onto_the_map() {
     assert_eq!(owner, 0, "our own fleet");
 
     // A leg to a point a hundred light years east.
-    assert!(app.add_waypoint(from.x + 100, from.y));
+    assert!(app.add_waypoint(from.x + 100, from.y, 0.0));
     let warp = {
         let fleet = &app.game.as_ref().expect("game").fleets[0];
         assert_eq!(fleet.waypoints.len(), 2);
@@ -1422,7 +1422,7 @@ fn waypoints_are_dragged_onto_the_map() {
     );
 
     // A second leg is appended rather than replacing the first.
-    assert!(app.add_waypoint(from.x + 100, from.y + 100));
+    assert!(app.add_waypoint(from.x + 100, from.y + 100, 0.0));
     assert_eq!(
         app.game.as_ref().expect("game").fleets[0].waypoints.len(),
         3

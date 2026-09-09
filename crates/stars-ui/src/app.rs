@@ -2826,19 +2826,39 @@ impl App {
         u8::try_from(stars_core::movement::settle_warp(ideal, distance).clamp(0, 15)).unwrap_or(5)
     }
 
+    /// The most waypoints a fleet may hold, the origin among them.
+    ///
+    /// `FAddWayPoint` (`1058:7504`) refuses outright once the fleet already
+    /// has this many, with a beep and an alert. The alert's own text says 86,
+    /// one less, because it counts the legs rather than the entries.
+    pub const WAYPOINT_MAX: usize = 0x57;
+
     /// Add a waypoint to the selected fleet, at a point on the map.
     ///
-    /// This is what dragging from a fleet does: the leg is appended to whatever
-    /// orders it already has, at the warp the client suggests, and the order
-    /// log gets the insert the real client writes.
+    /// This is what shift-clicking the map does, and what clicking it does in
+    /// Add Way Points mode: the leg is appended to whatever orders the fleet
+    /// already has, at the warp the client suggests, and the order log gets
+    /// the insert the real client writes.
+    ///
+    /// `snap` is how far, **in galaxy units**, the waypoint will reach for
+    /// something to land on. `FAddWayPoint` measures the click against the
+    /// nearest object and keeps the object's own position when it is within
+    /// `ScanToPt(20)` — twenty screen pixels, converted by the zoom — so the
+    /// caller passes twenty pixels' worth of galaxy units and gets the
+    /// original's behaviour. Pass `0.0` to land exactly where asked.
+    ///
+    /// Snapping is not only cosmetic: a waypoint that lands *on* an object
+    /// records that object, and a waypoint that records an object is the only
+    /// kind a task can be given at. A leg that stops half a light year short
+    /// of a planet cannot be told to unload there.
     ///
     /// Returns whether a waypoint was added.
-    pub fn add_waypoint(&mut self, x: i16, y: i16) -> bool {
+    pub fn add_waypoint(&mut self, x: i16, y: i16, snap: f64) -> bool {
         let Some(index) = self.selection.fleet else {
             return false;
         };
         let me = self.local_player();
-        let at = stars_core::movement::Point::new(x, y);
+        let asked = stars_core::movement::Point::new(x, y);
         let Some(game) = self.game.as_ref() else {
             return false;
         };
@@ -2849,24 +2869,39 @@ impl App {
         if usize::try_from(fleet.owner).is_ok_and(|owner| owner != me) {
             return false;
         }
+        if fleet.waypoints.len() >= Self::WAYPOINT_MAX {
+            return false;
+        }
+
+        // Where it actually lands, and what it lands on. The nearest object
+        // within reach wins; nothing in reach leaves it in deep space at the
+        // point asked for.
+        let (at, target, target_class) = match self.nearest_scan(asked, snap) {
+            Some((object, position)) => {
+                let (target, class) = self.waypoint_target(object);
+                (position, target, class)
+            }
+            None => (asked, None, stars_core::fleet::grobj::POSITION),
+        };
+
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        let Some(fleet) = game.fleets.get(index) else {
+            return false;
+        };
         let from = fleet
             .waypoints
             .last()
             .map_or(fleet.position, |w| w.position);
         #[allow(clippy::cast_possible_truncation)]
         let distance = stars_core::movement::distance(from, at) as i32;
+        // A leg that goes nowhere is refused, which is what stops a snap onto
+        // the waypoint the fleet is already sitting at from adding anything.
         if distance <= 0 {
             return false;
         }
         let warp = self.suggested_warp(index, distance);
-        // A waypoint on a planet names it, which is what makes a task there
-        // possible at all.
-        let target = game
-            .planets
-            .iter()
-            .chain(game.known_planets.iter())
-            .find(|p| p.position == Some(at))
-            .map(|p| p.id);
 
         let Some(game) = self.game.as_mut() else {
             return false;
@@ -2876,8 +2911,8 @@ impl App {
         };
         fleet.waypoints.push(stars_core::fleet::Waypoint {
             position: at,
-            target: target.and_then(|id| u16::try_from(id).ok()),
-            target_class: if target.is_some() { 1 } else { 4 },
+            target,
+            target_class,
             warp,
             task: stars_formats::task::NONE,
             transport: None,
@@ -2890,6 +2925,32 @@ impl App {
         self.log_waypoint(index, last, true);
         self.dirty = true;
         true
+    }
+
+    /// What a waypoint records when it lands on something.
+    ///
+    /// `FAddWayPoint` stores the object's own id and its `grobj` class in the
+    /// waypoint's high nibble (`1058:7504`), and the class matters on its own:
+    /// a bare id cannot say whether it means planet 7 or fleet 7.
+    #[must_use]
+    pub fn waypoint_target(&self, object: ScanObject) -> (Option<u16>, u8) {
+        let game = self.game.as_ref();
+        match object {
+            ScanObject::Planet(id) => (u16::try_from(id).ok(), stars_core::fleet::grobj::PLANET),
+            ScanObject::Fleet(index) => (
+                game.and_then(|game| game.fleets.get(index)).map(|f| f.id),
+                stars_core::fleet::grobj::FLEET,
+            ),
+            ScanObject::Thing(thing) => {
+                let id = game.and_then(|game| match thing {
+                    ScanThing::Minefield(i) => game.minefields.get(i).map(|f| f.id),
+                    ScanThing::Packet(i) => game.packets.get(i).map(|p| p.id),
+                    ScanThing::Wormhole(i) => game.wormholes.get(i).map(|w| w.id),
+                    ScanThing::Trader(i) => game.traders.get(i).map(|t| t.id),
+                });
+                (id, stars_core::fleet::grobj::THING)
+            }
+        }
     }
 
     /// Move one of the selected fleet's waypoints, as dragging it does.

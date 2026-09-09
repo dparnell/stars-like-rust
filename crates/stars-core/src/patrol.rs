@@ -19,7 +19,7 @@ use crate::fleet::{Fleet, Waypoint};
 use crate::GameState;
 
 /// The object class of a waypoint that names a fleet.
-const GROBJ_FLEET: u8 = 2;
+use crate::fleet::grobj::FLEET as GROBJ_FLEET;
 
 /// How far a patrol looks, in light years, from the stored setting.
 ///

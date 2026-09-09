@@ -569,7 +569,7 @@ pub fn execute_arrival_tasks(state: &mut GameState) -> (Vec<(u16, u8)>, Vec<Colo
 /// Returns whether the merge happened; the source is left with no ships for the
 /// caller to sweep up.
 fn merge_into_target(state: &mut GameState, index: usize) -> bool {
-    const GROBJ_FLEET: u8 = 2;
+    use crate::fleet::grobj::FLEET as GROBJ_FLEET;
 
     let Some(waypoint) = state.fleets[index].waypoints.first() else {
         return false;
