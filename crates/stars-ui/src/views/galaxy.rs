@@ -679,6 +679,12 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             app.dragging_waypoint_from = app
                 .dragging_waypoint
                 .and_then(|index| app.waypoint_point(index));
+            // The press goes through `ChangeScanSel` before `FNearAWayPoint`
+            // does its asking, so the waypoint it grabs is also the one the
+            // scanner now has in hand.
+            if let Some(index) = app.dragging_waypoint {
+                app.selection.waypoint = Some(index);
+            }
         }
         if response.dragged() {
             if let (Some(waypoint), Some(p)) =
@@ -727,6 +733,14 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             }
         }
     } else if let Some((x, y, planet, fleet)) = clicked {
+        // `FFindNearestObject` is asked with `grobjOther` in the mask
+        // (`1058:04e4`), so the selected fleet's own waypoints are part of what
+        // a click can land on, and `ChangeScanSel` then takes one in hand.
+        if app.selection.fleet.is_some() {
+            if let Some(index) = app.waypoint_at(x, y, reach) {
+                app.selection.waypoint = Some(index);
+            }
+        }
         let hit = match (planet, fleet) {
             (Some(id), _) => Some(ScanObject::Planet(id)),
             (None, Some(index)) => Some(ScanObject::Fleet(index)),
@@ -1274,7 +1288,10 @@ fn delete_waypoint_prompt(app: &mut App, ui: &mut egui::Ui, rect: Rect, waypoint
     child.label("Delete this waypoint?");
     child.horizontal(|ui| {
         if ui.button("Yes").clicked() {
-            app.delete_waypoint(waypoint);
+            // The same removal the Delete key does, so the waypoint left in
+            // hand afterwards is the same one either way.
+            app.selection.waypoint = Some(waypoint);
+            app.delete_current_waypoint();
             app.waypoint_delete = None;
         }
         if ui.button("No").clicked() {

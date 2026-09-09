@@ -550,6 +550,22 @@ impl eframe::App for StarsApp {
             }
         }
 
+        // Backspace and Delete drop the waypoint the map has in hand.
+        // `FHandleKey` (`1018:165a`) treats the two as one key and asks no
+        // question, and it refuses when the selection is not a fleet. It also
+        // stands aside for whatever has the focus — a text field, the
+        // toolbar, a list — which here means only doing it when nothing else
+        // wants the key.
+        if self.app.game.is_some()
+            && self.app.setup.is_none()
+            && self.app.selection.fleet.is_some()
+            && !ctx.wants_keyboard_input()
+            && ctx
+                .input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
+        {
+            self.app.delete_current_waypoint();
+        }
+
         if self.app.game.is_some()
             && self.app.setup.is_none()
             && ctx.input(|i| i.key_pressed(egui::Key::F7))

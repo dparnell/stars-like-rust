@@ -125,6 +125,13 @@ pub struct Selection {
     /// Only the right-click menu selects one: they take no part in the
     /// click-again cycle, which is planets and fleets only.
     pub thing: Option<ScanThing>,
+    /// Which of the selected fleet's waypoints the map has in hand — the
+    /// original's `sel.iwpAct`.
+    ///
+    /// It is what **Delete** removes and what a drag picks up, and the status
+    /// bar names it `WP #n`. Waypoint 0 is where the fleet is; it can be the
+    /// one in hand but it can never be deleted.
+    pub waypoint: Option<usize>,
 }
 
 /// What the Find dialog found.
@@ -683,6 +690,7 @@ impl App {
             fleet: (!state.fleets.is_empty()).then_some(0),
             on_fleet: false,
             thing: None,
+            waypoint: None,
         };
         self.vcr = None;
         self.playing = false;
@@ -1020,6 +1028,7 @@ impl App {
             fleet: (!state.fleets.is_empty()).then_some(0),
             on_fleet: false,
             thing: None,
+            waypoint: None,
         };
         self.game = Some(state);
         self.universe = Some(universe);
@@ -2650,7 +2659,12 @@ impl App {
 
         // A waypoint under the mouse. The leg's far end is a waypoint unless
         // it has landed on a planet, in which case the planet wins.
-        if let Some(index) = self.dragging_waypoint {
+        //
+        // The waypoint the map merely has *in hand* counts too: `ChangeScanSel`
+        // copies the whole scan into `sel.scan`, `iwp` and all, so the bar goes
+        // on naming it after the drag is let go — and it is the only thing that
+        // says what **Delete** will remove.
+        if let Some(index) = self.dragging_waypoint.or(self.selection.waypoint) {
             if let Some(at) = self.waypoint_point(index) {
                 let mut bar = match self.nearest_scan(at, 0.5) {
                     Some((object @ ScanObject::Planet(_), _)) => self.bar_for(object),
@@ -2946,6 +2960,10 @@ impl App {
             fleet.warp = Some(warp);
         }
         self.log_waypoint(index, last, true);
+        // `FAddWayPoint` leaves the new waypoint as the one in hand
+        // (`pscan->iwp = sel.iwpAct + 1`, then `ChangeScanSel`), so a second
+        // shift-click carries on from it and Delete takes it back off.
+        self.selection.waypoint = Some(last);
         self.dirty = true;
         true
     }
@@ -3132,6 +3150,39 @@ impl App {
             record(waypoint);
         }
         self.dirty = true;
+        true
+    }
+
+    /// Delete the waypoint the map has in hand.
+    ///
+    /// `FHandleKey` (`1018:165a`) sends **Backspace** (`VK_BACK`) and
+    /// **Delete** (`VK_DELETE`) straight here whenever the selection is a
+    /// fleet — no mode, no modifier, and, unlike the drag, **no question
+    /// first**. Only a waypoint dropped onto its neighbour gets asked about;
+    /// the key just does it.
+    ///
+    /// `DeleteCurWayPoint` (`1050:9b08`) beeps and does nothing when the fleet
+    /// holds only waypoint 0, or when the one in hand *is* waypoint 0 — that
+    /// is where the fleet is, and it is not an order.
+    ///
+    /// The key passes `fBackup = 8`, which is what makes the selection fall
+    /// back to the waypoint **before** the one that went rather than stepping
+    /// on to the one after.
+    ///
+    /// Returns whether one went.
+    pub fn delete_current_waypoint(&mut self) -> bool {
+        let Some(waypoint) = self.selection.waypoint else {
+            return false;
+        };
+        if waypoint == 0 || !self.delete_waypoint(waypoint) {
+            return false;
+        }
+        let held = self
+            .selection
+            .fleet
+            .and_then(|index| self.game.as_ref()?.fleets.get(index))
+            .map_or(0, |fleet| fleet.waypoints.len());
+        self.selection.waypoint = (held > 0).then(|| (waypoint - 1).min(held - 1));
         true
     }
 
@@ -8286,6 +8337,9 @@ impl App {
                 self.selection.on_fleet = false;
             }
             ScanObject::Fleet(index) => {
+                if self.selection.fleet != Some(index) {
+                    self.selection.waypoint = None;
+                }
                 self.selection.fleet = Some(index);
                 self.selection.on_fleet = true;
                 // The scanner keeps the planet under a fleet in orbit, because

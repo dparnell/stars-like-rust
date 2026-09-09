@@ -861,10 +861,59 @@ leaves its two neighbours on the same point, **collapses that pair too** rather
 than leaving a leg of no length behind. The flag only decides which waypoint is
 left selected afterwards, not what is removed.
 
-This is how the original throws a waypoint away from the map, and it is why
-snapping and deleting have to arrive together: with a twenty-pixel snap, a drag
-onto a neighbour lands exactly on it, and without the delete it would simply
-make a zero-length leg.
+This is how the original throws a waypoint away from the map by dragging, and
+it is why snapping and deleting have to arrive together: with a twenty-pixel
+snap, a drag onto a neighbour lands exactly on it, and without the delete it
+would simply make a zero-length leg.
+
+### Backspace and Delete take one off
+
+`FHandleKey` (`1018:165a`) is the other way, and the short one:
+
+```c
+if (iKey != 8) {           /* VK_BACK */
+    ...
+    if (iKey != 0x2e) {    /* VK_DELETE */
+        ...
+    }
+}
+if (sel.grobj == grobjFleet)
+    DeleteCurWayPoint(8);
+```
+
+The two keys fall through to the same call, so **Backspace and Delete are one
+key**. It needs a fleet selected and nothing else — no mode, no modifier — and
+it asks **no question**: only the drag path puts up the alert. `fBackup` is 8,
+which is what makes the selection fall back to the waypoint *before* the one
+that went rather than stepping on to the one after.
+
+`FHandleKey` runs before any of this on a list of keys it claims —
+`VK_BACK`, `VK_DELETE`, the arrows, Home, End, the digits, comma and full stop
+(warp down and up), and `[` and `]` — and stands aside whenever the focus is
+somewhere that wants them: the toolbar and its children, the three order
+dropdowns, the fleet-composition and production lists, the message editor and
+its scroll, the order edit box, the ship dropdown, or the browser's category
+combo.
+
+### Which waypoint is "current"
+
+All of this turns on `sel.iwpAct`, the waypoint the scanner has in hand, and it
+is set in three places:
+
+* `FAddWayPoint` leaves the waypoint it just made in hand
+  (`pscan->iwp = sel.iwpAct + 1`, then `ChangeScanSel`), so a run of clicks
+  lays a chain and Delete unwinds it;
+* a press that grabs one for a drag, because the press goes through
+  `ChangeScanSel` before `FNearAWayPoint` is asked;
+* an ordinary click that lands nearest a waypoint — `FFindNearestObject` is
+  asked with `grobjOther` in the mask (`1058:04e4`), so the selected fleet's
+  own waypoints are among the things a click can land on, and `ChangeScanSel`
+  sets `sel.iwpAct` when the answer carries one.
+
+Selecting a different fleet drops it, which is what stops Delete reaching into
+the orders of a fleet that is no longer in front. The status bar is the only
+thing on screen that says which waypoint is in hand — it prints `WP #%d` with
+`iwp` — so it is also the only warning of what Delete is about to take.
 
 **The client picks the warp for you**, and the rule is worth having in full.
 

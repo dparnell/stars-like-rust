@@ -83,6 +83,13 @@ fn empty_spot(app: &App, clear: f64) -> Point {
 /// Waypoint 0 is where the fleet *is* — every fleet the loader builds has
 /// one, and the indices of everything after it depend on that.
 fn our_fleet_at(app: &mut App, at: Point) -> usize {
+    let index = add_our_fleet(app, at);
+    app.select_object(stars_ui::ScanObject::Fleet(index));
+    index
+}
+
+/// The same, without selecting it.
+fn add_our_fleet(app: &mut App, at: Point) -> usize {
     let game = app.game.as_mut().expect("a game");
     let id = u16::try_from(game.fleets.len() + 1).expect("a small galaxy");
     let mut fleet = a_fleet(id, 0, at);
@@ -96,10 +103,7 @@ fn our_fleet_at(app: &mut App, at: Point) -> usize {
         task_data: Vec::new(),
     });
     game.fleets.push(fleet);
-    let index = game.fleets.len() - 1;
-    app.selection.fleet = Some(index);
-    app.selection.on_fleet = true;
-    index
+    game.fleets.len() - 1
 }
 
 /// The last waypoint of a fleet.
@@ -580,4 +584,117 @@ fn the_log_records_what_the_waypoint_landed_on() {
         .expect("a waypoint order");
     assert_eq!(order.grobj, grobj::FLEET, "a fleet, not a planet");
     assert_eq!(order.target_id, 41);
+}
+
+// --- Taking one back off -------------------------------------------------
+//
+// `FHandleKey` (`1018:165a`) sends Backspace and Delete straight to
+// `DeleteCurWayPoint` (`1050:9b08`) whenever the selection is a fleet — no
+// mode, no modifier, and no question first. It acts on `sel.iwpAct`, the
+// waypoint the map has in hand.
+
+/// Laying a waypoint leaves it in hand, and Delete takes it straight back
+/// off — no mode, no modifier, no question.
+#[test]
+fn delete_removes_the_waypoint_in_hand() {
+    let mut app = a_game();
+    let start = empty_spot(&app, 60.0);
+    let fleet = our_fleet_at(&mut app, start);
+    assert!(app.add_waypoint(start.x + 30, start.y, 0.0));
+    assert!(app.add_waypoint(start.x + 60, start.y, 0.0));
+    assert_eq!(app.selection.waypoint, Some(2), "the new one is in hand");
+
+    assert!(app.delete_current_waypoint());
+    let held = &app.game.as_ref().expect("a game").fleets[fleet].waypoints;
+    assert_eq!(held.len(), 2);
+    assert_eq!(held[1].position, Point::new(start.x + 30, start.y));
+    // `fBackup` is 8, so it falls back rather than stepping on.
+    assert_eq!(app.selection.waypoint, Some(1));
+
+    assert!(app.delete_current_waypoint());
+    assert_eq!(
+        app.game.as_ref().expect("a game").fleets[fleet]
+            .waypoints
+            .len(),
+        1
+    );
+    assert_eq!(app.selection.waypoint, Some(0));
+}
+
+/// Waypoint 0 is where the fleet is, not an order, and cannot be deleted —
+/// `DeleteCurWayPoint` beeps and returns.
+#[test]
+fn waypoint_zero_is_never_deleted() {
+    let mut app = a_game();
+    let start = empty_spot(&app, 60.0);
+    let fleet = our_fleet_at(&mut app, start);
+    assert!(app.add_waypoint(start.x + 30, start.y, 0.0));
+
+    assert!(app.delete_current_waypoint());
+    assert_eq!(app.selection.waypoint, Some(0));
+    // Now only waypoint 0 is left, and it stays.
+    assert!(!app.delete_current_waypoint());
+    assert_eq!(
+        app.game.as_ref().expect("a game").fleets[fleet]
+            .waypoints
+            .len(),
+        1
+    );
+}
+
+/// With nothing in hand there is nothing to delete.
+#[test]
+fn delete_does_nothing_with_no_waypoint_in_hand() {
+    let mut app = a_game();
+    let start = empty_spot(&app, 60.0);
+    let fleet = our_fleet_at(&mut app, start);
+    assert!(app.add_waypoint(start.x + 30, start.y, 0.0));
+    app.selection.waypoint = None;
+
+    assert!(!app.delete_current_waypoint());
+    assert_eq!(
+        app.game.as_ref().expect("a game").fleets[fleet]
+            .waypoints
+            .len(),
+        2
+    );
+}
+
+/// Selecting a different fleet lets go of the waypoint, so Delete cannot
+/// reach into the orders of a fleet that is no longer in front.
+#[test]
+fn changing_fleet_lets_go_of_the_waypoint() {
+    let mut app = a_game();
+    let start = empty_spot(&app, 60.0);
+    let second = add_our_fleet(&mut app, Point::new(start.x, start.y + 90));
+    let first = our_fleet_at(&mut app, start);
+    assert_ne!(first, second);
+    assert!(app.add_waypoint(start.x + 30, start.y, 0.0));
+    assert_eq!(app.selection.waypoint, Some(1));
+
+    app.select_object(stars_ui::ScanObject::Fleet(second));
+    assert_eq!(app.selection.waypoint, None);
+    assert!(!app.delete_current_waypoint());
+    // And coming back to the first leaves its orders untouched.
+    app.select_object(stars_ui::ScanObject::Fleet(first));
+    assert_eq!(
+        app.game.as_ref().expect("a game").fleets[first]
+            .waypoints
+            .len(),
+        2
+    );
+}
+
+/// The status bar names the waypoint in hand, which is the only thing that
+/// says what Delete will take.
+#[test]
+fn the_bar_names_the_waypoint_in_hand() {
+    let mut app = a_game();
+    let start = empty_spot(&app, 60.0);
+    our_fleet_at(&mut app, start);
+    assert!(app.add_waypoint(start.x + 30, start.y, 0.0));
+
+    let bar = app.status_bar();
+    assert_eq!(bar.id, "WP #1");
+    assert_eq!(bar.name, "Deep Space Waypoint");
 }
