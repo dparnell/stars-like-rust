@@ -61,22 +61,39 @@ pub fn view(app: &mut App, ui: &mut egui::Ui, elapsed: f64) -> Option<Action> {
     ui.separator();
 
     let statuses = app.turn_statuses();
-    let names: Vec<String> = (0..statuses.len())
-        .map(|player| app.player_name(player))
-        .collect();
 
     ui.horizontal_top(|ui| {
         // The list, one row per player: the blue diamond the original draws
-        // beside every one of them, the number, the name and the status.
+        // beside every one of them, the number right-aligned in a column
+        // measured from the literal `#16:`, and the sentence past it
+        // (`DrawHostDialog2`, `1020:6240`).
         ui.vertical(|ui| {
+            let font = egui::TextStyle::Body.resolve(ui.style());
+            let column = ui
+                .fonts(|f| {
+                    f.layout_no_wrap(
+                        crate::dialog::HOST_NUMBER_SAMPLE.to_string(),
+                        font,
+                        ui.visuals().text_color(),
+                    )
+                })
+                .rect
+                .width()
+                .ceil()
+                + crate::dialog::HOST_NUMBER_PAD;
             for (player, status) in statuses.iter().enumerate() {
+                let (number, sentence) = app.host_row(player);
                 ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = crate::dialog::HOST_TEXT_PAD;
                     diamond(ui);
-                    ui.label(format!("{}:", player + 1));
-                    ui.colored_label(
-                        colour(*status),
-                        format!("{} {}", names[player], status.name()),
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(column, ui.spacing().interact_size.y),
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            ui.label(number);
+                        },
                     );
+                    ui.colored_label(colour(*status), sentence);
                 });
             }
         });

@@ -27,13 +27,42 @@ is the one departure worth knowing about.
 | `0x7e1` | static  | time since the last change           |
 
 Everything from y=28 down the left-hand side is **painted**, not laid out:
-that is the player list, and `DrawHostDialog2` is what draws it. The template
-alone would describe a dialog with no players in it.
+that is the player list, and `DrawHostDialog2` (`1020:6240`) is what draws it.
+The template alone would describe a dialog with no players in it — every
+control it does place is either in the two header rows or at `x >= 190`.
+
+The five buttons run down the right at `x = 190`, each 65 by 14 and twenty
+apart from `y = 54`.
 
 ## The player list
 
 One row per player: a blue diamond, the player's number, their name and where
-their turn has got to. `CFindTurnsOutstanding` works the status out and puts it
+their turn has got to. `DrawHostDialog2` lays it out in pixels rather than
+dialog units:
+
+```
+first row      y = 0x30
+row pitch      dyArial8 + 4
+diamond        dyArial8 + 1 square at x = 6
+number column  right-aligned at dyArial8 + 10 + extent("#16:")
+the sentence   four pixels past that
+```
+
+— and the number column is measured from the **literal** `#16:` (`idsN16`), not
+from the widest row, so it does not move as the list changes.
+
+The two pieces of text are worth transcribing exactly, because they are easy to
+approximate wrongly:
+
+* the number is `"#%d:"` (`idsD2`), so it reads `#1:` and not `1.`;
+* the rest is a **sentence** — `"%s are %s."` (`idsSS`, whose stored form
+  carries a run of trailing spaces) with the player's **plural** name and the
+  status word, so a row reads `The Humanoids are turned in.`
+
+**`fNoHostNames`** changes that. It is bit 6 of the `gd` word that also holds
+`iCurGraph`, `fMusic` and `fPerPlayerDumps`, and when it is set the row format
+becomes `" %s"` — the status alone, with no name at all. A host who should not
+know which player is which still sees who is being waited for. `CFindTurnsOutstanding` works the status out and puts it
 in `rgOut`, which indexes seven consecutive strings from `idsTurned` (`0x02cc`)
 — with *dead* at `0x02cb`, index `-1`:
 
@@ -48,7 +77,9 @@ in `rgOut`, which indexes seven consecutive strings from `idsTurned` (`0x02cc`)
 | 5 | not in the right game | yes |
 
 The first two are drawn in dark green (`RGB(0, 127, 0)`) and the rest in dark
-red; a player marked `fHacker` gets ` - HACKER` after the status.
+red; a player marked `fHacker` gets ` - HACKER` after the status — nine characters,
+which the original counts by hand. This engine does not carry that flag, so
+nothing is appended here.
 
 How the status is reached, from `CFindTurnsOutstanding`:
 

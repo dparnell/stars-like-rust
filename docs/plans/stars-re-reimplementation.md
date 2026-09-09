@@ -3089,7 +3089,28 @@ disagree.
      replays. Recorded rather than reimplemented, since this project's frames
      already carry the board as it stood.
 
-105. **What is still missing to call it playable.** Every waypoint task is now
+105. ~~**Host mode's player list.**~~ **Done.** Spec in
+     `docs/ui/host-mode.md`. Dialog resource **115**, 260 by 220 dialog units,
+     with fifteen controls that are all either in the two header rows or at
+     `x >= 190` — the whole left side below `y = 28` is painted by
+     `DrawHostDialog2` (`1020:6240`), which lays the list out in pixels: first
+     row at `0x30`, rows `dyArial8 + 4` apart, a `dyArial8 + 1` diamond at
+     `x = 6`, and the number right-aligned in a column measured from the
+     **literal** `#16:` rather than from the widest row, so it does not move as
+     the list changes.
+
+     Two pieces of text were being approximated. The number is `"#%d:"`
+     (`idsD2`), so it reads `#1:` and not `1.`; and the rest is a **sentence** —
+     `"%s are %s."` (`idsSS`) with the player's **plural** name — so a row reads
+     `The Humanoids are turned in.` rather than a name and a status word side by
+     side.
+
+     And a flag the spec did not have: **`fNoHostNames`**, bit 6 of the `gd`
+     word that also holds `iCurGraph`, `fMusic` and `fPerPlayerDumps`. With it
+     set the row format becomes `" %s"` — the status alone, no name — so a host
+     who should not know which player is which still sees who is waited for.
+
+106. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

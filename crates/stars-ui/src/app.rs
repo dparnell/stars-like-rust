@@ -309,6 +309,9 @@ pub struct App {
     pub open_tiles: [bool; 6],
     /// The same, for the seven the fleet pane shows instead (`rgtileShip`).
     pub open_ship_tiles: [bool; 7],
+    /// `fNoHostNames`: whether the host dialog leaves the players' names out
+    /// of its list and shows only how far each turn has got.
+    pub no_host_names: bool,
     /// Which of the Game Parameters window's three pages is showing.
     ///
     /// The original is the Advanced Game wizard read-only, walked with
@@ -10885,6 +10888,46 @@ impl App {
             return TurnStatus::PartiallyDone;
         }
         TurnStatus::TurnedIn
+    }
+
+    /// One row of the host dialog's player list, as `DrawHostDialog2`
+    /// (`1020:6240`) writes it.
+    ///
+    /// Two things this project had wrong. The number is `"#%d:"` (`idsD2`),
+    /// not a bare figure; and the rest is a **sentence** — `"%s are %s."`
+    /// (`idsSS`) with the player's **plural** name and the status word, so a
+    /// row reads `The Humanoids are turned in.` A player marked `fHacker`
+    /// gets `" - HACKER"` after it.
+    ///
+    /// When the game carries **`fNoHostNames`** the names are left out
+    /// altogether and the row is `" %s"` — the status alone. A host who should
+    /// not know who is who still sees who is waited for.
+    #[must_use]
+    pub fn host_row(&self, player: usize) -> (String, String) {
+        let status = self.turn_status(player);
+        let text = if self.no_host_names {
+            format!(" {}", status.name())
+        } else {
+            // A good many player blocks store no plural, so the singular
+            // stands in rather than leaving the sentence with a hole in it.
+            let plural = self
+                .game
+                .as_ref()
+                .and_then(|game| game.players.get(player))
+                .map(|p| {
+                    if p.plural_name.is_empty() {
+                        p.name.clone()
+                    } else {
+                        p.plural_name.clone()
+                    }
+                })
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| format!("player {}", player + 1));
+            format!("{plural} are {}.", status.name())
+        };
+        // The original appends `" - HACKER"` for a player marked `fHacker`;
+        // this engine does not carry that flag, so nothing is appended.
+        (format!("#{}:", player + 1), text)
     }
 
     /// Every player's status, in player order.

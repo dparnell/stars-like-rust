@@ -234,3 +234,87 @@ fn the_watch_says_how_many_are_out() {
     assert_eq!(app.host_title(), "Host Mode 0 Players Out");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The dialog is resource 115, and its player list is painted rather than
+/// placed — everything from `y = 28` down the left is `DrawHostDialog2`'s.
+#[test]
+fn the_template_leaves_the_player_list_to_the_painter() {
+    use stars_ui::dialog::{Class, HOST_LIST_TOP, HOST_MODE, HOST_NUMBER_SAMPLE};
+
+    assert_eq!(HOST_MODE.caption, "Stars! Host Mode");
+    assert_eq!(HOST_MODE.size, (260, 220));
+    assert_eq!(
+        HOST_MODE.controls.len(),
+        15 - 1,
+        "the icon placeholder aside"
+    );
+
+    // Every control the template places is at x >= 190 or in the two header
+    // rows, so the left of the dialog below y = 28 is empty.
+    for control in HOST_MODE.controls {
+        assert!(
+            control.at.0 >= 190 || control.at.1 < 28,
+            "{:?} is in the list's area",
+            control.text
+        );
+    }
+    assert!(HOST_LIST_TOP > 28.0, "and the list starts below that");
+
+    // The five buttons run down the right, 65 by 14, twenty apart.
+    for (index, id) in [0x407u16, 0x408, 0x7df, 0x2, 0x76].into_iter().enumerate() {
+        let control = HOST_MODE.control(id).expect("a host button");
+        assert_eq!(control.class, Class::Button);
+        assert_eq!(control.at.0, 190);
+        #[allow(clippy::cast_possible_truncation)]
+        let y = 54 + 20 * index as i16;
+        assert_eq!(control.at.1, y);
+        assert_eq!((control.at.2, control.at.3), (65, 14));
+    }
+    assert_eq!(
+        HOST_MODE.control(0x408).expect("auto").label(),
+        "Auto Generate"
+    );
+    // The number column is measured from a literal, not from the widest row.
+    assert_eq!(HOST_NUMBER_SAMPLE, "#16:");
+}
+
+/// A row is a **sentence**, and the number carries a hash — both of which this
+/// project had wrong.
+#[test]
+fn a_row_reads_as_the_original_writes_it() {
+    use stars_core::newgame::{NewGame, NewPlayer, Size};
+    use stars_core::{opponents, Race};
+    use stars_ui::App;
+
+    let mut app = App::new();
+    app.new_game(&NewGame {
+        name: "host".to_string(),
+        size: Size::Small,
+        players: vec![
+            NewPlayer::human(Race::humanoid()),
+            opponents::opponent(1, 1).expect("an opponent").as_player(),
+        ],
+        ..NewGame::default()
+    })
+    .expect("creates the game");
+
+    let (number, sentence) = app.host_row(0);
+    assert_eq!(number, "#1:", "`#%d:`, not a bare figure");
+    assert!(
+        sentence.ends_with('.'),
+        "`%s are %s.` is a sentence: {sentence}"
+    );
+    assert!(sentence.contains(" are "), "{sentence}");
+
+    // `fNoHostNames` drops the name and leaves the status, so a host who
+    // should not know who is who still sees who is waited for.
+    app.no_host_names = true;
+    let (number, hidden) = app.host_row(0);
+    assert_eq!(number, "#1:", "the number stays");
+    assert!(!hidden.contains(" are "), "{hidden}");
+    assert!(hidden.starts_with(' '), "` %s`: {hidden}");
+    assert!(
+        sentence.contains(hidden.trim()),
+        "the same status word, without the name"
+    );
+}

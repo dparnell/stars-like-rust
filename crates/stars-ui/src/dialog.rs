@@ -1532,3 +1532,120 @@ pub const BATTLE_VCR: Template = Template {
 
 /// The five transport buttons, in the order the template has them.
 pub const VCR_TRANSPORT: [u16; 5] = [0xa1, 0xa2, 0xa3, 0xa4, 0xa5];
+
+/// `Stars! Host Mode`, dialog resource 115.
+///
+/// Fifteen controls down the **right**, and a large empty area on the left
+/// that the template says nothing about: everything from `y = 28` down is the
+/// player list, painted by `DrawHostDialog2` (`1020:6240`).
+pub const HOST_MODE: Template = Template {
+    caption: "Stars! Host Mode",
+    size: (260, 220),
+    controls: &[
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (4, 4, 24, 8),
+            text: "Game:",
+        },
+        Control {
+            id: 0x409,
+            class: Class::Static,
+            at: (30, 4, 120, 8),
+            text: "",
+        },
+        Control {
+            id: 0xfffe,
+            class: Class::Static,
+            at: (4, 14, 24, 8),
+            text: "File:",
+        },
+        Control {
+            id: 0x40a,
+            class: Class::Static,
+            at: (30, 14, 175, 8),
+            text: "",
+        },
+        Control {
+            id: 0xfffd,
+            class: Class::Static,
+            at: (190, 4, 64, 8),
+            text: "Next year is:",
+        },
+        Control {
+            id: 0x7e0,
+            class: Class::Static,
+            at: (200, 14, 44, 8),
+            text: "",
+        },
+        Control {
+            id: 0x407,
+            class: Class::Button,
+            at: (190, 54, 65, 14),
+            text: "&Generate Now",
+        },
+        Control {
+            id: 0x408,
+            class: Class::Button,
+            at: (190, 74, 65, 14),
+            text: "&Auto Generate",
+        },
+        Control {
+            id: 0x7df,
+            class: Class::Button,
+            at: (190, 94, 65, 14),
+            text: "&Password...",
+        },
+        Control {
+            id: 0x2,
+            class: Class::Button,
+            at: (190, 114, 65, 14),
+            text: "&Close",
+        },
+        Control {
+            id: 0x76,
+            class: Class::Button,
+            at: (190, 134, 65, 14),
+            text: "&Help",
+        },
+        Control {
+            id: 0xfffc,
+            class: Class::Static,
+            at: (190, 160, 64, 8),
+            text: "Time since",
+        },
+        Control {
+            id: 0xfffb,
+            class: Class::Static,
+            at: (190, 170, 64, 8),
+            text: "last change:",
+        },
+        Control {
+            id: 0x7e1,
+            class: Class::Static,
+            at: (190, 180, 64, 8),
+            text: "",
+        },
+    ],
+};
+
+/// Where the host dialog's player list goes, in **pixels** —
+/// `DrawHostDialog2` (`1020:6240`) paints it rather than the template placing
+/// it.
+///
+/// The first row's top is a flat `0x30`, the rows are `dyArial8 + 4` apart, and
+/// each carries a blue diamond `dyArial8 + 1` square at `x = 6`. The player's
+/// number is right-aligned at a column measured from the literal `#16:` —
+/// `dyArial8 + 10 + extent("#16:")` — and the sentence beside it starts four
+/// pixels past that.
+pub const HOST_LIST_TOP: f32 = 0x30 as f32;
+/// What one row of the list adds to a line.
+pub const HOST_ROW_GAP: f32 = 4.0;
+/// Where the diamond sits.
+pub const HOST_DIAMOND_LEFT: f32 = 6.0;
+/// The sample the number column is measured from (`idsN16`).
+pub const HOST_NUMBER_SAMPLE: &str = "#16:";
+/// What that column adds to the sample.
+pub const HOST_NUMBER_PAD: f32 = 10.0;
+/// What the sentence adds past the number column.
+pub const HOST_TEXT_PAD: f32 = 4.0;
