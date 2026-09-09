@@ -115,6 +115,49 @@ The manual explains what it is for (p. 5-13): the overlay is drawn as though
 every scanner were only that effective, so a player can see how close a ship
 with matching cloaking would get.
 
+## The tooltips
+
+`TbWndProc`'s `WM_MOUSEMOVE` arm calls `ShowTooltip(itb + 0x16a, &rc)` with the
+button's rectangle in screen coordinates, and `-3` — the combo — uses `0x17c`.
+So the nineteen strings are one **contiguous block in button order**, which is
+an independent confirmation of the order the layout table gives:
+
+| id | | id | |
+|---|---|---|---|
+| `0x16a` | Normal View | `0x174` | Idle Fleets Filter |
+| `0x16b` | Surface Mineral View | `0x175` | Planet Names Overlay |
+| `0x16c` | Mineral Concentration View | `0x176` | Ship Design Filter |
+| `0x16d` | Planet Value View | `0x177` | Design Filter Menu |
+| `0x16e` | Population View | `0x178` | Enemy Ship Class Filter |
+| `0x16f` | No Player Info View | `0x179` | Enemy Class Filter Menu |
+| `0x170` | Add Way Points Mode | `0x17a` | Zoom Menu |
+| `0x171` | Scanner Coverage Overlay | `0x17b` | Ship Counts Overlay |
+| `0x172` | Mine Fields Overlay | `0x17c` | Scanner Effective % |
+| `0x173` | Fleet Paths Overlay | | |
+
+Note that they are **not** the names the manual uses — "Normal View" rather
+than "Normal", "Mine Fields Overlay" rather than "Mine Fields" — so a button
+has two names and the tooltip wants the game's.
+
+**The timing is the interesting part**, and it is what makes a tooltip feel
+like the program's own rather than the toolkit's:
+
+* the pointer must rest for **700ms** before the first one appears —
+  `SetTimer(0x39e, 700)`;
+* but one that follows **within 400ms** of the last closing appears **at
+  once** (`GetTickCount() <= vtickTooltipLast + 400`), so running along the row
+  reads every button without waiting again;
+* a 50ms timer watches the pointer: the tooltip goes when it leaves the
+  button's rectangle, and in any case after **ten seconds**;
+* any click takes it away, and so does a mouse move over the tooltip itself.
+
+**The window**: `dxTip + 6` by `dyArial8 + 6`, so the text has a three-pixel
+margin; filled with `hbrTooltip` — `HbrGet(0x9fffff)`, the pale yellow —
+framed one pixel in `hbrWindowFrame`, and written in Arial 8 in `crWindowText`
+with a transparent background. It is placed at the **pointer's x** and a line
+and a half below it (`pt.y + dyArial8 * 3 / 2`), and pulled back to
+`frame width - dxTip - 5` when it would otherwise run off the right edge.
+
 ## The state it starts in
 
 `stars.ini` supplies the defaults, and `InitStuff` names them:
@@ -202,8 +245,9 @@ Windows 3.1 button colours, the three-step press with its one- and two-pixel
 nudges, the
 radio group, every overlay toggle this project models, all three menus — mine
 fields and the two ship filters — the zoom menu with the nine sizes the
-original offers, the combo's parsing and clamping, and the state the toolbar
-starts in.
+original offers, the combo's parsing and clamping, the tooltips — the game's own
+strings, its 700ms wait, its 400ms follow-on, its ten-second life and its
+placement — and the state the toolbar starts in.
 
 Without the game's pictures each button falls back to a short label, so the
 toolbar works either way.
@@ -215,7 +259,6 @@ toolbar works either way.
 * None of the three masks is kept in `stars.ini`, nor the view, the overlays or
   the coverage — the original keeps all of them there between sessions. The
   defaults above are honoured; the saving is not.
-* **Tooltips** are egui's rather than the original's `ShowTooltip`.
 * **View (Toolbar)** to hide the row: this frontend has no View menu.
 * The scanner-coverage overlay does not yet **vary** with the percentage; the
   combo is read and kept, and the overlay is still drawn at full strength.

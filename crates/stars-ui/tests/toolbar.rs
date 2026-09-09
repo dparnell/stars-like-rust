@@ -350,3 +350,75 @@ fn the_bevel_is_the_windows_grey() {
     assert_eq!(toolbar::HILITE, [0xff, 0xff, 0xff]);
     assert_eq!(toolbar::SHADOW, [0x80, 0x80, 0x80]);
 }
+
+/// The tooltip's own timing, which is what makes it the program's rather than
+/// the toolkit's.
+#[test]
+fn a_tooltip_waits_the_first_time_and_not_the_next() {
+    use stars_ui::toolbar::{Tip, Tooltip, TOOLTIP_DELAY, TOOLTIP_LIFETIME, TOOLTIP_REPEAT};
+    let mut tips = Tooltip::default();
+    let button = Tip::Button(Button::Normal);
+
+    // Resting on a button: nothing for seven tenths of a second.
+    tips.hover(Some(button), 0.0);
+    assert_eq!(tips.showing(), None);
+    tips.hover(Some(button), TOOLTIP_DELAY - 0.01);
+    assert_eq!(tips.showing(), None);
+    tips.hover(Some(button), TOOLTIP_DELAY);
+    assert_eq!(tips.showing(), Some(button));
+
+    // Moving to the next button shows its tooltip at once, because the last
+    // one closed just now.
+    let next = Tip::Button(Button::Population);
+    tips.hover(Some(next), TOOLTIP_DELAY + 0.05);
+    assert_eq!(tips.showing(), Some(next), "no wait along a row");
+
+    // Leave the toolbar, come back after longer than the repeat window, and
+    // the wait is back.
+    tips.hover(None, 2.0);
+    assert_eq!(tips.showing(), None);
+    tips.hover(Some(button), 2.0 + TOOLTIP_REPEAT + 0.01);
+    assert_eq!(tips.showing(), None, "too long ago to follow on");
+
+    // And one left up puts itself away after ten seconds.
+    let mut tips = Tooltip::default();
+    tips.hover(Some(button), 0.0);
+    tips.hover(Some(button), TOOLTIP_DELAY);
+    assert_eq!(tips.showing(), Some(button));
+    tips.hover(Some(button), TOOLTIP_DELAY + TOOLTIP_LIFETIME - 0.01);
+    assert_eq!(tips.showing(), Some(button));
+    tips.hover(Some(button), TOOLTIP_DELAY + TOOLTIP_LIFETIME);
+    assert_eq!(tips.showing(), None, "ten seconds is its lifetime");
+}
+
+/// A click takes it away.
+#[test]
+fn a_click_dismisses_the_tooltip() {
+    use stars_ui::toolbar::{Tip, Tooltip, TOOLTIP_DELAY};
+    let mut tips = Tooltip::default();
+    let button = Tip::Button(Button::MineFields);
+    tips.hover(Some(button), 0.0);
+    tips.hover(Some(button), TOOLTIP_DELAY);
+    assert_eq!(tips.showing(), Some(button));
+    tips.dismiss(TOOLTIP_DELAY);
+    assert_eq!(tips.showing(), None);
+}
+
+/// The tooltips are the game's own strings, one contiguous block in button
+/// order — which is what confirms the order in the first place.
+#[test]
+fn every_button_has_the_games_own_tooltip() {
+    assert_eq!(Button::Normal.tooltip(), "Normal View");
+    assert_eq!(Button::Normal.tooltip_id(), 0x16a);
+    assert_eq!(Button::ShipCount.tooltip(), "Ship Counts Overlay");
+    assert_eq!(Button::ShipCount.tooltip_id(), 0x17b);
+    assert_eq!(toolbar::COMBO_TOOLTIP, "Scanner Effective %");
+
+    // Every id is used once, and they run without a gap.
+    let ids: Vec<u16> = Button::ALL.iter().map(|b| b.tooltip_id()).collect();
+    assert_eq!(ids.first(), Some(&0x16a));
+    assert_eq!(ids.last(), Some(&0x17b));
+    for (i, id) in ids.iter().enumerate() {
+        assert_eq!(*id, 0x16a + u16::try_from(i).expect("an index"));
+    }
+}

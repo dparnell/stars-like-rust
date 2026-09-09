@@ -131,6 +131,43 @@ impl Button {
         }
     }
 
+    /// What its **tooltip** says, which is not the same as its name.
+    ///
+    /// `TbWndProc`'s `WM_MOUSEMOVE` arm calls `ShowTooltip(itb + 0x16a, &rc)`,
+    /// so the eighteen strings are one contiguous block, `0x16a` to `0x17b`,
+    /// in exactly this order — an independent confirmation of the order the
+    /// layout table implies. The combo's is the one after them,
+    /// [`COMBO_TOOLTIP`].
+    #[must_use]
+    pub fn tooltip(self) -> &'static str {
+        match self {
+            Button::Normal => "Normal View",
+            Button::SurfaceMinerals => "Surface Mineral View",
+            Button::MineralConcentration => "Mineral Concentration View",
+            Button::PlanetValue => "Planet Value View",
+            Button::Population => "Population View",
+            Button::NoPlayerInfo => "No Player Info View",
+            Button::AddWaypoints => "Add Way Points Mode",
+            Button::ScannerCoverage => "Scanner Coverage Overlay",
+            Button::MineFields => "Mine Fields Overlay",
+            Button::FleetPaths => "Fleet Paths Overlay",
+            Button::IdleFleets => "Idle Fleets Filter",
+            Button::PlanetNames => "Planet Names Overlay",
+            Button::ShipDesignFilter => "Ship Design Filter",
+            Button::ShipDesignMenu => "Design Filter Menu",
+            Button::EnemyClassFilter => "Enemy Ship Class Filter",
+            Button::EnemyClassMenu => "Enemy Class Filter Menu",
+            Button::Zoom => "Zoom Menu",
+            Button::ShipCount => "Ship Counts Overlay",
+        }
+    }
+
+    /// The string id that tooltip comes from: `itb + 0x16a`.
+    #[must_use]
+    pub fn tooltip_id(self) -> u16 {
+        0x16a + u16::from(self.index())
+    }
+
     /// Whether this is one of the six views, which are a radio group rather
     /// than toggles: `grbitScan` keeps the chosen one in its low four bits.
     #[must_use]
@@ -282,6 +319,130 @@ pub fn items() -> Vec<Item> {
             index => Button::from_index(index).map(Item::Button),
         })
         .collect()
+}
+
+/// What the coverage combo's tooltip says — string `0x17c`, the one after the
+/// eighteen buttons'.
+pub const COMBO_TOOLTIP: &str = "Scanner Effective %";
+
+/// How long the pointer must rest on something before its tooltip appears —
+/// `SetTimer(0x39e, 700)` in `TooltipWndProc`.
+pub const TOOLTIP_DELAY: f64 = 0.700;
+
+/// Except that a tooltip shown **within this long** of the last one closing
+/// appears at once: `GetTickCount() <= vtickTooltipLast + 400`. Moving along a
+/// row of buttons therefore reads the whole row without waiting.
+pub const TOOLTIP_REPEAT: f64 = 0.400;
+
+/// And one that has been up this long puts itself away, checked by a 50ms
+/// timer along with "has the pointer left the button".
+pub const TOOLTIP_LIFETIME: f64 = 10.0;
+
+/// The tooltip's background — `hbrTooltip`, `HbrGet(0x9fffff)`, which as a
+/// COLORREF is the pale yellow Windows uses for tooltips.
+pub const TOOLTIP_BACKGROUND: [u8; 3] = [0xff, 0xff, 0x9f];
+
+/// Its one-pixel frame is `hbrWindowFrame` — `GetSysColor(6)`,
+/// `COLOR_WINDOWFRAME`, black by default — and its text `crWindowText`.
+pub const TOOLTIP_FRAME: [u8; 3] = [0x00, 0x00, 0x00];
+
+/// The text sits at `(3, 3)` and the window is the text plus six each way.
+pub const TOOLTIP_MARGIN: f32 = 3.0;
+
+/// What the pointer is resting on, as far as the tooltip is concerned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tip {
+    /// One of the eighteen buttons.
+    Button(Button),
+    /// The coverage combo.
+    Combo,
+}
+
+impl Tip {
+    /// What it says.
+    #[must_use]
+    pub fn text(self) -> &'static str {
+        match self {
+            Tip::Button(button) => button.tooltip(),
+            Tip::Combo => COMBO_TOOLTIP,
+        }
+    }
+}
+
+/// The toolbar's tooltip, as `ShowTooltip` (`1068:17ea`) and `TooltipWndProc`
+/// (`1068:19e4`) run it.
+///
+/// The rules are all timing, and worth having exactly because they are what
+/// makes a tooltip feel like the program's rather than the toolkit's: it waits
+/// [`TOOLTIP_DELAY`] before the first one, shows the next one **at once** if
+/// the last closed less than [`TOOLTIP_REPEAT`] ago, and takes any tooltip
+/// away once it has been up for [`TOOLTIP_LIFETIME`], when the pointer leaves
+/// what it belongs to, or on any click.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Tooltip {
+    over: Option<Tip>,
+    /// When the pointer arrived on it.
+    since: f64,
+    /// When the tooltip went up, if it is up.
+    shown: Option<f64>,
+    /// When the last one came down.
+    hidden: Option<f64>,
+}
+
+impl Tooltip {
+    /// Tell it where the pointer is, and how long the program has been
+    /// running. Call it once a frame.
+    pub fn hover(&mut self, over: Option<Tip>, now: f64) {
+        if over != self.over {
+            if self.shown.is_some() {
+                self.hidden = Some(now);
+            }
+            self.over = over;
+            self.since = now;
+            self.shown = None;
+        }
+        let Some(_) = self.over else {
+            return;
+        };
+        match self.shown {
+            // Up already: it comes down after its ten seconds.
+            Some(shown) if now - shown >= TOOLTIP_LIFETIME => {
+                self.shown = None;
+                self.hidden = Some(now);
+                // The original destroys the window and does not put it back
+                // until the pointer moves somewhere else.
+                self.over = None;
+            }
+            Some(_) => {}
+            // Not up yet: either the wait is over, or the last tooltip closed
+            // recently enough that this one does not wait at all.
+            None => {
+                let waited = now - self.since >= TOOLTIP_DELAY;
+                let followed_on = self
+                    .hidden
+                    .is_some_and(|hidden| now - hidden <= TOOLTIP_REPEAT);
+                if waited || followed_on {
+                    self.shown = Some(now);
+                }
+            }
+        }
+    }
+
+    /// Take it away — a click does this, and so does anything that moves the
+    /// pointer off the toolbar.
+    pub fn dismiss(&mut self, now: f64) {
+        if self.shown.is_some() {
+            self.hidden = Some(now);
+        }
+        self.shown = None;
+        self.over = None;
+    }
+
+    /// What to draw, if anything.
+    #[must_use]
+    pub fn showing(&self) -> Option<Tip> {
+        self.shown.and(self.over)
+    }
 }
 
 /// The coverage percentages the combo offers, which the original lists from a

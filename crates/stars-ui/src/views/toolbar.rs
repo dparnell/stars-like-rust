@@ -22,6 +22,10 @@ const HEIGHT: f32 = toolbar::BUTTON_HEIGHT as f32;
 /// Draw the toolbar. Returns whether anything was pressed.
 pub fn view(app: &mut App, ui: &mut egui::Ui) -> bool {
     let mut acted = false;
+    // What the pointer is resting on, and how long it has been there: the
+    // tooltip's own timing wants both. See `crate::toolbar::Tooltip`.
+    let now = ui.input(|input| input.time);
+    let mut over: Option<toolbar::Tip> = None;
     // The strip itself: `WM_ERASEBKGND` fills its whole client rectangle with
     // the button face, and the largest window layout puts a black line down
     // its left edge (`PatBlt(0, 0, 1, rc.bottom, BLACKNESS)`).
@@ -47,10 +51,18 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) -> bool {
         for item in toolbar::items() {
             match item {
                 Item::Gap(width) => ui.add_space(width as f32),
-                Item::Combo => coverage(app, ui),
+                Item::Combo => {
+                    let response = coverage(app, ui);
+                    if response.hovered() {
+                        over = Some(toolbar::Tip::Combo);
+                    }
+                }
                 Item::Button(button) => {
                     let (clicked, response) = draw_button(app, ui, button);
                     acted |= clicked;
+                    if response.hovered() {
+                        over = Some(toolbar::Tip::Button(button));
+                    }
                     match button {
                         Button::Zoom => acted |= zoom_menu(app, ui, &response, clicked),
                         Button::ShipDesignMenu => acted |= filter_menu(app, ui, &response, false),
@@ -63,7 +75,67 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) -> bool {
         }
     });
     ui.add_space(toolbar::MARGIN as f32);
+
+    // Any click takes the tooltip away, which is what the original's
+    // `WM_LBUTTONDOWN` arm does before it acts on the button.
+    if acted || ui.input(|input| input.pointer.any_pressed()) {
+        app.tooltip.dismiss(now);
+    } else {
+        app.tooltip.hover(over, now);
+    }
+    tooltip(app, ui, now);
     acted
+}
+
+/// The tooltip itself: a pale yellow box with a one-pixel frame, its top-left
+/// at the pointer's x and a line and a half below it, pulled back from the
+/// right edge when it would not fit.
+fn tooltip(app: &mut App, ui: &egui::Ui, now: f64) {
+    let Some(tip) = app.tooltip.showing() else {
+        return;
+    };
+    let Some(pointer) = ui.ctx().pointer_latest_pos() else {
+        app.tooltip.dismiss(now);
+        return;
+    };
+    let text = tip.text();
+    let font = egui::FontId::proportional(11.0);
+    let galley = ui.painter().layout_no_wrap(
+        text.to_string(),
+        font,
+        egui::Color32::from_rgb(
+            toolbar::TOOLTIP_FRAME[0],
+            toolbar::TOOLTIP_FRAME[1],
+            toolbar::TOOLTIP_FRAME[2],
+        ),
+    );
+    let margin = toolbar::TOOLTIP_MARGIN;
+    let size = galley.size() + egui::vec2(margin * 2.0, margin * 2.0);
+    // `pt.y + dyArial8 * 3 / 2`, and pulled back by five when the box would
+    // run off the frame's right edge.
+    let mut at = pointer + egui::vec2(0.0, galley.size().y * 1.5);
+    let limit = ui.ctx().screen_rect().right();
+    if at.x + size.x > limit {
+        at.x = limit - size.x - 5.0;
+    }
+    let rect = egui::Rect::from_min_size(at, size);
+    let painter = ui.ctx().layer_painter(egui::LayerId::new(
+        egui::Order::Tooltip,
+        egui::Id::new("stars-toolbar-tooltip"),
+    ));
+    let [r, g, b] = toolbar::TOOLTIP_BACKGROUND;
+    painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(r, g, b));
+    let [r, g, b] = toolbar::TOOLTIP_FRAME;
+    painter.rect_stroke(
+        rect,
+        0.0,
+        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(r, g, b)),
+    );
+    painter.galley(
+        rect.min + egui::vec2(margin, margin),
+        galley,
+        egui::Color32::BLACK,
+    );
 }
 
 /// One button: the frame, the picture, and the click.
@@ -126,11 +198,6 @@ fn draw_button(app: &mut App, ui: &mut egui::Ui, button: Button) -> (bool, egui:
             .rect_filled(rect, 0.0, egui::Color32::from_black_alpha(80));
     }
 
-    let response = response.on_hover_text(if enabled {
-        button.name().to_string()
-    } else {
-        format!("{} — not wired up yet", button.name())
-    });
     // The three buttons that open a menu do nothing themselves; the caller
     // handles them.
     let opens_a_menu = matches!(
@@ -236,9 +303,9 @@ fn zoom_menu(app: &mut App, ui: &mut egui::Ui, response: &egui::Response, _click
 }
 
 /// The scanner-coverage combo: a percentage, typed or chosen.
-fn coverage(app: &mut App, ui: &mut egui::Ui) {
+fn coverage(app: &mut App, ui: &mut egui::Ui) -> egui::Response {
     let mut chosen = app.scan_coverage_pct;
-    egui::ComboBox::from_id_source("toolbar-coverage")
+    let response = egui::ComboBox::from_id_source("toolbar-coverage")
         .width(toolbar::COMBO_WIDTH as f32 - 8.0)
         .selected_text(format!("{chosen}%"))
         .show_ui(ui, |ui| {
@@ -246,14 +313,11 @@ fn coverage(app: &mut App, ui: &mut egui::Ui) {
                 ui.selectable_value(&mut chosen, step, format!("{step}%"));
             }
         })
-        .response
-        .on_hover_text(
-            "How effective the coverage overlay pretends every scanner is, \
-             so a cloaked ship's reach can be seen",
-        );
+        .response;
     if chosen != app.scan_coverage_pct {
         app.set_scan_coverage(&chosen.to_string());
     }
+    response
 }
 
 /// What goes in the frame when there is no picture to put there.

@@ -2646,7 +2646,26 @@ disagree.
     pressed one do not look the same, which is now reproduced with a `Press`
     of three states.
 
-89. **What is still missing to call it playable.** Every waypoint task is now
+89. ~~**The toolbar's tooltips.**~~ **Done.** Spec in `docs/ui/toolbar.md`.
+    They were egui's: its styling, its delay, its wording. The originals are
+    the game's own strings — `ShowTooltip(itb + 0x16a, &rc)`, so ids `0x16a` to
+    `0x17c` in button order, which independently confirms the order the layout
+    table gives — and they do not match the manual's names for the same
+    buttons ("Normal View", not "Normal").
+
+    The timing is the substance: **700ms** before the first one, but **at
+    once** for one that follows within **400ms** of the last closing, so
+    running along the row reads every button without waiting; a 50ms timer
+    takes it away when the pointer leaves the button or after **ten seconds**;
+    any click dismisses it. `toolbar::Tooltip` is that state machine, and it is
+    tested rather than eyeballed.
+
+    The window is the text plus a three-pixel margin, pale yellow
+    (`HbrGet(0x9fffff)`) with a one-pixel frame, placed at the pointer's x and
+    a line and a half below it, pulled back from the right edge when it would
+    not fit.
+
+90. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

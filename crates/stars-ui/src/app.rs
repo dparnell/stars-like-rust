@@ -366,6 +366,8 @@ pub struct App {
     /// only this effective, which is how a player sees what a cloaked ship
     /// would get away with — `MANUAL.PDF` p. 5-13.
     pub scan_coverage_pct: u8,
+    /// The toolbar's tooltip, and its timing — see [`crate::toolbar::Tooltip`].
+    pub tooltip: crate::toolbar::Tooltip,
     /// `Add Way Points Mode`: whether clicking the map gives the selected
     /// fleet orders instead of selecting what is under the pointer.
     pub add_waypoints: bool,
@@ -522,6 +524,7 @@ impl App {
             // coverage, minefields and fleet paths already on — the coverage
             // to 100%, and the minefield filter to all four.
             scan_coverage_pct: 100,
+            tooltip: crate::toolbar::Tooltip::default(),
             scan_minefield_filter: 0xf,
             scan_overlays: ScanOverlays {
                 scanner_coverage: true,
