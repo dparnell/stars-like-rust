@@ -336,3 +336,46 @@ impl Vcr {
         grid
     }
 }
+
+// --- The transport ---------------------------------------------------------
+//
+// `EnableVCRButtons` (`10e8:48f6`) decides which of the five buttons are alive
+// and where the focus goes, and it does both from one number: `viStepVCRCur`,
+// which runs from **-1** — the board before anything has happened — to
+// `vcStepVCR`. This module's [`Vcr::position`] is that number plus one, so
+// zero is the same "before the first move" state.
+
+impl Vcr {
+    /// Whether the two **backward** buttons are alive.
+    ///
+    /// The original's test is `(unsigned)viStepVCRCur < 0x8000`, which is a
+    /// signed `>= 0` written the short way — so they come alive as soon as
+    /// anything has been played.
+    #[must_use]
+    pub fn can_rewind(&self) -> bool {
+        self.position > 0
+    }
+
+    /// Whether the three **forward** buttons are alive: `viStepVCRCur <
+    /// vcStepVCR`, so they die on the last frame rather than after it.
+    #[must_use]
+    pub fn can_advance(&self) -> bool {
+        self.position < self.frames.len()
+    }
+
+    /// Which control `EnableVCRButtons` leaves the focus on.
+    ///
+    /// At either end the original moves it by hand, because the button under
+    /// the pointer has just been disabled: at the start it goes to **play**,
+    /// and at the end to **Done**. In between it leaves it where it is.
+    #[must_use]
+    pub fn focus(&self) -> Option<u16> {
+        if self.position == 0 {
+            Some(0xa3)
+        } else if self.position == self.frames.len() {
+            Some(0x1)
+        } else {
+            None
+        }
+    }
+}

@@ -63,24 +63,56 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             return;
         };
 
+        // The five transport buttons, with the template's own captions and its
+        // own order. `EnableVCRButtons` (`10e8:48f6`) decides which are alive
+        // from one number: the two backward ones once anything has played, the
+        // three forward ones until the last frame.
+        let back = vcr.can_rewind();
+        let on = vcr.can_advance();
+        let caption = |id: u16| {
+            crate::dialog::BATTLE_VCR
+                .control(id)
+                .map_or(String::new(), crate::dialog::Control::label)
+        };
         ui.horizontal(|ui| {
-            if ui.button("⏮").on_hover_text("rewind").clicked() {
+            if ui
+                .add_enabled(back, egui::Button::new(caption(0xa1)))
+                .on_hover_text("back to the start")
+                .clicked()
+            {
                 vcr.rewind();
                 app.playing = false;
             }
-            if ui.button("◀").on_hover_text("step back").clicked() {
+            if ui
+                .add_enabled(back, egui::Button::new(caption(0xa2)))
+                .on_hover_text("step back")
+                .clicked()
+            {
                 vcr.back();
                 app.playing = false;
             }
-            let play = if app.playing { "⏸" } else { "▶" };
-            if ui.button(play).on_hover_text("play").clicked() {
+            // `>/||` is one button that plays and pauses, which is what the
+            // caption says.
+            if ui
+                .add_enabled(on, egui::Button::new(caption(0xa3)))
+                .on_hover_text("play, or pause")
+                .clicked()
+            {
                 app.playing = !app.playing;
             }
-            if ui.button("▶|").on_hover_text("step").clicked() {
+            if ui
+                .add_enabled(on, egui::Button::new(caption(0xa4)))
+                .on_hover_text("step")
+                .clicked()
+            {
                 vcr.step();
                 app.playing = false;
             }
-            if ui.button("⏭").on_hover_text("to the end").clicked() {
+            if ui
+                .add_enabled(on, egui::Button::new(caption(0xa5)))
+                .on_hover_text("to the end")
+                .clicked()
+            {
                 vcr.end();
                 app.playing = false;
             }
@@ -95,6 +127,11 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 app.playing = false;
             }
         });
+        // Playing to the end stops there, as the forward buttons dying says it
+        // should.
+        if !on {
+            app.playing = false;
+        }
 
         // Advance while playing. egui redraws continuously because the shell
         // requests a repaint whenever `playing` is set.

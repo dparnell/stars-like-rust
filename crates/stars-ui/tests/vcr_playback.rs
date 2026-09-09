@@ -198,3 +198,52 @@ fn the_board_holds_only_the_living() {
         assert_eq!(placed, living, "battle {:#06x}", battle.id);
     }
 }
+
+/// Which of the five transport buttons are alive, and where the focus lands —
+/// `EnableVCRButtons` (`10e8:48f6`) decides both from one number.
+#[test]
+fn the_transport_follows_the_playhead() {
+    use stars_ui::dialog::{BATTLE_VCR, VCR_TRANSPORT};
+
+    // The template's seven buttons all share the foot, 32 by 13 at y = 244.
+    assert_eq!(BATTLE_VCR.size, (260, 270));
+    assert_eq!(BATTLE_VCR.controls.len(), 7);
+    for control in BATTLE_VCR.controls {
+        assert_eq!(control.at.1, 244);
+        assert_eq!((control.at.2, control.at.3), (32, 13));
+    }
+    assert_eq!(VCR_TRANSPORT, [0xa1, 0xa2, 0xa3, 0xa4, 0xa5]);
+    // Their captions are the resource's own, and the middle one plays *and*
+    // pauses — one button, not two.
+    assert_eq!(BATTLE_VCR.control(0xa1).expect("rewind").text, "|<<");
+    assert_eq!(BATTLE_VCR.control(0xa3).expect("play").text, ">/||");
+    assert_eq!(BATTLE_VCR.control(0xa5).expect("end").text, ">>|");
+    assert_eq!(BATTLE_VCR.control(0x1).expect("Done").label(), "Done");
+
+    // The rest wants a recording; a checkout without the fixtures skips it.
+    let records = recordings();
+    let Some(record) = records.iter().find(|r| !r.actions.is_empty()) else {
+        return;
+    };
+    let mut vcr = stars_ui::vcr::Vcr::new(record);
+    if vcr.is_empty() {
+        return;
+    }
+
+    // At the start nothing can go back and the focus is on play.
+    vcr.rewind();
+    assert!(!vcr.can_rewind());
+    assert!(vcr.can_advance());
+    assert_eq!(vcr.focus(), Some(0xa3));
+
+    // One step in, both halves are alive and the focus is left alone.
+    vcr.step();
+    assert!(vcr.can_rewind());
+    assert_eq!(vcr.focus(), None, "only the two ends move the focus");
+
+    // At the end nothing can go forward and the focus is on Done.
+    vcr.end();
+    assert!(vcr.can_rewind());
+    assert!(!vcr.can_advance());
+    assert_eq!(vcr.focus(), Some(0x1));
+}

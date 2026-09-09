@@ -83,7 +83,8 @@ fn the_filtered_watermark_runs_corner_to_corner() {
     assert!(small > 0.0);
     assert!(big > small, "{big} should beat {small}");
 
-    // A box with no room at all asks for nothing.
+    // A box with no room at all asks for nothing, and the pane declines any
+    // rectangle under ten pixels either way before it gets that far.
     assert_eq!(watermark_scale(egui::vec2(4.0, 4.0), text), 0.0);
-    assert!(WATERMARK_MIN >= 10.0);
+    assert_eq!(WATERMARK_MIN, 10.0);
 }

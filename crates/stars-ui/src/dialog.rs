@@ -1470,3 +1470,65 @@ pub fn browser_panel(line: f32, line10: f32) -> (egui::Pos2, egui::Vec2) {
         egui::vec2(width, height),
     )
 }
+
+/// `Battle VCR`, dialog resource 160.
+///
+/// Seven buttons in a row along the foot, each 32 by 13 at `y = 244`, and
+/// nothing else: the whole 260 by 244 above them is the board and the two
+/// token panels, painted by `DrawVCR` (`10e8:1c62`).
+///
+/// The five transport buttons are `0xa1`…`0xa5` and carry icons at run time —
+/// `rghiconVCR`, seven of them loaded in `FCreateStuff` — so the captions here
+/// are what shows without a copy of the game to read them out of. They are the
+/// resource's own text either way.
+pub const BATTLE_VCR: Template = Template {
+    caption: "Battle VCR",
+    size: (260, 270),
+    controls: &[
+        Control {
+            id: 0xa1,
+            class: Class::Button,
+            at: (4, 244, 32, 13),
+            text: "|<<",
+        },
+        Control {
+            id: 0xa2,
+            class: Class::Button,
+            at: (39, 244, 32, 13),
+            text: "<",
+        },
+        Control {
+            id: 0xa3,
+            class: Class::Button,
+            at: (76, 244, 32, 13),
+            text: ">/||",
+        },
+        Control {
+            id: 0xa4,
+            class: Class::Button,
+            at: (114, 244, 32, 13),
+            text: ">",
+        },
+        Control {
+            id: 0xa5,
+            class: Class::Button,
+            at: (150, 244, 32, 13),
+            text: ">>|",
+        },
+        Control {
+            id: 0x1,
+            class: Class::Button,
+            at: (187, 244, 32, 13),
+            text: "&Done",
+        },
+        Control {
+            id: 0x76,
+            class: Class::Button,
+            at: (224, 244, 32, 13),
+            text: "&Help",
+        },
+    ],
+};
+
+/// The five transport buttons, in the order the template has them.
+pub const VCR_TRANSPORT: [u16; 5] = [0xa1, 0xa2, 0xa3, 0xa4, 0xa5];

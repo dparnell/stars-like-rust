@@ -3064,7 +3064,32 @@ disagree.
      ten pixels. This solves the fit in one step rather than looping, since the
      extent scales with the size.
 
-104. **What is still missing to call it playable.** Every waypoint task is now
+104. ~~**The battle VCR's transport.**~~ **Done.** Spec in
+     `docs/ui/battle-vcr.md`, which the screen did not have before. The
+     playback model was finished long ago; the screen's own controls were
+     invented.
+
+     Dialog resource **160**, 260 by 270 dialog units: seven buttons in one row
+     at `y = 244`, all 32 by 13, and nothing else — the whole 260 by 244 above
+     them is painted. The five transport buttons carry icons at run time
+     (`rghiconVCR`, seven of them), so the resource's captions are the fallback;
+     the third is `>/||`, one button that plays **and** pauses.
+
+     `EnableVCRButtons` (`10e8:48f6`) decides which are alive and where the
+     focus goes from one number, `viStepVCRCur`, which runs from **-1** — the
+     board before anything has happened — to `vcStepVCR`. The two backward
+     buttons want `(unsigned)viStepVCRCur < 0x8000`, which is `>= 0` written
+     the short way; the three forward ones want `viStepVCRCur < vcStepVCR`. And
+     because the button under the pointer may have just been disabled, the
+     routine **moves the focus by hand at either end** — to play at the start
+     and to Done at the end — and leaves it alone in between.
+
+     `SetVCRBoard` (`10e8:08d8`) only ever winds **forward**: to go back it
+     rebuilds the board from the recording's own token table, resets to -1 and
+     replays. Recorded rather than reimplemented, since this project's frames
+     already carry the board as it stood.
+
+105. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
