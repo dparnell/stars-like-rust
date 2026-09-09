@@ -3149,6 +3149,16 @@ disagree.
      tinted by player colour. And the rows are `PszPlayerName` with every flag
      off, which is the race's singular name alone: no player number after it.
 
+     A second pass fixed three things the first got wrong. The listbox carries
+     `WS_BORDER`, so it is a single dark line round a white field, not the
+     sunken well the frame gets; its rows are the system's, black on white with
+     a navy `COLOR_HIGHLIGHT` bar; and the `SS_LEFT` static and the radios sit
+     against the **left** edge of their rectangles rather than centred in them,
+     which on a 64-unit static holding `Player:` is a visible shift. The
+     frame's `dyArial8` is now taken from a placed control rather than from
+     egui's font metrics, so it shrinks with the dialog when the dialog is
+     squeezed.
+
 108. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:

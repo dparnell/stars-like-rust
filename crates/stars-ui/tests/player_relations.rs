@@ -270,3 +270,49 @@ fn the_list_shows_the_singular_race_name() {
         assert!(!name.contains('('), "no player number: {name}");
     }
 }
+
+/// The listbox runs past the bottom of the dialog, and the resource is what
+/// says so — 65 units starting 16 down, on a dialog 80 tall.
+#[test]
+fn the_listbox_overruns_the_dialogs_foot() {
+    use stars_ui::dialog::RELATIONS;
+
+    let list = RELATIONS.control(0x7d3).expect("the listbox");
+    assert_eq!(list.at.1 + list.at.3, 81);
+    assert_eq!(RELATIONS.size.1, 80);
+
+    // Every other control stays inside it, so this is the one over-run and
+    // not a wrong reading of the template.
+    for control in RELATIONS.controls {
+        if control.id != 0x7d3 {
+            assert!(
+                control.at.1 + control.at.3 <= RELATIONS.size.1,
+                "{:#x} runs past the foot too",
+                control.id
+            );
+            assert!(control.at.0 + control.at.2 <= RELATIONS.size.0);
+        }
+    }
+}
+
+/// A line of the dialog's font is eight vertical dialog units, which is how
+/// the view recovers `dyArial8` from a placed control instead of from egui's
+/// font — the frame has to shrink with the dialog when it is squeezed.
+#[test]
+fn a_line_is_eight_units_of_any_placed_control() {
+    use stars_ui::dialog::RELATIONS;
+
+    for width in [RELATIONS.pixels().x, RELATIONS.pixels().x * 0.5] {
+        let rect = egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(width, RELATIONS.pixels().y * width / RELATIONS.pixels().x),
+        );
+        let radio = RELATIONS.place(rect, RELATIONS.control(0x7d5).expect("Friend"));
+        let line = radio.height() / 12.0 * 8.0;
+        let scale = RELATIONS.scale(rect);
+        assert!(
+            (line - 8.0 * stars_ui::dialog::DLU_Y * scale).abs() < 1e-3,
+            "{line} at scale {scale}"
+        );
+    }
+}

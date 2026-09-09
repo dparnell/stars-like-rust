@@ -41,6 +41,18 @@ code alone:
 * There are **seven** controls, and the `Relation` group box is not one of
   them. It is drawn in `WM_PAINT`; see below.
 
+And one over-run, which is the resource as shipped: the listbox's 65 units
+start 16 down on a dialog only 80 tall, so it runs one unit past the foot.
+Every other control stays inside. Templates 92 and 93 have over-runs of their
+own, so this is a habit rather than a one-off.
+
+The listbox is the only control the dialog leaves to Windows, so its colours
+are the system's rather than the dialog's: `COLOR_WINDOW` white behind
+`COLOR_WINDOWTEXT` black, `COLOR_HIGHLIGHT` — navy in the shipped scheme —
+behind `COLOR_HIGHLIGHTTEXT` white for the selected row, and the single dark
+line `WS_BORDER` draws round it. Not a sunken 3-D well: that is what the
+*frame* below gets, and the two are drawn by different code.
+
 Close ends the dialog with `EndDialog(hwnd, selected + 3)` — the selected
 player's index, mapped back and offset by three. Nothing reads it: the caller
 in `mdi.c` discards `DialogBox`'s result. It is reproduced by not reproducing
@@ -67,7 +79,11 @@ it.
    top edge rather than sitting inside it.
 
 Measuring from the outer two radios rather than from the template is what keeps
-the frame right whatever the font does to the control heights.
+the frame right whatever the font does to the control heights. Since the frame
+is sized in `dyArial8` and everything else on the dialog is sized in dialog
+units, the two have to move together: the dialog's font is what *defines* a
+dialog unit, so a line of it is eight vertical units by construction, and any
+placed control gives the scale away.
 
 `WM_CTLCOLOR` (`10f0:02aa`) answers with `hbrButtonFace` for every control
 **except** the listbox, which it lets fall through to the default. That is why
@@ -159,8 +175,9 @@ repaints the scanner and is enough on its own.
 
 ## What is reproduced
 
-The dialog laid out from its own template, its listbox white against a
-button-face dialog and holding the singular race names in index order, the
+The dialog laid out from its own template, its listbox bordered and white
+against a button-face dialog, its rows black on white with a navy selection
+bar, holding the singular race names in index order, the
 hand-drawn `Relation` groove with its caption over the top edge, the three
 radios in the original's stacking order with the original's values, the seeding
 on the first other player, the mapping that skips the local player, the
@@ -170,6 +187,10 @@ single-player refusal, and the one-record log with the whole table in it.
 
 * The **sticky position**: the dialog is a window the shell places, so it does
   not remember where it was last dragged to.
+* The frame's caption is drawn in the same face as the rest of the dialog. The
+  original selects `rghfontArial8[1]`, Arial 8 **bold**; egui's default font
+  set has no bold proportional face, which is the same gap the status bar
+  works around.
 * The **Help** button, which goes to help context `0x43b`.
 * The **tutorial hook**: `LogChangeRelations` advances the tutorial when player
   0 changes a relation.
