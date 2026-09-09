@@ -23,25 +23,49 @@ use crate::App;
 
 /// Draw the fleet pane.
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
-    ui.horizontal_top(|ui| {
-        let width = (ui.available_width() - 8.0) / 2.0;
-        ui.vertical(|ui| {
-            ui.set_width(width);
-            summary(app, ui);
-            location(app, ui);
-            rows(ui, "Fleet Waypoints", &app.fleet_waypoints_tile());
+    let mut open: Vec<bool> = app.open_ship_tiles.to_vec();
+    crate::views::tile_pane(
+        app,
+        ui,
+        &crate::tiles::SHIP_TILES,
+        &mut open,
+        tile_title,
+        tile_body,
+    );
+    for (index, value) in open.iter().enumerate() {
+        app.open_ship_tiles[index] = *value;
+    }
+}
+
+/// What a tile's title bar says. Three of the seven take their title from the
+/// game rather than the table: the fleet's own name, the planet it is at, and
+/// the fleets-here tile, which titles itself by which pane it is in.
+fn tile_title(app: &mut App, index: usize) -> String {
+    match index {
+        0 => app
+            .survey_subject()
+            .fleet_index()
+            .map_or_else(|| "Fleet".to_string(), |i| app.fleet_display_name(i)),
+        1 => app.fleet_location_title(),
+        6 => app.pane_fleets_title().to_string(),
+        other => crate::tiles::SHIP_TILES[other].title.to_string(),
+    }
+}
+
+/// What goes inside one tile.
+fn tile_body(app: &mut App, ui: &mut egui::Ui, index: usize) {
+    match index {
+        0 => summary(app, ui),
+        1 => location(app, ui),
+        2 => crate::views::planet::grid(ui, "waypoints", &app.fleet_waypoints_tile(), false),
+        3 => {
             let task = app.fleet_task_tile();
-            tile(ui, "Waypoint Task", |ui| {
-                ui.label(egui::RichText::new(task).small());
-            });
-        });
-        ui.vertical(|ui| {
-            ui.set_width(width);
-            rows(ui, "Fuel & Cargo", &app.fleet_cargo_tile());
-            rows(ui, "Fleet Composition", &app.fleet_composition_tile());
-            crate::views::fleets_here(app, ui);
-        });
-    });
+            ui.label(egui::RichText::new(task).small());
+        }
+        4 => crate::views::planet::grid(ui, "fuel-cargo", &app.fleet_cargo_tile(), false),
+        5 => crate::views::planet::grid(ui, "composition", &app.fleet_composition_tile(), false),
+        _ => crate::views::fleets_here_body(app, ui),
+    }
 }
 
 /// The tallest tile: the fleet itself, which the original draws as a picture.
@@ -51,21 +75,15 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
 /// pictures the tile is the same words without the ship.
 fn summary(app: &mut App, ui: &mut egui::Ui) {
     let Some(fleet) = app.pane_fleet() else {
-        tile(ui, "Fleet", |ui| {
-            ui.label(egui::RichText::new("no fleet selected").weak().small());
-        });
+        ui.label(egui::RichText::new("no fleet selected").weak().small());
         return;
     };
-    let name = app
-        .survey_subject()
-        .fleet_index()
-        .map_or_else(String::new, |index| app.fleet_display_name(index));
     let ships: i32 = fleet.stacks.iter().map(|s| s.count).sum();
     let owner = fleet.owner;
     let position = fleet.position;
     let picture = app.fleet_picture();
     let emblem = app.fleet_emblem(stars_formats::resources::art::EmblemSize::Medium);
-    tile(ui, &name, |ui| {
+    {
         if let Some((cell, distinct)) = picture {
             ui.horizontal_top(|ui| {
                 let corner = ui.cursor().min;
@@ -95,54 +113,15 @@ fn summary(app: &mut App, ui: &mut egui::Ui) {
         ui.label(egui::RichText::new(format!("player {}", owner + 1)).small());
         ui.label(egui::RichText::new(format!("{ships} ships")).small());
         ui.label(egui::RichText::new(format!("({}, {})", position.x, position.y)).small());
-    });
+    }
 }
 
 /// The planet the fleet is at, or deep space.
 fn location(app: &App, ui: &mut egui::Ui) {
-    let title = app.fleet_location_title();
-    tile(ui, &title, |ui| {
-        let at_planet = app.pane_fleet().is_some_and(|f| f.orbiting.is_some());
-        ui.label(
-            egui::RichText::new(if at_planet { "in orbit" } else { "under way" })
-                .weak()
-                .small(),
-        );
-    });
-}
-
-/// One tile: a title bar and a two-column grid of label and value.
-fn rows(ui: &mut egui::Ui, title: &str, rows: &[(String, String)]) {
-    tile(ui, title, |ui| {
-        if rows.is_empty() {
-            ui.label(egui::RichText::new("none").weak().small());
-            return;
-        }
-        egui::Grid::new(title)
-            .num_columns(2)
-            .spacing([8.0, 1.0])
-            .show(ui, |ui| {
-                for (label, value) in rows {
-                    ui.label(egui::RichText::new(label).small());
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new(value).small());
-                    });
-                    ui.end_row();
-                }
-            });
-    });
-}
-
-/// The frame every tile shares.
-fn tile(ui: &mut egui::Ui, title: &str, body: impl FnOnce(&mut egui::Ui)) {
-    egui::Frame::group(ui.style())
-        .inner_margin(egui::Margin::symmetric(4.0, 2.0))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.vertical(|ui| {
-                ui.label(egui::RichText::new(title).small().strong());
-                ui.separator();
-                body(ui);
-            });
-        });
+    let at_planet = app.pane_fleet().is_some_and(|f| f.orbiting.is_some());
+    ui.label(
+        egui::RichText::new(if at_planet { "in orbit" } else { "under way" })
+            .weak()
+            .small(),
+    );
 }

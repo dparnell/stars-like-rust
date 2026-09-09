@@ -276,3 +276,88 @@ pub fn colonists(pop: i32) -> String {
         people.to_string()
     }
 }
+
+/// Lay a pane's tiles out from its table, the way `ReflowColumn` lays them
+/// out, and draw each one in the frame `FDrawTileNC` (`1048:1086`) gives it.
+///
+/// The planet pane and the fleet pane are the **same window** with different
+/// tables, so they share this: two fixed-width columns, tiles stacked from
+/// four pixels down with four pixels between, each as tall as its line count
+/// makes it or shrunk to its title bar when it is closed, and a click on a
+/// title bar opening or closing it.
+pub(crate) fn tile_pane(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    tiles: &[crate::tiles::Tile],
+    open: &mut [bool],
+    title: fn(&mut App, usize) -> String,
+    body: fn(&mut App, &mut egui::Ui, usize),
+) {
+    let line = ui.text_style_height(&egui::TextStyle::Small);
+    // The original's `fSmallTiles`, which the frame sets from the screen it
+    // finds itself on; there is no such thing here, so the tiles are always
+    // the full size.
+    let small = false;
+    let columns = [
+        crate::tiles::column_tops(tiles, line, small, open, 0),
+        crate::tiles::column_tops(tiles, line, small, open, 1),
+    ];
+    let height = columns
+        .iter()
+        .flatten()
+        .map(|(_, top, tall)| top + tall)
+        .fold(0.0_f32, f32::max)
+        + crate::tiles::TILE_GAP;
+
+    // The pane is drawn at the table's own width. With less room than that the
+    // columns are scaled down together rather than clipped, so the proportions
+    // stay the original's.
+    let full = crate::tiles::COLUMN_PITCH + crate::tiles::TILE_WIDTH + crate::tiles::COLUMN_LEFT;
+    let scale = (ui.available_width() / full).clamp(0.25, 1.0);
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), height * scale),
+        egui::Sense::hover(),
+    );
+    let painter = ui.painter_at(rect);
+    let mut toggled: Option<usize> = None;
+
+    for (column, here) in columns.iter().enumerate() {
+        #[allow(clippy::cast_precision_loss)]
+        let left = rect.left()
+            + (crate::tiles::COLUMN_LEFT + column as f32 * crate::tiles::COLUMN_PITCH) * scale;
+        for (index, top, tall) in here {
+            let frame = egui::Rect::from_min_size(
+                egui::pos2(left, rect.top() + top * scale),
+                egui::vec2(crate::tiles::TILE_WIDTH * scale, tall * scale),
+            );
+            let name = title(app, *index);
+            let inside =
+                crate::views::planet::tile_frame(ui, &painter, frame, &name, open[*index], line);
+            // Clicking the title bar opens or closes the tile, and the column
+            // reflows around it.
+            let bar = egui::Rect::from_min_max(
+                frame.min,
+                egui::pos2(
+                    frame.right(),
+                    frame.top() + line + crate::tiles::TITLE_EXTRA + 2.0,
+                ),
+            );
+            if ui
+                .interact(bar, ui.id().with(("tile", index)), egui::Sense::click())
+                .clicked()
+            {
+                toggled = Some(*index);
+            }
+            if open[*index] && inside.height() > 4.0 {
+                let mut child = ui.child_ui(inside, egui::Layout::top_down(egui::Align::Min), None);
+                child.set_clip_rect(inside);
+                child.spacing_mut().item_spacing.y = 0.0;
+                body(app, &mut child, *index);
+            }
+        }
+    }
+
+    if let Some(index) = toggled {
+        open[index] = !open[index];
+    }
+}

@@ -2854,7 +2854,25 @@ disagree.
     and destination rows with their gauge and button; and the production tile's
     completion line and Route button.
 
-95. **What is still missing to call it playable.** Every waypoint task is now
+95. ~~**The fleet pane's tiles.**~~ **Done.** Spec in
+    `docs/ui/fleet-pane.md`. The fleet pane is the planet pane's window with
+    `rgtileShip` (`1120:090e`) instead, so it now goes through the same
+    table-driven layout, the same `FDrawTileNC` frame and the same
+    click-to-collapse. Seven tiles, **four** down the left column where the
+    planet pane has three.
+
+    The catch is `EnsureTileSize` (`1048:58df`): it walks the two tables in
+    **two loops with different rules**, so a tile's resize cannot be read off
+    its `grbit`. `0x40` is the planet pane's production queue moving by
+    `(dyArial8 + 2) * 2` and the fleet pane's location tile moving by a flat
+    six; `0x01` is Minerals On Hand, which does not move at all, and Fuel &
+    Cargo, which moves by `dyArial8 * 4 + 2`. Only `0x80` and `0x04` agree, and
+    `0x04` is the one tile the two tables genuinely share
+    (`DrawPlanetShipList`). Keying the rule on `grbit` looked right and was
+    wrong, and a test now pins both disagreements; the resize is carried per
+    record.
+
+96. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

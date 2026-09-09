@@ -52,6 +52,17 @@ pub struct Tile {
     /// The `grbit` that names it, which is what `EnsureTileSize`
     /// (`1048:58df`) matches on when the window layout changes.
     pub grbit: u16,
+    /// What that match adds or takes off, as a multiple of `dyArial8` and a
+    /// flat number of pixels.
+    ///
+    /// `EnsureTileSize` walks the two tables in **two loops with different
+    /// rules**, so this cannot be derived from `grbit`: `0x40` is the planet
+    /// pane's production queue, moving by `(dyArial8 + 2) * 2`, and the fleet
+    /// pane's location tile, moving by a flat six; `0x01` is Minerals On Hand,
+    /// which does not move at all, and Fuel & Cargo, which moves by
+    /// `dyArial8 * 4 + 2`. Only `0x04` and `0x80` mean the same thing in both,
+    /// and `0x04` is the one tile the two tables genuinely share.
+    pub resize: (i16, i16),
 }
 
 /// `rgtilePlanet`, read out of the binary at `1120:07fc`.
@@ -65,6 +76,7 @@ pub const PLANET_TILES: [Tile; 6] = [
         lines: 1,
         extra: 85,
         grbit: 0x80,
+        resize: (0, 10),
     },
     Tile {
         title: "Minerals On Hand",
@@ -72,6 +84,7 @@ pub const PLANET_TILES: [Tile; 6] = [
         lines: 6,
         extra: 5,
         grbit: 0x01,
+        resize: (0, 0),
     },
     Tile {
         title: "Status",
@@ -79,6 +92,7 @@ pub const PLANET_TILES: [Tile; 6] = [
         lines: 8,
         extra: 6,
         grbit: 0x08,
+        resize: (0, 0),
     },
     Tile {
         title: "",
@@ -86,6 +100,7 @@ pub const PLANET_TILES: [Tile; 6] = [
         lines: 6,
         extra: 22,
         grbit: 0x04,
+        resize: (2, 8),
     },
     Tile {
         title: "Production",
@@ -93,6 +108,7 @@ pub const PLANET_TILES: [Tile; 6] = [
         lines: 10,
         extra: 20,
         grbit: 0x40,
+        resize: (2, 4),
     },
     Tile {
         title: "",
@@ -100,6 +116,7 @@ pub const PLANET_TILES: [Tile; 6] = [
         lines: 8,
         extra: 15,
         grbit: 0x100,
+        resize: (0, 0),
     },
 ];
 
@@ -107,20 +124,13 @@ impl Tile {
     /// How tall the tile stands when it is open.
     ///
     /// `InitTiles`'s `remainder + lines * dyArial8`, and then whatever
-    /// `EnsureTileSize` adds or takes off for the window layout: the ship list
-    /// moves by `(dyArial8 + 4) * 2`, the production queue by
-    /// `(dyArial8 + 2) * 2`, and the planet's picture by a flat ten.
+    /// [`Tile::resize`] adds or takes off for the window layout.
     #[must_use]
     pub fn height(&self, line: f32, small: bool) -> f32 {
         let mut height = f32::from(self.extra) + f32::from(self.lines) * line;
         let sign = if small { -1.0 } else { 1.0 };
-        height += sign
-            * match self.grbit {
-                0x04 => (line + 4.0) * 2.0,
-                0x40 => (line + 2.0) * 2.0,
-                0x80 => 10.0,
-                _ => 0.0,
-            };
+        let (lines, plus) = self.resize;
+        height += sign * (f32::from(lines) * line + f32::from(plus));
         height.max(line + CLOSED_EXTRA)
     }
 
@@ -131,19 +141,91 @@ impl Tile {
     }
 }
 
+/// `rgtileShip`, read out of the binary at `1120:090e`.
+///
+/// The **same window** as the planet pane with a different table: four tiles
+/// down the left — the fleet, where it is, its waypoints and the task waiting
+/// at the next one — and three down the right. The last is
+/// `DrawPlanetShipList` again, the same routine in the same corner, so
+/// whichever is selected the pane's bottom right answers "what else is here?".
+pub const SHIP_TILES: [Tile; 7] = [
+    Tile {
+        title: "",
+        column: 0,
+        lines: 1,
+        extra: 85,
+        grbit: 0x80,
+        resize: (0, 10),
+    },
+    Tile {
+        title: "",
+        column: 0,
+        lines: 3,
+        extra: 5,
+        grbit: 0x40,
+        resize: (0, 6),
+    },
+    Tile {
+        title: "Fleet Waypoints",
+        column: 0,
+        lines: 11,
+        extra: 19,
+        grbit: 0x20,
+        resize: (1, 9),
+    },
+    Tile {
+        title: "Waypoint Task",
+        column: 0,
+        lines: 6,
+        extra: 12,
+        grbit: 0x100,
+        resize: (0, 2),
+    },
+    Tile {
+        title: "Fuel & Cargo",
+        column: 1,
+        lines: 7,
+        extra: 14,
+        grbit: 0x01,
+        resize: (4, 2),
+    },
+    Tile {
+        title: "Fleet Composition",
+        column: 1,
+        lines: 12,
+        extra: 16,
+        grbit: 0x200,
+        resize: (3, 8),
+    },
+    Tile {
+        title: "",
+        column: 1,
+        lines: 6,
+        extra: 22,
+        grbit: 0x04,
+        resize: (2, 8),
+    },
+];
+
 /// Where every tile of one column sits, top-down.
 ///
 /// `ReflowColumn` starts four pixels down and adds each tile's height and four
 /// more, so a closed tile takes the column's later tiles up with it.
 #[must_use]
-pub fn column_tops(line: f32, small: bool, open: &[bool; 6], column: u8) -> Vec<(usize, f32, f32)> {
+pub fn column_tops(
+    tiles: &[Tile],
+    line: f32,
+    small: bool,
+    open: &[bool],
+    column: u8,
+) -> Vec<(usize, f32, f32)> {
     let mut out = Vec::new();
     let mut y = TILE_GAP;
-    for (index, tile) in PLANET_TILES.iter().enumerate() {
+    for (index, tile) in tiles.iter().enumerate() {
         if tile.column != column {
             continue;
         }
-        let height = if open[index] {
+        let height = if open.get(index).copied().unwrap_or(true) {
             tile.height(line, small)
         } else {
             Tile::closed_height(line)

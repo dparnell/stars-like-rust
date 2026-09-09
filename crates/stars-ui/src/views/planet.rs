@@ -25,83 +25,25 @@
 use crate::App;
 
 /// Draw the planet pane.
-///
-/// Two fixed-width columns of tiles, laid out from `rgtilePlanet` the way
-/// `ReflowColumn` lays them out: four pixels down, each tile as tall as its
-/// line count says or shrunk to its title bar when it is closed, and four
-/// pixels between one and the next.
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
-    let line = ui.text_style_height(&egui::TextStyle::Small);
-    // The original's `fSmallTiles`, which the frame sets from the screen it
-    // finds itself on; there is no such thing here, so the tiles are always
-    // the full size.
-    let small = false;
-    let columns = [
-        crate::tiles::column_tops(line, small, &app.open_tiles, 0),
-        crate::tiles::column_tops(line, small, &app.open_tiles, 1),
-    ];
-    let height = columns
-        .iter()
-        .flatten()
-        .map(|(_, top, tall)| top + tall)
-        .fold(0.0_f32, f32::max)
-        + crate::tiles::TILE_GAP;
-
-    // The pane is drawn at the table's own width. When there is less room than
-    // that the columns are scaled down together rather than clipped, so the
-    // proportions stay the original's.
-    let full = crate::tiles::COLUMN_PITCH + crate::tiles::TILE_WIDTH + crate::tiles::COLUMN_LEFT;
-    let scale = (ui.available_width() / full).clamp(0.25, 1.0);
-    let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(ui.available_width(), height * scale),
-        egui::Sense::hover(),
+    let open = app.open_tiles;
+    let mut open: Vec<bool> = open.to_vec();
+    crate::views::tile_pane(
+        app,
+        ui,
+        &crate::tiles::PLANET_TILES,
+        &mut open,
+        tile_title,
+        tile_body,
     );
-    let painter = ui.painter_at(rect);
-    let mut toggled: Option<usize> = None;
-
-    for (column, tiles) in columns.iter().enumerate() {
-        #[allow(clippy::cast_precision_loss)]
-        let left = rect.left()
-            + (crate::tiles::COLUMN_LEFT + column as f32 * crate::tiles::COLUMN_PITCH) * scale;
-        for (index, top, tall) in tiles {
-            let frame = egui::Rect::from_min_size(
-                egui::pos2(left, rect.top() + top * scale),
-                egui::vec2(crate::tiles::TILE_WIDTH * scale, tall * scale),
-            );
-            let title = tile_title(app, *index);
-            let body = tile_frame(ui, &painter, frame, &title, app.open_tiles[*index], line);
-            // Clicking the title bar opens or closes the tile, and the column
-            // reflows around it.
-            let bar = egui::Rect::from_min_max(
-                frame.min,
-                egui::pos2(
-                    frame.right(),
-                    frame.top() + line + crate::tiles::TITLE_EXTRA + 2.0,
-                ),
-            );
-            if ui
-                .interact(bar, ui.id().with(("tile", index)), egui::Sense::click())
-                .clicked()
-            {
-                toggled = Some(*index);
-            }
-            if app.open_tiles[*index] && body.height() > 4.0 {
-                let mut child = ui.child_ui(body, egui::Layout::top_down(egui::Align::Min), None);
-                child.set_clip_rect(body);
-                child.spacing_mut().item_spacing.y = 0.0;
-                tile_body(app, &mut child, *index);
-            }
-        }
-    }
-
-    if let Some(index) = toggled {
-        app.open_tiles[index] = !app.open_tiles[index];
+    for (index, value) in open.iter().enumerate() {
+        app.open_tiles[index] = *value;
     }
 }
 
 /// What a tile's title bar says. Three of the six take their title from the
 /// game rather than the table.
-fn tile_title(app: &mut App, index: usize) -> String {
+pub(crate) fn tile_title(app: &mut App, index: usize) -> String {
     match index {
         0 => app.planet_pane_title(),
         3 => app.pane_fleets_title().to_string(),
@@ -111,7 +53,7 @@ fn tile_title(app: &mut App, index: usize) -> String {
 }
 
 /// What goes inside one tile.
-fn tile_body(app: &mut App, ui: &mut egui::Ui, index: usize) {
+pub(crate) fn tile_body(app: &mut App, ui: &mut egui::Ui, index: usize) {
     match index {
         0 => summary(app, ui),
         1 => grid(ui, "minerals", &app.planet_minerals_tile(), true),
@@ -138,7 +80,7 @@ fn tile_body(app: &mut App, ui: &mut egui::Ui, index: usize) {
 ///
 /// `minerals` colours the first three labels the way `DrawPlanetMinSum` does —
 /// the same `rgcrMin` blue, dark green and yellow the Selection Summary uses.
-fn grid(ui: &mut egui::Ui, id: &str, rows: &[(String, String)], minerals: bool) {
+pub(crate) fn grid(ui: &mut egui::Ui, id: &str, rows: &[(String, String)], minerals: bool) {
     if rows.is_empty() {
         ui.label(egui::RichText::new("no data").weak().small());
         return;
