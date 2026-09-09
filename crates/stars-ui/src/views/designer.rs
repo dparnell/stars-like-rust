@@ -47,94 +47,203 @@ fn browser(app: &mut App, ui: &mut egui::Ui) {
         .as_ref()
         .is_some_and(|d| d.view == DesignView::Components);
 
-    ui.horizontal_top(|ui| {
-        // The left of the window is the design itself: its picture and its
-        // schematic, with the plaque underneath.
-        ui.vertical(|ui| {
-            ui.set_min_width(340.0);
-            if components {
-                egui::ScrollArea::vertical()
-                    .max_height(320.0)
-                    .show(ui, |ui| parts_list(app, ui));
-                return;
+    let template = &crate::dialog::DESIGNER;
+    let (rect, at, caption) = frame(ui, template);
+
+    // The left column: the two radio groups and the three buttons, each where
+    // the template puts it.
+    radios(app, ui, &at, &caption);
+    let can_copy = app.designer_can_copy();
+    let can_edit = app.designer_can_edit();
+    let can_delete = app.designer_can_delete();
+    if push(ui, at(0x816), &caption(0x816), can_copy).clicked() {
+        app.designer_copy();
+    }
+    if push(ui, at(0x817), &caption(0x817), can_delete).clicked() {
+        match app.designer_delete_warning() {
+            Some(question) => {
+                if let Some(designer) = app.designer.as_mut() {
+                    designer.confirm = Some(question);
+                }
             }
-            picture(app, ui, false);
-            schematic(app, ui, false);
+            None => app.designer_delete(),
+        }
+    }
+    if push(ui, at(0x818), &caption(0x818), can_edit).clicked() {
+        app.designer_edit();
+    }
+
+    // The dropdown, and under it the design itself.
+    let dd = at(0x81a);
+    let dd = egui::Rect::from_min_size(dd.min, egui::vec2(dd.width(), dd.height().min(24.0)));
+    if components {
+        filter_dropdown(app, ui, dd);
+    } else {
+        dropdown(app, ui, dd);
+    }
+
+    // The design's picture, schematic and plaque go under the dropdown, in the
+    // space the template leaves between it and the buttons along the right.
+    let body = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + 110.0, dd.bottom() + 6.0),
+        egui::pos2(rect.right() - 4.0, rect.bottom() - 4.0),
+    );
+    if body.height() > 8.0 {
+        let mut child = ui.child_ui(body, egui::Layout::top_down(egui::Align::Min), None);
+        child.set_clip_rect(body);
+        if components {
+            egui::ScrollArea::vertical()
+                .id_source("designer-components")
+                .show(&mut child, |ui| parts_list(app, ui));
+        } else {
+            picture(app, &mut child, false);
+            schematic(app, &mut child, false);
             if let Some((alive, built)) = app.designer_plaque() {
-                ui.add_space(2.0);
-                ui.label(
+                child.add_space(2.0);
+                child.label(
                     egui::RichText::new(format!("{alive} of {built}"))
                         .small()
                         .strong(),
                 );
             }
-        });
-
-        ui.separator();
-
-        ui.vertical(|ui| {
-            ui.set_min_width(250.0);
-            radios(app, ui);
-            ui.add_space(6.0);
-            if components {
-                filter_dropdown(app, ui);
-            } else {
-                dropdown(app, ui);
-            }
-            ui.add_space(6.0);
-            buttons(app, ui);
-        });
-    });
-
-    ui.separator();
-    stats(app, ui);
-
-    if let Some(question) = app.designer.as_ref().and_then(|d| d.confirm.clone()) {
-        ui.separator();
-        ui.label(egui::RichText::new(question).color(egui::Color32::from_rgb(0xff, 0xc0, 0x60)));
-        ui.horizontal(|ui| {
-            if ui.button("Yes, delete it").clicked() {
-                app.designer_delete();
-            }
-            if ui.button("No").clicked() {
-                if let Some(designer) = app.designer.as_mut() {
-                    designer.confirm = None;
-                }
-            }
-        });
+            stats(app, &mut child);
+        }
     }
 
-    ui.separator();
-    ui.horizontal(|ui| {
-        // In the browser the right-hand button reads Done, not Cancel
-        // (`ShowMainControls`).
-        if ui.button("Done").clicked() {
-            app.close_designer();
+    // `ShowMainControls` hides OK in the browser and calls the button beside
+    // it `Done`; the browser's only way out is that one.
+    if push(ui, at(0x2), crate::dialog::DESIGNER_CLOSE.0, true).clicked() {
+        app.close_designer();
+    }
+
+    if let Some(question) = app.designer.as_ref().and_then(|d| d.confirm.clone()) {
+        confirm(app, ui, rect, &question);
+    }
+}
+
+/// The dialog's own area, and two helpers that place a control and read its
+/// caption out of the template.
+fn frame<'a>(
+    ui: &mut egui::Ui,
+    template: &'a crate::dialog::Template,
+) -> (
+    egui::Rect,
+    impl Fn(u16) -> egui::Rect + 'a,
+    impl Fn(u16) -> String + 'a,
+) {
+    let scale = template.scale(egui::Rect::from_min_size(
+        egui::Pos2::ZERO,
+        ui.available_size(),
+    ));
+    let want = template.pixels() * scale;
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), want.y),
+        egui::Sense::hover(),
+    );
+    let origin = rect.min;
+    let place = move |id: u16| -> egui::Rect {
+        template.control(id).map_or(egui::Rect::NOTHING, |control| {
+            let (x, y, w, h) = control.at;
+            egui::Rect::from_min_size(
+                origin
+                    + egui::vec2(
+                        f32::from(x) * crate::dialog::DLU_X * scale,
+                        f32::from(y) * crate::dialog::DLU_Y * scale,
+                    ),
+                egui::vec2(
+                    f32::from(w) * crate::dialog::DLU_X * scale,
+                    f32::from(h) * crate::dialog::DLU_Y * scale,
+                ),
+            )
+        })
+    };
+    let caption = move |id: u16| -> String {
+        template
+            .control(id)
+            .map_or_else(String::new, crate::dialog::Control::label)
+    };
+    (rect, place, caption)
+}
+
+/// One of the template's push buttons.
+fn push(ui: &mut egui::Ui, rect: egui::Rect, text: &str, enabled: bool) -> egui::Response {
+    ui.put(
+        rect,
+        egui::Button::new(egui::RichText::new(text).small()).sense(if enabled {
+            egui::Sense::click()
+        } else {
+            egui::Sense::hover()
+        }),
+    )
+}
+
+/// The confirmation the Delete button raises, over the dialog's own foot.
+fn confirm(app: &mut App, ui: &mut egui::Ui, rect: egui::Rect, question: &str) {
+    let where_ = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + 8.0, rect.bottom() - 44.0),
+        egui::pos2(rect.right() - 90.0, rect.bottom() - 4.0),
+    );
+    let mut child = ui.child_ui(where_, egui::Layout::top_down(egui::Align::Min), None);
+    child.label(egui::RichText::new(question).color(egui::Color32::from_rgb(0xff, 0xc0, 0x60)));
+    child.horizontal(|ui| {
+        if ui.button("Yes, delete it").clicked() {
+            app.designer_delete();
+        }
+        if ui.button("No").clicked() {
+            if let Some(designer) = app.designer.as_mut() {
+                designer.confirm = None;
+            }
         }
     });
 }
 
 /// The two radio groups: **Design** (ship or starbase) and **View**.
-fn radios(app: &mut App, ui: &mut egui::Ui) {
+fn radios(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    at: &impl Fn(u16) -> egui::Rect,
+    caption: &impl Fn(u16) -> String,
+) {
     let Some(designer) = app.designer.as_ref() else {
         return;
     };
     let mut starbase = designer.starbase;
     let mut view = designer.view;
 
-    ui.group(|ui| {
-        ui.label(egui::RichText::new("Design").small().strong());
-        ui.horizontal(|ui| {
-            ui.radio_value(&mut starbase, false, "Ship");
-            ui.radio_value(&mut starbase, true, "Starbase");
-        });
-    });
-    ui.group(|ui| {
-        ui.label(egui::RichText::new("View").small().strong());
-        for choice in DesignView::ALL {
-            ui.radio_value(&mut view, choice, choice.title());
+    // `Ships` and `Starbases` — the resource's captions are plural.
+    if ui
+        .put(
+            at(0x810),
+            egui::RadioButton::new(!starbase, egui::RichText::new(caption(0x810)).small()),
+        )
+        .clicked()
+    {
+        starbase = false;
+    }
+    if ui
+        .put(
+            at(0x811),
+            egui::RadioButton::new(starbase, egui::RichText::new(caption(0x811)).small()),
+        )
+        .clicked()
+    {
+        starbase = true;
+    }
+    // `mdBuild = wParam - 0x812`, so the four View radios are in the enum's
+    // own order.
+    for (index, choice) in DesignView::ALL.into_iter().enumerate() {
+        #[allow(clippy::cast_possible_truncation)]
+        let id = 0x812 + index as u16;
+        if ui
+            .put(
+                at(id),
+                egui::RadioButton::new(view == choice, egui::RichText::new(caption(id)).small()),
+            )
+            .clicked()
+        {
+            view = choice;
         }
-    });
+    }
 
     if let Some(designer) = app.designer.as_mut() {
         // Either radio resets the selection, as the original does by refilling
@@ -149,64 +258,27 @@ fn radios(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
-fn dropdown(app: &mut App, ui: &mut egui::Ui) {
+fn dropdown(app: &mut App, ui: &mut egui::Ui, rect: egui::Rect) {
     let list = app.designer_list();
     let Some(designer) = app.designer.as_mut() else {
         return;
     };
     if list.is_empty() {
-        ui.label(egui::RichText::new("No Designs").weak());
+        ui.put(
+            rect,
+            egui::Label::new(egui::RichText::new("No Designs").weak()),
+        );
         return;
     }
     designer.selected = designer.selected.min(list.len() - 1);
     let mut selected = designer.selected;
+    let mut child = ui.child_ui(rect, egui::Layout::top_down(egui::Align::Min), None);
     egui::ComboBox::from_id_source("designer-dd")
-        .width(230.0)
-        .show_index(ui, &mut selected, list.len(), |i| list[i].clone());
+        .width(rect.width())
+        .show_index(&mut child, &mut selected, list.len(), |i| list[i].clone());
     if selected != designer.selected {
         designer.selected = selected;
         designer.confirm = None;
-    }
-}
-
-fn buttons(app: &mut App, ui: &mut egui::Ui) {
-    let can_copy = app.designer_can_copy();
-    let can_edit = app.designer_can_edit();
-    let can_delete = app.designer_can_delete();
-
-    if ui
-        .add_enabled(can_copy, egui::Button::new("Copy Selected Design"))
-        .on_disabled_hover_text(
-            "Either nothing is selected, or every design slot is full — sixteen ships \
-             and ten starbases. Delete one first.",
-        )
-        .clicked()
-    {
-        app.designer_copy();
-    }
-    if ui
-        .add_enabled(can_edit, egui::Button::new("Edit Selected Design"))
-        .on_disabled_hover_text(
-            "Only a design no ship has been built to can be edited. Copy it instead.",
-        )
-        .clicked()
-    {
-        app.designer_edit();
-    }
-    if ui
-        .add_enabled(can_delete, egui::Button::new("Delete Design"))
-        .clicked()
-    {
-        // Deleting destroys every ship built to the design and returns no
-        // minerals, so the original asks first and so does this.
-        match app.designer_delete_warning() {
-            Some(question) => {
-                if let Some(designer) = app.designer.as_mut() {
-                    designer.confirm = Some(question);
-                }
-            }
-            None => app.designer_delete(),
-        }
     }
 }
 
@@ -215,36 +287,62 @@ fn buttons(app: &mut App, ui: &mut egui::Ui) {
 fn editor(app: &mut App, ui: &mut egui::Ui) {
     // A drag that finished this frame, resolved after the lists are drawn so
     // both ends have been laid out.
-    let mut dropped_on_list: Option<DesignerDrag> = None;
+    let dropped_on_list: Option<DesignerDrag>;
     let mut dropped_on_slot: Option<usize> = None;
 
-    ui.horizontal_top(|ui| {
-        // Left: the category filter over the parts list. Dropping a part here
-        // takes it off the design.
-        ui.vertical(|ui| {
-            ui.set_min_width(240.0);
-            filter_dropdown(app, ui);
-            let frame = egui::Frame::default().inner_margin(4.0);
-            let (_, payload) = ui.dnd_drop_zone::<DesignerDrag, ()>(frame, |ui| {
-                egui::ScrollArea::vertical()
-                    .max_height(300.0)
-                    .show(ui, |ui| parts_list(app, ui));
-            });
-            // `dnd_drop_zone` takes the payload itself, so this is the one
-            // chance to read it.
-            dropped_on_list = payload.map(|p| *p);
-        });
+    let template = &crate::dialog::DESIGNER;
+    let (rect, at, caption) = frame(ui, template);
 
-        ui.separator();
+    // The name field, where the template puts it.
+    name_field(app, ui, at(0x81b));
 
-        // Right: the name, the picture with its two arrows, and the schematic.
-        ui.vertical(|ui| {
-            ui.set_min_width(340.0);
-            name_field(app, ui);
-            picture(app, ui, true);
-            dropped_on_slot = schematic(app, ui, true);
+    // The parts list. Its own rectangle runs ten units past the bottom of the
+    // dialog in the resource, so it is clipped to what is really there, with
+    // the category filter just above it.
+    let list = at(0x80c).intersect(rect);
+    let tall = at(0x81a).height().min(24.0);
+    filter_dropdown(
+        app,
+        ui,
+        egui::Rect::from_min_size(
+            egui::pos2(list.left(), list.top() - tall - 2.0),
+            egui::vec2(list.width(), tall),
+        ),
+    );
+    {
+        let mut child = ui.child_ui(list, egui::Layout::top_down(egui::Align::Min), None);
+        child.set_clip_rect(list);
+        let inner = egui::Frame::default().inner_margin(4.0);
+        let (_, payload) = child.dnd_drop_zone::<DesignerDrag, ()>(inner, |ui| {
+            egui::ScrollArea::vertical()
+                .id_source("designer-parts")
+                .show(ui, |ui| parts_list(app, ui));
         });
-    });
+        // `dnd_drop_zone` takes the payload itself, so this is the one chance
+        // to read it.
+        dropped_on_list = payload.map(|p| *p);
+    }
+
+    // The picture and the schematic fill what the list leaves to its right,
+    // short of the column the OK and Cancel buttons are in.
+    let right = egui::Rect::from_min_max(
+        egui::pos2(list.right() + 6.0, rect.top() + 4.0),
+        egui::pos2(at(0x1).left() - 6.0, rect.bottom() - 4.0),
+    );
+    if right.width() > 40.0 {
+        let mut child = ui.child_ui(right, egui::Layout::top_down(egui::Align::Min), None);
+        child.set_clip_rect(right);
+        picture(app, &mut child, true);
+        dropped_on_slot = schematic(app, &mut child, true);
+        stats(app, &mut child);
+        if let Some(complaint) = app.designer.as_ref().and_then(|d| d.complaint.clone()) {
+            child.label(
+                egui::RichText::new(complaint)
+                    .small()
+                    .color(egui::Color32::from_rgb(0xff, 0x8a, 0x8a)),
+            );
+        }
+    }
 
     if let Some(drag) = dropped_on_list {
         app.designer_drop_on_list(drag);
@@ -255,23 +353,14 @@ fn editor(app: &mut App, ui: &mut egui::Ui) {
         }
     }
 
-    ui.separator();
-    stats(app, ui);
-
-    if let Some(complaint) = app.designer.as_ref().and_then(|d| d.complaint.clone()) {
-        ui.separator();
-        ui.label(egui::RichText::new(complaint).color(egui::Color32::from_rgb(0xff, 0x8a, 0x8a)));
+    // `ShowMainControls` shows OK for the editor and relabels the button
+    // beside it `Cancel`.
+    if push(ui, at(0x1), &caption(0x1), true).clicked() {
+        app.designer_ok();
     }
-
-    ui.separator();
-    ui.horizontal(|ui| {
-        if ui.button("OK").clicked() {
-            app.designer_ok();
-        }
-        if ui.button("Cancel").clicked() {
-            app.designer_cancel();
-        }
-    });
+    if push(ui, at(0x2), crate::dialog::DESIGNER_CLOSE.1, true).clicked() {
+        app.designer_cancel();
+    }
 }
 
 /// The payload of the drag that just ended, if it was one of ours.
@@ -279,7 +368,7 @@ fn taken_payload(ui: &egui::Ui) -> Option<DesignerDrag> {
     egui::DragAndDrop::take_payload::<DesignerDrag>(ui.ctx()).map(|p| *p)
 }
 
-fn filter_dropdown(app: &mut App, ui: &mut egui::Ui) {
+fn filter_dropdown(app: &mut App, ui: &mut egui::Ui, rect: egui::Rect) {
     let names: Vec<&'static str> = app
         .designer_filters()
         .iter()
@@ -290,9 +379,12 @@ fn filter_dropdown(app: &mut App, ui: &mut egui::Ui) {
     };
     designer.filter = designer.filter.min(names.len().saturating_sub(1));
     let mut selected = designer.filter;
+    let mut child = ui.child_ui(rect, egui::Layout::top_down(egui::Align::Min), None);
     egui::ComboBox::from_id_source("designer-filter")
-        .width(230.0)
-        .show_index(ui, &mut selected, names.len(), |i| names[i].to_string());
+        .width(rect.width())
+        .show_index(&mut child, &mut selected, names.len(), |i| {
+            names[i].to_string()
+        });
     designer.filter = selected;
 }
 
@@ -351,7 +443,7 @@ fn held_count(ui: &egui::Ui) -> u8 {
     App::designer_drag_count(None, 1, ctrl, shift)
 }
 
-fn name_field(app: &mut App, ui: &mut egui::Ui) {
+fn name_field(app: &mut App, ui: &mut egui::Ui, rect: egui::Rect) {
     let Some(mut name) = app
         .designer
         .as_ref()
@@ -360,19 +452,17 @@ fn name_field(app: &mut App, ui: &mut egui::Ui) {
     else {
         return;
     };
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Name").small());
-        if ui
-            .add(
-                egui::TextEdit::singleline(&mut name)
-                    .desired_width(230.0)
-                    .char_limit(stars_core::design::MAX_NAME),
-            )
-            .changed()
-        {
-            app.designer_rename(&name);
-        }
-    });
+    // The template's own field, `0x81b`, limited to the same 31 characters
+    // the original limits it to.
+    if ui
+        .put(
+            rect,
+            egui::TextEdit::singleline(&mut name).char_limit(stars_core::design::MAX_NAME),
+        )
+        .changed()
+    {
+        app.designer_rename(&name);
+    }
 }
 
 // --- the picture and the schematic ---------------------------------------

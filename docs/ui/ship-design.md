@@ -22,19 +22,48 @@ from **Done** to **Cancel**.
 
 ## The controls
 
-Read out of `SlotDlg`'s `WM_COMMAND` arm, which is where the ids are.
+The dialog is **resource 92** (`0x5c`), `Ship & Starbase Designer`, 351 by 250
+dialog units in MS Sans Serif 8pt with fifteen controls, placed at 11, 52
+rather than centred:
 
-| id | control |
-|----|---------|
-| `0x810`, `0x811` | the **Design** radio group: Ship, Starbase — `fStarbaseMode = wParam - 0x810` |
-| `0x812`…`0x815` | the **View** radio group — `mdBuild = wParam - 0x812` |
-| `0x816` | **Copy Selected Design** |
-| `0x817` | **Delete Design** |
-| `0x818` | **Edit Selected Design** |
-| `0x81a` | the dropdown |
-| `0x81b` | the name field, limited to 31 characters |
-| `0x80c` | the parts list |
-| `1`, `2`, `0x76` | OK, Done/Cancel, Help |
+| id | class | x, y | w x h | caption |
+|----|-------|------|-------|---------|
+| `0x810` | BUTTON | 14, 8 | 91x13 | `Ships` |
+| `0x811` | BUTTON | 14, 21 | 91x13 | `Starbases` |
+| `0x812` | BUTTON | 14, 48 | 91x13 | `Existing Designs` |
+| `0x813` | BUTTON | 14, 62 | 91x13 | `Available Hull Types` |
+| `0x814` | BUTTON | 14, 76 | 91x13 | `Enemy Hulls` |
+| `0x815` | BUTTON | 14, 90 | 91x13 | `Components` |
+| `0x816` | BUTTON | 13, 114 | 86x16 | `&Copy Selected Design` |
+| `0x817` | BUTTON | 13, 134 | 86x16 | `&Delete Selected Design` |
+| `0x818` | BUTTON | 13, 154 | 86x16 | `&Edit Selected Design` |
+| `0x81a` | COMBOBOX | 180, 20 | 142x78 | the dropdown |
+| `0x81b` | EDIT | 186, 52 | 132x15 | the name field, limited to 31 characters |
+| `0x80c` | LISTBOX | 114, 90 | 135x170 | the parts list |
+| `0x76` | BUTTON | 281, 134 | 33x13 | `&Help` |
+| `1` | BUTTON | 281, 222 | 33x13 | `OK` |
+| `2` | BUTTON | 281, 238 | 33x13 | `Cancel` |
+
+The Design radios are **plural** — `Ships` and `Starbases` — and all three
+buttons say `Selected Design`, which the manual's prose does not.
+`fStarbaseMode = wParam - 0x810` and `mdBuild = wParam - 0x812`, so both groups
+are read straight off the id.
+
+Like the Production dialog's, this template has an oddity of its own: the parts
+list is 170 units tall starting at 90, which is **ten units past the bottom** of
+a dialog 250 tall. It is clipped to what is there.
+
+`ShowMainControls` (`10c8:0160`) swaps the two faces by hiding or showing nine
+of the fifteen — the two Design radios, the four View radios and the three
+buttons — and then does two things that read backwards:
+
+* **OK is hidden in the browser and shown in the editor**;
+* the button beside it is relabelled `Done` for the browser and `Cancel` for
+  the editor.
+
+So the browser's only way out is the button the template calls `Cancel`, and
+the dropdown, the name field and the parts list are not touched by the swap at
+all.
 
 The four **View** buttons, in order, are `Existing Designs`, `Available Hull
 Types`, `Enemy Hulls` and `Components`, and each fills the dropdown differently
@@ -67,6 +96,19 @@ top    = (rgbrc[i] >> 4)   * 32 + yTop
 right  = left + 64
 bottom = top  + 64
 ```
+
+and the origin is one of two, depending on which window is asking:
+
+| window | `xLeft` | `yTop` |
+|--------|---------|--------|
+| the designer (`hwndSlotDlg != 0`) | `ptslotGlob.x - 0x14a` | 32 |
+| the `grPopupShdef` pop-up | 12 | `dyArial8 + 12` |
+
+The **plaque** — the `n of m` under the picture — is a fixed offset from
+whichever origin was used, `+0x102` across and `+0x111` down. And the hull's
+**cargo bay** comes out of `HULDEF.wrcCargo` on the same grid: its high byte is
+the top-left cell and its low byte the bottom-right, each nibble a half-cell
+like `rgbrc`.
 
 `HULDEF.wrcCargo` (`+0x7D`) packs two more of those bytes: the high byte is the
 cargo space's top-left cell and the low byte its bottom-right. `0xFFFF` means

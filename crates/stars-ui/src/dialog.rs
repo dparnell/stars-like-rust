@@ -28,6 +28,8 @@ pub enum Class {
     Static,
     /// A combo box.
     ComboBox,
+    /// A text field.
+    Edit,
 }
 
 /// One control of a dialog template.
@@ -266,3 +268,145 @@ pub fn diamond(rect: egui::Rect, line: f32) -> egui::Rect {
     let top = rect.bottom() - (line * 2.5 + 12.0);
     egui::Rect::from_min_size(egui::pos2(rect.left() + 6.0, top), egui::vec2(line, odd))
 }
+
+/// `Ship & Starbase Designer`, dialog resource 92 (`0x5c`).
+///
+/// One window with two faces. `ShowMainControls` (`10c8:0160`) swaps them by
+/// hiding or showing nine of these fifteen controls — the two Design radios,
+/// the four View radios and the three buttons — and doing two more things that
+/// read backwards at first glance: **OK is hidden in the browser and shown in
+/// the editor**, and the button beside it is relabelled `Done` for the browser
+/// and `Cancel` for the editor. So the browser's only way out is the button
+/// the template calls `Cancel`.
+///
+/// The template places the dialog at 11, 52 rather than centring it, and its
+/// parts list runs ten units past the bottom of the dialog it is in — 90 plus
+/// 170 against a height of 250. That is what the resource says.
+pub const DESIGNER: Template = Template {
+    caption: "Ship & Starbase Designer",
+    size: (351, 250),
+    controls: &[
+        Control {
+            id: 0x810,
+            class: Class::Button,
+            at: (14, 8, 91, 13),
+            text: "Ships",
+        },
+        Control {
+            id: 0x811,
+            class: Class::Button,
+            at: (14, 21, 91, 13),
+            text: "Starbases",
+        },
+        Control {
+            id: 0x812,
+            class: Class::Button,
+            at: (14, 48, 91, 13),
+            text: "Existing Designs",
+        },
+        Control {
+            id: 0x813,
+            class: Class::Button,
+            at: (14, 62, 91, 13),
+            text: "Available Hull Types",
+        },
+        Control {
+            id: 0x814,
+            class: Class::Button,
+            at: (14, 76, 91, 13),
+            text: "Enemy Hulls",
+        },
+        Control {
+            id: 0x815,
+            class: Class::Button,
+            at: (14, 90, 91, 13),
+            text: "Components",
+        },
+        Control {
+            id: 0x816,
+            class: Class::Button,
+            at: (13, 114, 86, 16),
+            text: "&Copy Selected Design",
+        },
+        Control {
+            id: 0x817,
+            class: Class::Button,
+            at: (13, 134, 86, 16),
+            text: "&Delete Selected Design",
+        },
+        Control {
+            id: 0x818,
+            class: Class::Button,
+            at: (13, 154, 86, 16),
+            text: "&Edit Selected Design",
+        },
+        Control {
+            id: 0x81a,
+            class: Class::ComboBox,
+            at: (180, 20, 142, 78),
+            text: "",
+        },
+        Control {
+            id: 0x81b,
+            class: Class::Edit,
+            at: (186, 52, 132, 15),
+            text: "",
+        },
+        Control {
+            id: 0x80c,
+            class: Class::ListBox,
+            at: (114, 90, 135, 170),
+            text: "",
+        },
+        Control {
+            id: 0x76,
+            class: Class::Button,
+            at: (281, 134, 33, 13),
+            text: "&Help",
+        },
+        Control {
+            id: 0x1,
+            class: Class::Button,
+            at: (281, 222, 33, 13),
+            text: "OK",
+        },
+        Control {
+            id: 0x2,
+            class: Class::Button,
+            at: (281, 238, 33, 13),
+            text: "Cancel",
+        },
+    ],
+};
+
+/// What the designer's second button reads in each face (`idsDone` and
+/// `idsCancel`).
+pub const DESIGNER_CLOSE: (&str, &str) = ("Done", "Cancel");
+
+/// Which of the designer's controls `ShowMainControls` hides for the editor
+/// and shows for the browser.
+pub const DESIGNER_BROWSER_ONLY: [u16; 9] = [
+    0x816, 0x818, 0x817, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815,
+];
+
+/// Where a hull's schematic grid starts, and where the plaque under it goes.
+///
+/// `UpdateSlotGlobals` (`10c8:6528`) works in half-cells of 32 pixels — a slot
+/// is two of them square — and puts the origin in one of two places depending
+/// on which window is asking:
+///
+/// * the **designer** (`hwndSlotDlg != 0`): `ptslotGlob.x - 0x14a` across and
+///   32 down;
+/// * the `grPopupShdef` **pop-up**: 12 across and `dyArial8 + 12` down.
+///
+/// The plaque — the `n of m` under the picture — is a fixed offset from
+/// whichever origin was used, and the hull's cargo bay comes out of
+/// `HULDEF.wrcCargo`: its high byte is the top-left cell and its low byte the
+/// bottom-right, each nibble a half-cell like `rgbrc`.
+pub const SLOT_CELL: f32 = 32.0;
+/// How far the designer's own grid is left of `ptslotGlob.x`.
+pub const SLOT_ORIGIN_BACK: f32 = 0x14a as f32;
+/// How far down the designer's grid starts.
+pub const SLOT_ORIGIN_TOP: f32 = 32.0;
+/// Where the plaque sits from the grid's origin.
+pub const PLAQUE_OFFSET: (f32, f32) = (0x102 as f32, 0x111 as f32);

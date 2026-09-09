@@ -559,3 +559,81 @@ fn the_arrows_spin_between_a_hull_s_own_four_pictures() {
         assert_eq!(cell.x, column.x);
     }
 }
+
+/// The designer is laid out from its own template — resource 92,
+/// `Ship & Starbase Designer`, 351 by 250 dialog units and fifteen controls.
+#[test]
+fn the_designer_template_is_the_games_own() {
+    use stars_ui::dialog::{Class, DESIGNER, DESIGNER_BROWSER_ONLY, DESIGNER_CLOSE};
+
+    assert_eq!(DESIGNER.caption, "Ship & Starbase Designer");
+    assert_eq!(DESIGNER.size, (351, 250));
+    assert_eq!(DESIGNER.controls.len(), 15);
+
+    // The Design radios are **plural** in the resource, which is easy to get
+    // wrong from the manual's prose.
+    assert_eq!(DESIGNER.control(0x810).expect("Ships").text, "Ships");
+    assert_eq!(
+        DESIGNER.control(0x811).expect("Starbases").text,
+        "Starbases"
+    );
+    // And the three buttons all say "Selected Design".
+    assert_eq!(
+        DESIGNER.control(0x817).expect("Delete").label(),
+        "Delete Selected Design"
+    );
+    assert_eq!(
+        DESIGNER.control(0x818).expect("Edit").label(),
+        "Edit Selected Design"
+    );
+
+    // `mdBuild = wParam - 0x812`, so the four View radios run 0x812..0x815 in
+    // the order the enum has them.
+    for (index, title) in [
+        "Existing Designs",
+        "Available Hull Types",
+        "Enemy Hulls",
+        "Components",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        #[allow(clippy::cast_possible_truncation)]
+        let id = 0x812 + index as u16;
+        assert_eq!(DESIGNER.control(id).expect("a View radio").text, title);
+    }
+
+    // `ShowMainControls` swaps nine controls between the two faces, and the
+    // second button is `Done` in the browser and `Cancel` in the editor.
+    assert_eq!(DESIGNER_BROWSER_ONLY.len(), 9);
+    assert!(DESIGNER_BROWSER_ONLY.contains(&0x816));
+    assert!(
+        !DESIGNER_BROWSER_ONLY.contains(&0x80c),
+        "the parts list stays"
+    );
+    assert_eq!(DESIGNER_CLOSE, ("Done", "Cancel"));
+
+    assert_eq!(
+        DESIGNER.control(0x80c).expect("the parts list").class,
+        Class::ListBox
+    );
+    assert_eq!(
+        DESIGNER.control(0x81b).expect("the name field").class,
+        Class::Edit
+    );
+}
+
+/// The parts list runs past the bottom of the dialog it is in, in the resource
+/// as shipped.
+#[test]
+fn the_parts_list_overruns_the_dialog() {
+    use stars_ui::dialog::DESIGNER;
+
+    let list = DESIGNER.control(0x80c).expect("the parts list").at;
+    assert_eq!(list, (114, 90, 135, 170));
+    assert!(
+        list.1 + list.3 > DESIGNER.size.1,
+        "90 + 170 is ten units past a height of 250"
+    );
+    assert_eq!(list.1 + list.3 - DESIGNER.size.1, 10);
+}

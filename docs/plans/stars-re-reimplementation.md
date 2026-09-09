@@ -2900,7 +2900,36 @@ disagree.
     is placed by the formula rather than by eye: `dyArial8 * 5 / 2 + 12` up
     from the bottom, six in, `dyArial8` wide and `dyArial8 | 1` tall.
 
-97. **What is still missing to call it playable.** Every waypoint task is now
+97. ~~**The Ship Designer's layout.**~~ **Done.** Spec in
+    `docs/ui/ship-design.md`. Same treatment as the Production dialog: it is
+    **resource 92** (`0x5c`), `Ship & Starbase Designer`, 351 by 250 dialog
+    units with fifteen controls, placed at 11, 52 rather than centred, and the
+    view now places every control from that table rather than arranging them by
+    hand.
+
+    Three corrections came out of reading the resource rather than the manual's
+    prose. The Design radios are **plural** — `Ships` and `Starbases`. All
+    three buttons say `Selected Design`, so the middle one is
+    `Delete Selected Design` and not `Delete Design`. And the parts list is 170
+    units tall starting at 90, which is **ten units past the bottom** of a
+    dialog 250 tall — the second template in a row with an over-run in it.
+
+    `ShowMainControls` (`10c8:0160`) swaps the two faces by hiding nine of the
+    fifteen, and then does two things that read backwards: **OK is hidden in
+    the browser and shown in the editor**, and the button beside it is
+    relabelled `Done` for the browser and `Cancel` for the editor. So the
+    browser's only way out is the button the template calls `Cancel`. The
+    dropdown, the name field and the parts list are not touched by the swap.
+
+    `UpdateSlotGlobals` (`10c8:6528`) also gave up the schematic's **origin**,
+    which the spec had a formula for but no starting point: the designer puts
+    the grid at `ptslotGlob.x - 0x14a` across and 32 down, and the
+    `grPopupShdef` pop-up at 12 across and `dyArial8 + 12` down. The plaque is
+    `+0x102, +0x111` from whichever was used, and the hull's cargo bay comes
+    out of `HULDEF.wrcCargo` on the same half-cell grid — high byte the
+    top-left cell, low byte the bottom-right.
+
+98. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
