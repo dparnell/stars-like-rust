@@ -258,7 +258,7 @@ fn the_template_leaves_the_player_list_to_the_painter() {
             control.text
         );
     }
-    assert!(HOST_LIST_TOP > 28.0, "and the list starts below that");
+    assert_eq!(HOST_LIST_TOP, 48.0, "and the list starts below that");
 
     // The five buttons run down the right, 65 by 14, twenty apart.
     for (index, id) in [0x407u16, 0x408, 0x7df, 0x2, 0x76].into_iter().enumerate() {

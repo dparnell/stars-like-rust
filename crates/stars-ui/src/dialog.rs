@@ -1649,3 +1649,118 @@ pub const HOST_NUMBER_SAMPLE: &str = "#16:";
 pub const HOST_NUMBER_PAD: f32 = 10.0;
 /// What the sentence adds past the number column.
 pub const HOST_TEXT_PAD: f32 = 4.0;
+
+/// `Change Password`, dialog resource 141.
+///
+/// Two `ES_PASSWORD` edits with their labels, three buttons down the right,
+/// and a static across the foot that is filled in at run time — the note
+/// saying **when** the new password starts to bind, which differs for a player
+/// and for the host. In host mode the caption changes too, to
+/// `Change Host Password` (string `0x35e`).
+///
+/// There is no box for the old password, and that is not an oversight: the
+/// game stores a salt rather than the password, and anyone who can open the
+/// file can change it.
+pub const CHANGE_PASSWORD: Template = Template {
+    caption: "Change Password",
+    size: (199, 70),
+    controls: &[
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (6, 6, 60, 12),
+            text: "New Password:",
+        },
+        Control {
+            id: 0x10c,
+            class: Class::Edit,
+            at: (68, 4, 73, 14),
+            text: "",
+        },
+        Control {
+            id: 0xfffe,
+            class: Class::Static,
+            at: (6, 24, 60, 12),
+            text: "Retype Password:",
+        },
+        Control {
+            id: 0x10d,
+            class: Class::Edit,
+            at: (68, 22, 73, 14),
+            text: "",
+        },
+        Control {
+            id: 0x1,
+            class: Class::Button,
+            at: (155, 4, 40, 14),
+            text: "OK",
+        },
+        Control {
+            id: 0x2,
+            class: Class::Button,
+            at: (155, 22, 40, 14),
+            text: "Cancel",
+        },
+        Control {
+            id: 0x76,
+            class: Class::Button,
+            at: (155, 40, 40, 14),
+            text: "&Help",
+        },
+        Control {
+            id: 0x7e2,
+            class: Class::Static,
+            at: (8, 47, 135, 23),
+            text: "",
+        },
+    ],
+};
+
+/// `Stars!`, dialog resource 140 — the prompt that **asks** for a password.
+///
+/// A different dialog from the one that sets it, and a smaller one: one edit,
+/// three buttons, and a static filled at run time with *Enter the password:*
+/// (string `0x35f`). Its edit is limited to **fifteen** characters where the
+/// other allows sixteen, which is the original's own inconsistency.
+pub const PASSWORD_PROMPT: Template = Template {
+    caption: "Stars!",
+    size: (145, 60),
+    controls: &[
+        Control {
+            id: 0x7e2,
+            class: Class::Static,
+            at: (6, 6, 83, 12),
+            text: "",
+        },
+        Control {
+            id: 0x10c,
+            class: Class::Edit,
+            at: (6, 22, 73, 14),
+            text: "",
+        },
+        Control {
+            id: 0x1,
+            class: Class::Button,
+            at: (96, 6, 40, 14),
+            text: "OK",
+        },
+        Control {
+            id: 0x2,
+            class: Class::Button,
+            at: (96, 24, 40, 14),
+            text: "Cancel",
+        },
+        Control {
+            id: 0x76,
+            class: Class::Button,
+            at: (96, 42, 40, 14),
+            text: "&Help",
+        },
+    ],
+};
+
+/// The caption the Change Password dialog takes in host mode (string `0x35e`).
+pub const CHANGE_HOST_PASSWORD: &str = "Change Host Password";
+
+/// What the prompt's static says (string `0x35f`).
+pub const PASSWORD_PROMPT_LABEL: &str = "Enter the password:";

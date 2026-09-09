@@ -3110,7 +3110,26 @@ disagree.
      set the row format becomes `" %s"` — the status alone, no name — so a host
      who should not know which player is which still sees who is waited for.
 
-106. **What is still missing to call it playable.** Every waypoint task is now
+106. ~~**The two password dialogs' layout.**~~ **Done.** Spec in
+     `docs/ui/change-password.md`. Both templates are now read out of the
+     resources and both views placed from them: **141** `Change Password`, 199
+     by 70 dialog units with eight controls, and **140** `Stars!`, 145 by 60
+     with five — a different and smaller dialog, which is the point of keeping
+     them apart.
+
+     Reading the resource corrected the spec's own table: it listed six
+     controls for 141 and there are **eight**, because the two labels are
+     controls in their own right. The count matters, since the thing worth
+     saying about this dialog is what it does *not* have — a third edit for the
+     old password — and a table that leaves controls out cannot make that
+     argument. There are two edits and no more; a test asserts it.
+
+     Both dialogs put OK, Cancel and Help in a column down the right, 40 by 14
+     and eighteen apart, and 141's run-time static is the widest thing on it,
+     sitting under everything else — which is where the note about *when* the
+     new password binds has to go.
+
+107. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

@@ -13,16 +13,23 @@ accelerator). `NewPasswordDlg`, `IDD_NEW_PASSWORD` (141).
 
 ### The template
 
-199x70 dialog units, eight controls:
+199x70 dialog units, eight controls — the two labels are controls of their own,
+which the earlier version of this table left out:
 
-| id      | control  | what it is                                  |
-|---------|----------|---------------------------------------------|
-| `0x10c` | edit     | `New Password:`, `ES_PASSWORD`              |
-| `0x10d` | edit     | `Retype Password:`, `ES_PASSWORD`           |
-| `1`     | button   | `OK`                                        |
-| `2`     | button   | `Cancel`                                    |
-| `0x76`  | button   | `&Help`                                     |
-| `0x7e2` | static   | the note, filled in at run time             |
+| id      | control  | x, y | w x h | what it is                    |
+|---------|----------|------|-------|-------------------------------|
+| `0xffff`| static   | 6, 6 | 60x12 | `New Password:`               |
+| `0x10c` | edit     | 68, 4 | 73x14 | `ES_PASSWORD`                |
+| `0xffff`| static   | 6, 24 | 60x12 | `Retype Password:`           |
+| `0x10d` | edit     | 68, 22 | 73x14 | `ES_PASSWORD`               |
+| `1`     | button   | 155, 4 | 40x14 | `OK`                        |
+| `2`     | button   | 155, 22 | 40x14 | `Cancel`                   |
+| `0x76`  | button   | 155, 40 | 40x14 | `&Help`                    |
+| `0x7e2` | static   | 8, 47 | 135x23 | the note, filled in at run time |
+
+The three buttons run down the right at `x = 155`, each 40 by 14 and eighteen
+apart — the same column, at the same pitch, as the prompt's. The note is the
+widest thing on the dialog and sits under everything else.
 
 **There is no box for the old password**, and that is not an oversight to fix:
 the game stores a salt of the password rather than the password (see
@@ -75,8 +82,9 @@ which is a shortcut for leaving both boxes empty and nothing more.
 
 `PasswordDlg`, `IDD_PASSWORD` (140), put up by `FCheckPassword` (`1040:58d8`).
 145x60 dialog units and five controls: a static filled at run time (string
-`0x035f`, *Enter the password:*), one `ES_PASSWORD` edit (`0x10c`), OK, Cancel
-and Help. The edit is limited to **fifteen** characters — one fewer than the
+`0x035f`, *Enter the password:*) at 6, 6; one `ES_PASSWORD` edit (`0x10c`) at
+6, 22; and OK, Cancel and Help down the right at `x = 96`, each 40 by 14 and
+eighteen apart. Its caption is just `Stars!`. The edit is limited to **fifteen** characters — one fewer than the
 Change Password dialog allows, which is the original's own inconsistency and is
 reproduced rather than tidied.
 

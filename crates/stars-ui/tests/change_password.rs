@@ -458,3 +458,68 @@ fn an_untouched_host_file_is_written_back_unchanged() {
     assert!(!file.blocks.iter().any(|b| b.type_id == 36));
     let _ = std::fs::remove_dir_all(&dir);
 }
+/// The two dialogs are not the same dialog, and their templates say so.
+#[test]
+fn the_two_templates_are_the_games_own() {
+    use stars_ui::dialog::{
+        Class, CHANGE_HOST_PASSWORD, CHANGE_PASSWORD, PASSWORD_PROMPT, PASSWORD_PROMPT_LABEL,
+    };
+
+    // 141 sets a password: two `ES_PASSWORD` edits with their labels, three
+    // buttons down the right, and a static across the foot filled in at run
+    // time.
+    assert_eq!(CHANGE_PASSWORD.caption, "Change Password");
+    assert_eq!(CHANGE_PASSWORD.size, (199, 70));
+    assert_eq!(CHANGE_PASSWORD.controls.len(), 8);
+    assert_eq!(
+        CHANGE_PASSWORD.control(0x10c).expect("new").class,
+        Class::Edit
+    );
+    assert_eq!(
+        CHANGE_PASSWORD.control(0x10d).expect("retype").class,
+        Class::Edit
+    );
+    // There is no third edit: the old password is never asked for.
+    let edits = CHANGE_PASSWORD
+        .controls
+        .iter()
+        .filter(|c| c.class == Class::Edit)
+        .count();
+    assert_eq!(edits, 2, "no box for the old password");
+    // The note is the widest thing on it and sits under everything else.
+    let note = CHANGE_PASSWORD.control(0x7e2).expect("the note");
+    assert_eq!(note.class, Class::Static);
+    assert_eq!(note.at, (8, 47, 135, 23));
+    assert_eq!(CHANGE_HOST_PASSWORD, "Change Host Password");
+
+    // 140 asks for one, and is a different and smaller dialog: one edit, three
+    // buttons, and a static filled at run time.
+    assert_eq!(PASSWORD_PROMPT.caption, "Stars!");
+    assert_eq!(PASSWORD_PROMPT.size, (145, 60));
+    assert_eq!(PASSWORD_PROMPT.controls.len(), 5);
+    assert_eq!(
+        PASSWORD_PROMPT
+            .controls
+            .iter()
+            .filter(|c| c.class == Class::Edit)
+            .count(),
+        1
+    );
+    assert_eq!(PASSWORD_PROMPT_LABEL, "Enter the password:");
+    assert!(
+        PASSWORD_PROMPT.size.0 < CHANGE_PASSWORD.size.0,
+        "the prompt is the smaller of the two"
+    );
+
+    // Both put OK, Cancel and Help in a column down the right, eighteen apart.
+    for template in [&CHANGE_PASSWORD, &PASSWORD_PROMPT] {
+        let ok = template.control(0x1).expect("OK");
+        let cancel = template.control(0x2).expect("Cancel");
+        let help = template.control(0x76).expect("Help");
+        assert_eq!(ok.at.0, cancel.at.0);
+        assert_eq!(cancel.at.0, help.at.0);
+        assert_eq!(cancel.at.1 - ok.at.1, 18);
+        assert_eq!(help.at.1 - cancel.at.1, 18);
+        assert_eq!((ok.at.2, ok.at.3), (40, 14));
+    }
+}
