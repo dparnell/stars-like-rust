@@ -5236,6 +5236,27 @@ impl App {
             .map_or_else(|| format!("player {}", owner + 1), |p| p.name.clone())
     }
 
+    /// The name the game itself puts a player under, as `PszPlayerName`
+    /// (`1038:11f2`) builds it with every flag off — `(iPlayer, 0, 0, 0, 0,
+    /// NULL)`, which is the call the Player Relations listbox makes.
+    ///
+    /// That is the race's **singular** name and nothing else: no "the", no
+    /// plural, no player number. A player with no name at all falls back to
+    /// string 1374, `"Player %d"` — and the original then appends `"'s"`
+    /// (`1038:13df`), which the named branch never does. That looks like a
+    /// possessive form leaking out of the wrong branch, but it is what the
+    /// binary shows, so it is what this shows.
+    #[must_use]
+    pub fn psz_player_name(&self, player: usize) -> String {
+        let named = self
+            .game
+            .as_ref()
+            .and_then(|game| game.players.get(player))
+            .map(|p| p.name.clone())
+            .filter(|name| !name.is_empty());
+        named.unwrap_or_else(|| format!("Player {}'s", player + 1))
+    }
+
     /// How many ships of the shown design still exist, and how many were ever
     /// built — the two numbers on the plaque under the schematic
     /// (`"%ld of %ld"`, `MANUAL.PDF` p. 9-6).

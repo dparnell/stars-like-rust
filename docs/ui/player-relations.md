@@ -12,39 +12,93 @@ buttons, and Close.
 
 ## The controls
 
-Read out of the dialog template at file offset `0x347f40`, which is where the
-captions and the layout come from:
+Read out of the dialog template, resource 2008, which is where the captions
+and the layout come from. `Player Relations`, 198 x 80 dialog units, MS Sans
+Serif 8:
 
-| id | control | at |
-|----|---------|-----|
-| `0x7d3` | the listbox of other players | (6, 16) 75 × 65 |
-| `0x7d5` | `&Friend` | (96, 20) |
-| `0x7d4` | `&Neutral` | (96, 38) |
-| `0x7d6` | `&Enemy` | (96, 56) |
-| `2` | `Close` | (152, 16) |
-| `0x76` | `&Help` | (152, 36) |
-| `0xffff` | the `&Player:` label | (6, 4) |
+| id | control | x | y | w | h | style |
+|----|---------|---|---|---|---|-------|
+| `0x2` | `Close` | 152 | 16 | 40 | 14 | `0x50010001` (default push button) |
+| `0x76` | `&Help` | 152 | 36 | 40 | 14 | `0x50010000` |
+| `0xffff` | the `&Player:` label | 6 | 4 | 64 | 10 | `0x50020000` |
+| `0x7d3` | the listbox of other players | 6 | 16 | 75 | 65 | `0x50a10001` |
+| `0x7d5` | `&Friend` | 96 | 20 | 42 | 12 | `0x50000009` (auto radio) |
+| `0x7d4` | `&Neutral` | 96 | 38 | 42 | 12 | `0x50000009` |
+| `0x7d6` | `&Enemy` | 96 | 56 | 42 | 12 | `0x50000009` |
 
-The window is captioned `Player Relations` and is 198 × 80 dialog units in MS
-Sans Serif 8.
-
-Two things fall out of that table and are worth stating, because neither is
-guessable from the code alone:
+Four things fall out of that table, and none of them is guessable from the
+code alone:
 
 * **The radios are stacked Friend, Neutral, Enemy** — that is the order of
   their `y` coordinates — but their **values** are Neutral 0, Friend 1, Enemy
   2, because `CheckRadioButton` is called with `0x7d4 + relation` and the
-  handler stores `wParam - 0x7d4`. The display order is not the value order.
+  handler stores `wParam - 0x7d4` (`10f0:0392` writes `wParam + 0xf82c` as a
+  byte, which is the same thing). The display order is not the value order.
 * There is **no Cancel**. Close commits.
+* The listbox style is `0x50a10001`: `LBS_NOTIFY` and `WS_VSCROLL`, but **not**
+  `LBS_SORT` and not owner-drawn. So the players come out in index order and
+  the names are plain black text.
+* There are **seven** controls, and the `Relation` group box is not one of
+  them. It is drawn in `WM_PAINT`; see below.
 
 Close ends the dialog with `EndDialog(hwnd, selected + 3)` — the selected
 player's index, mapped back and offset by three. Nothing reads it: the caller
 in `mdi.c` discards `DialogBox`'s result. It is reproduced by not reproducing
 it.
 
-The group box around the three is drawn by hand in `WM_PAINT` rather than being
-a control: the dialog measures the rectangle from `0x7d5` to `0x7d6`, expands
-it, draws a 3-D frame and writes `Relation` (string 904) into the top of it.
+## The frame round the radios
+
+`WM_PAINT` (`10f0:019f`) builds it at run time rather than placing a
+`GROUPBOX`:
+
+1. `GetWindowRect` of `&Friend` (`0x7d5`), mapped to client coordinates —
+   that gives the frame's top-left.
+2. `GetWindowRect` of `&Enemy` (`0x7d6`); its **bottom-right** point is mapped
+   (`ScreenToClient` is handed `&rc.right`, so it converts the far corner) and
+   becomes the frame's bottom-right.
+3. `ExpandRc(&rc, dyArial8, dyArial8 / 2)` (`1040:2f0c`) — grow by a whole line
+   across and half a line down.
+4. `_Draw3dFrame(hdc, &rc, -1)` (`1040:336a`), which paints the Windows 3.1
+   groove: an outer ring in `COLOR_BTNSHADOW` along the top and left and
+   `COLOR_BTNHIGHLIGHT` along the bottom and right, then the same ring one
+   pixel in with the two swapped.
+5. `Relation` (string 904) in `rghfontArial8[1]` — Arial 8 **bold** — at
+   `x = rc.left + 8`, `y = rc.top - dyArial8 / 2`, so the caption straddles the
+   top edge rather than sitting inside it.
+
+Measuring from the outer two radios rather than from the template is what keeps
+the frame right whatever the font does to the control heights.
+
+`WM_CTLCOLOR` (`10f0:02aa`) answers with `hbrButtonFace` for every control
+**except** the listbox, which it lets fall through to the default. That is why
+the listbox is the only white thing on an otherwise button-face dialog.
+
+## What the list says
+
+Each row is `PszPlayerName(i, 0, 0, 0, 0, NULL)` (`1038:11f2`) — every flag
+off. That is the race's **singular** name (`PLAYER.szName`, offset `0x80` of
+the 0xc0-byte player block at `DS:0x59a2`) and nothing else: no leading "the",
+no plural, no player number.
+
+A player with no name at all falls back to string 1374, `"Player %d"`, and the
+original then appends `"'s"` (`1038:13df`) — which the *named* branch never
+does. It reads like a possessive form leaking out of the wrong branch, but it
+is what the binary shows, so it is what this shows.
+
+## Where it opens
+
+`WM_INITDIALOG` calls `StickyDlgPos(hwnd, &ptStickyRelationsDlg, 1)`
+(`1040:3094`), and Close calls it again with `fInit = 0` to save. The
+remembered point starts at `(-1, -1)`, which means *centre on the screen*;
+after that the dialog comes back where it was last left, nudged back on-screen
+if the desktop has since shrunk. It is one of a family of sticky positions the
+game keeps, one global per dialog — `ptStickyRelationsDlg` is `DS:0xd92`.
+
+`WM_INITDIALOG` then falls straight through into the `WM_ERASEBKGND` handler
+(`10f0:0177`), which calls `FillRect` with `wParam` as its DC. On
+`WM_INITDIALOG` `wParam` is the handle of the control that would take the
+focus, not a DC, so that call does nothing. It is harmless — the return value
+of 1 is the one `WM_INITDIALOG` wants — but it is a fall-through, not a design.
 
 ## What it edits
 
@@ -96,17 +150,26 @@ reimplementation writes it on each change and replaces the previous record,
 which leaves exactly the same single record in the log; the difference is not
 observable in the file. Both are tested.
 
+`WM_DESTROY` (`10f0:045a`) does one other thing first, and it is a dead store:
+it computes `grbitScan & 0xf` into a stack slot nothing reads. Presumably it
+was meant to be `grbitScan &= 0xf` — clearing the scanner's filter bits so they
+are re-derived against the new table — and the assignment lost its target. What
+does happen is the `InvalidateRect` on `hwndScanner` right after it, which
+repaints the scanner and is enough on its own.
+
 ## What is reproduced
 
-The dialog and its listbox, the three radios in the original's stacking order
-with the original's values, the seeding on the first other player, the mapping
-that skips the local player, the single-player refusal, and the one-record log
-with the whole table in it.
+The dialog laid out from its own template, its listbox white against a
+button-face dialog and holding the singular race names in index order, the
+hand-drawn `Relation` groove with its caption over the top edge, the three
+radios in the original's stacking order with the original's values, the seeding
+on the first other player, the mapping that skips the local player, the
+single-player refusal, and the one-record log with the whole table in it.
 
 ## What is not
 
-* The **`Relation` group box** is a real group box here rather than a
-  hand-drawn 3-D frame.
+* The **sticky position**: the dialog is a window the shell places, so it does
+  not remember where it was last dragged to.
 * The **Help** button, which goes to help context `0x43b`.
 * The **tutorial hook**: `LogChangeRelations` advances the tutorial when player
   0 changes a relation.

@@ -3129,7 +3129,27 @@ disagree.
      sitting under everything else — which is where the note about *when* the
      new password binds has to go.
 
-107. **What is still missing to call it playable.** Every waypoint task is now
+107. ~~**The Player Relations dialog's layout.**~~ **Done.** Spec in
+     `docs/ui/player-relations.md`. Template 2008, 198 by 80 dialog units and
+     **seven** controls, now placed from the resource instead of stacked by
+     hand.
+
+     The interesting control is the one that is not there. `Relation` is not a
+     `GROUPBOX`: `WM_PAINT` asks Windows where `&Friend` and `&Enemy` actually
+     ended up, takes the first's top-left and the second's bottom-right, grows
+     that by a line across and half a line down, draws the Windows 3.1 groove
+     in it and writes the caption *over* the top edge. Measuring off the outer
+     two radios rather than off the template is what keeps the frame right
+     whatever the font does to the control heights, so the reimplementation
+     measures it the same way rather than hard-coding a rectangle.
+
+     Two things the old view had invented also went. `WM_CTLCOLOR` hands back
+     the button-face brush for every control *except* the listbox, so the list
+     is the only white thing on the dialog and its names are plain black — not
+     tinted by player colour. And the rows are `PszPlayerName` with every flag
+     off, which is the race's singular name alone: no player number after it.
+
+108. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 
@@ -3158,9 +3178,10 @@ disagree.
       the survey pane wants for its report-age line.
     - **The Score sheet's remaining trimmings**: the player names as rotated
       column headers, and the tutorial hooks every one of its buttons calls.
-    - **The two Commands entries that still have no dialog of their own**:
-      Battle Plans (F6) and Change Password. Both are editable, but from the
-      Players screen rather than from the dialog the original opens.
+    - **Sticky dialog positions.** `StickyDlgPos` (`1040:3094`) keeps a
+      remembered top-left per dialog, centring the first time and coming back
+      where it was left after that. The shell places every window itself, so
+      none of them stick.
 
 
 #### Saving is not re-encoding

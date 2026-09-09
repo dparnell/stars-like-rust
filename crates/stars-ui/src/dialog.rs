@@ -1764,3 +1764,93 @@ pub const CHANGE_HOST_PASSWORD: &str = "Change Host Password";
 
 /// What the prompt's static says (string `0x35f`).
 pub const PASSWORD_PROMPT_LABEL: &str = "Enter the password:";
+
+// --- Player Relations -----------------------------------------------------
+
+/// `Player Relations`, dialog resource 2008.
+///
+/// `RelationsDlg` (`10f0:0088`), reached from **Commands (Player Relations)**
+/// or **F7**. A list of the other players, three radio buttons saying how this
+/// player regards whichever is selected, and Close.
+///
+/// The listbox has `LBS_NOTIFY` but **not** `LBS_SORT` (style `0x50a10001`),
+/// so the players come out in index order, and it is not owner-drawn, so the
+/// names are plain black on white — the dialog's `WM_CTLCOLOR` hands back the
+/// button-face brush for every control **except** this one, which is what
+/// leaves it the only white thing on the dialog.
+///
+/// The three radios are stacked **Friend, Neutral, Enemy**, which is the order
+/// of their `y` coordinates and not the order of their values: the handler
+/// stores `wParam - 0x7d4`, so Neutral is 0, Friend 1 and Enemy 2. There is no
+/// Cancel — Close commits.
+pub const RELATIONS: Template = Template {
+    caption: "Player Relations",
+    size: (198, 80),
+    controls: &[
+        Control {
+            id: 0x2,
+            class: Class::Button,
+            at: (152, 16, 40, 14),
+            text: "Close",
+        },
+        Control {
+            id: 0x76,
+            class: Class::Button,
+            at: (152, 36, 40, 14),
+            text: "&Help",
+        },
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (6, 4, 64, 10),
+            text: "&Player:",
+        },
+        Control {
+            id: 0x7d3,
+            class: Class::ListBox,
+            at: (6, 16, 75, 65),
+            text: "",
+        },
+        Control {
+            id: 0x7d5,
+            class: Class::Button,
+            at: (96, 20, 42, 12),
+            text: "&Friend",
+        },
+        Control {
+            id: 0x7d4,
+            class: Class::Button,
+            at: (96, 38, 42, 12),
+            text: "&Neutral",
+        },
+        Control {
+            id: 0x7d6,
+            class: Class::Button,
+            at: (96, 56, 42, 12),
+            text: "&Enemy",
+        },
+    ],
+};
+
+/// What the Player Relations group frame is captioned (string 904).
+pub const RELATION_GROUP: &str = "Relation";
+
+/// The frame the Player Relations dialog draws around its three radios.
+///
+/// It is **not** a control: `RelationsDlg`'s `WM_PAINT` (`10f0:019f`) asks
+/// Windows where `&Friend` and `&Enemy` ended up, takes the first's top-left
+/// and the second's bottom-right, and grows that rectangle by `dyArial8`
+/// across and `dyArial8 / 2` down (`ExpandRc`, `1040:2f0c`) before drawing a
+/// 3-D frame in it. `line` stands in for `dyArial8`.
+#[must_use]
+pub fn relation_group(friend: egui::Rect, enemy: egui::Rect, line: f32) -> egui::Rect {
+    egui::Rect::from_min_max(friend.min, enemy.max).expand2(egui::vec2(line, (line / 2.0).floor()))
+}
+
+/// Where the frame's caption goes: eight pixels in from its left edge, and
+/// half a line **above** its top, so the text straddles the border
+/// (`TextOut` at `10f0:0284`).
+#[must_use]
+pub fn relation_group_caption(frame: egui::Rect, line: f32) -> egui::Pos2 {
+    egui::pos2(frame.left() + 8.0, frame.top() - (line / 2.0).floor())
+}

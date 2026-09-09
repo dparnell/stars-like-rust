@@ -415,3 +415,39 @@ pub(crate) fn dialog_button(
         }),
     )
 }
+
+/// The etched frame the original draws around a hand-made group box.
+///
+/// `_Draw3dFrame` (`1040:336a`) with `fErase = -1`: an outer ring in shadow
+/// along the top and left and in highlight along the bottom and right, then
+/// the same ring one pixel in with the two swapped. That is the Windows 3.1
+/// groove — the dialogs that want a group box without a `BUTTON` control draw
+/// it themselves and write the caption over the top edge afterwards.
+pub(crate) fn draw_3d_frame(painter: &egui::Painter, rect: egui::Rect) {
+    let hilite = egui::Color32::from_rgb(
+        crate::toolbar::HILITE[0],
+        crate::toolbar::HILITE[1],
+        crate::toolbar::HILITE[2],
+    );
+    let shadow = egui::Color32::from_rgb(
+        crate::toolbar::SHADOW[0],
+        crate::toolbar::SHADOW[1],
+        crate::toolbar::SHADOW[2],
+    );
+    let line = |x: f32, y: f32, w: f32, h: f32, colour: egui::Color32| {
+        painter.rect_filled(
+            egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(w, h)),
+            0.0,
+            colour,
+        );
+    };
+    for (outer, top_left, bottom_right) in
+        [(rect, shadow, hilite), (rect.shrink(1.0), hilite, shadow)]
+    {
+        let (w, h) = (outer.width(), outer.height());
+        line(outer.left(), outer.top(), w, 1.0, top_left);
+        line(outer.left(), outer.top(), 1.0, h, top_left);
+        line(outer.left(), outer.bottom(), w + 1.0, 1.0, bottom_right);
+        line(outer.right(), outer.top(), 1.0, h, bottom_right);
+    }
+}

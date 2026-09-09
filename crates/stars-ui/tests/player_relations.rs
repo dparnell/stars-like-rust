@@ -168,3 +168,105 @@ fn a_real_save_lists_the_other_fifteen() {
     assert_eq!(app.regard(9), Relation::Enemy);
     frame(&mut app);
 }
+
+/// The layout is the game's own resource, and the resource says several
+/// things the code alone does not.
+#[test]
+fn the_template_is_the_games_own() {
+    use stars_ui::dialog::{Class, RELATIONS, RELATION_GROUP};
+
+    assert_eq!(RELATIONS.caption, "Player Relations");
+    assert_eq!(RELATIONS.size, (198, 80));
+    assert_eq!(RELATIONS.controls.len(), 7);
+
+    // The radios are stacked Friend, Neutral, Enemy — which is not the order
+    // of their values, and is the whole reason `Relation::ALL` is written the
+    // way it is.
+    let friend = RELATIONS.control(0x7d5).expect("Friend");
+    let neutral = RELATIONS.control(0x7d4).expect("Neutral");
+    let enemy = RELATIONS.control(0x7d6).expect("Enemy");
+    assert!(friend.at.1 < neutral.at.1 && neutral.at.1 < enemy.at.1);
+    assert_eq!(
+        [friend.label(), neutral.label(), enemy.label()],
+        Relation::ALL.map(|r| r.name().to_string()),
+    );
+    // And their ids less 0x7d4 are their stored values.
+    for (id, relation) in [
+        (0x7d4u16, Relation::Neutral),
+        (0x7d5, Relation::Friend),
+        (0x7d6, Relation::Enemy),
+    ] {
+        assert_eq!(u8::try_from(id - 0x7d4).expect("small"), relation.value());
+    }
+
+    // One listbox, and no Cancel: Close commits.
+    assert_eq!(
+        RELATIONS
+            .controls
+            .iter()
+            .filter(|c| c.class == Class::ListBox)
+            .count(),
+        1
+    );
+    assert_eq!(RELATIONS.control(0x2).expect("Close").label(), "Close");
+    assert_eq!(RELATIONS.control(0x76).expect("Help").label(), "Help");
+    assert_eq!(RELATIONS.control(0xffff).expect("label").label(), "Player:");
+
+    // The `Relation` frame is not among them — it is drawn round the radios,
+    // from the first's top-left to the last's bottom-right, grown by a line
+    // across and half a line down.
+    assert!(RELATIONS
+        .controls
+        .iter()
+        .all(|c| c.label() != RELATION_GROUP));
+}
+
+/// The hand-drawn group frame is measured off the radios, not off the
+/// template, and its caption straddles the top edge.
+#[test]
+fn the_relation_frame_is_measured_off_the_radios() {
+    use stars_ui::dialog::{relation_group, relation_group_caption, RELATIONS};
+
+    let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, RELATIONS.pixels());
+    let friend = RELATIONS.place(rect, RELATIONS.control(0x7d5).expect("Friend"));
+    let enemy = RELATIONS.place(rect, RELATIONS.control(0x7d6).expect("Enemy"));
+    let line = 13.0_f32;
+
+    let frame = relation_group(friend, enemy, line);
+    assert_eq!(frame.left(), friend.left() - line);
+    assert_eq!(frame.right(), enemy.right() + line);
+    assert_eq!(frame.top(), friend.top() - (line / 2.0).floor());
+    assert_eq!(frame.bottom(), enemy.bottom() + (line / 2.0).floor());
+    // It encloses the middle radio too, which is the point of measuring from
+    // the outer two.
+    assert!(frame.contains_rect(RELATIONS.place(rect, RELATIONS.control(0x7d4).expect("Neutral"))));
+
+    let caption = relation_group_caption(frame, line);
+    assert_eq!(caption.x, frame.left() + 8.0);
+    assert_eq!(caption.y, frame.top() - (line / 2.0).floor());
+}
+
+/// The listbox shows what `PszPlayerName` builds with every flag off: the
+/// race's singular name, and nothing else.
+#[test]
+fn the_list_shows_the_singular_race_name() {
+    let app = a_game(3);
+    let game = app.game.as_ref().expect("a game");
+    for (index, player) in game.players.iter().enumerate() {
+        assert_eq!(app.psz_player_name(index), player.name);
+        // The singular, not the plural — `fPlural` is off in the call the
+        // listbox makes.
+        if !player.plural_name.is_empty() && player.plural_name != player.name {
+            assert_ne!(app.psz_player_name(index), player.plural_name);
+        }
+    }
+    let listed: Vec<String> = app
+        .relations_others()
+        .into_iter()
+        .map(|other| app.psz_player_name(other))
+        .collect();
+    for name in &listed {
+        assert!(!name.is_empty());
+        assert!(!name.contains('('), "no player number: {name}");
+    }
+}

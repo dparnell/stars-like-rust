@@ -1203,10 +1203,10 @@ impl eframe::App for StarsApp {
 
         if self.app.relations_dialog.is_some() {
             let mut open = true;
-            egui::Window::new("Player Relations")
+            egui::Window::new(stars_ui::dialog::RELATIONS.caption)
                 .open(&mut open)
                 .resizable(false)
-                .default_width(320.0)
+                .default_width(stars_ui::dialog::RELATIONS.pixels().x)
                 .show(ctx, |ui| {
                     stars_ui::views::relations::view(&mut self.app, ui)
                 });
