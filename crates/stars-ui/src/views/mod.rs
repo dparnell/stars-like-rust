@@ -20,6 +20,7 @@ pub mod password;
 pub mod planet;
 pub mod planets;
 pub mod players;
+pub mod popup;
 pub mod production;
 pub mod race;
 pub mod race_wizard;

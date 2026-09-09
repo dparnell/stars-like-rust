@@ -33,11 +33,13 @@
 
 pub mod app;
 pub mod art;
+pub mod popup;
 pub mod statusbar;
 pub mod toolbar;
 pub mod vcr;
 pub mod views;
 
+pub use popup::{FleetRow, FleetSummary, PlanetSummary, Popup};
 pub use statusbar::{Distance, StatusBar};
 
 pub use app::{

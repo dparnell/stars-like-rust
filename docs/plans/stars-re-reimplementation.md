@@ -2703,11 +2703,44 @@ disagree.
     fleet's name does; this was printing your own race in front of your own
     minefields.
 
-    Not reproduced: the pop-up summary a left click in the upper row raises
-    (`ScannerWndProc` `1058:043a` → `Popup`, `10c0:0c7c`), which needs the
-    shared pop-up subsystem.
+91. ~~**The status bar's pop-up summary.**~~ **Done.** Spec in
+    `docs/ui/scanner.md`. It is a **press-and-hold**, not a click: `Popup`
+    (`10c0:0c7c`) creates a `starspopup` window and takes the mouse capture,
+    and `PopupWndProc` (`10c0:0000`) destroys it on the next button-up. The
+    class is `CS_SAVEBITS | CS_NOCLOSE` over `GetStockObject(WHITE_BRUSH)` with
+    `WS_BORDER`, so it is white with a one-pixel frame, and its **bottom-right
+    corner** goes at the pointer, clamped to the screen.
 
-91. **What is still missing to call it playable.** Every waypoint task is now
+    Two of the fifteen `grPopup` kinds are reachable from the bar, and which
+    one follows the same rule the bar itself follows: `grPopupFleet` only for a
+    fleet in **open space**, since `ChangeScanSel` turns the scan into the
+    planet whenever the point has one, `grPopupUnknownObj` otherwise, and
+    nothing at all for a space object.
+
+    `grPopupUnknownObj` is four rows — `Planet: `, `ID: `, `X: `, `Y: ` bold
+    and right-aligned, the values left-aligned from the same x, the value
+    column no narrower than `idsN9999`. The label column adds eight pixels
+    when the window is sized and four when it is drawn, which leaves four
+    pixels of slack; that asymmetry is the original's.
+
+    `grPopupFleet` walks design slots 0 to 15, so its rows are in design order
+    rather than stack order, and an empty fleet says `None`. Its damage column
+    reads `"%d@%d%%"`: `pctSh * count / 100` ships, and the **whole packed
+    damage word divided by 640** for the percentage — the game's own shortcut
+    for `pctDp / 5`, exact for every value the two fields can hold because
+    `pctDp` is in 500ths.
+
+    The loose end worth recording: `fRedDamage` and the hull-type filter share
+    a union with the fleet pointer and the **scanner sets neither**, only the
+    Selection Summary's ship tile does (`MineClick`, `1028:3e7b`). From the
+    status bar they carry whatever the last pop-up left there; this reproduces
+    the cold-start reading — no damage column, no filter — and implements the
+    column so the tile can switch it on when that pane gets it.
+
+    Not reproduced: the thirteen other `grPopup` kinds, which belong to the
+    panes that raise them.
+
+92. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

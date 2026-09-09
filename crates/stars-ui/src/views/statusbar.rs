@@ -41,8 +41,9 @@ fn colour([r, g, b]: [u8; 3]) -> egui::Color32 {
     egui::Color32::from_rgb(r, g, b)
 }
 
-/// Draw the bar across the bottom of `rect`.
-pub fn view(app: &App, ui: &mut egui::Ui, rect: egui::Rect) {
+/// Draw the bar across the bottom of `rect`, and handle the press in its
+/// upper row that raises the pop-up summary.
+pub fn view(app: &mut App, ui: &mut egui::Ui, rect: egui::Rect) {
     let painter = ui.painter().with_clip_rect(rect);
     let bar = app.status_bar();
     let fill = |r: egui::Rect, c: egui::Color32| painter.rect_filled(r, 0.0, c);
@@ -142,4 +143,24 @@ pub fn view(app: &App, ui: &mut egui::Ui, rect: egui::Rect) {
         row - inset * 2.0,
         &label,
     );
+
+    // Pressing the **upper** row raises the pop-up summary, and letting go
+    // takes it away: `ScannerWndProc` (`1058:043a`) acts on `WM_LBUTTONDOWN`
+    // and `PopupWndProc` destroys the window on `WM_LBUTTONUP`.
+    let upper = egui::Rect::from_min_max(rect.min, egui::pos2(rect.right(), rect.top() + row));
+    let pointer = ui.input(|input| {
+        (
+            input.pointer.interact_pos(),
+            input.pointer.primary_pressed(),
+            input.pointer.any_released(),
+        )
+    });
+    match pointer {
+        (Some(at), true, _) if upper.contains(at) => {
+            app.popup = app.status_bar_popup().map(|popup| (popup, (at.x, at.y)));
+        }
+        (_, _, true) => app.popup = None,
+        _ => {}
+    }
+    crate::views::popup::view(app, ui);
 }

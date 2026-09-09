@@ -15,6 +15,7 @@ use stars_formats::{
     battle_records_in_with, ActionLayout, BattleRecord, PlanetRecord, StarsFile, Universe,
 };
 
+use crate::popup::{FleetRow, FleetSummary, PlanetSummary, Popup};
 use crate::statusbar::{Distance, StatusBar};
 use crate::vcr::Vcr;
 
@@ -292,6 +293,13 @@ pub struct App {
     /// Where the scanner's right-click menu was opened, in galaxy units, while
     /// it is up.
     pub scan_menu_at: Option<(i16, i16)>,
+    /// The pop-up summary and where its bottom-right corner sits, in screen
+    /// pixels, while one is up.
+    ///
+    /// The original keeps one at a time in `GlobalPD.grPopup` and destroys it
+    /// on the next button-up, so this is a press-and-hold. See
+    /// [`crate::popup`].
+    pub popup: Option<(crate::popup::Popup, (f32, f32))>,
     /// Which fleet the pane's last tile is showing, as owner and fleet id.
     ///
     /// Both halves are needed: a fleet id is the player's own numbering, so
@@ -2665,6 +2673,98 @@ impl App {
             .waypoints
             .get(index)?;
         Some(waypoint.position)
+    }
+
+    // --- The pop-up summary -------------------------------------------------
+    //
+    // `ScannerWndProc` (`1058:043a`) → `Popup` (`10c0:0c7c`). See
+    // `crate::popup` and `docs/ui/scanner.md`.
+
+    /// The pop-up a press in the status bar's **upper** row raises.
+    ///
+    /// Nothing at all unless the scan has a planet or a fleet
+    /// (`sel.scan.grobjFull & (grobjPlanet | grobjFleet)`); the fleet's ship
+    /// list when `sel.scan.grobj` is a fleet — which, since `ChangeScanSel`
+    /// turns the scan into the planet whenever the point has one, means a
+    /// fleet out in open space — and the planet's summary otherwise.
+    #[must_use]
+    pub fn status_bar_popup(&self) -> Option<Popup> {
+        let object = self.selected_object()?;
+        let at = self.object_position(object)?;
+        match object {
+            // A fleet at a planet is the planet, as the bar itself shows it.
+            ScanObject::Fleet(index) => match self.planet_at(at) {
+                Some(id) => Some(self.planet_popup(id, at)),
+                None => Some(self.fleet_popup(index)),
+            },
+            ScanObject::Planet(id) => Some(self.planet_popup(id, at)),
+            // A space object is neither, so the press does nothing.
+            ScanObject::Thing(_) => None,
+        }
+    }
+
+    /// The planet at a point, if one is there.
+    fn planet_at(&self, at: stars_core::movement::Point) -> Option<i16> {
+        self.game
+            .as_ref()?
+            .planets
+            .iter()
+            .chain(self.game.as_ref()?.known_planets.iter())
+            .find(|planet| planet.position == Some(at))
+            .map(|planet| planet.id)
+    }
+
+    /// `grPopupUnknownObj`: the planet's name, its ID and the scan's own
+    /// coordinates, one per row.
+    fn planet_popup(&self, id: i16, at: stars_core::movement::Point) -> Popup {
+        Popup::Planet(PlanetSummary {
+            values: [
+                self.planet_name(id),
+                (id + 1).to_string(),
+                at.x.to_string(),
+                at.y.to_string(),
+            ],
+        })
+    }
+
+    /// `grPopupFleet`: one row per design the fleet holds any of, in **design
+    /// slot** order, since the original walks slots 0 to 15 and skips the
+    /// empty ones.
+    fn fleet_popup(&self, index: usize) -> Popup {
+        let mut rows = Vec::new();
+        if let Some(game) = self.game.as_ref() {
+            if let Some(fleet) = game.fleets.get(index) {
+                let designs = usize::try_from(fleet.owner)
+                    .ok()
+                    .and_then(|owner| game.designs.get(owner));
+                let mut stacks: Vec<_> = fleet
+                    .stacks
+                    .iter()
+                    .filter(|stack| stack.count > 0)
+                    .collect();
+                stacks.sort_by_key(|stack| stack.design);
+                for stack in stacks {
+                    let name = designs
+                        .and_then(|designs| designs.get(usize::from(stack.design)))
+                        .filter(|design| design.hull_id >= 0 && !design.name.is_empty())
+                        .map_or_else(String::new, |design| design.name.clone());
+                    rows.push(FleetRow {
+                        name,
+                        count: stack.count.to_string(),
+                        damage: crate::popup::damage_text(
+                            stack.count,
+                            stack.damaged_pct,
+                            stack.damage_pct,
+                        ),
+                    });
+                }
+            }
+        }
+        Popup::Fleet(FleetSummary {
+            rows,
+            // The scanner leaves `fRedDamage` alone; see `FleetSummary`.
+            show_damage: false,
+        })
     }
 
     // --- Waypoint dragging -------------------------------------------------

@@ -911,15 +911,75 @@ hundredths of a light year reads `3.5`, and twenty and two hundredths reads
 `20.2`. The reconstruction drops both the `× 100` and the `+ 0.5`; the binary
 has them, in two loaded constants at `DS:0x1cc2` and `DS:0x1cba`.
 
-### Clicking it
+### Clicking it — the pop-up summary
 
-A left click in the **upper** row puts up a pop-up summary of what the bar is
-naming (`ScannerWndProc`, `1058:043a`): `grPopupFleet` when `sel.scan.grobj` is
-a fleet, `grPopupUnknownObj` — the planet's name, ID, X and Y — otherwise. It
-is not gated on the window's width, though the manual only mentions it as the
-way round a scanner too narrow to show the cells. Not reproduced here; the
-pop-up is a whole shared subsystem (`Popup`, `10c0:0c7c`, and `DrawPopup`,
-`10c0:01c0`).
+A press in the **upper** row puts up a pop-up summary of what the bar is
+naming (`ScannerWndProc`, `1058:043a`). It is not gated on the window's width,
+though the manual (p. 5-16) only mentions it as the way round a scanner too
+narrow to show the cells.
+
+It is a **press-and-hold**, not a click. `Popup` (`10c0:0c7c`) creates a window
+of the class `starspopup` and takes the mouse capture; `PopupWndProc`
+(`10c0:0000`) destroys it on the next `WM_LBUTTONUP` or `WM_RBUTTONUP` and
+clears `GlobalPD.grPopup`. The class is registered in `InitMDIApp`
+(`1020:01ca`) with `CS_SAVEBITS | CS_NOCLOSE` and
+`GetStockObject(WHITE_BRUSH)`, and the window style adds `WS_BORDER` — so it is
+white with a one-pixel black frame. Its **bottom-right corner** goes at the
+pointer (`x -= width; y -= height`), clamped to `SM_CXSCREEN` and
+`SM_CYSCREEN`.
+
+Which of the fifteen `grPopup` kinds appears here:
+
+* `grPopupFleet` (3) when `sel.scan.grobj` is a fleet — which, since
+  `ChangeScanSel` turns the scan into the planet whenever the point has one,
+  means a fleet out in **open space**;
+* `grPopupUnknownObj` (4) otherwise;
+* and **nothing at all** unless `sel.scan.grobjFull` has the planet or the
+  fleet bit, so a space object's press does nothing.
+
+**`grPopupUnknownObj`** is four rows, `dyArial8` apart from `y = 4`: the labels
+`Planet: `, `ID: `, `X: ` and `Y: ` right-aligned in bold, and the planet's
+name, `idpl + 1`, `sel.scan.pt.x` and `sel.scan.pt.y` left-aligned from the
+same x. The label column is the widest label plus **eight** when the window is
+sized and plus **four** when it is drawn, so there are four pixels of slack on
+the right; the value column is the widest of the values against `idsN9999`
+(`9999`). Height is `dyArial8 * 4 + 8`.
+
+**`grPopupFleet`** is a header row and one row per design slot the fleet holds
+any of, walked 0 to 15 — so the rows are in design order, not stack order.
+`Ship Name` sits at `x = 4` in bold, `#` is right-aligned at
+`right - 4 - dxDamage`, and the design names and counts line up under them.
+Width is `names + counts + 16 + dxDamage`, height `dyArial8 + 8` plus a line
+per row. A fleet holding nothing says `None` and stops.
+
+`dxDamage` is the damage column, and it appears only when two things line up:
+`POPUPDATA.fRedDamage` is on **and** the sizing pass found a damaged stack.
+When it does, a `Damage` header joins the row, a one-pixel `BLACKNESS` rule is
+drawn under the header, and each damaged design's row goes **red** and gains
+
+```
+"%d@%d%%"   ships = pctSh * count / 100 , at least 1
+            pct   = w / 640             , at least 1
+```
+
+where `w` is the fleet record's packed damage word, `pctSh = w & 0x7f` and
+`pctDp = (w >> 7) & 0x1ff`. Dividing the **whole word** by 640 is the game's
+own shortcut for `pctDp / 5`, and it is exact for every value either field can
+hold — `pctDp` is in 500ths, so a fifth of it is the percentage.
+
+There is a loose end in the original worth writing down. `fRedDamage` and the
+hull-type filter beside it live in the same union as the fleet pointer, and the
+**scanner sets neither** — only the Selection Summary's own ship tile does
+(`MineClick`, `1028:3e7b`, which sets `fRedDamage` for a fleet seen in full
+detail and the filter to `0xff`, meaning no filter). So from the status bar
+they carry whatever the last pop-up left there. This reproduces the cold-start
+reading: no damage column and no filter.
+
+`DecorateHullName` (`10c0:…`) is what names a row. For your own designs it is
+just the design's name; for **another player's** it appends a Roman numeral in
+brackets when several of their designs share a name, numbered by slot order.
+That cannot arise here, because a player's file holds only that player's own
+designs.
 
 ### How a space object is named
 
@@ -990,7 +1050,9 @@ Everything the scanner does is now reproduced or recorded above.
 ## What this project does
 
 `crates/stars-ui/src/views/galaxy.rs`, with the status bar in
-`crates/stars-ui/src/statusbar.rs` and `crates/stars-ui/src/views/statusbar.rs`.
+`crates/stars-ui/src/statusbar.rs` and `crates/stars-ui/src/views/statusbar.rs`
+and the pop-up summary in `crates/stars-ui/src/popup.rs` and
+`crates/stars-ui/src/views/popup.rs`.
 
 Reproduced: the nine zoom steps with the original's shift arithmetic; the y
 flip; all six views and their names; the names, scanner coverage, mine fields,
@@ -1012,7 +1074,12 @@ waypoint and nothing on a fleet, the planet that a fleet in orbit is named for,
 the distance from the tape and from a waypoint drag with the `from <name>`
 clause on exactly one of them, and the unit chosen by the window's width — down
 to the missing leading zero in the figure. Space objects are named the way
-`PszGetThingName` names them, owner prefix and minefield kind and all.
+`PszGetThingName` names them, owner prefix and minefield kind and all. And the
+**pop-up summary** a press in its upper row raises: press-and-hold, white with
+a one-pixel frame, its bottom-right corner at the pointer and clamped to the
+screen, the planet's four labelled rows or the fleet's ship list, the damage
+column and its `%d@%d%%` where the original would draw one, and nothing at all
+for a space object.
 
 **Find**, in the original's search order and with its fleet-number grammar, and
 fleet names written the way `PszGetFleetName` writes them.
@@ -1025,8 +1092,8 @@ Not reproduced: the artwork — the original draws planets, fleets and objects a
 bitmaps where this draws dots and marks, and the mineral views as small wedges
 where this colours the dot by whichever mineral reads highest; scrolling with
 `xScanTop`/`yScanTop` (the map is fitted to the panel and zoomed about its
-centre); the design and enemy-class filters; the **pop-up summary** a left
-click in the bar's upper row puts up, which needs the shared `Popup`
-subsystem; scrolling the map to what Find found, since the map is always fully
-fitted; and cycling through objects at one point. Find is a box on the toolbar
-rather than the original's modal dialog.
+centre); the design and enemy-class filters; the thirteen other `grPopup`
+kinds, which belong to the panes that raise them; scrolling the map to what
+Find found, since the map is always fully fitted; and cycling through objects
+at one point. Find is a box on the toolbar rather than the original's modal
+dialog.
