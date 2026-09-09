@@ -1431,10 +1431,10 @@ fn waypoints_are_dragged_onto_the_map() {
     // Dragging the first leg moves it; waypoint 0 is where the fleet is and
     // cannot be dragged.
     assert!(
-        !app.move_waypoint(0, from.x, from.y),
+        !app.move_waypoint(0, from.x, from.y, 0.0),
         "the fleet's own spot"
     );
-    assert!(app.move_waypoint(1, from.x + 50, from.y));
+    assert!(app.move_waypoint(1, from.x + 50, from.y, 0.0));
     assert_eq!(
         app.game.as_ref().expect("game").fleets[0].waypoints[1]
             .position

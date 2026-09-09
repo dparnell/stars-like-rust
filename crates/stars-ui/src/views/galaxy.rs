@@ -650,48 +650,80 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             .map(|at| (at.x, at.y, None, None))
     });
 
+    let shift_held = ui.input(|i| i.modifiers.shift);
+    let reach = f64::from(SNAP_PIXELS / scale);
+    let to_galaxy = |p: Pos2| -> (i16, i16) {
+        #[allow(clippy::cast_possible_truncation)]
+        let x = (min_x + (p.x - rect.left() - margin) / scale) as i16;
+        #[allow(clippy::cast_possible_truncation)]
+        let y = (max_y - (p.y - rect.top() - margin) / scale) as i16;
+        (x, y)
+    };
+
+    // Moving a waypoint the fleet already has. `ScannerWndProc` reaches this
+    // on any left press that is **not** the add path above (`1058:0b1c`): it
+    // asks `FNearAWayPoint` (`1058:8074`) whether one of the selected fleet's
+    // own waypoints is within reach and, if so, hands the press to
+    // `FHandleWayPointDrag` (`1058:8176`). It does not need Add Way Points
+    // mode, and shift would have added a waypoint instead of grabbing one.
+    //
+    // `FNearAWayPoint` asks with the same mask a drop uses, so the grab radius
+    // is the same twenty pixels.
+    if app.selection.fleet.is_some() && !shift_held {
+        if response.drag_started() {
+            app.dragging_waypoint = response
+                .interact_pointer_pos()
+                .filter(|p| on_map(*p))
+                .map(to_galaxy)
+                .and_then(|(x, y)| app.waypoint_at(x, y, reach));
+            app.dragging_waypoint_from = app
+                .dragging_waypoint
+                .and_then(|index| app.waypoint_point(index));
+        }
+        if response.dragged() {
+            if let (Some(waypoint), Some(p)) =
+                (app.dragging_waypoint, response.interact_pointer_pos())
+            {
+                let (x, y) = to_galaxy(p);
+                app.move_waypoint(waypoint, x, y, reach);
+            }
+        }
+    }
+    // Shift *during* a drag suppresses the snap rather than starting one:
+    // `FHandleWayPointDrag` polls `GetAsyncKeyState(VK_SHIFT)` each time round
+    // its mouse loop and asks with mask `0x8f`, whose reach is zero
+    // (`1058:841e`). So shift lays a waypoint on a click and pins one exactly
+    // where the pointer is on a drag.
+    if response.dragged() && shift_held {
+        if let (Some(waypoint), Some(p)) = (app.dragging_waypoint, response.interact_pointer_pos())
+        {
+            let (x, y) = to_galaxy(p);
+            app.move_waypoint(waypoint, x, y, 0.0);
+        }
+    }
+    if response.drag_stopped() {
+        // A waypoint dropped on its own neighbour goes back where it came from
+        // and the player is asked whether to throw it away instead — which is
+        // how the original deletes one from the map.
+        if let (Some(waypoint), Some(from)) = (app.dragging_waypoint, app.dragging_waypoint_from) {
+            if app.waypoint_meets_neighbour(waypoint) {
+                app.revert_waypoint(waypoint, from);
+                app.waypoint_delete = Some(waypoint);
+            }
+        }
+        app.dragging_waypoint = None;
+        app.dragging_waypoint_from = None;
+    }
+
     // Giving orders instead of selecting. `ScannerWndProc` (`1058:0ae1`) takes
     // this branch when a **fleet** is selected and either shift is held or Add
     // Way Points mode is on — the two are the same path, and shift is how you
     // lay a course without leaving select mode.
-    //
-    // In the mode, a drag that starts on one of the selected fleet's waypoints
-    // moves it instead (`FHandleWayPointDrag`, `1058:8176`).
-    let shift_click = ui.input(|i| i.modifiers.shift);
-    if app.selection.fleet.is_some() && (app.add_waypoints || shift_click) {
-        let to_galaxy = |p: Pos2| -> (i16, i16) {
-            #[allow(clippy::cast_possible_truncation)]
-            let x = (min_x + (p.x - rect.left() - margin) / scale) as i16;
-            #[allow(clippy::cast_possible_truncation)]
-            let y = (max_y - (p.y - rect.top() - margin) / scale) as i16;
-            (x, y)
-        };
-        if app.add_waypoints {
-            // A waypoint under the pointer, in galaxy units — the tolerance is
-            // the grab radius in pixels converted back.
-            if response.drag_started() {
-                app.dragging_waypoint = response
-                    .interact_pointer_pos()
-                    .filter(|p| on_map(*p))
-                    .map(to_galaxy)
-                    .and_then(|(x, y)| app.waypoint_at(x, y, f64::from(8.0 / scale)));
-            }
-            if response.dragged() {
-                if let (Some(waypoint), Some(p)) =
-                    (app.dragging_waypoint, response.interact_pointer_pos())
-                {
-                    let (x, y) = to_galaxy(p);
-                    app.move_waypoint(waypoint, x, y);
-                }
-            }
-            if response.drag_stopped() {
-                app.dragging_waypoint = None;
-            }
-        }
+    if app.selection.fleet.is_some() && (app.add_waypoints || shift_held) {
         if response.clicked() {
             if let Some(p) = response.interact_pointer_pos().filter(|p| on_map(*p)) {
                 let (x, y) = to_galaxy(p);
-                app.add_waypoint(x, y, f64::from(SNAP_PIXELS / scale));
+                app.add_waypoint(x, y, reach);
             }
         }
     } else if let Some((x, y, planet, fleet)) = clicked {
@@ -710,6 +742,11 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 app.scan_click_on(hit);
             }
         }
+    }
+
+    // The question a drop onto a neighbour raises.
+    if let Some(waypoint) = app.waypoint_delete {
+        delete_waypoint_prompt(app, ui, rect, waypoint);
     }
 
     // The menu itself, while it is up. It is placed on the object rather than
@@ -1210,4 +1247,38 @@ fn fleet_glyphs(app: &mut App, ui: &mut egui::Ui, fleets: &[(egui::Pos2, (u32, u
             painter.circle_stroke(*at, 5.0, Stroke::new(1.5_f32, colour));
         }
     }
+}
+
+/// The question `FHandleWayPointDrag` asks when a waypoint is dropped onto the
+/// one before or after it (`idsSureWantDeleteCurrentWaypoint`, alerted at
+/// `1058:8836`).
+///
+/// Saying no leaves the waypoint where it started, which the drop has already
+/// put it back to; saying yes drops it, and `DeleteCurWayPoint`
+/// (`1050:9b08`) then collapses the duplicate pair that removing it can leave
+/// behind.
+fn delete_waypoint_prompt(app: &mut App, ui: &mut egui::Ui, rect: Rect, waypoint: usize) {
+    let where_ = Rect::from_center_size(rect.center(), egui::vec2(240.0, 64.0));
+    ui.painter()
+        .rect_filled(where_, 2.0, Color32::from_rgb(0x20, 0x20, 0x20));
+    ui.painter().rect_stroke(
+        where_,
+        2.0,
+        Stroke::new(1.0_f32, Color32::from_rgb(0xc0, 0xc0, 0xc0)),
+    );
+    let mut child = ui.child_ui(
+        where_.shrink(8.0),
+        egui::Layout::top_down(egui::Align::Min),
+        None,
+    );
+    child.label("Delete this waypoint?");
+    child.horizontal(|ui| {
+        if ui.button("Yes").clicked() {
+            app.delete_waypoint(waypoint);
+            app.waypoint_delete = None;
+        }
+        if ui.button("No").clicked() {
+            app.waypoint_delete = None;
+        }
+    });
 }

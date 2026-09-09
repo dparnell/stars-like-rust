@@ -104,8 +104,6 @@ fn order_salt(game_id: u32, player: u8, turn: i16) -> u16 {
 const PLANET_CLASS: u8 = 1;
 /// The object class for a fleet.
 const FLEET_CLASS: u8 = 2;
-/// The object class for "no target at all" — a bare coordinate.
-const NO_TARGET_CLASS: u8 = 4;
 
 /// What the player has picked out of the current game.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -394,6 +392,16 @@ pub struct App {
     pub add_waypoints: bool,
     /// Which waypoint a drag is moving, while one is under way.
     pub dragging_waypoint: Option<usize>,
+    /// Where that waypoint was before the drag picked it up.
+    ///
+    /// The original rubber-bands the leg and only writes the waypoint on
+    /// release, so it still has the old point to put back when the drop turns
+    /// out to be a delete (`FHandleWayPointDrag`, `1058:8176`). This engine
+    /// moves the waypoint as the drag goes, so it keeps the old point here.
+    pub dragging_waypoint_from: Option<stars_core::movement::Point>,
+    /// A waypoint whose drag ended on one of its neighbours, waiting for the
+    /// player to confirm that it should go.
+    pub waypoint_delete: Option<usize>,
     /// The measuring tape, while it is stretched: where it started and where
     /// its far end is now.
     pub measuring: Option<(stars_core::movement::Point, stars_core::movement::Point)>,
@@ -1471,11 +1479,10 @@ impl App {
                 .unwrap_or(0),
             task: waypoint.task,
             warp: waypoint.warp,
-            grobj: if waypoint.target.is_some() {
-                PLANET_CLASS
-            } else {
-                NO_TARGET_CLASS
-            },
+            // The waypoint's own class, not a guess from whether it has a
+            // target: since a waypoint can land on a fleet or a `THING` as
+            // well as a planet, "has a target" no longer means "planet".
+            grobj: waypoint.target_class,
             valid_task: waypoint.task != 0,
             flags_high: 0,
             task_data: waypoint
@@ -1484,7 +1491,22 @@ impl App {
                 .map(stars_formats::TransportTask::encode)
                 .unwrap_or_default(),
         };
-        self.orders.push(LogRecord::waypoint(&order, insert));
+        let record = LogRecord::waypoint(&order, insert);
+        // A drag moves a waypoint every frame it is held, and the original
+        // writes the move **once**, on release. Rather than defer the write,
+        // an update that follows an update to the same waypoint replaces it —
+        // the same rewind `LogChangeRelations` does, and it leaves the log
+        // holding one record with the final position in it.
+        if !insert {
+            if let Some(last) = self.orders.last() {
+                if last.record_type == stars_formats::LogRecordType::FleetOrderUpdate
+                    && last.data.get(..4) == record.data.get(..4)
+                {
+                    self.orders.pop();
+                }
+            }
+        }
+        self.orders.push(record);
     }
 
     /// Set what share of a player's resources goes to research.
@@ -2692,7 +2714,8 @@ impl App {
     }
 
     /// Where one of the selected fleet's waypoints is.
-    fn waypoint_point(&self, index: usize) -> Option<stars_core::movement::Point> {
+    #[must_use]
+    pub fn waypoint_point(&self, index: usize) -> Option<stars_core::movement::Point> {
         let fleet = self.selection.fleet?;
         let waypoint = self
             .game
@@ -2957,7 +2980,7 @@ impl App {
     ///
     /// Waypoint 0 is where the fleet is and cannot be dragged. Returns whether
     /// anything moved.
-    pub fn move_waypoint(&mut self, waypoint: usize, x: i16, y: i16) -> bool {
+    pub fn move_waypoint(&mut self, waypoint: usize, x: i16, y: i16, snap: f64) -> bool {
         let Some(index) = self.selection.fleet else {
             return false;
         };
@@ -2965,7 +2988,7 @@ impl App {
             return false;
         }
         let me = self.local_player();
-        let at = stars_core::movement::Point::new(x, y);
+        let asked = stars_core::movement::Point::new(x, y);
         let Some(game) = self.game.as_ref() else {
             return false;
         };
@@ -2977,16 +3000,28 @@ impl App {
         {
             return false;
         }
+
+        // The drop lands on whatever is in reach, exactly as a new waypoint
+        // does — `FHandleWayPointDrag` calls the same `FFindNearestObject`
+        // with the same twenty-pixel radius.
+        let (at, target, target_class) = match self.nearest_scan(asked, snap) {
+            Some((object, position)) => {
+                let (target, class) = self.waypoint_target(object);
+                (position, target, class)
+            }
+            None => (asked, None, stars_core::fleet::grobj::POSITION),
+        };
+
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        let Some(fleet) = game.fleets.get(index) else {
+            return false;
+        };
         let from = fleet.waypoints[waypoint - 1].position;
         #[allow(clippy::cast_possible_truncation)]
         let distance = stars_core::movement::distance(from, at) as i32;
         let warp = self.suggested_warp(index, distance.max(1));
-        let target = game
-            .planets
-            .iter()
-            .chain(game.known_planets.iter())
-            .find(|p| p.position == Some(at))
-            .map(|p| p.id);
 
         let Some(game) = self.game.as_mut() else {
             return false;
@@ -2996,8 +3031,8 @@ impl App {
         };
         let leg = &mut fleet.waypoints[waypoint];
         leg.position = at;
-        leg.target = target.and_then(|id| u16::try_from(id).ok());
-        leg.target_class = if target.is_some() { 1 } else { 4 };
+        leg.target = target;
+        leg.target_class = target_class;
         leg.warp = warp;
         if waypoint == 1 {
             fleet.warp = Some(warp);
@@ -3005,6 +3040,45 @@ impl App {
         self.log_waypoint(index, waypoint, false);
         self.dirty = true;
         true
+    }
+
+    /// Whether a waypoint now sits exactly on the one before or after it.
+    ///
+    /// `FHandleWayPointDrag` tests this on release and, when it holds, puts
+    /// the waypoint back where it was and asks whether to delete it instead —
+    /// dragging a waypoint onto its neighbour is how the original lets you
+    /// throw one away from the map.
+    #[must_use]
+    pub fn waypoint_meets_neighbour(&self, waypoint: usize) -> bool {
+        let Some(index) = self.selection.fleet else {
+            return false;
+        };
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        let Some(fleet) = game.fleets.get(index) else {
+            return false;
+        };
+        let Some(leg) = fleet.waypoints.get(waypoint) else {
+            return false;
+        };
+        if waypoint == 0 {
+            return false;
+        }
+        let before = fleet.waypoints[waypoint - 1].position == leg.position;
+        let after = fleet
+            .waypoints
+            .get(waypoint + 1)
+            .is_some_and(|next| next.position == leg.position);
+        before || after
+    }
+
+    /// Put a waypoint back where a drag picked it up, without logging a move.
+    ///
+    /// The original never wrote the new point in the first place; this engine
+    /// moves as it drags, so it has to undo.
+    pub fn revert_waypoint(&mut self, waypoint: usize, to: stars_core::movement::Point) -> bool {
+        self.move_waypoint(waypoint, to.x, to.y, 0.0)
     }
 
     /// Drop one of the selected fleet's waypoints.
@@ -3031,16 +3105,32 @@ impl App {
         }
         let fleet_word = (u16::try_from(fleet.owner.max(0)).unwrap_or(0) << 9) | (fleet.id & 0x1ff);
         fleet.waypoints.remove(waypoint);
+        // Removing one can leave its neighbours on the same point, and the
+        // original collapses that pair rather than leaving a leg of zero
+        // length behind (`DeleteCurWayPoint`, `1050:9b08`).
+        let doubled = fleet
+            .waypoints
+            .get(waypoint)
+            .is_some_and(|next| next.position == fleet.waypoints[waypoint - 1].position);
+        if doubled {
+            fleet.waypoints.remove(waypoint);
+        }
         if fleet.waypoints.len() < 2 {
             fleet.warp = None;
         }
-        self.orders.push(stars_formats::LogRecord::delete_waypoint(
-            stars_formats::FleetOrderDelete {
-                fleet_id: fleet_word,
-                order_index: u16::try_from(waypoint).unwrap_or(1),
-                delete_extra: false,
-            },
-        ));
+        let mut record = |index: usize| {
+            self.orders.push(stars_formats::LogRecord::delete_waypoint(
+                stars_formats::FleetOrderDelete {
+                    fleet_id: fleet_word,
+                    order_index: u16::try_from(index).unwrap_or(1),
+                    delete_extra: false,
+                },
+            ));
+        };
+        record(waypoint);
+        if doubled {
+            record(waypoint);
+        }
         self.dirty = true;
         true
     }
@@ -3056,12 +3146,17 @@ impl App {
         let game = self.game.as_ref()?;
         let record = game.fleets.get(fleet)?;
         let at = stars_core::movement::Point::new(x, y);
+        // The **nearest** one, not the first in reach: the original picks the
+        // waypoint out with `FFindNearestObject`, which answers with whatever
+        // is closest.
         record
             .waypoints
             .iter()
             .enumerate()
             .skip(1)
-            .find(|(_, w)| stars_core::movement::distance(w.position, at) <= tolerance)
+            .map(|(index, w)| (index, stars_core::movement::distance(w.position, at)))
+            .filter(|(_, d)| *d <= tolerance)
+            .min_by(|(_, a), (_, b)| a.total_cmp(b))
             .map(|(index, _)| index)
     }
 

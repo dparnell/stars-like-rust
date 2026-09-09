@@ -767,11 +767,24 @@ Shift is how you lay a course without leaving select mode, and the mode is how
 you lay several without holding a key. Neither works with a planet selected;
 you have to have a fleet in hand.
 
-Everything else falls through to the branch below, which is where a drag that
-starts on one of the selected fleet's existing waypoints moves it
-(`FHandleWayPointDrag`, `1058:8176`, finding the waypoint with
-`FNearAWayPoint`, `1058:8074`). Waypoint 0 is where the fleet *is* and cannot
-be dragged.
+Everything else falls through to the branch below (`1058:0b1c`), which asks
+`FNearAWayPoint` (`1058:8074`) whether one of the selected fleet's own
+waypoints is within reach of the press and, if it is, hands the press to
+`FHandleWayPointDrag` (`1058:8176`). **Dragging needs neither the mode nor the
+shift** — it is what a plain press on a waypoint does whenever a fleet is
+selected, and the two branches are exclusive because shift would have added a
+waypoint rather than grabbed one.
+
+`FNearAWayPoint` asks `FFindNearestObject` with mask `0x4f` — the same mask a
+drop uses — so the grab radius is the same twenty screen pixels, and the
+waypoint has to be the *nearest* thing rather than merely near. It then
+refuses waypoint 0: when the point found is the selection's own point it walks
+waypoints 1 upward looking for a match, so the waypoint the fleet is sitting on
+cannot be picked up.
+
+A press that grabs a waypoint but never moves returns 0 from
+`FHandleWayPointDrag`, and the handler falls on through to the ordinary
+selection code — so a click on a waypoint still selects.
 
 ### A waypoint lands on what it is near
 
@@ -818,10 +831,40 @@ the *next* waypoint along. And a fleet may hold **87** orders including
 waypoint 0; the 88th beeps and puts up an alert, whose text says 86 because it
 counts the legs rather than the entries.
 
-`FHandleWayPointDrag` snaps the same way while a waypoint is being dragged, but
-with a wrinkle: it passes mask `0x4f` normally and `0x8f` while a key is held,
-and `0x80` sets the reach to **zero**. The key turns snapping off rather than
-widening it.
+`FHandleWayPointDrag` snaps the same way while a waypoint is being dragged, and
+here shift means the **opposite** thing. The drag loop polls
+`GetAsyncKeyState(VK_SHIFT)` each time round (`1058:841e`) and asks with mask
+`0x8f` instead of `0x4f` when it is down; `0x80` sets the reach to **zero**. So
+shift lays a waypoint on a click and *pins one exactly where the pointer is* on
+a drag — it starts an add, and it suppresses a snap.
+
+### Dropping one on its neighbour deletes it
+
+A drag that ends with the waypoint on the point of the one before it, or the
+one after it, is not a move at all:
+
+```c
+if (scan.pt == waypoint[iwpAct - 1].pt)          fDelete = 1;
+else if (iwpAct < cord - 1 && scan.pt == waypoint[iwpAct + 1].pt)
+                                                 fDelete = 2;
+if (fDelete) {
+    /* put the waypoint back where the drag found it, then ask */
+    AlertSz(idsSureWantDeleteCurrentWaypoint, MB_YESNO);
+    if (yes) DeleteCurWayPoint(fDelete == 1);
+}
+```
+
+The waypoint is restored to its pre-drag position *before* the question is
+asked, so answering no leaves the orders exactly as they were. Answering yes
+calls `DeleteCurWayPoint` (`1050:9b08`), which removes it and then, if that
+leaves its two neighbours on the same point, **collapses that pair too** rather
+than leaving a leg of no length behind. The flag only decides which waypoint is
+left selected afterwards, not what is removed.
+
+This is how the original throws a waypoint away from the map, and it is why
+snapping and deleting have to arrive together: with a twenty-pixel snap, a drag
+onto a neighbour lands exactly on it, and without the delete it would simply
+make a zero-length leg.
 
 **The client picks the warp for you**, and the rule is worth having in full.
 
