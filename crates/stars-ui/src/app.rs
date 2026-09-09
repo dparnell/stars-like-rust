@@ -6904,6 +6904,43 @@ impl App {
         out
     }
 
+    /// What the note under the allocation box says when it is pressed
+    /// (`FTrackResearchDlg`, `10d8:1b5f`, raising `grPopupString`).
+    ///
+    /// The note is three lines tall and the original picks between two
+    /// sentences by a rule worth stating carefully: without **Generalized
+    /// Research** it is always the Bleeding Edge one; with it, the Bleeding
+    /// Edge one appears only in the **lower half** of the three lines and only
+    /// when the race has Bleeding Edge as well; otherwise the Generalized
+    /// Research one. So a race with both traits carries both notes stacked,
+    /// and which comes up depends on which half is pressed.
+    ///
+    /// `lower` is whether the press was past the halfway line. The wording is
+    /// this project's own, as the game's authored prose always is.
+    #[must_use]
+    pub fn research_note_text(&self, lower: bool) -> Option<String> {
+        use stars_core::race::lrt;
+        let me = self.local_player();
+        let player = self.game.as_ref()?.players.get(me)?;
+        let generalized = player.race.has_lrt(lrt::GENERALIZED_RESEARCH);
+        let bleeding = player.race.has_lrt(lrt::BLEEDING_EDGE_TECH);
+        let bleeding_note = "A new technology costs twice as much to build until every one \
+             of its requirements is beaten by a level, after which it drops back to normal. \
+             Miniaturisation then runs at five per cent a level and stops at eighty."
+            .to_string();
+        let generalized_note = "Only half of what this race spends on research reaches the \
+             field it is studying; fifteen per cent of the whole reaches every other field \
+             instead."
+            .to_string();
+        if !generalized {
+            return bleeding.then_some(bleeding_note);
+        }
+        if lower && bleeding {
+            return Some(bleeding_note);
+        }
+        Some(generalized_note)
+    }
+
     /// What the **Next field to research** dropdown offers, in the original's
     /// order: `<Same field>`, the six fields, then `<Lowest field>`.
     #[must_use]

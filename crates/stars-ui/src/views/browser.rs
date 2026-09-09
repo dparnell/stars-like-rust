@@ -47,7 +47,8 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     // The panel is a child window the dialog creates rather than a control the
     // template places, and it is sized from the font (`BrowserDlg`,
     // `10d8:21ce`).
-    let (panel_at, panel_size) = crate::dialog::browser_panel(line);
+    let line10 = ui.text_style_height(&egui::TextStyle::Body);
+    let (panel_at, panel_size) = crate::dialog::browser_panel(line, line10);
     let panel = egui::Rect::from_min_size(rect.min + panel_at.to_vec2(), panel_size).intersect(
         egui::Rect::from_min_max(
             egui::pos2(rect.left(), at(0x42e).bottom() + 2.0),
@@ -81,6 +82,29 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     }
     if crate::views::dialog_button(ui, at(0x2), &caption(0x2), true).clicked() {
         app.close_browser();
+    }
+}
+
+/// The same panel for an arbitrary component, which is what the
+/// `grPopupComponent` hover help puts up.
+///
+/// `DrawPopup` calls the very routine the browser calls — the pop-up and the
+/// browser's own middle are one panel — so this shows the given component and
+/// then puts the browser back where it was.
+pub fn component_panel(app: &mut App, ui: &mut egui::Ui, showing: (u16, usize)) {
+    let was = app.browser;
+    let opened = was.is_none();
+    if opened {
+        app.open_browser();
+    }
+    if let Some(browser) = app.browser.as_mut() {
+        browser.showing = showing;
+    }
+    detail(app, ui);
+    if opened {
+        app.browser = None;
+    } else {
+        app.browser = was;
     }
 }
 

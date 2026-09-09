@@ -1454,15 +1454,19 @@ pub const BROWSER: Template = Template {
 /// x      = 6
 /// y      = dyArial8 * 3 / 2 + 12
 /// width  = 0x158, and 0x28 wider again when dyArial8 > 14
-/// height = dyArial8 * 12 + 0x48 + 6 + a global the layout carries
+/// height = dyArial8 * 12 + dyArial10 + 0x4e
 /// ```
 ///
 /// So the panel is sized from the **font**, not from the widest category name.
+/// The global the height adds is `dyArial10` (`DS:0x530a`), which is how the
+/// same size turns up again as the `grPopupComponent` pop-up's — the two are
+/// the same panel, painted by the same routine. See
+/// [`crate::popup::component_size`].
 #[must_use]
-pub fn browser_panel(line: f32) -> (egui::Pos2, egui::Vec2) {
-    let wide = if line > 14.0 { 0x28 as f32 } else { 0.0 };
+pub fn browser_panel(line: f32, line10: f32) -> (egui::Pos2, egui::Vec2) {
+    let (width, height) = crate::popup::component_size(line, line10);
     (
         egui::pos2(6.0, line * 1.5 + 12.0),
-        egui::vec2(0x158 as f32 + wide, line * 12.0 + 0x48 as f32 + 6.0),
+        egui::vec2(width, height),
     )
 }

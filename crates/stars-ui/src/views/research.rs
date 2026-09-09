@@ -32,8 +32,28 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             currently_researching(app, ui);
             ui.add_space(6.0);
             allocation(app, ui);
-            for note in app.research_notes() {
-                ui.label(egui::RichText::new(note).small().weak());
+            // The note under the allocation box. It is three lines tall in
+            // the original and pressing it raises `grPopupString` with one of
+            // two sentences, chosen by which half was pressed — see
+            // `App::research_note_text`.
+            let notes = app.research_notes();
+            let mut raise = None;
+            for (index, note) in notes.iter().enumerate() {
+                let response = ui.add(
+                    egui::Label::new(egui::RichText::new(note).small().weak())
+                        .sense(egui::Sense::click()),
+                );
+                if response.is_pointer_button_down_on() {
+                    if let Some(at) = ui.ctx().pointer_latest_pos() {
+                        let lower = index > 0;
+                        if let Some(text) = app.research_note_text(lower) {
+                            raise = Some((crate::popup::Popup::Note(text), (at.x, at.y)));
+                        }
+                    }
+                }
+            }
+            if let Some(popup) = raise {
+                app.popup = Some(popup);
             }
         });
     });
@@ -89,6 +109,7 @@ fn technology_status(app: &mut App, ui: &mut egui::Ui) {
 /// selected field — see `stars_core::research::expected_benefits`.
 fn benefits(app: &mut App, ui: &mut egui::Ui) {
     let benefits = app.research_benefits();
+    let mut raise: Option<(crate::popup::Popup, (f32, f32))> = None;
     egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.label(
             egui::RichText::new("Expected Research Benefits")
@@ -109,14 +130,39 @@ fn benefits(app: &mut App, ui: &mut egui::Ui) {
                         2..=4 => egui::Color32::from_rgb(0xff, 0x8a, 0x8a),
                         _ => ui.visuals().text_color(),
                     };
-                    ui.label(
-                        egui::RichText::new(format!("{}  ({})", benefit.name, benefit.levels_away))
+                    let response = ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(format!(
+                                "{}  ({})",
+                                benefit.name, benefit.levels_away
+                            ))
                             .small()
                             .color(colour),
+                        )
+                        .sense(egui::Sense::click()),
                     );
+                    // Pressing a line puts up that component's details:
+                    // `FTrackResearchDlg` (`10d8:1b5f`) fills `GlobalPD.part`
+                    // from the entry's own `grhst` and `iItem` and raises
+                    // `grPopupComponent`, which `DrawPopup` paints with the
+                    // very routine the Technology Browser's panel uses.
+                    if response.is_pointer_button_down_on() {
+                        if let Some(at) = ui.ctx().pointer_latest_pos() {
+                            raise = Some((
+                                crate::popup::Popup::Component((benefit.category, benefit.item)),
+                                (at.x, at.y),
+                            ));
+                        }
+                    }
                 }
             });
     });
+    if let Some(popup) = raise {
+        app.popup = Some(popup);
+    } else if ui.input(|i| i.pointer.any_released()) {
+        app.popup = None;
+    }
+    crate::views::popup::view(app, ui);
 }
 
 /// **Currently Researching**: the level in hand, its remaining cost, how long

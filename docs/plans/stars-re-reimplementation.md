@@ -3015,7 +3015,32 @@ disagree.
      Also worth noting from the resource: neither `<- Prev` nor `Next ->`
      carries an accelerator, which is unusual for this program.
 
-102. **What is still missing to call it playable.** Every waypoint task is now
+102. ~~**The component hover help.**~~ **Done.** Spec in
+     `docs/ui/technology-browser.md`. The last item on the browser's list, and
+     it turns out not to be a separate thing at all: `DrawPopup`'s
+     `grPopupComponent` arm calls **`DisplayComponentInfo`**, the very routine
+     that paints the browser's middle, and `Popup` (`10c0:0c7c`) sizes the
+     pop-up with the same formula `BrowserDlg` sizes its child with. The hover
+     help and the browser are one panel in two windows — which is also what
+     identifies the global in the browser's height as `dyArial10`
+     (`DS:0x530a`), so that formula is now exact rather than approximate.
+
+     It is raised from five places; the one this project wanted was the
+     **Research dialog's benefits list**. `FTrackResearchDlg` (`10d8:1b5f`)
+     works out the line as `(y - yTopFutureTech) / dyArial8`, fills
+     `GlobalPD.part` from that entry's own `grhst` and `iItem`, and raises it —
+     press-and-hold, like every `Popup` kind.
+
+     The same routine raises a `grPopupString` for the **tech note**, and its
+     rule is worth stating carefully: without Generalized Research it is always
+     the Bleeding Edge sentence (and there is no note without that trait
+     either); with it, the Bleeding Edge sentence appears only in the **lower
+     half** of the note's three lines and only when the race has Bleeding Edge
+     too; otherwise the Generalized Research sentence. A race with both carries
+     both notes stacked. The wording is ours, as the game's authored prose
+     always is.
+
+103. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

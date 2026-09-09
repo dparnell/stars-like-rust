@@ -74,6 +74,32 @@ pub enum Popup {
     Planet(PlanetSummary),
     /// `grPopupFleet`: a fleet's ships, one row per design.
     Fleet(FleetSummary),
+    /// `grPopupComponent`: a component's details, which is the **Technology
+    /// Browser's own panel** — `DrawPopup` calls the same
+    /// `DisplayComponentInfo` the browser calls, at the same width.
+    ///
+    /// Carried as the `(category, index)` pair the caller looked up, so the
+    /// view can build the panel the same way the browser builds it.
+    Component((u16, usize)),
+    /// `grPopupString`: a paragraph, word-wrapped to a width the caller
+    /// passes. The research dialog's tech note is one.
+    Note(String),
+}
+
+/// How big the component pop-up is (`Popup`, `10c0:0c7c`).
+///
+/// The width is **the same formula the Technology Browser's own panel uses**,
+/// and so is the height once `dyArial10` is put back — the browser adds it out
+/// of a global where the pop-up names it. The two windows are the same panel.
+///
+/// ```text
+/// width  = 0x158, and 0x28 wider again when dyArial8 > 14
+/// height = dyArial8 * 12 + dyArial10 + 0x4e
+/// ```
+#[must_use]
+pub fn component_size(line: f32, line10: f32) -> (f32, f32) {
+    let wide = if line > 14.0 { 0x28 as f32 } else { 0.0 };
+    (0x158 as f32 + wide, line * 12.0 + line10 + 0x4e as f32)
 }
 
 /// `grPopupUnknownObj`, whose four values go beside [`PLANET_LABELS`].

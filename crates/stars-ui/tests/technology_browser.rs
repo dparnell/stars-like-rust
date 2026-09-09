@@ -305,11 +305,79 @@ fn the_template_is_the_games_own() {
 
     // The panel is a child window sized from the **font**, not from the widest
     // category name: 0x158 wide, and 0x28 wider again past a 14-pixel line.
-    let (at, size) = browser_panel(13.0);
+    let (at, size) = browser_panel(13.0, 16.0);
     assert_eq!(at.x, 6.0);
     assert_eq!(at.y, 13.0 * 1.5 + 12.0);
     assert_eq!(size.x, 344.0);
-    assert_eq!(size.y, 13.0 * 12.0 + 72.0 + 6.0);
-    let (_, big) = browser_panel(16.0);
+    assert_eq!(size.y, 13.0 * 12.0 + 16.0 + 78.0);
+    let (_, big) = browser_panel(16.0, 20.0);
     assert_eq!(big.x, 344.0 + 40.0, "the large font gets a wider panel");
+
+    // And it is exactly the size the `grPopupComponent` hover help uses, which
+    // is the point: the two are the same panel, painted by the same routine.
+    let (w, h) = stars_ui::popup::component_size(13.0, 16.0);
+    assert_eq!((w, h), (size.x, size.y));
+}
+
+/// The research dialog's tech note picks between two sentences by a rule that
+/// depends on both traits and on which half of the note was pressed
+/// (`FTrackResearchDlg`, `10d8:1b5f`).
+#[test]
+fn the_tech_note_picks_its_sentence_by_trait_and_half() {
+    use stars_core::newgame::{NewGame, NewPlayer, Size};
+    use stars_core::opponents;
+    use stars_core::race::{lrt, Race};
+    use stars_ui::App;
+
+    let with = |bits: u32| {
+        let mut race = Race::humanoid();
+        race.lrt_bits = bits;
+        let mut app = App::new();
+        app.new_game(&NewGame {
+            name: "note".to_string(),
+            size: Size::Small,
+            players: vec![
+                NewPlayer::human(race),
+                opponents::opponent(1, 1).expect("an opponent").as_player(),
+            ],
+            ..NewGame::default()
+        })
+        .expect("creates the game");
+        app
+    };
+
+    // Neither trait: no note at all.
+    let plain = with(0);
+    assert!(plain.research_note_text(false).is_none());
+    assert!(plain.research_note_text(true).is_none());
+
+    // Bleeding Edge alone: its own sentence, either half.
+    let bleeding = with(1 << lrt::BLEEDING_EDGE_TECH);
+    let upper = bleeding.research_note_text(false).expect("a note");
+    assert!(upper.contains("twice as much"), "{upper}");
+    assert_eq!(
+        bleeding.research_note_text(true).as_deref(),
+        Some(upper.as_str())
+    );
+
+    // Generalized Research alone: its sentence in both halves, because the
+    // Bleeding Edge branch also wants that trait.
+    let general = with(1 << lrt::GENERALIZED_RESEARCH);
+    let note = general.research_note_text(false).expect("a note");
+    assert!(note.contains("half"), "{note}");
+    assert_eq!(
+        general.research_note_text(true).as_deref(),
+        Some(note.as_str())
+    );
+
+    // Both: two notes stacked, and which comes up depends on the half.
+    let both = with((1 << lrt::GENERALIZED_RESEARCH) | (1 << lrt::BLEEDING_EDGE_TECH));
+    assert!(both
+        .research_note_text(false)
+        .expect("the upper note")
+        .contains("half"));
+    assert!(both
+        .research_note_text(true)
+        .expect("the lower note")
+        .contains("twice as much"));
 }

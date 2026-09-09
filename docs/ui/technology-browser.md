@@ -109,10 +109,51 @@ ones a player fails into a sentence of our own. Two things follow: the wording
 is ours, and it **cannot drift from the rule**, because the rule is the same
 list the designer's parts list is filtered by.
 
+## The hover help is this panel
+
+`DrawPopup`'s `grPopupComponent` arm calls **`DisplayComponentInfo`** — the
+very routine that paints the browser's middle — so the hover help and the
+browser are one panel in two windows. `Popup` (`10c0:0c7c`) sizes the pop-up
+with the same formula the browser sizes its child with:
+
+```
+width  = 0x158, and 0x28 wider again when dyArial8 > 14
+height = dyArial8 * 12 + dyArial10 + 0x4e
+```
+
+which is what identifies the global the browser's own height adds as
+`dyArial10` (`DS:0x530a`).
+
+It is raised from five places — the designer's slots (`FTrackSlot`), the planet
+pane's orders (`ClickInPlanetOrders`), the Selection Summary (`MineClick`), the
+reports (`ExecuteReportClick`) and the **Research dialog's benefits list**. The
+last is the one this project needed: `FTrackResearchDlg` (`10d8:1b5f`) works
+out which line was pressed as `(y - yTopFutureTech) / dyArial8`, fills
+`GlobalPD.part` from that entry's own `grhst` and `iItem` through `FLookupPart`,
+and raises the pop-up. Like every `Popup` kind it is **press-and-hold**.
+
+### The research dialog's tech note
+
+The same routine raises a `grPopupString` for the note under the allocation
+box, which is three lines tall, and picks between two sentences by a rule worth
+stating carefully:
+
+* without **Generalized Research**, it is always the Bleeding Edge sentence
+  (and there is no note at all without that trait either);
+* with it, the Bleeding Edge sentence appears only in the **lower half** of the
+  three lines and only when the race has Bleeding Edge as well;
+* otherwise the Generalized Research sentence.
+
+So a race with both traits carries both notes stacked, and which one comes up
+depends on which half is pressed. The wording here is this project's own, as
+the game's authored prose always is.
+
 ## What is reproduced
 
 The window's own **geometry** — the template's five controls where the resource
-puts them, and the panel child sized from the font as `BrowserDlg` sizes it.
+puts them, and the panel child sized from the font as `BrowserDlg` sizes it —
+and the **hover help**, which is that same panel raised from the Research
+dialog's benefits list, with the tech note's two sentences and their rule.
 The modeless window, the seventeen-entry dropdown and its order, the walk with
 its wrap and its two filtering modes including the Mystery Trader distinction,
 the panel's costs, mass, per-kind figures, and the technology requirements
@@ -125,5 +166,4 @@ condition the player fails, and the component's own picture.
   game's own sheets when a copy of the original has been found —
   `docs/formats/resources.md`.
 * The original's **prose**, as above.
-* The **hover help** the Research dialog's benefits list shares with this
-  panel, which puts up a component's details from `rghsFutureTech`.
+

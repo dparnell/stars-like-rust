@@ -7,6 +7,11 @@
 use crate::popup::{self, FleetSummary, PlanetSummary, Popup};
 use crate::App;
 
+/// How wide a `grPopupString` note wraps to. The original takes the width
+/// from the caller — the research dialog passes `dxResRight`, the width of its
+/// own right-hand column.
+const NOTE_WIDTH: f32 = 260.0;
+
 fn colour([r, g, b]: [u8; 3]) -> egui::Color32 {
     egui::Color32::from_rgb(r, g, b)
 }
@@ -24,10 +29,11 @@ fn line(ui: &egui::Ui) -> f32 {
 }
 
 /// Draw the pop-up, if one is up.
-pub fn view(app: &App, ui: &egui::Ui) {
-    let Some((popup, (x, y))) = app.popup.as_ref() else {
+pub fn view(app: &mut App, ui: &mut egui::Ui) {
+    let Some((popup, (x, y))) = app.popup.clone() else {
         return;
     };
+    let popup = &popup;
     let font = font(ui);
     let text = colour(popup::TEXT);
     let width = |s: &str| {
@@ -58,6 +64,18 @@ pub fn view(app: &App, ui: &egui::Ui) {
                 labels + popup::LABEL_GAP_SIZE + value,
                 line * 4.0 + margin * 2.0,
             )
+        }
+        // The component pop-up is the Technology Browser's own panel, at the
+        // size that panel uses (`crate::popup::component_size`).
+        Popup::Component(_) => {
+            let (w, h) =
+                crate::popup::component_size(line, ui.text_style_height(&egui::TextStyle::Body));
+            egui::vec2(w, h)
+        }
+        // A paragraph, word-wrapped to a width the caller chose.
+        Popup::Note(note) => {
+            let galley = ui.fonts(|f| f.layout(note.clone(), font.clone(), text, NOTE_WIDTH));
+            galley.rect.size() + egui::vec2(margin * 2.0, margin * 2.0)
         }
         Popup::Fleet(fleet) => {
             let names = fleet
@@ -119,6 +137,21 @@ pub fn view(app: &App, ui: &egui::Ui) {
             }
         }
         Popup::Fleet(fleet) => fleet_rows(&painter, rect, fleet, &font, line, put),
+        Popup::Component(showing) => {
+            let inner = rect.shrink(margin);
+            let mut child = ui.child_ui(inner, egui::Layout::top_down(egui::Align::Min), None);
+            child.set_clip_rect(inner);
+            crate::views::browser::component_panel(app, &mut child, *showing);
+        }
+        Popup::Note(note) => {
+            painter.text(
+                rect.min + egui::vec2(margin, margin),
+                egui::Align2::LEFT_TOP,
+                note,
+                font.clone(),
+                text,
+            );
+        }
     }
 }
 
