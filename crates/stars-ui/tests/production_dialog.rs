@@ -687,3 +687,63 @@ fn an_unchanged_default_queue_is_not_an_order() {
     app.set_default_queue(changed);
     assert!(app.orders.len() > before, "something did");
 }
+
+/// The dialog is laid out from its own template — resource 93, `Planet
+/// Production`, 294 by 191 dialog units and thirteen controls.
+#[test]
+fn the_template_is_the_games_own() {
+    use stars_ui::dialog::{Class, PRODUCTION};
+
+    assert_eq!(PRODUCTION.caption, "Planet Production");
+    assert_eq!(PRODUCTION.size, (294, 191));
+    assert_eq!(PRODUCTION.controls.len(), 13);
+
+    // The two lists sit side by side with the button column between them.
+    let inventory = PRODUCTION.control(0x416).expect("the inventory list");
+    let queue = PRODUCTION.control(0x417).expect("the queue list");
+    assert_eq!(inventory.class, Class::ListBox);
+    assert_eq!(queue.class, Class::ListBox);
+    assert_eq!(inventory.at, (8, 12, 109, 84));
+    assert_eq!(queue.at, (174, 12, 111, 84));
+    assert!(inventory.at.0 + inventory.at.2 < 125);
+    assert!(125 + 40 < queue.at.0);
+
+    // The captions are the resource's, ampersands and all.
+    assert_eq!(PRODUCTION.control(0x418).expect("Add").text, "&Add ->");
+    assert_eq!(PRODUCTION.control(0x418).expect("Add").label(), "Add ->");
+    assert_eq!(
+        PRODUCTION.control(0x8b).expect("the checkbox").label(),
+        "Contribute only leftover resources to research"
+    );
+}
+
+/// The shipped resource really does overlap two pairs of buttons by four
+/// dialog units, and this project opens them out so both stay clickable.
+#[test]
+fn the_middle_column_has_two_overlaps_in_the_resource() {
+    use stars_ui::dialog::{unoverlapped, PRODUCTION};
+
+    let up = PRODUCTION.control(0x439).expect("Item Up").at;
+    let add = PRODUCTION.control(0x418).expect("Add").at;
+    let clear = PRODUCTION.control(0x42d).expect("Clear").at;
+    let help = PRODUCTION.control(0x76).expect("Help").at;
+    // As authored: Item Up 0..14 against Add at 10, Clear 60..74 against Help
+    // at 70.
+    assert_eq!((up.1, up.3), (0, 14));
+    assert_eq!(add.1, 10);
+    assert_eq!(clear.1, 60);
+    assert_eq!(help.1, 70);
+
+    let placed = unoverlapped(&PRODUCTION);
+    let y = |id: u16| placed.iter().find(|(o, _)| *o == id).expect("placed").1;
+    assert_eq!(y(0x439).1, 0, "the first of the column does not move");
+    assert_eq!(y(0x418).1, 14, "Add drops to just under Item Up");
+    assert_eq!(y(0x419).1, 35, "and Remove was never in the way");
+    assert_eq!(y(0x42d).1, 60);
+    assert_eq!(y(0x76).1, 74, "Help drops to just under Clear");
+    assert_eq!(y(0x43a).1, 90, "Item Down was clear already");
+
+    // Nothing outside that column is touched.
+    assert_eq!(y(0x1), PRODUCTION.control(0x1).expect("OK").at);
+    assert_eq!(y(0x416), PRODUCTION.control(0x416).expect("list").at);
+}

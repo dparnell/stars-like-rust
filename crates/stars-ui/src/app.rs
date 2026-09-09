@@ -6331,6 +6331,71 @@ impl App {
     /// The quantity costed is the selected **queue** row's, if one is
     /// selected, and otherwise one of the selected inventory item — which is
     /// `GetProductionCosts`' `fOnlyOne`.
+    /// What the selected item costs, as the four raw figures the dialog's own
+    /// panel prints: ironium, boranium, germanium and resources.
+    ///
+    /// `DrawProductionDlg` (`10d0:35dc`) draws this twice, once under each
+    /// list, and `queue` says which — the queue's row when it is true and the
+    /// inventory's when it is false. The original prints each with `"%ld"` and
+    /// puts `kT` after the first three only.
+    #[must_use]
+    pub fn production_costs(&self, queue: bool) -> Option<[i32; 4]> {
+        let dialog = self.production.as_ref()?;
+        let me = self.local_player();
+        let game = self.game.as_ref()?;
+        let player = game.players.get(me)?;
+        let who = stars_core::parts::Builder::player(player);
+        let designs: &[stars_core::design::ShipDesign] =
+            game.designs.get(me).map_or(&[], Vec::as_slice);
+
+        let (item, ship, count) = if queue {
+            let entry = dialog.queue_index.and_then(|i| dialog.queue.get(i))?;
+            (entry.item, entry.ship, entry.count)
+        } else {
+            let inventory = self.production_inventory();
+            let row = inventory.get(dialog.inventory_index)?;
+            (row.item, row.ship, 1)
+        };
+        let cost = if ship {
+            designs
+                .get(usize::from(item))
+                .filter(|d| d.hull_id >= 0)
+                .and_then(|d| d.true_cost(&who))
+                .map(|c| stars_core::production::ItemCost {
+                    minerals: c.minerals,
+                    resources: c.resources,
+                })
+        } else {
+            stars_core::production::item_cost(item, &who, false)
+        }?;
+        Some([
+            cost.minerals[0] * count,
+            cost.minerals[1] * count,
+            cost.minerals[2] * count,
+            cost.resources * count,
+        ])
+    }
+
+    /// The line under the queue's cost panel: how far the first unit is paid
+    /// for, and when the row will be done.
+    ///
+    /// `"%d%% Done,   Completion "` (`idsDDoneCompletion`) with
+    /// `PszProductionETA`'s wording after it.
+    #[must_use]
+    pub fn production_completion(&self) -> Option<(i32, String)> {
+        let dialog = self.production.as_ref()?;
+        let index = dialog.queue_index?;
+        let entry = dialog.queue.get(index)?;
+        let eta = self
+            .production_schedule()
+            .get(index)
+            .map(|(text, _)| text.clone())?;
+        Some((entry.completion, eta))
+    }
+
+    /// The same four figures, worded against what the planet has on the
+    /// surface. Kept for the tests, which check the arithmetic rather than the
+    /// panel.
     #[must_use]
     pub fn production_cost_rows(&self) -> Vec<(String, String)> {
         let Some(dialog) = self.production.as_ref() else {

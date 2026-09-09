@@ -2872,7 +2872,35 @@ disagree.
     wrong, and a test now pins both disagreements; the resize is carried per
     record.
 
-96. **What is still missing to call it playable.** Every waypoint task is now
+96. ~~**The Production dialog's layout.**~~ **Done.** Spec in
+    `docs/ui/production.md`. The dialog's rules were all recovered already; its
+    *shape* was egui's. It is **resource 93**, `Planet Production`, 294 by 191
+    dialog units in MS Sans Serif 8pt with thirteen controls, so the layout is
+    data: the two lists at 8,12 and 174,12 both 84 tall, the buttons that move
+    items between them in a column at x = 125, and a row along the foot at
+    y = 168. `crates/stars-ui/src/dialog.rs` now carries that table, and the
+    view places every control from it.
+
+    **Two pairs of buttons overlap in the resource as shipped.** Buttons are
+    fourteen units tall, and `Item Up` sits at `y = 0` against `Add ->` at 10,
+    and `Clear` at 60 against `Help` at 70 — four units each. That is genuinely
+    what is in the file (thirteen controls, no extra data on any, checked by
+    hand off the raw bytes, and `ChangeProduction` moves nothing afterwards).
+    The table is reproduced unchanged and the overlaps are opened out before
+    drawing, since two buttons on top of each other leave one unclickable; a
+    test pins both the raw values and the adjustment.
+
+    Everything between the lists and the foot is drawn rather than placed. The
+    **cost panel** goes under each list: `Required Minerals:` in bold, then
+    ironium, boranium, germanium and — `rgpszMin`'s **sixth** entry, not its
+    fourth, the routine rewriting the index to 5 on the last pass — resources,
+    each label in its own `rgcrMin` colour with the figure right-aligned and
+    `kT` after the first three only. Under the queue's panel goes
+    `"%d%% Done,   Completion "` and the row's estimate. The **blue diamond**
+    is placed by the formula rather than by eye: `dyArial8 * 5 / 2 + 12` up
+    from the bottom, six in, `dyArial8` wide and `dyArial8 | 1` tall.
+
+97. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

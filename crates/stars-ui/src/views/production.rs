@@ -8,116 +8,247 @@
 //!
 //! See `docs/ui/production.md`.
 
+use crate::dialog::Control;
 use crate::App;
 use stars_core::production::EtaMark;
 
-/// Draw the dialog's contents.
+/// Draw the dialog's contents, laid out from its own template.
+///
+/// Resource 93, `Planet Production`, 294 by 191 dialog units: the inventory
+/// and the queue side by side, the buttons that move items between them in a
+/// column down the middle, and a row along the foot. Everything between the
+/// lists and that row is drawn rather than being controls — the cost panel
+/// under each list, and the blue diamond. See [`crate::dialog::PRODUCTION`].
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
     if app.production.is_none() {
         return;
     }
     let (ctrl, shift) = ui.input(|i| (i.modifiers.command, i.modifiers.shift));
     let step = App::production_step(ctrl, shift);
+    let template = &crate::dialog::PRODUCTION;
 
-    title(app, ui);
-    ui.separator();
+    // The title bar's own text: `"Production Queue for %s"`.
+    ui.label(egui::RichText::new(title(app)).strong());
 
-    ui.horizontal_top(|ui| {
-        // Left: what the planet can build.
-        ui.vertical(|ui| {
-            ui.set_min_width(240.0);
-            ui.label(egui::RichText::new("Inventory").small().strong());
-            egui::ScrollArea::vertical()
-                .id_source("production-inventory")
-                .max_height(260.0)
-                .show(ui, |ui| inventory(app, ui, step));
-        });
+    let want = template.pixels();
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(
+            ui.available_width(),
+            want.y
+                * template.scale(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    ui.available_size(),
+                )),
+        ),
+        egui::Sense::hover(),
+    );
+    let scale = template.scale(rect);
+    let places = crate::dialog::unoverlapped(template);
+    let at = |id: u16| -> egui::Rect {
+        let (_, place) = places
+            .iter()
+            .find(|(other, _)| *other == id)
+            .copied()
+            .unwrap_or((id, (0, 0, 0, 0)));
+        let (x, y, w, h) = place;
+        egui::Rect::from_min_size(
+            rect.min
+                + egui::vec2(
+                    f32::from(x) * crate::dialog::DLU_X * scale,
+                    f32::from(y) * crate::dialog::DLU_Y * scale,
+                ),
+            egui::vec2(
+                f32::from(w) * crate::dialog::DLU_X * scale,
+                f32::from(h) * crate::dialog::DLU_Y * scale,
+            ),
+        )
+    };
+    let caption = |id: u16| -> String {
+        template
+            .control(id)
+            .map_or_else(String::new, Control::label)
+    };
 
-        // Middle: the two buttons that move items between the lists. The
-        // modifiers change how many, so the labels say so.
-        ui.vertical(|ui| {
-            ui.add_space(24.0);
-            if ui
-                .button("Add ▶")
-                .on_hover_text(
-                    "Shift for ten, Ctrl for a hundred, both for as many as possible. \
-                     The item goes under whichever queue row is selected.",
-                )
-                .clicked()
-            {
-                app.production_add(step);
-            }
-            if ui
-                .button("◀ Remove")
-                .on_hover_text("Shift for ten, Ctrl for a hundred, both for all of them.")
-                .clicked()
-            {
-                app.production_remove(step);
-            }
-            if step != 1 {
-                ui.label(egui::RichText::new(format!("×{step}")).small().weak());
-            }
-        });
-
-        // Right: the queue.
-        ui.vertical(|ui| {
-            ui.set_min_width(240.0);
-            ui.label(egui::RichText::new("Production queue").small().strong());
-            egui::ScrollArea::vertical()
-                .id_source("production-queue")
-                .max_height(260.0)
-                .show(ui, |ui| queue(app, ui, step));
-        });
-
-        ui.vertical(|ui| {
-            ui.add_space(24.0);
-            if ui.button("Item Up").clicked() {
-                app.production_move(true);
-            }
-            if ui.button("Item Down").clicked() {
-                app.production_move(false);
-            }
-            ui.add_space(6.0);
-            if ui
-                .button("Clear")
-                .on_hover_text("Empties the queue. Anything part-built loses what it has spent.")
-                .clicked()
-            {
-                app.production_clear();
-            }
-        });
+    // The two lists.
+    list(ui, at(0x416), "production-inventory", |ui| {
+        inventory(app, ui, step)
     });
+    list(ui, at(0x417), "production-queue", |ui| queue(app, ui, step));
 
-    ui.separator();
-    templates(app, ui);
+    // The column between them. The hints are this project's, not the game's,
+    // and say what the modifiers do because the original says it in the manual
+    // instead (p. 7-3).
+    if button(ui, at(0x439), &caption(0x439)).clicked() {
+        app.production_move(true);
+    }
+    if button(ui, at(0x418), &caption(0x418))
+        .on_hover_text(
+            "Shift for ten, Ctrl for a hundred, both for as many as possible. \
+             The item goes under whichever queue row is selected.",
+        )
+        .clicked()
+    {
+        app.production_add(step);
+    }
+    if button(ui, at(0x419), &caption(0x419))
+        .on_hover_text("Shift for ten, Ctrl for a hundred, both for all of them.")
+        .clicked()
+    {
+        app.production_remove(step);
+    }
+    if button(ui, at(0x42d), &caption(0x42d))
+        .on_hover_text("Empties the queue. Anything part-built loses what it has spent.")
+        .clicked()
+    {
+        app.production_clear();
+    }
+    if button(ui, at(0x43a), &caption(0x43a)).clicked() {
+        app.production_move(false);
+    }
 
-    ui.separator();
-    cost(app, ui);
+    // The cost panel under each list, and the completion line under the
+    // queue's.
+    let line = ui.text_style_height(&egui::TextStyle::Small);
+    costs(app, ui, at(0x416), line, false);
+    costs(app, ui, at(0x417), line, true);
 
-    ui.separator();
-    ui.horizontal(|ui| {
-        if ui.button("OK").clicked() {
-            app.production_ok();
+    // The blue diamond, and the templates it reaches.
+    templates(app, ui, rect, line);
+
+    // The row along the foot.
+    {
+        let where_ = at(0x8b);
+        let mut on = app.production.as_ref().is_some_and(|d| d.no_research);
+        if ui
+            .put(
+                where_,
+                egui::Checkbox::new(&mut on, egui::RichText::new(caption(0x8b)).small()),
+            )
+            .changed()
+        {
+            if let Some(dialog) = app.production.as_mut() {
+                dialog.no_research = on;
+            }
         }
-        if ui.button("Cancel").clicked() {
-            app.production_cancel();
-        }
-        ui.separator();
-        // Prev and Next write this planet's queue out and move on, which is
-        // what `FinishProduction(1)` does before `SelectAdjPlanet`.
-        let hint = "Shift jumps to the next planet with a starbase.";
-        if ui.button("◀ Prev").on_hover_text(hint).clicked() {
-            app.production_step_planet(false, shift);
-        }
-        if ui.button("Next ▶").on_hover_text(hint).clicked() {
-            app.production_step_planet(true, shift);
-        }
-    });
+    }
+    // Prev and Next write this planet's queue out and move on, which is what
+    // `FinishProduction(1)` does before `SelectAdjPlanet`.
+    let hint = "Shift jumps to the next planet with a starbase.";
+    if button(ui, at(0x42e), &caption(0x42e))
+        .on_hover_text(hint)
+        .clicked()
+    {
+        app.production_step_planet(false, shift);
+    }
+    if button(ui, at(0x42f), &caption(0x42f))
+        .on_hover_text(hint)
+        .clicked()
+    {
+        app.production_step_planet(true, shift);
+    }
+    if button(ui, at(0x1), &caption(0x1)).clicked() {
+        app.production_ok();
+    }
+    if button(ui, at(0x2), &caption(0x2)).clicked() {
+        app.production_cancel();
+    }
 }
 
-/// The planet's name, and the checkbox that shares the dialog's bottom row in
-/// the original.
-fn title(app: &mut App, ui: &mut egui::Ui) {
+/// One of the template's buttons, at the size the template gives it.
+fn button(ui: &mut egui::Ui, rect: egui::Rect, text: &str) -> egui::Response {
+    ui.put(rect, egui::Button::new(egui::RichText::new(text).small()))
+}
+
+/// One of the two list boxes: a sunken frame with a scrolling list inside it.
+fn list(ui: &mut egui::Ui, rect: egui::Rect, id: &str, body: impl FnOnce(&mut egui::Ui)) {
+    ui.painter()
+        .rect_filled(rect, 0.0, ui.visuals().extreme_bg_color);
+    ui.painter().rect_stroke(
+        rect,
+        0.0,
+        egui::Stroke::new(1.0_f32, ui.visuals().widgets.noninteractive.bg_stroke.color),
+    );
+    let inner = rect.shrink(2.0);
+    let mut child = ui.child_ui(inner, egui::Layout::top_down(egui::Align::Min), None);
+    child.set_clip_rect(inner);
+    egui::ScrollArea::vertical()
+        .id_source(id)
+        .show(&mut child, body);
+}
+
+/// The panel `DrawProductionDlg` (`10d0:35dc`) draws under a list.
+///
+/// `Required Minerals:` in bold, then four rows a line apart — ironium,
+/// boranium, germanium and then **resources**, which is `rgpszMin`'s sixth
+/// entry and is drawn in black. Each label is in its own colour and its figure
+/// is right-aligned, with `kT` after the three minerals and nothing after
+/// resources. Under the queue's panel a line and a half further down goes
+/// `"%d%% Done,   Completion "` and the item's own estimate.
+fn costs(app: &mut App, ui: &mut egui::Ui, list: egui::Rect, line: f32, queue: bool) {
+    let Some(cost) = app.production_costs(queue) else {
+        return;
+    };
+    let painter = ui.painter();
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    let text = ui.visuals().text_color();
+    let mut y = list.bottom() + 4.0;
+    painter.text(
+        egui::pos2(list.left(), y),
+        egui::Align2::LEFT_TOP,
+        crate::dialog::REQUIRED_MINERALS,
+        font.clone(),
+        text,
+    );
+    // The rows are inset twenty pixels on each side of the list's own edges.
+    let left = list.left() + 20.0;
+    let right = list.right() - 20.0;
+    let kt = ui
+        .fonts(|f| f.layout_no_wrap(crate::dialog::KT.to_string(), font.clone(), text))
+        .rect
+        .width();
+    for (index, (label, colour)) in crate::dialog::COST_ROWS.iter().enumerate() {
+        y += line;
+        let [r, g, b] = *colour;
+        painter.text(
+            egui::pos2(left, y),
+            egui::Align2::LEFT_TOP,
+            *label,
+            font.clone(),
+            egui::Color32::from_rgb(r, g, b),
+        );
+        painter.text(
+            egui::pos2(right - kt - 2.0, y),
+            egui::Align2::RIGHT_TOP,
+            cost[index].to_string(),
+            font.clone(),
+            text,
+        );
+        if index < 3 {
+            painter.text(
+                egui::pos2(right - kt, y),
+                egui::Align2::LEFT_TOP,
+                crate::dialog::KT,
+                font.clone(),
+                text,
+            );
+        }
+    }
+    if queue {
+        if let Some((done, eta)) = app.production_completion() {
+            y += line * 1.5;
+            painter.text(
+                egui::pos2(list.left(), y),
+                egui::Align2::LEFT_TOP,
+                format!("{done}{}{eta}", crate::dialog::COMPLETION),
+                font,
+                text,
+            );
+        }
+    }
+}
+
+/// The planet's name, as the dialog's own title bar has it.
+fn title(app: &App) -> String {
     let name = app
         .production
         .as_ref()
@@ -134,18 +265,7 @@ fn title(app: &mut App, ui: &mut egui::Ui) {
                 })
         })
         .unwrap_or_default();
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(name).strong());
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let Some(dialog) = app.production.as_mut() else {
-                return;
-            };
-            ui.checkbox(
-                &mut dialog.no_research,
-                "Contribute only leftover resources to research",
-            );
-        });
-    });
+    format!("Production Queue for {name}")
 }
 
 fn inventory(app: &mut App, ui: &mut egui::Ui, step: i32) {
@@ -276,7 +396,7 @@ fn queue(app: &mut App, ui: &mut egui::Ui, step: i32) {
 /// its rectangle in `rcProdDiamond`, and `ProductionDlg` hit-tests that:
 /// hovering shows the help cursor, a **left** click explains what to do, and a
 /// **right** click brings up the menu.
-fn templates(app: &mut App, ui: &mut egui::Ui) {
+fn templates(app: &mut App, ui: &mut egui::Ui, dialog: egui::Rect, line: f32) {
     /// What the original says when the diamond is left-clicked.
     const HELP: &str = "Right click on the blue diamond to apply a production template to \
                         this queue, or choose <Customize> to define a template based on the \
@@ -294,10 +414,25 @@ fn templates(app: &mut App, ui: &mut egui::Ui) {
     let mut apply = None;
     let mut customize = false;
 
-    ui.horizontal(|ui| {
-        let size = ui.text_style_height(&egui::TextStyle::Body);
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click());
+    {
+        // `DrawProductionDlg` puts it `dyArial8 * 5 / 2 + 12` up from the
+        // bottom of the client area, six pixels in, `dyArial8` wide and
+        // `dyArial8 | 1` tall.
+        let rect = crate::dialog::diamond(dialog, line);
+        let response = ui.interact(
+            rect,
+            ui.id().with("production-diamond"),
+            egui::Sense::click(),
+        );
         diamond(ui, rect);
+        // And its caption, four pixels past its right edge.
+        ui.painter().text(
+            egui::pos2(rect.right() + 4.0, rect.top()),
+            egui::Align2::LEFT_TOP,
+            crate::dialog::TEMPLATE_HINT,
+            egui::TextStyle::Small.resolve(ui.style()),
+            ui.visuals().text_color(),
+        );
         // The original swaps in the arrow-and-question-mark cursor over it.
         let response = response.on_hover_cursor(egui::CursorIcon::Help);
 
@@ -334,13 +469,7 @@ fn templates(app: &mut App, ui: &mut egui::Ui) {
                 ui.close_menu();
             }
         });
-
-        ui.label(
-            egui::RichText::new("Apply or define a production template")
-                .small()
-                .strong(),
-        );
-    });
+    }
 
     if let Some(slot) = apply {
         app.production_apply_template(slot);
@@ -485,22 +614,4 @@ fn customize_panel(app: &mut App, ui: &mut egui::Ui) {
             });
         }
     });
-}
-
-/// What the selected item costs, against what the planet has on the surface.
-fn cost(app: &mut App, ui: &mut egui::Ui) {
-    let rows = app.production_cost_rows();
-    if rows.is_empty() {
-        return;
-    }
-    egui::Grid::new("production-cost")
-        .num_columns(2)
-        .spacing([12.0, 1.0])
-        .show(ui, |ui| {
-            for (label, value) in &rows {
-                ui.label(egui::RichText::new(label).small());
-                ui.label(egui::RichText::new(value).small());
-                ui.end_row();
-            }
-        });
 }

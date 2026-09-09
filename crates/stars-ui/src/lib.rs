@@ -33,6 +33,7 @@
 
 pub mod app;
 pub mod art;
+pub mod dialog;
 pub mod popup;
 pub mod statusbar;
 pub mod survey;

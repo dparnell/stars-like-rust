@@ -13,20 +13,64 @@ and the planet's **queue**. `MANUAL.PDF` chapter 7 describes the same screen.
 
 ## The controls
 
-From `ProdCommandHandler`'s `WM_COMMAND` arm:
+The dialog is **resource 93**, `Planet Production`, 294 by 191 dialog units in
+MS Sans Serif 8pt, with thirteen controls — so its layout is data, not code:
 
-| id | control |
-|----|---------|
-| `0x416` | the inventory list |
-| `0x417` | the queue list |
-| `0x418` | **Add** |
-| `0x419` | **Remove** |
-| `0x42d` | **Clear** |
-| `0x439` / `0x43a` | **Item Up** / **Item Down** |
-| `0x42e` / `0x42f` | **Prev** / **Next** planet |
-| `0x8b` | **Contribute only leftover resources to research** |
-| `0x816` | apply a production template |
-| `1`, `2`, `0x76` | OK, Cancel, Help |
+| id | class | x, y | w x h | caption |
+|----|-------|------|-------|---------|
+| `0x416` | LISTBOX | 8, 12 | 109x84 | the inventory |
+| `0x417` | LISTBOX | 174, 12 | 111x84 | the queue |
+| `0x418` | BUTTON | 125, 10 | 40x14 | `&Add ->` |
+| `0x419` | BUTTON | 125, 35 | 40x14 | `<- &Remove` |
+| `0x439` | BUTTON | 125, 0 | 40x14 | `Item &Up` |
+| `0x43a` | BUTTON | 125, 90 | 40x14 | `Item &Down` |
+| `0x42d` | BUTTON | 125, 60 | 40x14 | `&Clear` |
+| `0x76` | BUTTON | 125, 70 | 40x14 | `&Help` |
+| `0x8b` | BUTTON | 6, 168 | 90x14 | `Contribute only &leftover resources to research` |
+| `0x42e` | BUTTON | 100, 168 | 40x14 | `&Prev` |
+| `0x42f` | BUTTON | 147, 168 | 40x14 | `&Next` |
+| `1` | BUTTON | 198, 168 | 40x14 | `OK` |
+| `2` | BUTTON | 245, 168 | 40x14 | `Cancel` |
+
+`ChangeProduction` puts it up with `DialogBox(..., 0x5d, ...)` and nothing
+moves afterwards. `0x816` — apply a production template — is not a control at
+all: it comes from the diamond's menu.
+
+**Two pairs of buttons overlap in the resource as shipped.** Every button is
+fourteen units tall, so `Item Up` at `y = 0` runs into `Add ->` at `y = 10`,
+and `Clear` at `y = 60` runs into `Help` at `y = 70` — four units each. That is
+what is in the file: thirteen controls, no extra data on any of them, verified
+by hand off the raw bytes. This project reproduces the table unchanged and then
+opens the two overlaps out before drawing, because two buttons on top of each
+other leave one of them unclickable.
+
+Everything between the lists (which end at `y = 96`) and the row along the foot
+(`y = 168`) is **drawn rather than placed**: the cost panel under each list,
+and the blue diamond.
+
+### The cost panel
+
+`DrawProductionDlg` (`10d0:35dc`) draws it twice, once under each list, for
+whichever row that list has selected. `Required Minerals:`
+(`idsRequiredMinerals`) in Arial 8 bold on the list's own left edge, then four
+rows a line apart, inset twenty pixels on each side:
+
+| row | colour |
+|-----|--------|
+| Ironium | blue |
+| Boranium | dark green |
+| Germanium | yellow |
+| **Resources** | black |
+
+The fourth is `rgpszMin`'s **sixth** entry, not its fourth — the routine
+rewrites the index as `5` on the last pass, skipping colonists and fuel. Each
+label is bold in its own `rgcrMin` colour and its figure is right-aligned in
+plain Arial 8 in `crWindowText`, printed with `"%ld"`; `kT` (`idsKt`) follows
+the first three and nothing follows resources.
+
+Under the **queue's** panel only, a line and a half further down, goes
+`"%d%% Done,   Completion "` (`idsDDoneCompletion`) with `PszProductionETA`'s
+wording after it.
 
 Double-clicking a row in either list does what its button does: the handler
 falls through from the list's `LBN_DBLCLK` into the same code.
@@ -248,8 +292,17 @@ and the desktop shell keeps a `stars.ini` beside the save, rewriting only the
 ### The blue diamond
 
 `DrawProductionDlg` puts a small raised blue diamond at the bottom left of the
-dialog — `dyArial8` square, at x = 6, with `Apply or define a production
-template` beside it — and remembers its rectangle in `rcProdDiamond`.
+dialog and remembers its rectangle in `rcProdDiamond`:
+
+```
+top    = client.bottom - (dyArial8 * 5 / 2 + 12)
+bottom = top + (dyArial8 | 1)          odd, so it has a middle row
+left   = 6
+right  = 6 + dyArial8
+```
+
+in `hbrBBlue`, with `Apply or define a production template`
+(`idsApplyDefineProductionTemplate`) four pixels past its right edge.
 `ProductionDlg` hit-tests that three ways:
 
 * **hovering** it swaps in `hcurArrowHelp`, the arrow with a question mark;
@@ -295,13 +348,16 @@ of "three other templates" is the dialog's, not the array's.
 
 ## What is reproduced
 
-Both lists and everything that moves items between them: the inventory in the
+The **template**, in `crates/stars-ui/src/dialog.rs`: the dialog's size, every
+control's class, position and caption, and the two overlaps opened out. Both
+lists and everything that moves items between them: the inventory in the
 original's own order with its counts, the queue with its `— Top of the Queue —`
 first line, **Add** and **Remove** with all four modifier steps and with
 double-click doing the same as the button, the merge with a neighbouring row,
 **Item Up** / **Item Down**, **Clear**, **Prev** / **Next** with Shift for the
 next starbase, the *Contribute only leftover resources to research* checkbox,
-the cost panel against what the planet has on the surface, and a working copy
+the **cost panel** under each list in the game's own four colours with `kT`
+after the three minerals and the completion line under the queue's, and a working copy
 that **Cancel** throws away and **OK** — or stepping to another planet — writes
 back. All four production templates, reached from the blue diamond exactly as
 the original reaches them, with `<Customize>`'s Import, Delete, Rename and its
