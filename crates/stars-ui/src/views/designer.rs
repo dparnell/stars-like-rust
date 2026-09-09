@@ -48,7 +48,7 @@ fn browser(app: &mut App, ui: &mut egui::Ui) {
         .is_some_and(|d| d.view == DesignView::Components);
 
     let template = &crate::dialog::DESIGNER;
-    let (rect, at, caption) = frame(ui, template);
+    let (rect, at, caption) = crate::views::dialog_frame(ui, template);
 
     // The left column: the two radio groups and the three buttons, each where
     // the template puts it.
@@ -56,10 +56,10 @@ fn browser(app: &mut App, ui: &mut egui::Ui) {
     let can_copy = app.designer_can_copy();
     let can_edit = app.designer_can_edit();
     let can_delete = app.designer_can_delete();
-    if push(ui, at(0x816), &caption(0x816), can_copy).clicked() {
+    if crate::views::dialog_button(ui, at(0x816), &caption(0x816), can_copy).clicked() {
         app.designer_copy();
     }
-    if push(ui, at(0x817), &caption(0x817), can_delete).clicked() {
+    if crate::views::dialog_button(ui, at(0x817), &caption(0x817), can_delete).clicked() {
         match app.designer_delete_warning() {
             Some(question) => {
                 if let Some(designer) = app.designer.as_mut() {
@@ -69,7 +69,7 @@ fn browser(app: &mut App, ui: &mut egui::Ui) {
             None => app.designer_delete(),
         }
     }
-    if push(ui, at(0x818), &caption(0x818), can_edit).clicked() {
+    if crate::views::dialog_button(ui, at(0x818), &caption(0x818), can_edit).clicked() {
         app.designer_edit();
     }
 
@@ -112,69 +112,13 @@ fn browser(app: &mut App, ui: &mut egui::Ui) {
 
     // `ShowMainControls` hides OK in the browser and calls the button beside
     // it `Done`; the browser's only way out is that one.
-    if push(ui, at(0x2), crate::dialog::DESIGNER_CLOSE.0, true).clicked() {
+    if crate::views::dialog_button(ui, at(0x2), crate::dialog::DESIGNER_CLOSE.0, true).clicked() {
         app.close_designer();
     }
 
     if let Some(question) = app.designer.as_ref().and_then(|d| d.confirm.clone()) {
         confirm(app, ui, rect, &question);
     }
-}
-
-/// The dialog's own area, and two helpers that place a control and read its
-/// caption out of the template.
-fn frame<'a>(
-    ui: &mut egui::Ui,
-    template: &'a crate::dialog::Template,
-) -> (
-    egui::Rect,
-    impl Fn(u16) -> egui::Rect + 'a,
-    impl Fn(u16) -> String + 'a,
-) {
-    let scale = template.scale(egui::Rect::from_min_size(
-        egui::Pos2::ZERO,
-        ui.available_size(),
-    ));
-    let want = template.pixels() * scale;
-    let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(ui.available_width(), want.y),
-        egui::Sense::hover(),
-    );
-    let origin = rect.min;
-    let place = move |id: u16| -> egui::Rect {
-        template.control(id).map_or(egui::Rect::NOTHING, |control| {
-            let (x, y, w, h) = control.at;
-            egui::Rect::from_min_size(
-                origin
-                    + egui::vec2(
-                        f32::from(x) * crate::dialog::DLU_X * scale,
-                        f32::from(y) * crate::dialog::DLU_Y * scale,
-                    ),
-                egui::vec2(
-                    f32::from(w) * crate::dialog::DLU_X * scale,
-                    f32::from(h) * crate::dialog::DLU_Y * scale,
-                ),
-            )
-        })
-    };
-    let caption = move |id: u16| -> String {
-        template
-            .control(id)
-            .map_or_else(String::new, crate::dialog::Control::label)
-    };
-    (rect, place, caption)
-}
-
-/// One of the template's push buttons.
-fn push(ui: &mut egui::Ui, rect: egui::Rect, text: &str, enabled: bool) -> egui::Response {
-    ui.put(
-        rect,
-        egui::Button::new(egui::RichText::new(text).small()).sense(if enabled {
-            egui::Sense::click()
-        } else {
-            egui::Sense::hover()
-        }),
-    )
 }
 
 /// The confirmation the Delete button raises, over the dialog's own foot.
@@ -291,7 +235,7 @@ fn editor(app: &mut App, ui: &mut egui::Ui) {
     let mut dropped_on_slot: Option<usize> = None;
 
     let template = &crate::dialog::DESIGNER;
-    let (rect, at, caption) = frame(ui, template);
+    let (rect, at, caption) = crate::views::dialog_frame(ui, template);
 
     // The name field, where the template puts it.
     name_field(app, ui, at(0x81b));
@@ -355,10 +299,10 @@ fn editor(app: &mut App, ui: &mut egui::Ui) {
 
     // `ShowMainControls` shows OK for the editor and relabels the button
     // beside it `Cancel`.
-    if push(ui, at(0x1), &caption(0x1), true).clicked() {
+    if crate::views::dialog_button(ui, at(0x1), &caption(0x1), true).clicked() {
         app.designer_ok();
     }
-    if push(ui, at(0x2), crate::dialog::DESIGNER_CLOSE.1, true).clicked() {
+    if crate::views::dialog_button(ui, at(0x2), crate::dialog::DESIGNER_CLOSE.1, true).clicked() {
         app.designer_cancel();
     }
 }

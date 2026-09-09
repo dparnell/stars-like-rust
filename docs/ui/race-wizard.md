@@ -1,7 +1,8 @@
 # The race wizard
 
 Status: **both faces built** — the read-only viewer and the editable Custom
-Race Wizard; their owner-drawn appearance is not reproduced.
+Race Wizard — and both now laid out from the six dialog templates; the
+owner-drawn parts of pages 2 and 3 are not reproduced.
 
 View (Race), `IDM_RACE_EDIT1` (`0x9c`), **F8**. The original opens the race
 wizard itself on the player's own race, read-only — six dialogs,
@@ -16,19 +17,30 @@ bars are painted in `WM_PAINT` rather than laid out, so the templates alone
 describe a nearly empty dialog. What each page *says* had to come from the
 race record instead.
 
-| | page | what the template holds |
-|-|------|-------------------------|
-| 1 | Race | `Race Name:`, `Plural Race Name:` and `Password:` edits; eight buttons — `Humanoid`, `Rabbitoid`, `Insectoid`, `Nucleotid`, `Silicanoid`, `Antetheral`, `Random`, `Custom` (ids `0x10f`–`0x116`); `Spend up to 50 leftover advantage points on:` and its combo |
-| 2 | Habitability | three `Immune to …` checkboxes stacked at one position, one per variable; the rest painted |
-| 3 | Economy | one checkbox, `Factories cost 1kT less of Germanium to build`; the rest painted |
-| 4 | Primary Racial Trait | the ten traits as radio buttons |
-| 5 | Lesser Racial Traits | fourteen checkboxes, captions filled in at run time |
-| 6 | Research Costs | `Costs 75% extra` / `Costs standard amount` / `Costs 50% less`, once per field |
+All six are **261 by 209** dialog units in MS Sans Serif 8pt, and the whole set
+is now carried in `crates/stars-ui/src/dialog.rs` — ninety-four controls with
+their classes, positions and captions — so the wizard is laid out from the
+resource rather than arranged by hand.
 
-Every page carries the same five buttons: Help, Cancel, `< Back`, `Next >`,
-`Finish`. They **stop at the ends** rather than wrapping, because a wizard's
-do. The viewer keeps Back and Next and drops the three that would change
-something; the wizard keeps Cancel and Finish as well.
+| | page | controls | what the template holds |
+|-|------|----------|-------------------------|
+| 1 | Race | 21 | `Race Name:`, `Plural Race Name:` and `Password:` edits; eight buttons — `Humanoid`, `Rabbitoid`, `Insectoid`, `Nucleotid`, `Silicanoid`, `Antetheral`, `Random`, `Custom` (ids `0x10f`–`0x116`), the first four at x = 26 and the rest at x = 112; `Spend up to 50 leftover advantage points on:` and its combo |
+| 2 | Habitability | 8 | three `Immune to …` checkboxes **stacked at one position** (86, 110), one per variable; the rest painted |
+| 3 | Economy | 6 | one checkbox, `Factories cost 1kT less of Germanium to build`; the rest painted |
+| 4 | Primary Racial Trait | 15 | the ten traits as radio buttons, two columns of five at x = 16 and x = 136 |
+| 5 | Lesser Racial Traits | 20 | fourteen checkboxes, `0x123`…`0x130`, captions filled in at run time, two columns of seven |
+| 6 | Research Costs | 24 | `Costs 75% extra` / `Costs standard amount` / `Costs 50% less` once per field, `0x10f`…`0x120`, three fields down each of two columns, and one checkbox across the foot |
+
+Every page carries the same five buttons at `y = 190`, each 40 by 14: Help
+(x = 10), Cancel (60), `< Back` (110), `Next >` (160), `Finish` (210). They
+**stop at the ends** rather than wrapping, and the templates say so themselves
+— page 1's `< Back` and page 6's `Next >` both carry `WS_DISABLED`. The viewer
+keeps Back and Next and drops the three that would change something; the wizard
+keeps Cancel and Finish as well.
+
+The default button moves about: it is `Next >` on pages 1, 2, 3 and 5, and
+`Finish` on pages 4 and 6. Page 4's is the odd one — a middle page whose
+default is Finish — and it looks like authoring drift rather than intent.
 
 The caption counts the steps: string `0x010e`, `"Custom Race Wizard - Step %d
 of 6"`.

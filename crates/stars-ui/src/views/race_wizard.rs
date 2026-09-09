@@ -23,81 +23,87 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) -> bool {
         return false;
     };
     let page = wizard.page;
+    let template = crate::dialog::RACE_WIZARD[page.min(5)];
+    let (rect, at, caption) = crate::views::dialog_frame(ui, template);
+
+    // The caption counts the steps: `"Custom Race Wizard - Step %d of 6"`.
+    let painter = ui.painter_at(rect);
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    painter.text(
+        rect.min + egui::vec2(6.0, 2.0),
+        egui::Align2::LEFT_TOP,
+        crate::dialog::WIZARD_CAPTION.replace("{}", &(page + 1).to_string()),
+        font.clone(),
+        ui.visuals().text_color(),
+    );
 
     // The points counter, which the original paints on every page — two lines,
     // `"Advantage"` over `"Points Left"` (strings `0x052f`, `0x0530`), with the
     // figure in red when the race is over budget.
     let points = app.race_wizard_points();
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(PAGES[page]).strong());
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let text = egui::RichText::new(format!("{points}")).strong();
-            ui.label(if points < 0 {
-                text.color(egui::Color32::from_rgb(0xff, 0x6b, 0x6b))
-            } else {
-                text
-            });
-            ui.label(egui::RichText::new("Advantage Points Left").small());
-        });
-    });
-    ui.separator();
+    painter.text(
+        egui::pos2(rect.right() - 6.0, rect.top() + 2.0),
+        egui::Align2::RIGHT_TOP,
+        format!("{points}  Advantage Points Left"),
+        font,
+        if points < 0 {
+            egui::Color32::from_rgb(0xff, 0x6b, 0x6b)
+        } else {
+            ui.visuals().text_color()
+        },
+    );
 
-    match page {
-        0 => names(app, ui),
-        1 => habitability(app, ui),
-        2 => economy(app, ui),
-        3 => primary_trait(app, ui),
-        4 => lesser_traits(app, ui),
-        _ => research(app, ui),
+    // The page's own body, between the caption and the footer.
+    let body = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + 4.0, rect.top() + 16.0),
+        egui::pos2(
+            rect.right() - 4.0,
+            at(crate::dialog::WIZARD_FOOTER[0]).top() - 4.0,
+        ),
+    );
+    {
+        let mut child = ui.child_ui(body, egui::Layout::top_down(egui::Align::Min), None);
+        child.set_clip_rect(body);
+        match page {
+            0 => names(app, &mut child),
+            1 => habitability(app, &mut child),
+            2 => economy(app, &mut child),
+            3 => primary_trait(app, &mut child),
+            4 => lesser_traits(app, &mut child),
+            _ => research(app, &mut child),
+        }
     }
 
-    ui.separator();
-    // The buttons every page carries, in the template's own left-to-right
-    // order: Help, Cancel, `< Back`, `Next >`, Finish. Help is the one this
-    // project has nothing to put behind it.
+    // The five buttons every page carries, each where its own template puts
+    // it: Help, Cancel, `< Back`, `Next >`, Finish. Help is the one this
+    // project has nothing to put behind it, and the first page's `< Back` and
+    // the last's `Next >` are disabled in the templates themselves.
     let mut finish = false;
-    ui.horizontal(|ui| {
-        if ui.button("Cancel").clicked() {
-            app.close_race_wizard();
-        }
-        if ui
-            .add_enabled(page > 0, egui::Button::new("< Back"))
-            .clicked()
-        {
-            app.race_wizard_page(false);
-        }
-        // `Next >` is disabled while `Random` is the chosen race, as the
-        // original disables it: there is nothing to edit on the other pages.
-        let next = ui.add_enabled(
-            page + 1 < PAGES.len() && app.race_wizard_can_go_on(),
-            egui::Button::new("Next >"),
-        );
-        if next.clicked() {
-            app.race_wizard_page(true);
-        }
-        // The original accepts the press and puts up a message box; the
-        // refusal is the same either way, and it is worth reading before the
-        // button is pressed rather than after.
-        let refusal = app.race_wizard_refusal();
-        let button = ui.add_enabled(refusal.is_none(), egui::Button::new("Finish"));
-        if let Some(text) = &refusal {
-            button.on_disabled_hover_text(text);
-        } else if button.clicked() {
-            finish = true;
-        }
-    });
+    crate::views::dialog_button(ui, at(0x76), &caption(0x76), false);
+    if crate::views::dialog_button(ui, at(0x2), &caption(0x2), true).clicked() {
+        app.close_race_wizard();
+    }
+    if crate::views::dialog_button(ui, at(0x42e), &caption(0x42e), page > 0).clicked() {
+        app.race_wizard_page(false);
+    }
+    // `Next >` is also disabled while `Random` is the chosen race, as the
+    // original disables it: there is nothing to edit on the other pages.
+    let can_go_on = page + 1 < crate::dialog::RACE_WIZARD.len() && app.race_wizard_can_go_on();
+    if crate::views::dialog_button(ui, at(0x42f), &caption(0x42f), can_go_on).clicked() {
+        app.race_wizard_page(true);
+    }
+    // The original accepts the press and puts up a message box; the refusal is
+    // the same either way, and it is worth reading before the button is
+    // pressed rather than after.
+    let refusal = app.race_wizard_refusal();
+    let button = crate::views::dialog_button(ui, at(0x430), &caption(0x430), refusal.is_none());
+    if let Some(text) = &refusal {
+        button.on_hover_text(text);
+    } else if button.clicked() {
+        finish = true;
+    }
     finish
 }
-
-/// The six pages, in the wizard's order.
-const PAGES: [&str; 6] = [
-    "Race",
-    "Habitability",
-    "Economy",
-    "Primary Racial Trait",
-    "Lesser Racial Traits",
-    "Research Costs",
-];
 
 /// What the leftover advantage points can be spent on (strings `0x0106` to
 /// `0x010a`), in the order the combo lists them — which is the order

@@ -2929,7 +2929,31 @@ disagree.
     out of `HULDEF.wrcCargo` on the same half-cell grid — high byte the
     top-left cell, low byte the bottom-right.
 
-98. **What is still missing to call it playable.** Every waypoint task is now
+98. ~~**The race wizard's layout.**~~ **Done.** Spec in
+    `docs/ui/race-wizard.md`. The third dialog to go this way, and the biggest:
+    six templates, `IDD_RACE_WIZARD_1` (146) through `_6` (151), all **261 by
+    209** dialog units, ninety-four controls between them, now all in
+    `crates/stars-ui/src/dialog.rs` with their classes, positions and captions
+    and generated straight out of the resource rather than transcribed.
+
+    Every page carries the same five buttons at `y = 190`, each 40 by 14 —
+    Help at x = 10, Cancel 60, `< Back` 110, `Next >` 160, `Finish` 210 — and
+    the templates say the ends stop rather than wrap themselves: page 1's
+    `< Back` and page 6's `Next >` both carry `WS_DISABLED`. The default button
+    moves about, `Next >` on pages 1, 2, 3 and 5 and `Finish` on 4 and 6; page
+    4's looks like authoring drift rather than intent.
+
+    Two shapes worth recording. Page 2 stacks its three `Immune to …`
+    checkboxes at **one position**, (86, 110), because only one is shown at a
+    time. And pages 2 and 3 hold eight and six controls — five and five of them
+    the footer — because the habitability sliders and the economy bars are
+    painted in `WM_PAINT`, which is the trap the spec already warned about and
+    which the control counts now pin.
+
+    `views::dialog_frame` and `views::dialog_button` came out of the designer
+    so all three dialogs share one way of placing a template.
+
+99. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

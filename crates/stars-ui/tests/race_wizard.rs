@@ -245,3 +245,99 @@ fn cancelling_throws_the_race_away() {
     assert!(app.race_wizard.is_none());
     assert!(app.race_wizard_file().is_none());
 }
+
+/// The wizard is laid out from its own six templates — resources 146 to 151,
+/// all 261 by 209 dialog units and all carrying the same five-button footer.
+#[test]
+fn the_six_templates_are_the_games_own() {
+    use stars_ui::dialog::{Class, RACE_WIZARD, WIZARD_FOOTER, WIZARD_FOOTER_Y};
+
+    assert_eq!(RACE_WIZARD.len(), 6);
+    for page in RACE_WIZARD {
+        assert_eq!(page.size, (261, 209), "{}", page.caption);
+        // Every page carries Help, Cancel, Back, Next and Finish, all at the
+        // same y and all 40 by 14.
+        for id in WIZARD_FOOTER {
+            let control = page.control(id).expect("a footer button");
+            assert_eq!(control.class, Class::Button);
+            assert_eq!(control.at.1, WIZARD_FOOTER_Y, "{}", page.caption);
+            assert_eq!((control.at.2, control.at.3), (40, 14));
+        }
+        assert_eq!(page.control(0x42e).expect("Back").label(), "< Back");
+        assert_eq!(page.control(0x42f).expect("Next").label(), "Next >");
+        assert_eq!(page.control(0x430).expect("Finish").label(), "Finish");
+    }
+
+    // Page 1 names the eight starting races in two columns of four.
+    let one = RACE_WIZARD[0];
+    for (index, name) in [
+        "Humanoid",
+        "Rabbitoid",
+        "Insectoid",
+        "Nucleotid",
+        "Silicanoid",
+        "Antetheral",
+        "Random",
+        "Custom",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        #[allow(clippy::cast_possible_truncation)]
+        let id = 0x10f + index as u16;
+        assert_eq!(one.control(id).expect("a race button").text, name);
+    }
+    assert_eq!(
+        one.control(0x10f).expect("Humanoid").at.0,
+        one.control(0x112).expect("Nucleotid").at.0,
+        "the first four share a column"
+    );
+    assert_ne!(
+        one.control(0x10f).expect("Humanoid").at.0,
+        one.control(0x113).expect("Silicanoid").at.0,
+        "and the last four are in the other"
+    );
+
+    // Pages 2 and 3 are nearly empty, which is the trap: their contents are
+    // painted rather than laid out.
+    assert_eq!(
+        RACE_WIZARD[1].controls.len(),
+        8,
+        "three checkboxes + footer"
+    );
+    assert_eq!(RACE_WIZARD[2].controls.len(), 6, "one checkbox + footer");
+    // And page 2 stacks its three `Immune to ...` boxes at one position,
+    // because only one is ever shown.
+    let immune: Vec<_> = (0x123..=0x125)
+        .map(|id| RACE_WIZARD[1].control(id).expect("an immune box").at)
+        .collect();
+    assert_eq!(immune[0], immune[1]);
+    assert_eq!(immune[1], immune[2]);
+
+    // Page 4 is the ten primary racial traits, page 5 the fourteen lesser
+    // ones with their captions filled in at run time, and page 6 the six
+    // research fields as three radios each.
+    assert_eq!(
+        RACE_WIZARD[3].control(0x10f).expect("HE").text,
+        "Hyper-Expansion"
+    );
+    assert_eq!(
+        RACE_WIZARD[3].control(0x118).expect("JOAT").text,
+        "Jack of All Trades"
+    );
+    for id in 0x123..=0x130u16 {
+        assert_eq!(RACE_WIZARD[4].control(id).expect("an LRT box").text, "");
+    }
+    assert_eq!(
+        RACE_WIZARD[5].control(0x10f).expect("the first cost").text,
+        "Costs 75% extra"
+    );
+    assert_eq!(
+        RACE_WIZARD[5].control(0x110).expect("the second").text,
+        "Costs standard amount"
+    );
+    assert_eq!(
+        RACE_WIZARD[5].control(0x111).expect("the third").text,
+        "Costs 50% less"
+    );
+}

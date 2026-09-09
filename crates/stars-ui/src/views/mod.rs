@@ -361,3 +361,57 @@ pub(crate) fn tile_pane(
         open[index] = !open[index];
     }
 }
+
+/// Lay a dialog template into the room the shell gives it.
+///
+/// Returns the area the dialog occupies and two helpers: one that places a
+/// control by id, and one that reads its caption with the accelerator marker
+/// taken out. The whole template is scaled by the smaller of the two ratios so
+/// its proportions survive being squeezed. See [`crate::dialog`].
+pub(crate) fn dialog_frame<'a>(
+    ui: &mut egui::Ui,
+    template: &'a crate::dialog::Template,
+) -> (
+    egui::Rect,
+    impl Fn(u16) -> egui::Rect + 'a,
+    impl Fn(u16) -> String + 'a,
+) {
+    let scale = template.scale(egui::Rect::from_min_size(
+        egui::Pos2::ZERO,
+        ui.available_size(),
+    ));
+    let want = template.pixels() * scale;
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), want.y),
+        egui::Sense::hover(),
+    );
+    let origin = rect.min;
+    let place = move |id: u16| -> egui::Rect {
+        template.control(id).map_or(egui::Rect::NOTHING, |control| {
+            crate::dialog::place(origin, scale, control.at)
+        })
+    };
+    let caption = move |id: u16| -> String {
+        template
+            .control(id)
+            .map_or_else(String::new, crate::dialog::Control::label)
+    };
+    (rect, place, caption)
+}
+
+/// One of a template's push buttons, drawn where the template puts it.
+pub(crate) fn dialog_button(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    text: &str,
+    enabled: bool,
+) -> egui::Response {
+    ui.put(
+        rect,
+        egui::Button::new(egui::RichText::new(text).small()).sense(if enabled {
+            egui::Sense::click()
+        } else {
+            egui::Sense::hover()
+        }),
+    )
+}
