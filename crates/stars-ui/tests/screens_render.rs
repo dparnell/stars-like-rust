@@ -764,5 +764,5 @@ fn the_scanner_menu_draws() {
         0,
     )));
     draw(&mut app, Screen::Galaxy);
-    assert!(!app.survey_thing_rows().is_empty());
+    assert!(!app.survey_thing().rows.is_empty());
 }

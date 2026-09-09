@@ -2802,7 +2802,30 @@ disagree.
     left black; the detonate checkbox; and the clicks the pane takes, which
     raise six more `Popup` kinds.
 
-93. **What is still missing to call it playable.** Every waypoint task is now
+93. ~~**The Selection Summary's space objects.**~~ **Done.** Spec in
+    `docs/ui/mine-survey-pane.md`. The four kinds had the right rows but not
+    the shape the original gives them. All four get the same plinth the fleet
+    gets — a 64-pixel bitmap out of `hdibThings` in a 0x42-pixel black square
+    at `left + 6, top + 6` — and which bitmap is a straight index: 0, 1 and 2
+    are the three minefield kinds, 3 salvage, 4 a packet in flight, 5 a
+    wormhole and 6 the Mystery Trader. A minefield and a packet have an owner,
+    so the second black square and the race emblem follow; a wormhole and the
+    Trader belong to nobody and take a different branch that draws the picture
+    square alone.
+
+    A minefield, a packet and the Trader run plain lines `0x28` past the
+    picture corner. A **wormhole** differs three ways: its column starts at
+    `0x2f`, its rows are a right-aligned label against a value rather than one
+    string apiece, and they are a line and a **half** apart where the rest of
+    the pane is a line and two pixels. The packet's mineral list has the same
+    two-column shape — `"%s: "` against the amount — at the ordinary spacing.
+
+    And **salvage is a packet with nowhere to go**: a packet whose target
+    planet is zero gets its own picture and neither the `Traveling at Warp %d`
+    nor the `Destination: ` row, just the minerals. This was printing both for
+    it, and a warp of four for a thing that does not move.
+
+94. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

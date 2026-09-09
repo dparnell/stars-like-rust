@@ -17,7 +17,7 @@
 
 use crate::survey::{self as sv, Gauge};
 use crate::toolbar;
-use crate::{App, SurveyBar, SurveySubject};
+use crate::{App, ScanThing, SurveyBar, SurveySubject};
 
 fn colour([r, g, b]: [u8; 3]) -> egui::Color32 {
     egui::Color32::from_rgb(r, g, b)
@@ -33,13 +33,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             ui.label(egui::RichText::new("nothing selected").weak().small());
         }
         SurveySubject::Fleet(_) => fleet(app, ui),
-        // A space object: a few lines and nothing else, as the original draws
-        // them.
-        SurveySubject::Thing(_) => {
-            for line in app.survey_thing_rows() {
-                ui.label(egui::RichText::new(line).small());
-            }
-        }
+        SurveySubject::Thing(thing) => object(app, ui, thing),
         SurveySubject::Planet(_) => planet(app, ui),
     }
 }
@@ -524,5 +518,135 @@ fn gauge_bar(
             font.clone(),
             egui::Color32::BLACK,
         );
+    }
+}
+
+/// A space object: the picture plinth, then a shape of its own.
+///
+/// A minefield and a packet run plain lines down a column `0x28` past the
+/// picture; a wormhole runs a right-aligned label against a value, a line and
+/// a half apart and starting `0x2f` past it; and the Mystery Trader wraps its
+/// notice across the pane before its one line.
+fn object(app: &mut App, ui: &mut egui::Ui, thing: ScanThing) {
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    let line = ui.text_style_height(&egui::TextStyle::Small);
+    let text = ui.visuals().text_color();
+    let summary = app.survey_thing();
+    let wormhole = matches!(thing, ScanThing::Wormhole(_));
+
+    let plinth_height = if summary.emblem {
+        sv::PICTURE_AT.1 + sv::EMBLEM_AT.1 + sv::EMBLEM_SIDE + 4.0
+    } else {
+        sv::PICTURE_AT.1 + sv::PICTURE_SIDE + 8.0
+    };
+    let gap = if wormhole {
+        line * sv::WIDE_ROW
+    } else {
+        line + sv::ROW_GAP
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let rows = (summary.rows.len() + summary.table.len()) as f32;
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), (rows * gap + 12.0).max(plinth_height)),
+        egui::Sense::hover(),
+    );
+    let painter = ui.painter_at(rect);
+
+    // The plinth. Only an object with an owner gets the second black square
+    // the emblem goes in.
+    let plinth = egui::pos2(
+        rect.left() + sv::PICTURE_AT.0,
+        rect.top() + sv::PICTURE_AT.1,
+    );
+    let black = |at: egui::Pos2, size: egui::Vec2| {
+        painter.rect_filled(
+            egui::Rect::from_min_size(at, size),
+            0.0,
+            egui::Color32::BLACK,
+        );
+    };
+    black(
+        plinth + egui::vec2(1.0, 2.0),
+        egui::vec2(sv::PICTURE_SIDE + 2.0, sv::PICTURE_SIDE + 2.0),
+    );
+    if summary.emblem {
+        black(
+            plinth + egui::vec2(sv::EMBLEM_AT.0 - 1.0, sv::EMBLEM_AT.1 - 3.0),
+            egui::vec2(sv::EMBLEM_SIDE + 2.0, sv::EMBLEM_SIDE + 4.0),
+        );
+    }
+
+    let left = rect.left()
+        + if wormhole {
+            sv::WORMHOLE_TEXT_LEFT
+        } else {
+            sv::THING_TEXT_LEFT
+        };
+    let mut y = rect.top() + sv::PICTURE_AT.1;
+
+    // The Mystery Trader's notice is word-wrapped across what is left of the
+    // pane, and everything else starts below it.
+    if let Some(notice) = &summary.notice {
+        let galley = ui.fonts(|f| {
+            f.layout(
+                notice.clone(),
+                font.clone(),
+                text,
+                (rect.right() - left - 4.0).max(16.0),
+            )
+        });
+        let height = galley.rect.height();
+        painter.galley(egui::pos2(left, y), galley, text);
+        y += height + 8.0;
+    }
+
+    for row in &summary.rows {
+        painter.text(
+            egui::pos2(left, y),
+            egui::Align2::LEFT_TOP,
+            row,
+            font.clone(),
+            text,
+        );
+        y += gap;
+    }
+
+    // The two-column part: the labels right-aligned in a column of their own,
+    // the values from the same x.
+    if !summary.table.is_empty() {
+        let widest = summary
+            .table
+            .iter()
+            .map(|(label, _)| {
+                ui.fonts(|f| f.layout_no_wrap(label.clone(), font.clone(), text))
+                    .rect
+                    .width()
+                    .ceil()
+            })
+            .fold(0.0_f32, f32::max);
+        let column = left
+            + widest
+            + if wormhole {
+                sv::WORMHOLE_LABEL_GAP
+            } else {
+                0.0
+            };
+        for (label, value) in &summary.table {
+            painter.text(
+                egui::pos2(column - 2.0, y),
+                egui::Align2::RIGHT_TOP,
+                label,
+                font.clone(),
+                text,
+            );
+            painter.text(
+                egui::pos2(column, y),
+                egui::Align2::LEFT_TOP,
+                value,
+                font.clone(),
+                text,
+            );
+            y += gap;
+        }
     }
 }

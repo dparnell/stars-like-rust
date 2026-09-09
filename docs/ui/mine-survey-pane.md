@@ -190,6 +190,50 @@ player owns; somebody else's shows its ships, mass and — if known — its warp
 | wormhole | `Location:` `(%d, %d)`, `Destination:` — the far end, or `Unknown` — and `Stability:` |
 | Mystery Trader | the notice asking for a fleet with at least 5,000kT aboard, until this player has traded, then `Trader is traveling at Warp %d.` |
 
+### The plinth and the pictures
+
+All four get the same plinth the fleet gets, at `prc->left + 6,
+prc->top + 6`: a 64-pixel bitmap out of `hdibThings` blitted into a
+0x42-pixel black square. Which bitmap is a straight index:
+
+| index | picture |
+| --- | --- |
+| 0, 1, 2 | the three minefield kinds, in `MINEFIELD_KINDS` order |
+| 3 | salvage |
+| 4 | a mineral packet in flight |
+| 5 | a wormhole |
+| 6 | the Mystery Trader |
+
+A minefield and a packet have an **owner**, so the second black square and the
+32-pixel race emblem from `hdibRaces` follow, exactly as they do for a fleet. A
+wormhole and the Mystery Trader belong to nobody: the routine takes a different
+branch and draws the picture square alone.
+
+### Where the text goes
+
+A minefield, a packet and the Trader run plain lines down a column `0x28` past
+the picture corner — so `prc->left + 6 + 0x28` — a line and two pixels apart.
+
+A **wormhole** is different in three ways: its column starts `0x2f` past the
+corner instead, its three rows are a **right-aligned label against a value**
+rather than one string apiece, and they are a line and a **half** apart
+(`dyArial8 * 3 / 2`) where everything else in the pane is a line and two
+pixels. The label column is the widest label plus `0x14`, the labels end two
+pixels short of it and the values start on it.
+
+The packet's mineral list has that same two-column shape — `"%s: "`
+(`idsS2`) right-aligned against the amount — but at the pane's ordinary row
+spacing, and it starts a line and a half below the rows above it.
+
+**Salvage is a packet with nowhere to go.** A packet whose target planet is
+zero is salvage: it gets its own picture, and the original skips both the
+`Traveling at Warp %d` and the `Destination: ` rows and draws the minerals
+alone.
+
+The Mystery Trader's notice is word-wrapped with `DrawText` across what is left
+of the pane, and the warp line follows eight pixels below whatever height that
+came out at.
+
 **`Field Type:` names the kind alone.** `DrawMineSurvey` (`1028:1c8a`) indexes
 the pointer table at `DS:0x4f2` into the literals `Standard`, `Heavy` and
 `Speed Bump` at `DS:0x4d8`, so the row reads `Field Type:  Standard`. The same
@@ -265,7 +309,10 @@ All four **space objects** are reproduced, now that the scanner's right-click
 menu can select one (`scanner.md`): the minefield's four rows and its `Field:
 %d of %d` for one's own, the packet's warp, destination and load, the
 wormhole's location, far end and stability, and the Mystery Trader's notice and
-speed. Three of them are worth a note:
+speed — each with its plinth, its picture index and its owner's emblem square
+where the original draws one, the wormhole's two-column shape and wider rows,
+the packet's mineral table, and salvage treated as the separate thing it is.
+Three of them are worth a note:
 
 * the minefield's **decay rate** is what the field would lose this year, which
   counts the planets inside it and halves for a Space Demolition owner — it is

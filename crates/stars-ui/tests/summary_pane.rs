@@ -5,7 +5,7 @@
 use stars_core::newgame::{NewGame, NewPlayer, Size};
 use stars_core::{opponents, Race};
 use stars_ui::survey;
-use stars_ui::{App, ScanObject, Selection};
+use stars_ui::{App, ScanObject, ScanThing, Selection};
 
 fn a_game(mine: Race) -> App {
     let mut app = App::new();
@@ -285,4 +285,84 @@ fn the_fleet_labels_go_narrow_and_a_gate_leg_says_so() {
     assert!(narrow.orders[1].starts_with("Task: "));
     // `Use Stargate` has no short form of its own.
     assert_eq!(narrow.orders[2], "Use Stargate");
+}
+
+/// Salvage is a mineral packet aimed at no planet, and the pane treats it as
+/// its own thing: a picture of its own, and neither a speed nor a destination.
+#[test]
+fn salvage_is_a_packet_with_nowhere_to_go() {
+    use stars_core::movement::Point;
+    use stars_core::packet::Packet;
+
+    let mut app = a_game(Race::humanoid());
+    let packet = |id: u16, target: u16| Packet {
+        id,
+        owner: 0,
+        position: Point::new(40, 40),
+        target,
+        warp: 6,
+        minerals: [10, 20, 30],
+        decay_rate: 0,
+        moved: false,
+        include: true,
+        turn: 0,
+    };
+    if let Some(game) = app.game.as_mut() {
+        game.packets = vec![packet(1, 7), packet(2, 0)];
+    }
+
+    app.select_object(ScanObject::Thing(ScanThing::Packet(0)));
+    let flying = app.survey_thing();
+    assert_eq!(flying.picture, 4);
+    assert_eq!(flying.rows.len(), 2, "a speed and a destination");
+    assert_eq!(flying.table.len(), 3);
+
+    app.selection = Selection::default();
+    app.select_object(ScanObject::Thing(ScanThing::Packet(1)));
+    let salvage = app.survey_thing();
+    assert_eq!(salvage.picture, 3, "salvage has a picture of its own");
+    assert!(
+        salvage.rows.is_empty(),
+        "salvage is going nowhere, so neither row is drawn"
+    );
+    assert_eq!(salvage.table.len(), 3, "but it still lists what it holds");
+}
+
+/// The three minefield kinds are the first three pictures in `hdibThings`,
+/// in the same order as their names.
+#[test]
+fn a_minefield_picture_follows_its_kind() {
+    use stars_core::minefield::Minefield;
+    use stars_core::movement::Point;
+
+    let mut app = a_game(Race::humanoid());
+    let field = |id: u16, kind: u8| Minefield {
+        id,
+        owner: 0,
+        position: Point::new(60, 60),
+        mines: 400,
+        kind,
+        detonating: false,
+        detected_by: 0,
+        visible_to: 0,
+        turn: 0,
+    };
+    if let Some(game) = app.game.as_mut() {
+        game.minefields = vec![field(1, 0), field(2, 1), field(3, 2)];
+    }
+    for (index, expected) in [(0usize, 0u8), (1, 1), (2, 2)] {
+        app.selection = Selection::default();
+        app.select_object(ScanObject::Thing(ScanThing::Minefield(index)));
+        let summary = app.survey_thing();
+        assert_eq!(summary.picture, expected);
+        assert!(summary.emblem, "a field has an owner");
+    }
+}
+
+/// The seven stability words are the game's own, in `PctWormholeMoves` order.
+#[test]
+fn the_stability_words_are_the_games_own() {
+    assert_eq!(survey::STABILITY[0], "Rock Solid");
+    assert_eq!(survey::STABILITY[6], "Extremely Volatile");
+    assert_eq!(survey::WORMHOLE_LABELS[1], "Destination:");
 }

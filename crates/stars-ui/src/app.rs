@@ -3266,22 +3266,28 @@ impl App {
 
     /// What the pane says about the space object selected.
     ///
-    /// `DrawMineSurvey` (`1028:065a`) switches on the object's `ith` and writes
-    /// a few lines for each kind; the rows are in
-    /// `docs/ui/mine-survey-pane.md`.
+    /// `DrawMineSurvey` (`1028:065a`) switches on the object's `ith` and gives
+    /// each kind a shape of its own. All four get the picture plinth the fleet
+    /// gets — a 64-pixel bitmap out of `hdibThings` in a black square — but a
+    /// wormhole and the Mystery Trader belong to nobody, so the second square
+    /// that holds an owner's emblem is not drawn for them at all.
     #[must_use]
-    pub fn survey_thing_rows(&self) -> Vec<String> {
+    pub fn survey_thing(&self) -> crate::survey::ThingSummary {
+        let mut out = crate::survey::ThingSummary::default();
         let SurveySubject::Thing(thing) = self.survey_subject() else {
-            return Vec::new();
+            return out;
         };
         let Some(game) = self.game.as_ref() else {
-            return Vec::new();
+            return out;
         };
         match thing {
             ScanThing::Minefield(index) => {
                 let Some(field) = game.minefields.get(index) else {
-                    return Vec::new();
+                    return out;
                 };
+                // The three minefield kinds are the first three pictures.
+                out.picture = field.kind.min(2);
+                out.emblem = true;
                 let kind = MINEFIELD_KINDS
                     .get(usize::from(field.kind))
                     .copied()
@@ -3306,7 +3312,7 @@ impl App {
                     i32::try_from(inside).unwrap_or(i32::MAX),
                     demolition,
                 );
-                let mut rows = vec![
+                out.rows = vec![
                     format!("Location:  ({}, {})", field.position.x, field.position.y),
                     format!("Field Type:  {kind}"),
                     format!("Field Radius:  {radius} l.y. ({} mines)", field.mines),
@@ -3323,43 +3329,52 @@ impl App {
                         .iter()
                         .position(|other| other.id == field.id)
                         .map_or(1, |at| at + 1);
-                    rows.push(format!("Field:  {which} of {}", mine.len()));
+                    out.rows.push(format!("Field: {which} of {}", mine.len()));
                 }
-                rows
             }
             ScanThing::Packet(index) => {
                 let Some(packet) = game.packets.get(index) else {
-                    return Vec::new();
+                    return out;
                 };
-                let mut rows = vec![format!(
-                    "Traveling at Warp {}",
-                    packet.warp + stars_core::packet::WARP_BIAS
-                )];
-                let target = game
-                    .planets
-                    .iter()
-                    .chain(game.known_planets.iter())
-                    .find(|planet| planet.id == i16::try_from(packet.target).unwrap_or(-1));
-                rows.push(format!(
-                    "Destination:  {}",
-                    target.map_or_else(
-                        || "Unknown".to_string(),
-                        |planet| self.planet_name(planet.id)
-                    )
-                ));
-                for (name, amount) in ["Ironium", "Boranium", "Germanium"]
+                // A packet aimed at no planet is salvage, and salvage has its
+                // own picture, no speed and nowhere to be going: the original
+                // skips both rows and draws the minerals alone.
+                let salvage = packet.target == 0;
+                out.picture = if salvage { 3 } else { 4 };
+                out.emblem = true;
+                if !salvage {
+                    out.rows.push(format!(
+                        "Traveling at Warp {}",
+                        packet.warp + stars_core::packet::WARP_BIAS
+                    ));
+                    let target = game
+                        .planets
+                        .iter()
+                        .chain(game.known_planets.iter())
+                        .find(|planet| planet.id == i16::try_from(packet.target).unwrap_or(-1));
+                    out.rows.push(format!(
+                        "Destination: {}",
+                        target.map_or_else(
+                            || crate::survey::UNKNOWN.to_string(),
+                            |planet| self.planet_name(planet.id)
+                        )
+                    ));
+                }
+                // What it is carrying, as a right-aligned `"%s: "` against the
+                // amount.
+                for (name, amount) in crate::survey::MINERAL_LABELS
                     .iter()
                     .zip(packet.minerals.iter())
                 {
-                    rows.push(format!("{name}  {amount}kT"));
+                    out.table.push((format!("{name}: "), format!("{amount}kT")));
                 }
-                rows
             }
             ScanThing::Trader(index) => {
                 let Some(trader) = game.traders.get(index) else {
-                    return Vec::new();
+                    return out;
                 };
-                let mut rows = Vec::new();
+                out.picture = 6;
+                out.emblem = false;
                 // The notice comes first and only until this player has traded
                 // — `1 << idPlayer & grbitPlr`, the same mask that stops them
                 // trading twice. The wording is this project's own, as the
@@ -3367,19 +3382,21 @@ impl App {
                 // has what it is asking for.
                 let me = u32::try_from(self.local_player()).unwrap_or(0);
                 if trader.detected_by & (1u16 << (me & 0x0F)) == 0 {
-                    rows.push(
+                    out.notice = Some(
                         "Send it a fleet carrying at least 5,000kT of minerals and it will \
                          take the fleet, ships and all, in exchange for technology."
                             .to_string(),
                     );
                 }
-                rows.push(format!("Trader is traveling at Warp {}.", trader.warp));
-                rows
+                out.rows
+                    .push(format!("Trader is traveling at Warp {}.", trader.warp));
             }
             ScanThing::Wormhole(index) => {
                 let Some(hole) = game.wormholes.get(index) else {
-                    return Vec::new();
+                    return out;
                 };
+                out.picture = 5;
+                out.emblem = false;
                 // The far end is another wormhole, named by the low nine bits
                 // of its `idFull` — the same mask the mover uses.
                 let far = hole
@@ -3391,16 +3408,19 @@ impl App {
                             .map(|other| format!("({}, {})", other.position.x, other.position.y))
                     })
                     .flatten();
-                vec![
-                    format!("Location:  ({}, {})", hole.position.x, hole.position.y),
-                    format!(
-                        "Destination:  {}",
-                        far.unwrap_or_else(|| "Unknown".to_string())
-                    ),
-                    format!("Stability:  {}", wormhole_stability(hole)),
-                ]
+                let values = [
+                    format!("({}, {})", hole.position.x, hole.position.y),
+                    far.unwrap_or_else(|| crate::survey::UNKNOWN.to_string()),
+                    wormhole_stability(hole).to_string(),
+                ];
+                out.table = crate::survey::WORMHOLE_LABELS
+                    .iter()
+                    .zip(values)
+                    .map(|(label, value)| ((*label).to_string(), value))
+                    .collect();
             }
         }
+        out
     }
 
     /// The planet's four headline rows: how good it is, who lives there, and

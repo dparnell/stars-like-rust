@@ -234,3 +234,67 @@ pub struct FleetSummary {
     /// (`idsFleetCanDestroyLdMinesPerYear`).
     pub sweeping: Option<String>,
 }
+
+// --- The space objects ----------------------------------------------------
+//
+// `DrawMineSurvey`'s `grobjThing` arm. Each of the four gets the same picture
+// plinth the fleet gets, and then a shape of its own.
+
+/// Where a space object's text starts, from the pane's left edge: the picture
+/// corner at 6 plus `0x28`.
+pub const THING_TEXT_LEFT: f32 = 6.0 + 0x28 as f32;
+
+/// The wormhole's column starts further right — 6 plus `0x2f` — because its
+/// rows are a right-aligned label against a value rather than plain lines.
+pub const WORMHOLE_TEXT_LEFT: f32 = 6.0 + 0x2f as f32;
+
+/// What the wormhole's label column adds to its widest label before the values
+/// begin.
+pub const WORMHOLE_LABEL_GAP: f32 = 0x14 as f32;
+
+/// The wormhole's rows are a line and a half apart (`dyArial8 * 3 / 2`) where
+/// everything else in the pane is a line and two pixels.
+pub const WIDE_ROW: f32 = 1.5;
+
+/// The seven wormhole stability words, `idsRockSolid` and the six after it.
+///
+/// They are indexed by `PctWormholeMoves` — the chance the far end jumps this
+/// year — and **not** by the stored `iStable`, so the two run opposite ways
+/// round. See `docs/formulas/wanderers.md`.
+pub const STABILITY: [&str; 7] = [
+    "Rock Solid",
+    "Stable",
+    "Mostly Stable",
+    "Average",
+    "Slightly Volatile",
+    "Volatile",
+    "Extremely Volatile",
+];
+
+/// The wormhole's three labels (`idsLocation`, `idsDestination2`,
+/// `idsStability`), which are right-aligned in a column of their own.
+pub const WORMHOLE_LABELS: [&str; 3] = ["Location:", "Destination:", "Stability:"];
+
+/// `idsUnknown2`: what the wormhole says for a far end it has not seen.
+pub const UNKNOWN: &str = "Unknown";
+
+/// What the pane says about a space object.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ThingSummary {
+    /// Which 64-pixel picture in `hdibThings` goes on the plinth: `0`, `1` and
+    /// `2` are the three minefield kinds, `3` is salvage, `4` a mineral packet
+    /// in flight, `5` a wormhole and `6` the Mystery Trader.
+    pub picture: u8,
+    /// Whether the owner's emblem is blitted beside the picture. A wormhole
+    /// and the Mystery Trader belong to nobody, so they get the picture alone
+    /// and the second black square is not drawn at all.
+    pub emblem: bool,
+    /// A paragraph word-wrapped across the pane before everything else — the
+    /// Mystery Trader's notice, and only until this player has traded.
+    pub notice: Option<String>,
+    /// Plain lines, one under the other from the text column.
+    pub rows: Vec<String>,
+    /// A right-aligned label against a value, which is the wormhole's shape
+    /// and the packet's mineral table.
+    pub table: Vec<(String, String)>,
+}

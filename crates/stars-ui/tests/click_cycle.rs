@@ -416,13 +416,18 @@ fn selecting_a_minefield_shows_it_in_the_survey_pane() {
     );
     assert_eq!(app.survey_title(), "Standard Mine Field Summary");
 
-    let rows = app.survey_thing_rows();
+    let summary = app.survey_thing();
+    // A standard field is the first of the three minefield pictures, and it
+    // has an owner, so the emblem square goes beside it.
+    assert_eq!(summary.picture, 0);
+    assert!(summary.emblem);
+    let rows = summary.rows;
     assert_eq!(rows[0], "Location:  (30, 30)");
     assert_eq!(rows[1], "Field Type:  Standard");
     // 400 mines is a radius of 20.
     assert_eq!(rows[2], "Field Radius:  20 l.y. (400 mines)");
     assert!(rows[3].starts_with("Decay rate:  "));
-    assert_eq!(rows[4], "Field:  1 of 1", "one's own fields are counted");
+    assert_eq!(rows[4], "Field: 1 of 1", "one's own fields are counted");
 
     // Clicking it again has nowhere to go: a thing never cycles.
     assert!(!app.scan_click_on(ScanObject::Thing(ScanThing::Minefield(0))));
@@ -472,26 +477,33 @@ fn a_wormhole_reads_its_stability_as_a_word() {
     app.screen = Screen::Galaxy;
     app.select_object(ScanObject::Thing(ScanThing::Wormhole(0)));
 
-    let rows = app.survey_thing_rows();
-    assert_eq!(rows[0], "Location:  (11, 22)");
+    let summary = app.survey_thing();
+    // A wormhole belongs to nobody: the picture alone, no emblem square.
+    assert_eq!(summary.picture, 5);
+    assert!(!summary.emblem);
+    // Its three rows are a right-aligned label against a value, not one
+    // string apiece.
+    let rows = summary.table;
+    assert_eq!(rows[0], ("Location:".into(), "(11, 22)".into()));
     assert_eq!(
-        rows[1], "Destination:  (90, 91)",
+        rows[1],
+        ("Destination:".into(), "(90, 91)".into()),
         "the far end, by partner id"
     );
-    assert_eq!(rows[2], "Stability:  Rock Solid");
+    assert_eq!(rows[2], ("Stability:".into(), "Rock Solid".into()));
 
     // A settled one, stored as stability 3, is restless from the first year —
     // which the pane calls `Stable` rather than rock solid.
     app.game.as_mut().expect("a game").wormholes[0].stability = 3;
-    assert_eq!(app.survey_thing_rows()[2], "Stability:  Stable");
+    assert_eq!(app.survey_thing().table[2].1, "Stable");
 
     // And forty quiet years take any of them to the cap.
     app.game.as_mut().expect("a game").wormholes[0].years_still = 40;
-    assert_eq!(app.survey_thing_rows()[2], "Stability:  Extremely Volatile");
+    assert_eq!(app.survey_thing().table[2].1, "Extremely Volatile");
 
     // An unknown far end says so.
     app.game.as_mut().expect("a game").wormholes[0].dest_known = false;
-    assert_eq!(app.survey_thing_rows()[1], "Destination:  Unknown");
+    assert_eq!(app.survey_thing().table[1].1, "Unknown");
 }
 
 /// A packet says how fast it is going, where to, and what it is carrying.
@@ -517,13 +529,20 @@ fn a_packet_reads_its_speed_and_load() {
     app.screen = Screen::Galaxy;
     app.select_object(ScanObject::Thing(ScanThing::Packet(0)));
 
-    let rows = app.survey_thing_rows();
+    let summary = app.survey_thing();
+    assert_eq!(summary.picture, 4, "a packet in flight");
     // The stored warp is biased by four.
-    assert_eq!(rows[0], "Traveling at Warp 10");
-    assert!(rows[1].starts_with("Destination:  "));
-    assert_eq!(rows[2], "Ironium  100kT");
-    assert_eq!(rows[3], "Boranium  20kT");
-    assert_eq!(rows[4], "Germanium  3kT");
+    assert_eq!(summary.rows[0], "Traveling at Warp 10");
+    assert!(summary.rows[1].starts_with("Destination: "));
+    // What it carries is a table, `"%s: "` against the amount.
+    assert_eq!(
+        summary.table,
+        vec![
+            ("Ironium: ".to_string(), "100kT".to_string()),
+            ("Boranium: ".to_string(), "20kT".to_string()),
+            ("Germanium: ".to_string(), "3kT".to_string()),
+        ]
+    );
 }
 
 /// The Mystery Trader is the fourth kind of space object, and the engine has
@@ -553,20 +572,28 @@ fn the_mystery_trader_is_listed_and_summarised() {
 
     app.select_object(menu[0].object);
     assert_eq!(app.survey_title(), "Mystery Trader Summary");
-    let rows = app.survey_thing_rows();
-    assert_eq!(rows.len(), 2, "the notice, then the warp");
+    let summary = app.survey_thing();
+    assert_eq!(summary.picture, 6);
+    assert!(!summary.emblem, "the Trader belongs to nobody");
+    let notice = summary.notice.expect("the notice");
     assert!(
-        rows[0].contains("5,000kT"),
-        "what it is asking for: {}",
-        rows[0]
+        notice.contains("5,000kT"),
+        "what it is asking for: {notice}"
     );
-    assert_eq!(rows[1], "Trader is traveling at Warp 9.");
+    assert_eq!(
+        summary.rows,
+        vec!["Trader is traveling at Warp 9.".to_string()]
+    );
 
     // Once this player has traded, the notice goes and the warp line stays —
     // the same `grbitPlr` bit that stops them trading twice.
     app.game.as_mut().expect("a game").traders[0].detected_by = 1;
-    let rows = app.survey_thing_rows();
-    assert_eq!(rows, vec!["Trader is traveling at Warp 9.".to_string()]);
+    let summary = app.survey_thing();
+    assert!(summary.notice.is_none());
+    assert_eq!(
+        summary.rows,
+        vec!["Trader is traveling at Warp 9.".to_string()]
+    );
 }
 
 // --- How the space objects are drawn ------------------------------------
