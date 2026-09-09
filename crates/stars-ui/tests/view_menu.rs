@@ -128,9 +128,10 @@ fn a_real_game_s_parameters_read_back() {
     assert_eq!(value("Players"), "16");
     assert_eq!(value("Year"), "2500");
     // That game is played with public scores, which the score sheet showed
-    // from the other side.
+    // from the other side. The wording is the Advanced Game dialog's own
+    // caption for checkbox `0x3fd`.
     assert!(
-        value("Options").contains("Public player scores"),
+        value("Options").contains("Public Player Scores"),
         "{}",
         value("Options")
     );

@@ -2953,7 +2953,28 @@ disagree.
     `views::dialog_frame` and `views::dialog_button` came out of the designer
     so all three dialogs share one way of placing a template.
 
-99. **What is still missing to call it playable.** Every waypoint task is now
+99. ~~**The Game Parameters window.**~~ **Done.** Spec in
+    `docs/ui/view-menu.md`. It is the **Advanced Game** wizard shown read-only
+    — three resources, 390, 391 and 392, all 261 by 210 dialog units with the
+    same five-button footer the race wizard carries — so the window is paged
+    now, which was the last thing that page's "not reproduced" list held.
+    Page 3 is the winning conditions, which is where `MANUAL.PDF` p. 2-3 sends
+    a player.
+
+    The middle page holds **nothing but the footer** and page 3 only its seven
+    **bare** checkboxes, twelve units square with no captions: each condition's
+    words and its setting are made alongside the box at run time. Same trap as
+    the race wizard's middle pages.
+
+    And a **correction**, from pairing each option checkbox on page 1 with the
+    bit `NewGameDlg` (`1078:7f60` onwards) sets it from. Bit 4 is `fAisBand` in
+    the NB09 symbols, which reads like a handicap band and had been written up
+    here as "computer players are handicapped". Checkbox `0x3fc` is captioned
+    **`Computer Players Form Alliances`**. The other six confirm the flag names
+    exactly, and the two flags with no checkbox on the page — `fSinglePlr` and
+    `fTutorial` — belong to the New Game dialog in front of it.
+
+100. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

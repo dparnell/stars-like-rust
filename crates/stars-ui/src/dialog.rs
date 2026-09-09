@@ -1077,3 +1077,324 @@ pub const RACE_WIZARD: [&Template; 6] = [
 
 /// The wizard's caption, string `0x010e`: `"Custom Race Wizard - Step %d of 6"`.
 pub const WIZARD_CAPTION: &str = "Custom Race Wizard - Step {} of 6";
+
+// --- Game Parameters ------------------------------------------------------
+//
+// The **Advanced Game** wizard, which View (Game Parameters) shows read-only:
+// three dialogs, 390, 391 and 392, all 261 by 210 dialog units and carrying
+// the same five-button footer as the race wizard, at the same `y = 190`.
+//
+// Page 2 holds nothing but that footer — the player list is built at run time —
+// and page 3 holds only its seven **checkboxes**, twelve units square: the
+// condition each stands for and the control that sets its value are made
+// alongside. That is why the templates alone describe an almost empty dialog,
+// and it is the same trap the race wizard's pages 2 and 3 set.
+/// Game Parameters page 1 (resource 390) — Universe.
+///
+/// 27 controls in 261 by 210 dialog units, the five-button footer
+/// among them.
+pub const GAME_PARAMS_1: Template = Template {
+    caption: "Universe",
+    size: (261, 210),
+    controls: &[
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (10, 10, 48, 10),
+            text: "&Game Name:",
+        },
+        Control {
+            id: 0x406,
+            class: Class::Edit,
+            at: (64, 8, 150, 12),
+            text: "",
+        },
+        Control {
+            id: 0x3e8,
+            class: Class::Button,
+            at: (24, 40, 44, 12),
+            text: "Tiny",
+        },
+        Control {
+            id: 0x3e9,
+            class: Class::Button,
+            at: (24, 52, 44, 12),
+            text: "Small",
+        },
+        Control {
+            id: 0x3ea,
+            class: Class::Button,
+            at: (24, 64, 44, 12),
+            text: "Medium",
+        },
+        Control {
+            id: 0x3eb,
+            class: Class::Button,
+            at: (24, 76, 44, 12),
+            text: "Large",
+        },
+        Control {
+            id: 0x3ec,
+            class: Class::Button,
+            at: (24, 88, 44, 12),
+            text: "Huge",
+        },
+        Control {
+            id: 0x3ed,
+            class: Class::Button,
+            at: (24, 124, 44, 12),
+            text: "Sparse",
+        },
+        Control {
+            id: 0x3ee,
+            class: Class::Button,
+            at: (24, 136, 44, 12),
+            text: "Normal",
+        },
+        Control {
+            id: 0x3ef,
+            class: Class::Button,
+            at: (24, 148, 44, 12),
+            text: "Dense",
+        },
+        Control {
+            id: 0x3f0,
+            class: Class::Button,
+            at: (24, 160, 44, 12),
+            text: "Packed",
+        },
+        Control {
+            id: 0x3f1,
+            class: Class::Button,
+            at: (96, 40, 48, 12),
+            text: "Close",
+        },
+        Control {
+            id: 0x3f2,
+            class: Class::Button,
+            at: (96, 52, 48, 12),
+            text: "Moderate",
+        },
+        Control {
+            id: 0x3f3,
+            class: Class::Button,
+            at: (96, 64, 48, 12),
+            text: "Farther",
+        },
+        Control {
+            id: 0x3f4,
+            class: Class::Button,
+            at: (96, 76, 48, 12),
+            text: "Distant",
+        },
+        Control {
+            id: 0x3f8,
+            class: Class::Button,
+            at: (90, 94, 140, 12),
+            text: "Beginner:  &Maximum Minerals",
+        },
+        Control {
+            id: 0x3f9,
+            class: Class::Button,
+            at: (90, 107, 140, 12),
+            text: "&Slower Tech Advances",
+        },
+        Control {
+            id: 0x3fa,
+            class: Class::Button,
+            at: (90, 120, 140, 12),
+            text: "&Accelerated BBS Play",
+        },
+        Control {
+            id: 0x3fb,
+            class: Class::Button,
+            at: (90, 133, 140, 12),
+            text: "No &Random Events",
+        },
+        Control {
+            id: 0x3fc,
+            class: Class::Button,
+            at: (90, 146, 140, 12),
+            text: "&Computer Players Form Alliances",
+        },
+        Control {
+            id: 0x3fd,
+            class: Class::Button,
+            at: (90, 159, 140, 12),
+            text: "&Public Player Scores",
+        },
+        Control {
+            id: 0x41a,
+            class: Class::Button,
+            at: (90, 172, 140, 12),
+            text: "&Galaxy Clumping",
+        },
+        Control {
+            id: 0x76,
+            class: Class::Button,
+            at: (10, 190, 40, 14),
+            text: "&Help",
+        },
+        Control {
+            id: 0x2,
+            class: Class::Button,
+            at: (60, 190, 40, 14),
+            text: "Cancel",
+        },
+        Control {
+            id: 0x42e,
+            class: Class::Button,
+            at: (110, 190, 40, 14),
+            text: "< &Back",
+        },
+        Control {
+            id: 0x42f,
+            class: Class::Button,
+            at: (160, 190, 40, 14),
+            text: "&Next >",
+        },
+        Control {
+            id: 0x430,
+            class: Class::Button,
+            at: (210, 190, 40, 14),
+            text: "&Finish",
+        },
+    ],
+};
+
+/// Game Parameters page 2 (resource 391) — Players.
+///
+/// 5 controls in 261 by 210 dialog units, the five-button footer
+/// among them.
+pub const GAME_PARAMS_2: Template = Template {
+    caption: "Players",
+    size: (261, 210),
+    controls: &[
+        Control {
+            id: 0x430,
+            class: Class::Button,
+            at: (210, 190, 40, 14),
+            text: "&Finish",
+        },
+        Control {
+            id: 0x76,
+            class: Class::Button,
+            at: (10, 190, 40, 14),
+            text: "&Help",
+        },
+        Control {
+            id: 0x2,
+            class: Class::Button,
+            at: (60, 190, 40, 14),
+            text: "Cancel",
+        },
+        Control {
+            id: 0x42e,
+            class: Class::Button,
+            at: (110, 190, 40, 14),
+            text: "< &Back",
+        },
+        Control {
+            id: 0x42f,
+            class: Class::Button,
+            at: (160, 190, 40, 14),
+            text: "&Next >",
+        },
+    ],
+};
+
+/// Game Parameters page 3 (resource 392) — Victory Conditions.
+///
+/// 13 controls in 261 by 210 dialog units, the five-button footer
+/// among them.
+pub const GAME_PARAMS_3: Template = Template {
+    caption: "Victory Conditions",
+    size: (261, 210),
+    controls: &[
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (22, 10, 200, 12),
+            text: "Victory is declared when a player:",
+        },
+        Control {
+            id: 0x123,
+            class: Class::Button,
+            at: (10, 26, 12, 12),
+            text: "",
+        },
+        Control {
+            id: 0x124,
+            class: Class::Button,
+            at: (10, 42, 12, 12),
+            text: "",
+        },
+        Control {
+            id: 0x125,
+            class: Class::Button,
+            at: (10, 58, 12, 12),
+            text: "",
+        },
+        Control {
+            id: 0x126,
+            class: Class::Button,
+            at: (10, 74, 12, 12),
+            text: "",
+        },
+        Control {
+            id: 0x127,
+            class: Class::Button,
+            at: (10, 90, 12, 12),
+            text: "",
+        },
+        Control {
+            id: 0x128,
+            class: Class::Button,
+            at: (10, 106, 12, 12),
+            text: "",
+        },
+        Control {
+            id: 0x129,
+            class: Class::Button,
+            at: (10, 122, 12, 12),
+            text: "",
+        },
+        Control {
+            id: 0x76,
+            class: Class::Button,
+            at: (10, 190, 40, 14),
+            text: "&Help",
+        },
+        Control {
+            id: 0x2,
+            class: Class::Button,
+            at: (60, 190, 40, 14),
+            text: "Cancel",
+        },
+        Control {
+            id: 0x42e,
+            class: Class::Button,
+            at: (110, 190, 40, 14),
+            text: "< &Back",
+        },
+        Control {
+            id: 0x42f,
+            class: Class::Button,
+            at: (160, 190, 40, 14),
+            text: "&Next >",
+        },
+        Control {
+            id: 0x430,
+            class: Class::Button,
+            at: (210, 190, 40, 14),
+            text: "&Finish",
+        },
+    ],
+};
+
+/// The Game Parameters wizard's three pages in order.
+pub const GAME_PARAMS: [&Template; 3] = [&GAME_PARAMS_1, &GAME_PARAMS_2, &GAME_PARAMS_3];
+
+/// What page 3's heading says (`Victory is declared when a player:`), which
+/// `MANUAL.PDF` p. 2-3 sends the player to page 3 to read.
+pub const VICTORY_HEADING: &str = "Victory is declared when a player:";

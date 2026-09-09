@@ -56,7 +56,50 @@ six pages walked with Back and Next. See `race-wizard.md`.
 
 ## Game Parameters
 
-What the game was set up with, and — on its own page in the original — what has
+It is the **Advanced Game** wizard shown read-only: three dialog resources,
+**390**, **391** and **392**, all 261 by 210 dialog units and carrying the same
+five-button footer the race wizard's pages carry, at the same `y = 190`. So the
+window is paged here too, and the pages are the resource's own:
+
+| | page | controls | holds |
+|-|------|----------|-------|
+| 1 | Universe | 27 | `Game Name:`; five sizes `Tiny`…`Huge` (`0x3e8`–`0x3ec`); four densities `Sparse`…`Packed` (`0x3ed`–`0x3f0`); four player positions `Close`…`Distant` (`0x3f1`–`0x3f4`); seven option checkboxes |
+| 2 | Players | 5 | the footer alone — the list is built at run time |
+| 3 | Victory Conditions | 13 | `Victory is declared when a player:` and seven **bare** checkboxes, twelve units square, at x = 10 |
+
+Page 1's `< Back` and page 3's `Next >` carry `WS_DISABLED`, so the ends stop
+rather than wrap, exactly as the race wizard's do. Page 3's checkboxes carry no
+captions and no value controls: each condition's words and its setting are made
+alongside the box, which is why the template alone describes an almost empty
+page.
+
+`MANUAL.PDF` p. 2-3 sends a player to that third page for exactly this:
+*"To view the winning conditions once the game has begun, choose the View
+(Race) menu item, then turn to page 3 of the View Game Parameters dialog that
+appears."*
+
+### What the option checkboxes settle
+
+The seven on page 1 are read straight from the game's flags word by
+`NewGameDlg` (`1078:7f60` onwards), and pairing each checkbox with the bit it
+is set from corrects one of them:
+
+| checkbox | bit | caption |
+|----------|-----|---------|
+| `0x3f8` | 0 | `Beginner:  Maximum Minerals` |
+| `0x3f9` | 1 | `Slower Tech Advances` |
+| `0x3fa` | 5 | `Accelerated BBS Play` |
+| `0x3fb` | 7 | `No Random Events` |
+| `0x3fc` | **4** | **`Computer Players Form Alliances`** |
+| `0x3fd` | 6 | `Public Player Scores` |
+| `0x41a` | 8 | `Galaxy Clumping` |
+
+Bit 4 is `fAisBand` in the NB09 symbols, which reads like a handicap band and
+was taken that way here. The dialog says it makes the computer players **form
+alliances**. The two flags with no checkbox on this page — `fSinglePlr` and
+`fTutorial` — belong to the New Game dialog in front of it.
+
+What the game was set up with, and — on page 3 — what has
 to be done to win it. `MANUAL.PDF` p. 2-3 sends a player there for exactly
 that: *"To view the winning conditions once the game has begun, choose the View
 (Race) menu item, then turn to page 3 of the View Game Parameters dialog that
@@ -76,6 +119,5 @@ condition the game is not playing for shown greyed beside its setting.
 
 ## What is not reproduced
 
-* The original's Game Parameters dialog is **paged**; this is one panel.
 * Window Layout rearranges tiled child windows in the original; here it moves
   one split.

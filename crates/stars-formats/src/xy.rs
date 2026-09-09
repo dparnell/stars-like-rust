@@ -170,7 +170,13 @@ pub mod game_flag {
     pub const SINGLE_PLAYER: u16 = 1 << 2;
     /// The tutorial universe.
     pub const TUTORIAL: u16 = 1 << 3;
-    /// Computer players are handicapped into bands.
+    /// Computer players form alliances.
+    ///
+    /// The NB09 field is `fAisBand`, which reads like a handicap band and was
+    /// taken that way here; the Advanced Game dialog settles it. Checkbox
+    /// `0x3fc` on resource 390 is captioned
+    /// `&Computer Players Form Alliances`, and `NewGameDlg` (`1078:7fb6`)
+    /// checks it from **bit 4** of the flags word.
     pub const AIS_BAND: u16 = 1 << 4;
     /// Public-player (BBS) game.
     pub const BBS_PLAY: u16 = 1 << 5;

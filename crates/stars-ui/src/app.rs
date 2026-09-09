@@ -309,6 +309,12 @@ pub struct App {
     pub open_tiles: [bool; 6],
     /// The same, for the seven the fleet pane shows instead (`rgtileShip`).
     pub open_ship_tiles: [bool; 7],
+    /// Which of the Game Parameters window's three pages is showing.
+    ///
+    /// The original is the Advanced Game wizard read-only, walked with
+    /// `< Back` and `Next >`; page 3 is the winning conditions, which is where
+    /// `MANUAL.PDF` p. 2-3 sends the player.
+    pub parameters_page: usize,
     /// The pop-up summary and where its bottom-right corner sits, in screen
     /// pixels, while one is up.
     ///
@@ -9628,18 +9634,23 @@ impl App {
             ("Planets".to_string(), info.planets.to_string()),
         ];
 
-        // The options, named as the New Game wizard names them. Only the ones
+        // The options, in the Advanced Game dialog's own captions and its own
+        // order — checkboxes `0x3f8`..`0x3fd` and `0x41a` on resource 390,
+        // each read from the bit `NewGameDlg` reads it from. Only the ones
         // that are on are listed, which is how the original's page reads.
+        //
+        // Two of the nine flags have no checkbox here: `SINGLE_PLAYER` and
+        // `TUTORIAL` belong to the New Game dialog in front of this one.
         let options = [
-            (game_flag::EXTRA_FUEL, "Maximum minerals"),
-            (game_flag::SLOW_TECH, "Slower tech advances"),
+            (game_flag::EXTRA_FUEL, "Beginner: Maximum Minerals"),
+            (game_flag::SLOW_TECH, "Slower Tech Advances"),
+            (game_flag::BBS_PLAY, "Accelerated BBS Play"),
+            (game_flag::NO_RANDOM, "No Random Events"),
+            (game_flag::AIS_BAND, "Computer Players Form Alliances"),
+            (game_flag::VIS_SCORES, "Public Player Scores"),
+            (game_flag::CLUMPING, "Galaxy Clumping"),
             (game_flag::SINGLE_PLAYER, "One human player"),
             (game_flag::TUTORIAL, "Tutorial"),
-            (game_flag::AIS_BAND, "Computer players are handicapped"),
-            (game_flag::BBS_PLAY, "Public player (BBS) game"),
-            (game_flag::VIS_SCORES, "Public player scores"),
-            (game_flag::NO_RANDOM, "No random events"),
-            (game_flag::CLUMPING, "Clumped planets"),
         ];
         let on: Vec<&str> = options
             .iter()
