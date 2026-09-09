@@ -143,3 +143,54 @@ fn a_real_save_brings_its_history_with_it() {
     app.close_score_sheet();
     frame(&mut app);
 }
+
+/// The sheet sizes its own window rather than taking a size from a template,
+/// because it has a column per player (`InitScoreDlg`, `1108:13b6`).
+#[test]
+fn the_window_sizes_itself_from_its_columns() {
+    use stars_ui::score::{Layout, MIN_COLUMNS, TIMELINE_SIZE};
+
+    // A digit of 7, a line of 13, and a widest label of 80.
+    let scores = Layout::scores(7.0, 13.0, 80.0, 6);
+    // The label column is the widest label plus eight, and a player's column
+    // is five digits.
+    assert_eq!(scores.label, 88.0);
+    assert_eq!(scores.column, 35.0);
+    assert_eq!(scores.width, 6.0 * 35.0 + 88.0 + 8.0);
+    // The height is `dyArial8 * 33 / 2 + 88` on both computed faces.
+    assert_eq!(scores.height, 13.0 * 33.0 / 2.0 + 88.0);
+
+    // The victory report's label column is one and a half times the widest
+    // sentence plus six digits, and its columns are only a line and a half —
+    // which is what makes the rotated names necessary.
+    let victory = Layout::victory(7.0, 13.0, 200.0, 6);
+    assert_eq!(victory.label, 200.0 * 1.5 + 7.0 * 6.0);
+    assert_eq!(victory.column, 19.5);
+    assert!(
+        victory.column < 20.0,
+        "far too narrow for a name across: {}",
+        victory.column
+    );
+    assert_eq!(victory.height, scores.height);
+
+    // However few players there are, room is left for four columns.
+    let one = Layout::scores(7.0, 13.0, 80.0, 1);
+    #[allow(clippy::cast_precision_loss)]
+    let four = MIN_COLUMNS as f32;
+    assert_eq!(one.width, four * 35.0 + 88.0 + 8.0);
+    assert_eq!(one.width, Layout::scores(7.0, 13.0, 80.0, 4).width);
+
+    // The timeline is a flat size instead of a computed one.
+    assert_eq!(TIMELINE_SIZE, (600.0, 400.0));
+}
+
+/// The columns run left to right from the label column, each its own width.
+#[test]
+fn the_columns_follow_the_label_column() {
+    use stars_ui::score::Layout;
+
+    let layout = Layout::scores(7.0, 13.0, 80.0, 4);
+    assert_eq!(layout.column_at(0), layout.label);
+    assert_eq!(layout.column_at(1), layout.label + layout.column);
+    assert_eq!(layout.column_at(3), layout.label + 3.0 * layout.column);
+}

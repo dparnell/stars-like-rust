@@ -82,6 +82,81 @@ fn name_colour(app: &App, standing: &Standing, ui: &egui::Ui) -> egui::Color32 {
     }
 }
 
+/// Reserve the band the rotated names live in and draw them into it.
+fn header_band(
+    ui: &mut egui::Ui,
+    layout: &crate::score::Layout,
+    names: &[(String, egui::Color32)],
+) {
+    // The band is as tall as the longest name is wide, which has to be known
+    // before the space is allocated — so it is measured first.
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    let tall = names
+        .iter()
+        .map(|(name, _)| {
+            ui.fonts(|f| f.layout_no_wrap(name.clone(), font.clone(), egui::Color32::WHITE))
+                .rect
+                .width()
+        })
+        .fold(0.0_f32, f32::max)
+        + 4.0;
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), tall), egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+    rotated_headers(ui, &painter, rect.min, layout, names);
+}
+
+/// One player's name as a **rotated** column header.
+///
+/// The original draws these with a 90-degree Arial (`rghfontArial8[4]`),
+/// because a column is only five digits wide on the scoreboard and a line and
+/// a half on the victory report — nowhere near enough for a name across.
+/// Returns how tall the band of headers has to be.
+fn rotated_headers(
+    ui: &egui::Ui,
+    painter: &egui::Painter,
+    at: egui::Pos2,
+    layout: &crate::score::Layout,
+    names: &[(String, egui::Color32)],
+) -> f32 {
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    let galleys: Vec<_> = names
+        .iter()
+        .map(|(name, colour)| {
+            (
+                ui.fonts(|f| f.layout_no_wrap(name.clone(), font.clone(), *colour)),
+                *colour,
+            )
+        })
+        .collect();
+    // The band is as tall as the longest name is wide.
+    let tall = galleys
+        .iter()
+        .map(|(galley, _)| galley.rect.width())
+        .fold(0.0_f32, f32::max)
+        + 4.0;
+    for (index, (galley, colour)) in galleys.iter().enumerate() {
+        // Turned a quarter turn anticlockwise, so the names read upwards from
+        // the row of figures.
+        let x = at.x + layout.column_at(index) + (layout.column - galley.rect.height()) / 2.0;
+        let shape =
+            egui::epaint::TextShape::new(egui::pos2(x, at.y + tall), galley.clone(), *colour)
+                .with_angle(-std::f32::consts::FRAC_PI_2);
+        painter.add(shape);
+    }
+    tall
+}
+
+/// What the sheet measures its columns against: one digit and the widest
+/// label, both in the bold face the original measures them in.
+fn measure(ui: &egui::Ui, text: &str) -> f32 {
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    ui.fonts(|f| f.layout_no_wrap(text.to_string(), font, ui.visuals().text_color()))
+        .rect
+        .width()
+        .ceil()
+}
+
 /// The scoreboard: a column per player, a row per figure, and Rank last.
 fn scores(app: &mut App, ui: &mut egui::Ui) {
     let standings = app.score_standings();
@@ -95,22 +170,32 @@ fn scores(app: &mut App, ui: &mut egui::Ui) {
         .map(|standing| standing.known && !is_dead(app, standing.player))
         .collect();
 
+    // The window sizes itself: a digit and the widest label, and a column per
+    // player five digits wide (`InitScoreDlg`, `1108:13b6`).
+    let line = ui.text_style_height(&egui::TextStyle::Small);
+    let layout = crate::score::Layout::scores(
+        measure(ui, crate::score::DIGIT_SAMPLE),
+        line,
+        measure(ui, crate::score::WIDEST_LABEL),
+        standings.len(),
+    );
+    let names: Vec<(String, egui::Color32)> = standings
+        .iter()
+        .map(|standing| {
+            (
+                player_name(app, standing.player),
+                name_colour(app, standing, ui),
+            )
+        })
+        .collect();
+    header_band(ui, &layout, &names);
+
     egui::Grid::new("score-report")
         .num_columns(standings.len() + 1)
-        .spacing([14.0, 2.0])
+        .min_col_width(layout.column)
+        .spacing([2.0, 2.0])
         .striped(true)
         .show(ui, |ui| {
-            ui.label("");
-            for standing in &standings {
-                let colour = name_colour(app, standing, ui);
-                ui.label(
-                    egui::RichText::new(player_name(app, standing.player))
-                        .small()
-                        .color(colour),
-                );
-            }
-            ui.end_row();
-
             for stat in Stat::ALL {
                 ui.label(egui::RichText::new(stat.label()).small());
                 let best = scoresheet::best(&standings, stat);
@@ -154,22 +239,32 @@ fn victory(app: &mut App, ui: &mut egui::Ui) {
     let conditions = app.score_conditions();
     let standings = app.score_standings();
 
+    // The victory report's columns are only a line and a half wide, which is
+    // what makes the rotated names necessary.
+    let line = ui.text_style_height(&egui::TextStyle::Small);
+    let layout = crate::score::Layout::victory(
+        measure(ui, crate::score::DIGIT_SAMPLE),
+        line,
+        measure(ui, crate::score::WIDEST_SENTENCE),
+        standings.len(),
+    );
+    let names: Vec<(String, egui::Color32)> = standings
+        .iter()
+        .map(|standing| {
+            (
+                player_name(app, standing.player),
+                name_colour(app, standing, ui),
+            )
+        })
+        .collect();
+    header_band(ui, &layout, &names);
+
     egui::Grid::new("score-victory")
         .num_columns(standings.len() + 1)
-        .spacing([14.0, 2.0])
+        .min_col_width(layout.column)
+        .spacing([2.0, 2.0])
         .striped(true)
         .show(ui, |ui| {
-            ui.label("");
-            for standing in &standings {
-                let colour = name_colour(app, standing, ui);
-                ui.label(
-                    egui::RichText::new(player_name(app, standing.player))
-                        .small()
-                        .color(colour),
-                );
-            }
-            ui.end_row();
-
             for condition in &conditions {
                 // A condition the game is not playing for is still listed,
                 // greyed, with its setting.

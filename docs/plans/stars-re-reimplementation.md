@@ -2974,7 +2974,30 @@ disagree.
     exactly, and the two flags with no checkbox on the page — `fSinglePlr` and
     `fTutorial` — belong to the New Game dialog in front of it.
 
-100. **What is still missing to call it playable.** Every waypoint task is now
+100. ~~**The Score sheet's geometry and its rotated headers.**~~ **Done.**
+     Spec in `docs/ui/score-sheet.md`. The sheet's three faces were all
+     reproduced; what was left were the two entries on its "not reproduced"
+     list, and they turn out to be the same entry.
+
+     `InitScoreDlg` (`1108:13b6`) sizes the window itself rather than taking a
+     size from a template, because there is a **column per player** and it does
+     not know how many until it opens. It measures one digit — `"9"` at
+     `DS:0x15e8` — and the widest label the face uses, both in Arial 8 bold,
+     and everything follows: the label column is `Unarmed Ships:` plus eight on
+     the scoreboard and one and a half times `Exceeds second place score by `
+     plus six digits on the victory report; a player's column is `digit * 5`
+     and `dyArial8 * 3 / 2` respectively; the window is
+     `max(cPlayer, 4) * column + label + 8` wide and `dyArial8 * 33 / 2 + 88`
+     tall, with the Progress Timeline skipping all of it for a flat 600 by 400.
+
+     And that is where the **rotated names** come from. A column is five digits
+     wide on one face and a line and a half on the other, nowhere near enough
+     for a name across — so the original turns them a quarter turn with a
+     90-degree Arial. The narrow column is not a consequence of rotating the
+     names; the names are rotated because the column is narrow, and reproducing
+     the geometry made the rotation necessary here too.
+
+101. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

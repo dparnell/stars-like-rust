@@ -35,6 +35,7 @@ pub mod app;
 pub mod art;
 pub mod dialog;
 pub mod popup;
+pub mod score;
 pub mod statusbar;
 pub mod survey;
 pub mod tiles;

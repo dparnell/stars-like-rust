@@ -1,7 +1,8 @@
 # The Score sheet
 
-Status: **all three faces recovered and reimplemented**; the wording of the
-victory sentences is written afresh rather than copied.
+Status: **all three faces recovered and reimplemented**, geometry and rotated
+headers included; the wording of the victory sentences is written afresh rather
+than copied.
 
 `ScoreXDlg` (`1108:0f66`), reached with **F10** or Reports (Score), and
 described in `MANUAL.PDF` p. 2-3:
@@ -155,6 +156,35 @@ is theirs. This project's invented palette has been replaced by that table.
 A player with a single year gets a dot rather than a line — the original calls
 `SetPixel`.
 
+## How the window sizes itself
+
+`InitScoreDlg` (`1108:13b6`) does not take a size from a template, because the
+sheet has a **column per player** and does not know how many there are until it
+opens. It measures two things in Arial 8 bold — one digit, `"9"` at `DS:0x15e8`,
+and the widest label the face uses — and builds the rest from those:
+
+| | label column | one player's column |
+|-|--------------|---------------------|
+| Player Scores | `Unarmed Ships:` + 8 | `digit * 5` |
+| Victory Conditions | `Exceeds second place score by ` × 1½ + `digit * 6` | `dyArial8 * 3 / 2` |
+
+```
+width  = max(cPlayer, 4) * column + label + 8
+height = dyArial8 * 33 / 2 + 88
+```
+
+Room is always left for **four** columns however few players there are, and the
+Progress Timeline skips all of it for a flat 600 by 400. The three buttons are
+then spread evenly across the foot — the spacing is a quarter of what is left
+once their own widths are taken off.
+
+**That is where the rotated names come from.** A column is five digits wide on
+the scoreboard and only a line and a half on the victory report; neither is
+near enough for a player's name across, so the original turns them a quarter
+turn with a 90-degree Arial (`rghfontArial8[4]`) and reads them up the page.
+The narrow column is not a consequence of rotating the names — the names are
+rotated because the column is narrow.
+
 ## What is reproduced
 
 The modeless window and its cycling button with the three titles; the
@@ -163,15 +193,13 @@ dead player's empty column; the victory report's nine lines, their settings,
 the planet condition's percentage-to-count conversion and the grey of a
 condition the game is not playing for; the timeline's window, both axes and
 their ladders, the year labels, the player colours and the white line for
-oneself.
+oneself. And the window's **own geometry** — the label column measured from the
+widest string the face uses, the per-player column width, the four-column
+minimum and the computed height — with the player names **rotated** a quarter
+turn above their columns, as the narrow columns require.
 
 ## What is not
 
 * The original's **prose** for the victory sentences, as above.
-* The player names as **rotated** column headers, which the original draws with
-  a 90° Arial (`rghfontArial8[4]`). The columns are the same columns; the names
-  read across rather than up.
-* The dialog's exact geometry, which `InitScoreDlg` computes from the widest
-  string, the player count and the system metrics.
 * The **tutorial hooks**: opening, closing and cycling the sheet all call
   `AdvanceTutor`.
