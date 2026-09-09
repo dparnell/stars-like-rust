@@ -13,22 +13,60 @@ Source: `PlanetWndProc` (`1048:0000`), the tile table `rgtilePlanet`
 ## The tiles
 
 The table is six 16-byte `TILE` records — `yTop`, `dyFull`, `grbit`, a function
-pointer, a packed word holding the column and a few flags, and a help id. Read
-out of the binary:
+pointer, a packed word, and a help id. Read out of the binary:
 
-| # | column | height | draws | title |
-|---|--------|--------|-------|-------|
-| 0 | left | 85 | `DrawPlanShipBitmap` (`1048:3336`) | the planet, as a picture |
-| 1 | left | 5 | `DrawPlanetMinSum` (`1048:12b2`) | **Minerals On Hand** |
-| 2 | left | 6 | `DrawPlanetStats` (`1048:1716`) | **Status** |
-| 3 | right | 22 | `DrawPlanetShipList` (`1048:377e`) | the fleets in orbit |
-| 4 | right | 20 | `DrawPlanetProduction` (`1048:2c38`) | **Production** |
-| 5 | right | 15 | `DrawPlanetStarbase` (`1048:22cc`) | the starbase's design name, or `< no starbase >` |
+| # | column | lines | extra | `grbit` | draws | title |
+|---|--------|-------|-------|---------|-------|-------|
+| 0 | left | 1 | 85 | `0x80` | `DrawPlanShipBitmap` (`1048:3336`) | the planet, as a picture |
+| 1 | left | 6 | 5 | `0x01` | `DrawPlanetMinSum` (`1048:12b2`) | **Minerals On Hand** |
+| 2 | left | 8 | 6 | `0x08` | `DrawPlanetStats` (`1048:1716`) | **Status** |
+| 3 | right | 6 | 22 | `0x04` | `DrawPlanetShipList` (`1048:377e`) | the fleets in orbit |
+| 4 | right | 10 | 20 | `0x40` | `DrawPlanetProduction` (`1048:2c38`) | **Production** |
+| 5 | right | 8 | 15 | `0x100` | `DrawPlanetStarbase` (`1048:22cc`) | the starbase's design name, or `< no starbase >` |
+
+The two number columns are the record's first two words, and neither is a
+height on its own. `InitTiles` (`1000:0eb8`) folds them together:
+
+```
+dyFull = dyFull + yTop * dyArial8
+```
+
+— so the first is a **line count** and the second what is added to it, which is
+why Minerals On Hand is six (three minerals, a rule, mines and factories) and
+the picture is one line plus eighty-five pixels. `InitTiles` then walks each
+column writing every tile's top, so the tops sitting in the shipped image are
+*output*, not input, and mean nothing until it has run.
+
+`EnsureTileSize` (`1048:58df`) adjusts three of them when the window layout
+changes, matching on `grbit`: the ship list by `(dyArial8 + 4) * 2`, the
+production queue by `(dyArial8 + 2) * 2`, and the picture by a flat ten. The
+other three are the same size either way.
 
 So the left column is the planet, its minerals and its status; the right column
-is what is over it, what it is building and what it is building from. Every tile
-can be collapsed by clicking its title bar (`fPopped`), and `FDrawTileNC`
-(`1048:1086`) draws the frame and title they share.
+is what is over it, what it is building and what it is building from.
+
+### The frame
+
+`FDrawTileNC` (`1048:1086`) draws what every tile shares, and the geometry is
+all in it:
+
+```
+left   = iCol * 0xc6 + 4          two columns, 198 apart, from x = 4
+right  = left + 0xbe              190 wide
+bottom = top + (open ? dyFull : dyArial8 + 3)
+```
+
+and `ReflowColumn` stacks them from `y = 4` with four pixels between one and
+the next. Inside that: a 3-D frame around the tile, a title bar one pixel in
+and `dyArial8 + 2` tall with a 3-D frame of its own, the title **centred** in
+Arial 8 bold in `crButtonText` on `crButtonFace`, a **seventeen-pixel button**
+at the title bar's right end with a shadow line down its left, and the body
+starting at `top + dyArial8 + 4`.
+
+Bit 7 of the packed word is the open flag — despite the `fPopped` name it is
+set when the tile is **open**, and all six ship open. Clicking the title bar
+clears it, the tile shrinks to `dyArial8 + 3`, and `ReflowColumn` takes
+everything below it up. The setting is written to `stars.ini`.
 
 The pane's own title bar is the planet's name (`SetPlanetTitleBar`,
 `1048:3dec`), or `Planet View` when nothing is selected.
@@ -94,16 +132,26 @@ pane is its own spec.
 
 ## What this project does
 
-`crates/stars-ui/src/views/planet.rs`, over methods on `App` that build each
-tile's rows so the text can be tested without drawing it.
+`crates/stars-ui/src/views/planet.rs` over `crates/stars-ui/src/tiles.rs`, with
+methods on `App` building each tile's rows so the text can be tested without
+drawing it.
 
-Reproduced: the two columns and the order of the tiles; Minerals On Hand and
-Status in full, with the original's labels, formats and Alternate Reality
-special cases; the Production tile's queue and its empty text; the Starbase
-tile's title and its first rows; the fleets in orbit.
+Reproduced: the **table** itself, in `crates/stars-ui/src/tiles.rs` — the two
+columns, the order, and each tile's height as `InitTiles` computes it, with
+`EnsureTileSize`'s three adjustments; the **geometry** — 190-wide columns 198
+apart from x = 4, tiles stacked from y = 4 four pixels apart; the **frame** —
+the 3-D border, the centred bold title on its own barred strip, the button at
+its right end and the shadow line beside it; and **collapsing a tile by
+clicking its title bar**, with the column reflowing under it exactly as
+`ReflowColumn` reflows it. Minerals On Hand and Status in full, with the
+original's labels, formats and Alternate Reality special cases and the three
+mineral labels in `rgcrMin`'s own colours; the Production tile's queue and its
+empty text; the Starbase tile's title and its first rows; the fleets in orbit.
 
-Not reproduced: the planet **picture** (this tile says in words what the picture
-says at a glance), collapsing a tile by clicking its title, the mass driver and
-destination rows and their gauge and button, the production tile's completion
-line and Route button, and the editing that the original's list box allows —
-the production queue is edited on the Planets screen instead.
+Not reproduced: the planet **picture** when no copy of the game is found (this
+tile says in words what the picture says at a glance); the small-window layout,
+since the frame has no `fSmallTiles` to set — the tiles are always the full
+size; persisting the open tiles to `stars.ini`; the mass driver and destination
+rows and their gauge and button; the production tile's completion line and
+Route button; and the editing that the original's list box allows — the
+production queue is edited on the Planets screen instead.

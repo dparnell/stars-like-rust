@@ -116,12 +116,17 @@ pub fn mineral_colour(mineral: usize) -> egui::Color32 {
 /// the Xfer and Merge dialogs, which this project does not have.
 pub fn fleets_here(app: &mut App, ui: &mut egui::Ui) {
     let title = app.pane_fleets_title();
+    tile(ui, title, |ui| fleets_here_body(app, ui));
+}
+
+/// The tile's contents, without the frame: the planet pane draws its own.
+pub fn fleets_here_body(app: &mut App, ui: &mut egui::Ui) {
     let list = app.pane_fleet_list();
     let chosen = app.pane_fleet_choice();
     let gauges = app.pane_fleet_gauges();
     let mut choose = None;
 
-    tile(ui, title, |ui| {
+    {
         if list.is_empty() {
             ui.label(egui::RichText::new("none").weak().small());
             return;
@@ -192,7 +197,7 @@ pub fn fleets_here(app: &mut App, ui: &mut egui::Ui) {
                 );
             }
         }
-    });
+    }
 
     if let Some(key) = choose {
         app.choose_pane_fleet(key);

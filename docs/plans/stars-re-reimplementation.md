@@ -2825,7 +2825,36 @@ disagree.
     nor the `Destination: ` row, just the minerals. This was printing both for
     it, and a warp of four for a thing that does not move.
 
-94. **What is still missing to call it playable.** Every waypoint task is now
+94. ~~**The planet pane's tiles.**~~ **Done.** Spec in
+    `docs/ui/planet-pane.md`. The pane had the right rows in egui group frames
+    stacked by the layout engine. It is really a table — `rgtilePlanet`
+    (`1120:07fc`), six sixteen-byte records — and the two numbers in each are
+    not a height: `InitTiles` (`1000:0eb8`) folds them together as
+    `dyFull + yTop * dyArial8`, so the first is a **line count** and the second
+    what is added to it. That is why Minerals On Hand reads 6 and 5: six rows
+    of text, five pixels of slack. `InitTiles` then walks each column writing
+    every tile's top, which makes the tops in the shipped image *output* — they
+    mean nothing until it has run, and reading them as authored data is the
+    mistake to avoid.
+
+    The geometry is all in `FDrawTileNC` (`1048:1086`): columns `iCol * 0xc6 +
+    4` and `0xbe` wide, tiles stacked from `y = 4` with four pixels between, a
+    3-D frame, a title bar `dyArial8 + 2` tall with a frame of its own and the
+    title **centred** in bold, a seventeen-pixel button at its right end with a
+    shadow line beside it, and the body at `top + dyArial8 + 4`.
+
+    Bit 7 of the packed word is the **open** flag — despite being called
+    `fPopped` it is set when the tile is open, and all six ship open. Clicking
+    the title bar clears it, the tile shrinks to `dyArial8 + 3` and
+    `ReflowColumn` takes everything below it up; that now works here.
+    `EnsureTileSize` (`1048:58df`) is reproduced too, though nothing calls for
+    the small layout yet.
+
+    Not reproduced: persisting the open tiles to `stars.ini`; the mass driver
+    and destination rows with their gauge and button; and the production tile's
+    completion line and Route button.
+
+95. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

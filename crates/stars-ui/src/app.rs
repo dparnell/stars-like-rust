@@ -301,6 +301,12 @@ pub struct App {
     /// Where the scanner's right-click menu was opened, in galaxy units, while
     /// it is up.
     pub scan_menu_at: Option<(i16, i16)>,
+    /// Which of the planet pane's six tiles are open.
+    ///
+    /// The original keeps this as `fPopped` in each `rgtilePlanet` record,
+    /// writes it to `stars.ini` and reflows the column whenever it changes.
+    /// See [`crate::tiles`].
+    pub open_tiles: [bool; 6],
     /// The pop-up summary and where its bottom-right corner sits, in screen
     /// pixels, while one is up.
     ///
@@ -529,6 +535,9 @@ impl App {
             // to 100%, and the minefield filter to all four.
             scan_coverage_pct: 100,
             tooltip: crate::toolbar::Tooltip::default(),
+            // Every tile of the planet pane ships open: bit 7 of each
+            // `rgtilePlanet` record's packed word is set.
+            open_tiles: [true; 6],
             scan_minefield_filter: 0xf,
             scan_overlays: ScanOverlays {
                 scanner_coverage: true,
