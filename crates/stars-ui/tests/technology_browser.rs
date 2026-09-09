@@ -275,3 +275,41 @@ fn the_browser_draws() {
     app.close_browser();
     frame(&mut app);
 }
+
+/// The browser takes its size from its own resource — 128, `Technology
+/// Browser`, 349 by 247 dialog units and five controls.
+#[test]
+fn the_template_is_the_games_own() {
+    use stars_ui::dialog::{browser_panel, Class, BROWSER};
+
+    assert_eq!(BROWSER.caption, "Technology Browser");
+    assert_eq!(BROWSER.size, (349, 247));
+    assert_eq!(BROWSER.controls.len(), 5, "and nothing for the panel");
+
+    // Prev, the dropdown and Next share the top row.
+    let prev = BROWSER.control(0x42e).expect("Prev");
+    let dd = BROWSER.control(0x10b).expect("the dropdown");
+    let next = BROWSER.control(0x42f).expect("Next");
+    assert_eq!(prev.at.1, 7);
+    assert_eq!(next.at.1, 7);
+    assert_eq!(dd.class, Class::ComboBox);
+    assert!(prev.at.0 + prev.at.2 < dd.at.0);
+    assert!(dd.at.0 + dd.at.2 < next.at.0);
+    // The captions are the resource's, and they carry no accelerators.
+    assert_eq!(prev.text, "<- Prev");
+    assert_eq!(next.text, "Next ->");
+    assert_eq!(
+        BROWSER.control(0x10a).expect("the filter").text,
+        "Show Only Available Technology"
+    );
+
+    // The panel is a child window sized from the **font**, not from the widest
+    // category name: 0x158 wide, and 0x28 wider again past a 14-pixel line.
+    let (at, size) = browser_panel(13.0);
+    assert_eq!(at.x, 6.0);
+    assert_eq!(at.y, 13.0 * 1.5 + 12.0);
+    assert_eq!(size.x, 344.0);
+    assert_eq!(size.y, 13.0 * 12.0 + 72.0 + 6.0);
+    let (_, big) = browser_panel(16.0);
+    assert_eq!(big.x, 344.0 + 40.0, "the large font gets a wider panel");
+}

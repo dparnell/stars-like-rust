@@ -1398,3 +1398,71 @@ pub const GAME_PARAMS: [&Template; 3] = [&GAME_PARAMS_1, &GAME_PARAMS_2, &GAME_P
 /// What page 3's heading says (`Victory is declared when a player:`), which
 /// `MANUAL.PDF` p. 2-3 sends the player to page 3 to read.
 pub const VICTORY_HEADING: &str = "Victory is declared when a player:";
+
+/// `Technology Browser`, dialog resource 128.
+///
+/// Five controls and nothing else: Prev, the category dropdown and Next in a
+/// row along the top, and the filter checkbox and Close along the foot.
+/// Everything between them is a **child window** of the class `starsbrowser`
+/// (`DS:0x21c`) that `DisplayComponentInfo` (`10d8:2ac6`) paints, created by
+/// `BrowserDlg` at [`BROWSER_PANEL`] rather than placed by the template.
+///
+/// The dialog takes its size from the resource — 349 by 247 — and nothing
+/// resizes it afterwards.
+pub const BROWSER: Template = Template {
+    caption: "Technology Browser",
+    size: (349, 247),
+    controls: &[
+        Control {
+            id: 0x42e,
+            class: Class::Button,
+            at: (7, 7, 50, 14),
+            text: "<- Prev",
+        },
+        Control {
+            id: 0x10b,
+            class: Class::ComboBox,
+            at: (68, 7, 83, 12),
+            text: "",
+        },
+        Control {
+            id: 0x42f,
+            class: Class::Button,
+            at: (158, 7, 50, 14),
+            text: "Next ->",
+        },
+        Control {
+            id: 0x10a,
+            class: Class::Button,
+            at: (6, 232, 130, 11),
+            text: "Show Only Available Technology",
+        },
+        Control {
+            id: 0x2,
+            class: Class::Button,
+            at: (157, 230, 50, 14),
+            text: "Close",
+        },
+    ],
+};
+
+/// Where the browser's panel child goes, in **pixels** — `BrowserDlg`
+/// (`10d8:21ce`) creates it rather than the template placing it, so this is
+/// not in dialog units:
+///
+/// ```text
+/// x      = 6
+/// y      = dyArial8 * 3 / 2 + 12
+/// width  = 0x158, and 0x28 wider again when dyArial8 > 14
+/// height = dyArial8 * 12 + 0x48 + 6 + a global the layout carries
+/// ```
+///
+/// So the panel is sized from the **font**, not from the widest category name.
+#[must_use]
+pub fn browser_panel(line: f32) -> (egui::Pos2, egui::Vec2) {
+    let wide = if line > 14.0 { 0x28 as f32 } else { 0.0 };
+    (
+        egui::pos2(6.0, line * 1.5 + 12.0),
+        egui::vec2(0x158 as f32 + wide, line * 12.0 + 0x48 as f32 + 6.0),
+    )
+}

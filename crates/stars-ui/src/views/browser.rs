@@ -14,42 +14,74 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     let Some(browser) = app.browser else {
         return;
     };
+    let template = &crate::dialog::BROWSER;
+    let (rect, at, caption) = crate::views::dialog_frame(ui, template);
+    let line = ui.text_style_height(&egui::TextStyle::Small);
 
-    // The category dropdown and the filter.
+    // Prev, the dropdown and Next in a row along the top, each where the
+    // template puts it.
+    if crate::views::dialog_button(ui, at(0x42e), &caption(0x42e), true).clicked() {
+        app.browser_step(false);
+    }
     let names: Vec<&str> = stars_core::browser::CATEGORIES
         .iter()
         .map(|(_, name)| *name)
         .collect();
     let mut category = browser.category;
-    let mut only = browser.buildable_only;
-    ui.horizontal(|ui| {
+    {
+        let where_ = at(0x10b);
+        let mut child = ui.child_ui(where_, egui::Layout::top_down(egui::Align::Min), None);
         egui::ComboBox::from_id_source("browser-category")
-            .width(150.0)
-            .show_index(ui, &mut category, names.len(), |i| names[i].to_string());
-        ui.checkbox(&mut only, "Only show what I can build");
-    });
+            .width(where_.width())
+            .show_index(&mut child, &mut category, names.len(), |i| {
+                names[i].to_string()
+            });
+    }
+    if crate::views::dialog_button(ui, at(0x42f), &caption(0x42f), true).clicked() {
+        app.browser_step(true);
+    }
     if category != browser.category {
         app.browser_set_category(category);
     }
-    if only != browser.buildable_only {
-        app.browser_set_buildable_only(only);
+
+    // The panel is a child window the dialog creates rather than a control the
+    // template places, and it is sized from the font (`BrowserDlg`,
+    // `10d8:21ce`).
+    let (panel_at, panel_size) = crate::dialog::browser_panel(line);
+    let panel = egui::Rect::from_min_size(rect.min + panel_at.to_vec2(), panel_size).intersect(
+        egui::Rect::from_min_max(
+            egui::pos2(rect.left(), at(0x42e).bottom() + 2.0),
+            egui::pos2(rect.right() - 4.0, at(0x10a).top() - 4.0),
+        ),
+    );
+    if panel.height() > 8.0 {
+        ui.painter().rect_stroke(
+            panel,
+            0.0,
+            egui::Stroke::new(1.0_f32, ui.visuals().widgets.noninteractive.bg_stroke.color),
+        );
+        let inner = panel.shrink(4.0);
+        let mut child = ui.child_ui(inner, egui::Layout::top_down(egui::Align::Min), None);
+        child.set_clip_rect(inner);
+        egui::ScrollArea::vertical()
+            .id_source("browser-panel")
+            .show(&mut child, |ui| detail(app, ui));
     }
 
-    ui.separator();
-    detail(app, ui);
-
-    ui.separator();
-    ui.horizontal(|ui| {
-        if ui.button("◀ Prev").clicked() {
-            app.browser_step(false);
-        }
-        if ui.button("Next ▶").clicked() {
-            app.browser_step(true);
-        }
-        if ui.button("Close").clicked() {
-            app.close_browser();
-        }
-    });
+    // The filter and Close along the foot.
+    let mut only = browser.buildable_only;
+    if ui
+        .put(
+            at(0x10a),
+            egui::Checkbox::new(&mut only, egui::RichText::new(caption(0x10a)).small()),
+        )
+        .changed()
+    {
+        app.browser_set_buildable_only(only);
+    }
+    if crate::views::dialog_button(ui, at(0x2), &caption(0x2), true).clicked() {
+        app.close_browser();
+    }
 }
 
 /// The panel: what the component is, what it costs, what it needs and what it

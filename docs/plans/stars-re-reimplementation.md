@@ -2997,7 +2997,25 @@ disagree.
      names; the names are rotated because the column is narrow, and reproducing
      the geometry made the rotation necessary here too.
 
-101. **What is still missing to call it playable.** Every waypoint task is now
+101. ~~**The Technology Browser's geometry.**~~ **Done.** Spec in
+     `docs/ui/technology-browser.md`. Dialog resource **128**, 349 by 247
+     dialog units and five controls — Prev, the category dropdown and Next
+     along the top, the filter checkbox and Close along the foot — and that is
+     its whole size; nothing resizes it afterwards.
+
+     The spec had guessed the window "computes its geometry from the widest
+     category name and the system metrics". It does not. The template is fixed,
+     and the **panel** between the two rows is a child window of the class
+     `starsbrowser` that `BrowserDlg` creates (`10d8:21ce`) and sizes from
+     `dyArial8` alone: six across, `dyArial8 * 3 / 2 + 12` down, `0x158` wide
+     and `0x28` wider again past a fourteen-pixel line, `dyArial8 * 12 + 0x4e`
+     tall. So the large-font layout gets a panel forty pixels wider and nothing
+     depends on the category names at all.
+
+     Also worth noting from the resource: neither `<- Prev` nor `Next ->`
+     carries an accelerator, which is unusual for this program.
+
+102. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

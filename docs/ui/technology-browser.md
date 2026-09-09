@@ -13,13 +13,34 @@ time** rather than a list.
 
 ## The controls
 
-| id | control |
-|----|---------|
-| `0x10b` | the category dropdown |
-| `0x10a` | the checkbox limiting the walk to what can be built now |
-| `0x42e` / `0x42f` | **Prev** / **Next** |
-| `2` | Close |
-| — | a child window, class `0x21c`, that `DisplayComponentInfo` paints |
+Dialog resource **128**, `Technology Browser`, 349 by 247 dialog units — and
+that is the whole of its size; nothing resizes it afterwards. Five controls:
+
+| id | class | x, y | w x h | caption |
+|----|-------|------|-------|---------|
+| `0x42e` | BUTTON | 7, 7 | 50x14 | `<- Prev` |
+| `0x10b` | COMBOBOX | 68, 7 | 83x12 | the category dropdown |
+| `0x42f` | BUTTON | 158, 7 | 50x14 | `Next ->` |
+| `0x10a` | BUTTON | 6, 232 | 130x11 | `Show Only Available Technology` |
+| `0x2` | BUTTON | 157, 230 | 50x14 | `Close` |
+
+Neither Prev nor Next carries an accelerator, which is unusual for this
+program and is what the resource says.
+
+Everything between the top row and the foot is a **child window** of the class
+`starsbrowser` (`DS:0x21c`) that `DisplayComponentInfo` paints. It is not in
+the template: `BrowserDlg` creates it (`10d8:21ce`), and it is sized from the
+**font** rather than from any string —
+
+```
+x      = 6
+y      = dyArial8 * 3 / 2 + 12
+width  = 0x158, and 0x28 wider again when dyArial8 > 14
+height = dyArial8 * 12 + 0x48 + 6 + a global the frame layout carries
+```
+
+— so the large-font layout gets a panel forty pixels wider, and nothing about
+either dimension depends on the category names.
 
 The dropdown is filled from consecutive string ids **1087 to 1103**: `All`,
 then the sixteen kinds alphabetically — `Armor`, `Beam Weapons`, `Bombs`,
@@ -90,6 +111,8 @@ list the designer's parts list is filtered by.
 
 ## What is reproduced
 
+The window's own **geometry** — the template's five controls where the resource
+puts them, and the panel child sized from the font as `BrowserDlg` sizes it.
 The modeless window, the seventeen-entry dropdown and its order, the walk with
 its wrap and its two filtering modes including the Mystery Trader distinction,
 the panel's costs, mass, per-kind figures, and the technology requirements
@@ -104,5 +127,3 @@ condition the player fails, and the component's own picture.
 * The original's **prose**, as above.
 * The **hover help** the Research dialog's benefits list shares with this
   panel, which puts up a component's details from `rghsFutureTech`.
-* Its exact geometry, which the original computes from the widest category
-  name and the system metrics.
