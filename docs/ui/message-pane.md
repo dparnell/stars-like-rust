@@ -1,7 +1,7 @@
 # The message pane
 
-Status: **behaviour recovered and reimplemented**; the drawing is not the
-original's.
+Status: **behaviour, hit-testing and the watermark recovered and
+reimplemented**; the title bar's bitmaps are not.
 
 The pane along the bottom-left of the main window is where a player reads the
 year's news. It shows **one message at a time** — not a list — and that shapes
@@ -44,14 +44,27 @@ Three of its decorations are controls, hit-tested by `HtMsgBox`:
 
 | where | what | when |
 |-------|------|------|
-| `[f]` a square at the left, as tall as the bar | silences the kind of message being shown | only while a real message is shown |
-| `[m]` a 24-pixel strip before the right square | switches to writing a message to another player | only in a multi-player game |
-| `[v]` a square at the right | shows the silenced messages anyway (`fViewFilteredMsg`) | only when something the player has been sent *is* silenced |
+| `[f]` a square at the left, as tall as the bar | silences the kind of message being shown | only while a real message is shown, and not while one is being written |
+| `[m]` a `0x18`-wide strip before the right square | switches to writing a message to another player | only when the game is not `fSinglePlr` |
+| `[v]` a square at the right, as tall as the bar | shows the silenced messages anyway (`fViewFilteredMsg`) | only when something the player has been sent *is* silenced |
 
 That last condition is worth keeping: the original walks the sent-message and
-filtered-message bitfields together and draws the button only where they
-overlap, and if they do not overlap at all it forces `fViewFilteredMsg` back
-off. There is no point offering to reveal messages that do not exist.
+filtered-message bitfields together — `0x31` bytes each, so 392 ids fit — and
+draws the button only where they overlap, and if they do not overlap at all it
+forces `fViewFilteredMsg` back off. There is no point offering to reveal
+messages that do not exist.
+
+**And the shape of the test is not the obvious one.** Send-message mode does
+not merely disable the right-hand square: `HtMsgBox`'s condition is
+
+```c
+if (pt.x < right - square || writing) { ...mode strip... }
+else                                  { ...reveal square... }
+```
+
+so while a message is being written the whole right side goes down the *mode*
+branch, and the square's own rectangle answers as `htMsgMode` rather than as
+nothing. Reproduced as written.
 
 ## The buttons
 
@@ -127,9 +140,16 @@ Reproduced: one message at a time; the title bar and its two filter controls,
 including the condition for showing the second; Prev/Next stepping over what is
 filtered; the three bodies of text; Goto to a planet or a fleet; the keys.
 
+Also the **diagonal FILTERED watermark**. `DiaganolTextOut` builds a `LOGFONT`
+at `lfWeight = 900` — the heaviest there is — points its `lfEscapement` down
+the message rectangle's own diagonal, and then shrinks the size until the text
+fits with **eight pixels** to spare in both directions, starting from the
+longer of the two sides and giving up entirely on a rectangle under ten pixels
+either way. This solves the same fit in one step rather than looping, since the
+extent scales with the size, and turns the galley by the same angle.
+
 Not reproduced: the original's bitmaps (this has short labelled buttons in the
-same places), the diagonal FILTERED watermark (it is written above the text
-instead), writing messages to other players, and the Goto targets that need
+same places), writing messages to other players, and the Goto targets that need
 windows this project does not have — the part browser, the report dialogs, the
 battle VCR at a position. Those leave the button dead rather than lying about
 where it would go.

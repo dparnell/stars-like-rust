@@ -3040,7 +3040,31 @@ disagree.
      both notes stacked. The wording is ours, as the game's authored prose
      always is.
 
-103. **What is still missing to call it playable.** Every waypoint task is now
+103. ~~**The message pane's hit-testing and its watermark.**~~ **Done.** Spec
+     in `docs/ui/message-pane.md`. The pane's behaviour was already recovered;
+     what was left was how the title bar answers a click and the **diagonal
+     FILTERED watermark**.
+
+     `HtMsgBox` (`1030:7d8c`) puts two squares in the bar, each as wide as the
+     bar is **tall**, with a `0x18`-wide mode strip immediately left of the
+     right-hand one — and its shape is not the obvious one. Send-message mode
+     does not merely disable the right square: the condition is
+     `if (pt.x < right - square || writing)`, so while a message is being
+     written the **whole right side** goes down the *mode* branch and the
+     square's own rectangle answers as `htMsgMode` rather than as nothing.
+     Reproduced as written, with a test on it, since it would be very easy to
+     "tidy" into a disabled square. The reveal square is still gated on the
+     sent and filtered bitfields — `0x31` bytes each, so 392 ids — actually
+     overlapping.
+
+     `DiaganolTextOut` writes the watermark corner to corner: a `LOGFONT` at
+     `lfWeight = 900`, `lfEscapement` set to the rectangle's own diagonal
+     angle, and the size shrunk until the text fits with **eight pixels** to
+     spare each way, starting from the longer side and giving up entirely under
+     ten pixels. This solves the fit in one step rather than looping, since the
+     extent scales with the size.
+
+104. **What is still missing to call it playable.** Every waypoint task is now
     simulated, and minefields with them. What is left, in the order it is worth
     doing:
 

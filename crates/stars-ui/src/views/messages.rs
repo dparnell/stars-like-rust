@@ -73,12 +73,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         .inner_margin(egui::Margin::same(6.0))
         .show(ui, |ui| {
             ui.set_min_height(48.0);
-            ui.vertical(|ui| {
-                if filtered_here && app.view_filtered {
-                    // The original writes this across the text, corner to
-                    // corner.
-                    ui.label(egui::RichText::new("FILTERED").weak().strong());
-                }
+            let body = ui.vertical(|ui| {
                 egui::ScrollArea::vertical()
                     .max_height(72.0)
                     .auto_shrink([false, true])
@@ -86,6 +81,12 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                         ui.label(app.message_body());
                     });
             });
+            // A filtered message on screen because the player asked to see the
+            // filtered ones carries **FILTERED** written corner to corner
+            // across it.
+            if filtered_here && app.view_filtered {
+                watermark(ui, body.response.rect);
+            }
         });
 
     // --- Prev, Goto, Next
@@ -146,4 +147,37 @@ fn keys(app: &mut App, ui: &egui::Ui) {
             app.toggle_view_filtered();
         }
     });
+}
+
+/// The **FILTERED** watermark, written corner to corner across the message.
+///
+/// `DiaganolTextOut` builds a `LOGFONT` at the heaviest weight there is,
+/// points its escapement down the rectangle's own diagonal, and shrinks the
+/// size until the text fits with eight pixels to spare each way — giving up
+/// entirely on a rectangle under ten pixels. See [`crate::message`].
+fn watermark(ui: &egui::Ui, rect: egui::Rect) {
+    use crate::message;
+
+    if rect.width() < message::WATERMARK_MIN || rect.height() < message::WATERMARK_MIN {
+        return;
+    }
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let colour = ui.visuals().weak_text_color();
+    let galley = ui.fonts(|f| f.layout_no_wrap("FILTERED".to_string(), font.clone(), colour));
+    let scale = message::watermark_scale(rect.size(), galley.rect.size());
+    if scale <= 0.0 {
+        return;
+    }
+    // The original shrinks the font itself; laying the text out once at the
+    // size the fit allows comes to the same place.
+    let sized = egui::FontId::new((font.size * scale).max(4.0), font.family.clone());
+    let galley = ui.fonts(|f| f.layout_no_wrap("FILTERED".to_string(), sized, colour));
+    let angle = message::watermark_angle(rect.size());
+    // Turned about its own middle and set down in the middle of the message.
+    let half = galley.rect.size() / 2.0;
+    let (sin, cos) = angle.sin_cos();
+    let offset = egui::vec2(half.x * cos - half.y * sin, half.x * sin + half.y * cos);
+    let shape =
+        egui::epaint::TextShape::new(rect.center() - offset, galley, colour).with_angle(angle);
+    ui.painter().with_clip_rect(rect).add(shape);
 }
