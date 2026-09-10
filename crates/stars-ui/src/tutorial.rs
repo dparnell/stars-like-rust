@@ -2060,6 +2060,15 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 15,
+        idt: 368,
+        escape: None,
+        stages: &[
+            hint(0x173, Check::ResearchDialog { open: true }),
+            ask(0x174, at_planet(0x0b, 1, 0x0d, ANY)),
+        ],
+    },
 ];
 
 /// The Scrap Fleet task id.
