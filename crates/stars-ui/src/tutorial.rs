@@ -1126,6 +1126,44 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 7,
+        idt: 192,
+        escape: None,
+        stages: &[
+            // "Click on the red triangle between Slime and No Vacancy. This
+            // is an enemy scout ship." Fleet ids carry their owner in the
+            // high bits, so `0x200` is player 1's fleet 0 — somebody
+            // else's, which is the point of the page.
+            hint(
+                0xc0,
+                Check::Summary {
+                    class: grobj::FLEET,
+                    id: 0x200,
+                },
+            ),
+            ask(
+                0xc4,
+                Check::QueueLength {
+                    planet: 0x0d,
+                    count: 4,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            // "Add two Armed Probes to Stove Top's queue."
+            ask(
+                0xc6,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 2,
+                    ship: true,
+                    item: 0,
+                    count: 2,
+                    no_research: Some(false),
+                },
+            ),
+        ],
+    },
 ];
 
 /// The Transport task id, as a `Check`'s `task` field wants it.
