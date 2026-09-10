@@ -1046,3 +1046,33 @@ fn waypoint_zero_can_take_a_task() {
     assert!(!app.move_waypoint(0, 1, 1, 0.0));
     assert!(!app.delete_current_waypoint());
 }
+
+/// All eighty pages are there, one per page of the game's own text, in
+/// order, with every year from zero to thirty-six represented.
+#[test]
+fn the_table_is_complete() {
+    assert_eq!(STEPS.len(), stars_formats::tutorial::PAGES);
+
+    // One step per page, pages 1 to 80, no gaps and no repeats.
+    let pages: Vec<usize> = STEPS.iter().map(|s| s.page()).collect();
+    assert_eq!(pages, (1..=80).collect::<Vec<usize>>());
+
+    // Years run 0 to 36 without a gap, which is the "36 years of a sample
+    // game" the first page promises.
+    let mut years: Vec<i16> = STEPS.iter().map(|s| s.turn).collect();
+    years.dedup();
+    assert_eq!(years, (0..=36).collect::<Vec<i16>>());
+
+    // The last page ends exactly where AdvanceTutor stops.
+    let last = STEPS.last().expect("page 80");
+    assert_eq!(last.idt + 7, LAST_PARAGRAPH);
+
+    // Every page can be finished: each has at least one rung that gates.
+    for step in STEPS {
+        assert!(
+            step.stages.iter().any(|s| s.gates),
+            "page {} has nothing that finishes it",
+            step.page()
+        );
+    }
+}

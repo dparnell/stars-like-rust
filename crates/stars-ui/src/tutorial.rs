@@ -393,9 +393,12 @@ const fn hint(bold: usize, check: Check) -> Stage {
 /// The tutorial's pages, in order.
 ///
 /// Recovered from `FTutorTaskDone` (`10f8:0fbc`), a `switch (game.turn)` with
-/// a chain of `if (tutor.idt == n)` inside each arm. Pages not yet transcribed
-/// are simply absent, and the tutorial stops at the first gap rather than
-/// pretending to know what comes next.
+/// a chain of `if (tutor.idt == n)` inside each arm.
+///
+/// **All eighty**, years zero to thirty-six. Past the last of them
+/// `AdvanceTutor` ends the tutorial, which is what the eightieth page says
+/// it will: *"Read all your messages, then when you Generate, you're on your
+/// own!"*
 pub static STEPS: &[Step] = &[
     // Year 0. Read the messages, then look at each of the fleets in turn and
     // send it somewhere, then set the research going.
@@ -3434,6 +3437,21 @@ pub static STEPS: &[Step] = &[
         escape: None,
         stages: &[ask(
             0x270,
+            Check::Messages {
+                message: 9999,
+                kind: None,
+                filter: false,
+            },
+        )],
+    },
+    // Year 36, page 80. The last one: "Read all your messages, then when
+    // you Generate, you're on your own!"
+    Step {
+        turn: 36,
+        idt: 632,
+        escape: None,
+        stages: &[ask(
+            0x27c,
             Check::Messages {
                 message: 9999,
                 kind: None,
