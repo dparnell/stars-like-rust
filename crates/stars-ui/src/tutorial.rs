@@ -149,7 +149,7 @@ pub enum Check {
     /// arms test the handle directly when they want it **shut** — which
     /// pages 43 and 29 both do, each being the closing half of the page
     /// before it.
-    ShipBuilder2 { open: bool },
+    Designer { open: bool },
     /// What is fitted in one slot of the design being edited.
     ///
     /// `FCheckBuilderPart` (`10f8:77d8`) compares the slot's item **and**
@@ -247,7 +247,7 @@ impl Check {
             Check::FleetCount { .. } => "fleet count",
             Check::DesignCount { .. } => "design count",
             Check::DesignSlot { .. } => "design slot",
-            Check::ShipBuilder2 { .. } => "designer open",
+            Check::Designer { .. } => "designer open",
             Check::ResearchDialog { .. } => "research dialog",
             Check::Template { .. } => "production template",
             Check::Browser { .. } => "technology browser",
@@ -1917,7 +1917,7 @@ pub static STEPS: &[Step] = &[
             // The designer must be **shut** before this page will move: it
             // is the other half of page 42, the way page 29 was the other
             // half of page 28.
-            ask(0x151, Check::ShipBuilder2 { open: false }),
+            ask(0x151, Check::Designer { open: false }),
             ask(
                 0x153,
                 Check::QueueLength {
