@@ -30,12 +30,26 @@
 //!
 //! ## What is deliberately not reproduced
 //!
-//! * **Seed-identical universes.** The original sorts its scratch array with
-//!   the C library's `qsort`, whose permutation of equal x coordinates is not
-//!   specified; every later random draw indexes that array, so an identical
-//!   seed cannot be made to give an identical universe without reproducing a
-//!   1996 Microsoft C runtime. Draw *order* and *distributions* are faithful;
-//!   a given seed is not.
+//! ## Seed-identical universes: they are
+//!
+//! This module used to say they were not, on the grounds that the original
+//! sorts its scratch array with `qsort`, whose permutation of equal x
+//! coordinates the C standard leaves unspecified. That reasoning was sound
+//! and the conclusion was wrong: unspecified by the standard is not the same
+//! as undetermined, the runtime is statically linked into the program, and
+//! whatever it does it does the same way every time.
+//!
+//! `crates/stars-core/tests/tutorial_seed.rs` settles it. The tutorial's
+//! universe is the one real galaxy whose seed is knowable —
+//! `CreateTutorWorld` (`1078:5e5e`) calls `Randomize` with a constant — and
+//! generating from that seed reproduces `fixtures/games/tutorial/tutorial.xy`
+//! **exactly**: all 24 planets, the same coordinates, the same names.
+//!
+//! No other fixture can be used the same way, and not because the generator
+//! would fail on it: a `.xy` stores its settings but never its seed. An
+//! ordinary new game seeds from the clock, so its universe is unreproducible
+//! in principle. That is why the claim went untested for so long — the one
+//! oracle that exists is the tutorial's.
 //! * **Wormholes and the Mystery Trader**, which live in the `THING` list that
 //!   [`GameState`] does not yet model.
 //! * **Random races for computer players.** `CreateRandomRace` is not

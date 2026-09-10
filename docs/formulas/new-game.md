@@ -331,10 +331,25 @@ same lesser traits, including the Cheap Factories checkbox that entry's
 
 ## What is not reproduced
 
-- **Seed-identical universes.** The original sorts its scratch array with the C
-  library's `qsort`, whose permutation of equal x coordinates is unspecified,
-  and every later draw indexes that array. Draw order and distributions are
-  faithful; a given seed is not.
+* **Seed-identical universes** — *this was listed here as impossible and is
+  not.* The reasoning was that the original sorts its scratch array with
+  `qsort`, whose permutation of equal x coordinates the C standard leaves
+  unspecified. True, and beside the point: the runtime is statically linked
+  into `stars.exe`, so whatever it does it does the same way every time.
+
+  `crates/stars-core/tests/tutorial_seed.rs` proves it. The tutorial's
+  universe is the one real galaxy whose seed can be known —
+  `CreateTutorWorld` (`1078:5e5e`) calls `Randomize(0x499602d2)`, a constant
+  compiled into the program — and generating from it reproduces
+  `fixtures/games/tutorial/tutorial.xy` exactly: 24 planets, same
+  coordinates, same names, `0x0c` is Prune and `0x0d` is Stove Top just as
+  the tutorial's own pages say.
+
+  No other fixture can check this, and that is why it went untested. A `.xy`
+  stores its settings but **not** its seed: `GenNewGameFromFile`
+  (`1078:4b0d`) seeds from a game-definition file when there is one, and an
+  ordinary new game seeds from the clock. Regenerating a real player's
+  galaxy is impossible for want of the seed, not for want of the algorithm.
 - **Wormholes.** `vrgWormholeMin = {0,1,1,3,4}` and
   `vrgWormholeVar = {3,3,5,4,5}` by universe size, placed by
   `IValidateWormholePos`; they live in the `THING` list, which `GameState` does
