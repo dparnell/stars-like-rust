@@ -2446,6 +2446,85 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 22,
+        idt: 448,
+        escape: None,
+        stages: &[
+            ask(
+                0x1c0,
+                Check::QueueLength {
+                    planet: 0x0d,
+                    count: 4,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            ask(
+                0x1c0,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 1,
+                    ship: true,
+                    item: 3,
+                    count: 1,
+                    no_research: Some(false),
+                },
+            ),
+            ask(
+                0x1c1,
+                Check::Research {
+                    field: 1,
+                    next: 2,
+                    pct: 30,
+                },
+            ),
+            ask(
+                0x1c2,
+                Check::Messages {
+                    message: 9999,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            // An eighth design: a better engine in slot 0 and a mine layer
+            // in slot 2.
+            ask(
+                0x1c4,
+                Check::DesignSlot {
+                    slot: 0,
+                    item: 0x104,
+                    count: 1,
+                },
+            ),
+            ask(
+                0x1c5,
+                Check::DesignSlot {
+                    slot: 2,
+                    item: 0x301,
+                    count: 1,
+                },
+            ),
+            ask(
+                0x1c7,
+                Check::QueueLength {
+                    planet: 0x0d,
+                    count: 5,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            ask(
+                0x1c7,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 2,
+                    ship: true,
+                    item: 7,
+                    count: 1,
+                    no_research: Some(false),
+                },
+            ),
+        ],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
