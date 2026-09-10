@@ -126,6 +126,12 @@ pub enum Check {
         /// One action per cargo, ironium first and fuel last.
         goal: [stars_formats::XferAction; 5],
     },
+    /// How many fleets the player has.
+    ///
+    /// Read off `rgplr[idPlayer].cFleet & 0xfff` in the arms. It is how the
+    /// tutorial checks that a fleet has been **split**: page 26 wants eleven
+    /// where there were nine.
+    FleetCount { count: usize, cmp: Cmp },
     /// Whether a fleet has **Repeat Orders** ticked.
     ///
     /// Read off `pfl->det` bit 9 in the arms, the same bit
@@ -202,6 +208,7 @@ impl Check {
             Check::FleetOrders { .. } => "order count",
             Check::QueueLength { .. } => "queue length",
             Check::RepeatOrders { .. } => "repeat orders",
+            Check::FleetCount { .. } => "fleet count",
         }
     }
 }
@@ -1164,7 +1171,52 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    // Year 8. The colony ships are split up so they do not all go to the
+    // same planet.
+    Step {
+        turn: 8,
+        idt: 200,
+        escape: None,
+        stages: &[
+            hint(
+                0xc8,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 7,
+                },
+            ),
+            hint(
+                0xcd,
+                Check::Cargo {
+                    fleet: 7,
+                    minerals: [0, 0, 0],
+                    colonists: 25,
+                },
+            ),
+            hint(0xcd, at_planet(7, 1, 0x08, COLONIZE_TASK)),
+            // "hit the Split button ... Move one of the Santa Marias over to
+            // Fleet #10": nine fleets become eleven.
+            ask(
+                0xce,
+                Check::FleetCount {
+                    count: 11,
+                    cmp: Cmp::Exactly,
+                },
+            ),
+            ask(
+                0xce,
+                Check::ColonizeWaypoint {
+                    fleet: 10,
+                    id: 0x08,
+                    warp: ANY,
+                },
+            ),
+        ],
+    },
 ];
+
+/// The Colonize task id.
+const COLONIZE_TASK: u16 = stars_formats::task::COLONIZE as u16;
 
 /// The Transport task id, as a `Check`'s `task` field wants it.
 const TRANSPORT_TASK: u16 = stars_formats::task::TRANSPORT as u16;
