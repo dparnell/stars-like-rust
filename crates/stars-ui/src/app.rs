@@ -63,6 +63,18 @@ impl Screen {
     }
 }
 
+/// Where a planet's starbase design sits in the flattened design list.
+///
+/// `PLANET.isb` counts within the **starbase** designs — the original reads
+/// them out of `lprgshdefSB`, a table of its own — and this project keeps
+/// ships and starbases in one list, with the starbases from slot 16 on. Two
+/// places here used to index that list with `isb` directly, which named a
+/// ship design instead: the Starbase tile's title and the hull the scanner
+/// asks about.
+pub(crate) fn starbase_slot(isb: u8) -> usize {
+    usize::from(isb & 0x0f) + usize::from(stars_core::startup::FIRST_STARBASE_SLOT)
+}
+
 /// A planet's production queue as the file's own items.
 fn queue_items(planet: &Planet) -> Vec<QueueItem> {
     planet
@@ -2176,7 +2188,7 @@ impl App {
             .game
             .as_ref()
             .and_then(|g| g.designs.get(self.local_player()))
-            .and_then(|d| d.get(usize::from(planet.starbase_design?)))
+            .and_then(|d| d.get(starbase_slot(planet.starbase_design?)))
             .filter(|d| d.hull_id >= 0);
         let title = design.map_or_else(
             || "Starbase".to_string(),
@@ -9480,7 +9492,7 @@ impl App {
         let design = planet.starbase_design?;
         game.designs
             .get(owner)?
-            .get(usize::from(design))
+            .get(starbase_slot(design))
             .map(|design| design.hull_id)
     }
 

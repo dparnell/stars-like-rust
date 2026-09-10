@@ -721,7 +721,7 @@ impl Data<'_> {
                 .map_or(Key::Missing, |n| Key::Text(n.to_string())),
             1 => match (planet.starbase_design, designs) {
                 (Some(slot), Some(designs)) => designs
-                    .get(starbase_slot(slot))
+                    .get(crate::app::starbase_slot(slot))
                     .map_or(Key::Missing, |d| Key::Text(d.name.clone())),
                 _ => Key::Missing,
             },
@@ -1143,15 +1143,6 @@ pub fn commas(value: i64) -> String {
 /// The two dashes the original writes where there is nothing (`szDblDash`).
 pub const DOUBLE_DASH: &str = "--";
 
-/// Where a planet's starbase design sits in the flattened design list.
-///
-/// `PLANET.isb` counts within the **starbase** designs — the original adds
-/// `(isb & 0xf) * 0x93` to `lprgshdefSB` — and this project keeps ships and
-/// starbases in one list with the starbases from slot 16 on.
-fn starbase_slot(isb: u8) -> usize {
-    usize::from(isb & 0x0f) + usize::from(stars_core::startup::FIRST_STARBASE_SLOT)
-}
-
 /// Whether a starbase design carries a stargate — `IStargateFromLppl`, which
 /// looks for one among the base-only specials. The gate parts are the eight
 /// whose names begin `Stargate`; the rest of that table is mass drivers and
@@ -1199,7 +1190,7 @@ impl Data<'_> {
         let designs = self.game.designs.get(self.player);
         let base = planet
             .starbase_design
-            .and_then(|slot| designs.and_then(|d| d.get(starbase_slot(slot))));
+            .and_then(|slot| designs.and_then(|d| d.get(crate::app::starbase_slot(slot))));
         match column {
             0 => {
                 let mut bars = Vec::new();

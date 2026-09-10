@@ -1094,9 +1094,20 @@ fn the_planet_pane_reports_a_planet() {
         status[6].1
     );
 
-    // A starbase, named for its design.
+    // A starbase, named for its design — which is one of the **starbase**
+    // designs, from slot 16 on, and not the ship design of the same number.
     let (title, rows) = app.planet_starbase_tile();
     assert_ne!(title, "< no starbase >", "the home world has one");
+    let expected = app
+        .game
+        .as_ref()
+        .expect("a game")
+        .designs
+        .first()
+        .and_then(|designs| designs.get(usize::from(stars_core::startup::FIRST_STARBASE_SLOT)))
+        .map(|design| design.name.clone())
+        .expect("a starbase design");
+    assert_eq!(title, expected, "the tile names the starbase, not a ship");
     let labels: Vec<&str> = rows.iter().map(|(l, _)| l.as_str()).collect();
     assert_eq!(labels, vec!["Dock Capacity", "Armor", "Shields", "Damage"]);
 
