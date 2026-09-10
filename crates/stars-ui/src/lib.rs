@@ -41,6 +41,7 @@ pub mod statusbar;
 pub mod survey;
 pub mod tiles;
 pub mod toolbar;
+pub mod tutorial;
 pub mod vcr;
 pub mod views;
 

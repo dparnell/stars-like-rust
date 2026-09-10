@@ -1,7 +1,8 @@
 # The tutorial
 
-Status: **in progress** — the text is recovered and read; the step machine,
-the hooks and the tutorial world are not written yet.
+Status: **in progress** — the text, the checks and the advance machine are
+written; six of the eighty pages are transcribed, and the hooks, the window
+and the tutorial world are not written yet.
 
 The original ships a tutorial that walks a new player through **36 years of a
 sample game**, and it is worth having for a reason beyond teaching: it
@@ -85,8 +86,64 @@ come from a vocabulary of **fifteen** verbs:
 That table is the argument for doing this at all: between them those fifteen
 verbs read almost everything the UI can set.
 
+## A page is a chain, not a check
+
+A page is not one predicate. The original writes each arm as a chain:
+
+```c
+tutor.idtBold = 0xb;
+if (FCheckSelection(grobjFleet, 0)) {
+    tutor.idtBold = 0xf;
+    done = FCheckFleetWP(0, 1, grobjPlanet, 0xc, 0, 0xffff);
+}
+```
+
+— so each rung both **emboldens a paragraph** and **gates the next**. The page
+is done when every rung passes, and the paragraph shown in bold is the first
+rung that does not. That is how a page manages to say "select the scout"
+first and "now send it to Bandersnatch" second without being two pages.
+
+A few pages go further and pick a different paragraph for each *wrong* answer
+— page 4 has one for each of the three fleets you might have selected instead
+of the right one. Those alternatives are not reproduced; the rung points at
+the paragraph naming the right answer.
+
+## `grbitScan`, in full
+
+`FCheckScanner` compares against `grbitScan`, and recovering it turned up the
+whole toolbar bit table from `ExecuteButton` (`1068:0db6`), which is worth
+having on its own. The six views are a radio group in the **low nibble** —
+switching keeps `grbitScan & 0x3ff0` — and every toggle owns one bit:
+
+| bit | button |
+|-----|--------|
+| `0x000f` | the chosen view, 0 to 5 |
+| `0x0010` | `Add Way Points Mode` |
+| `0x0020` | `Scanner Coverage Overlay` |
+| `0x0040` | `Mine Fields Overlay` |
+| `0x0080` | `Fleet Paths Overlay` |
+| `0x0100` | `Idle Fleets Filter` |
+| `0x0200` | `Ship Design Filter` |
+| `0x0400` | `Planet Names Overlay` |
+| `0x0800` | `Enemy Ship Class Filter` |
+| `0x1000` | `Ship Counts Overlay` |
+| `0x2000` | `Player Colors`, which is the View menu's own |
+
+`App::grbit_scan` assembles it, so a check can be written the way the original
+writes it.
+
 ## What this project does
 
-So far: the text, and the segment reader it needs. The step table, the
-fifteen verbs, the advance machine, the window, the hooks and
-`CreateTutorWorld` are still to come.
+The text and the segment reader; the `Tutor` state; the `Check` vocabulary and
+eleven of the fifteen verbs; the chain-of-rungs page model; and
+`AdvanceTutor`'s skipping loop, which steps on by eight while the page's task
+is done so a page satisfied in advance is never shown.
+
+Six of the eighty pages are transcribed. Pages not yet transcribed are simply
+absent from the table and the tutorial stops at the first gap rather than
+pretending to know what comes next.
+
+Still to come: the remaining seventy-four pages; `FCheckLayingWP`,
+`FCheckPatrolWP`, `FCheckBtlPlan` and `FCheckFleetName`, which the pages
+transcribed so far do not reach; the help topic each check sets on failure;
+the fifty-five hooks; `CreateTutorWorld`; and the window.

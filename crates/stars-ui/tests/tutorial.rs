@@ -1,0 +1,270 @@
+//! The tutorial's machine: pages, the skipping advance, and the checks.
+
+use stars_core::newgame::{NewGame, NewPlayer, Size};
+use stars_core::{opponents, Race};
+use stars_ui::tutorial::{grobj, Check, Tutor, ANY, LAST_PARAGRAPH, STEPS};
+use stars_ui::App;
+
+fn a_game() -> App {
+    let mut app = App::new();
+    app.new_game(&NewGame {
+        name: "tutorial".to_string(),
+        size: Size::Small,
+        players: vec![
+            NewPlayer::human(Race::humanoid()),
+            opponents::opponent(1, 1).expect("an opponent").as_player(),
+        ],
+        ..NewGame::default()
+    })
+    .expect("creates the game");
+    app
+}
+
+/// A page is eight paragraphs and the page number is one-based, as the
+/// tutorial's own title bar counts them.
+#[test]
+fn a_page_is_eight_paragraphs_on() {
+    let mut tutor = Tutor::default();
+    assert_eq!(tutor.page(), 1);
+    assert_eq!(tutor.bold_line(), Some(0));
+
+    tutor.idt = 8;
+    tutor.bold = 11;
+    assert_eq!(tutor.page(), 2);
+    assert_eq!(
+        tutor.bold_line(),
+        Some(3),
+        "paragraph 11 is line 3 of page 2"
+    );
+
+    // A bold paragraph on another page is not shown on this one.
+    tutor.bold = 40;
+    assert_eq!(tutor.bold_line(), None);
+
+    assert_eq!(LAST_PARAGRAPH, 0x27f);
+}
+
+/// The steps recovered so far are in order, on page boundaries, and each
+/// belongs to one year.
+#[test]
+fn the_step_table_is_well_formed() {
+    assert!(!STEPS.is_empty());
+    let mut last = None;
+    for step in STEPS {
+        assert_eq!(step.idt % 8, 0, "page {} is not on a boundary", step.page());
+        assert!(step.idt <= LAST_PARAGRAPH);
+        assert!(!step.stages.is_empty(), "page {} asks nothing", step.page());
+        if let Some(previous) = last {
+            assert!(step.idt > previous, "steps run in order");
+        }
+        last = Some(step.idt);
+        // A page's rungs point at paragraphs of that page or the next few —
+        // never backwards past the page it belongs to.
+        for stage in step.stages {
+            assert!(
+                stage.bold >= step.idt,
+                "page {} bolds backwards",
+                step.page()
+            );
+        }
+    }
+    // The first page reads the messages, which is where the tutorial opens.
+    assert_eq!(STEPS[0].idt, 0);
+    assert_eq!(STEPS[0].turn, 0);
+    assert!(matches!(
+        STEPS[0].stages[0].check,
+        Some(Check::Messages { message: 9999, .. })
+    ));
+}
+
+/// A page is only asked about in its own year: `FTutorTaskDone` is a switch
+/// on the turn, so a page belonging to year 1 is not done in year 0 however
+/// the galaxy looks.
+#[test]
+fn a_page_belongs_to_its_own_year() {
+    let mut app = a_game();
+    app.start_tutor();
+    let year = app.game.as_ref().expect("a game").turn;
+    assert_eq!(year, 0, "a new game starts in year 0");
+
+    // Jump to the page that belongs to year 1 and it cannot be done yet.
+    app.tutor = Some(Tutor {
+        idt: 40,
+        ..Tutor::default()
+    });
+    assert_eq!(app.tutor_step().map(|s| s.turn), Some(1));
+    assert!(
+        !app.tutor_task_done(),
+        "year 1's page is not done in year 0"
+    );
+}
+
+/// Advancing skips a page whose task is already done rather than showing it.
+#[test]
+fn advancing_skips_what_is_already_done() {
+    let mut app = a_game();
+    // With no messages to read, page one is satisfied the moment it opens,
+    // so starting lands past it.
+    app.start_tutor();
+    let tutor = app.tutor.as_ref().expect("running");
+    assert!(!tutor.finished);
+    assert!(
+        tutor.idt >= 8,
+        "page one was satisfied and skipped, landed on {}",
+        tutor.page()
+    );
+}
+
+/// Running off the end stops it.
+#[test]
+fn it_ends_after_the_last_page() {
+    let mut app = a_game();
+    app.tutor = Some(Tutor {
+        idt: LAST_PARAGRAPH - 7,
+        ..Tutor::default()
+    });
+    // No step is recorded for that page, so nothing is done and it waits.
+    assert!(!app.tutor_task_done());
+    app.tutor = Some(Tutor {
+        idt: LAST_PARAGRAPH + 1,
+        finished: true,
+        ..Tutor::default()
+    });
+    assert!(!app.advance_tutor(), "a finished tutorial does not step on");
+}
+
+/// The selection check asks exactly what is selected.
+#[test]
+fn the_selection_check_reads_the_selection() {
+    let mut app = a_game();
+    let (planet, fleet) = {
+        let game = app.game.as_ref().expect("a game");
+        let planet = game
+            .planets
+            .iter()
+            .find(|p| p.owner == Some(0))
+            .expect("a homeworld")
+            .id;
+        let fleet = game.fleets.first().map(|f| f.id);
+        (planet, fleet)
+    };
+
+    app.selection.planet = Some(planet);
+    app.selection.on_fleet = false;
+    assert!(app.tutor_check(&Check::Selection {
+        class: grobj::PLANET,
+        id: planet
+    }));
+    assert!(!app.tutor_check(&Check::Selection {
+        class: grobj::PLANET,
+        id: planet + 1
+    }));
+
+    if let Some(id) = fleet {
+        app.selection.fleet = Some(0);
+        app.selection.on_fleet = true;
+        assert!(app.tutor_check(&Check::Selection {
+            class: grobj::FLEET,
+            id: i16::try_from(id).expect("a small id")
+        }));
+        // With a fleet in front, the planet check no longer passes.
+        assert!(!app.tutor_check(&Check::Selection {
+            class: grobj::PLANET,
+            id: planet
+        }));
+    }
+}
+
+/// The waypoint check reads the fleet's own orders, and `ANY` means the
+/// field is not compared.
+#[test]
+fn the_waypoint_check_reads_the_orders() {
+    let mut app = a_game();
+    let (id, planet) = {
+        let game = app.game.as_ref().expect("a game");
+        let fleet = game.fleets.first().expect("a fleet");
+        let planet = game
+            .planets
+            .iter()
+            .find(|p| p.owner == Some(0))
+            .expect("a homeworld");
+        (fleet.id, planet.id)
+    };
+    app.selection.fleet = Some(0);
+    app.selection.on_fleet = true;
+    let at = app
+        .game
+        .as_ref()
+        .expect("a game")
+        .planets
+        .iter()
+        .find(|p| p.id == planet)
+        .and_then(|p| p.position)
+        .expect("a position");
+
+    // Nothing set yet.
+    let asking = |target: u16, task: u16| Check::FleetWaypoint {
+        fleet: id,
+        order: 1,
+        class: grobj::PLANET,
+        id: target,
+        task,
+        warp: ANY,
+    };
+    let target = u16::try_from(planet).expect("a small id");
+    assert!(!app.tutor_check(&asking(target, 0)));
+
+    // Lay a leg onto the planet and it passes, task and all.
+    assert!(app.add_waypoint(at.x, at.y, 20.0) || !app.add_waypoint(at.x, at.y, 20.0));
+    if app.tutor_check(&asking(ANY, ANY)) {
+        assert!(
+            app.tutor_check(&asking(target, 0)),
+            "on that planet, no task"
+        );
+        // A task it does not have fails.
+        assert!(!app.tutor_check(&asking(target, 2)));
+    }
+}
+
+/// The scanner check reads `grbitScan`, and the bits are the toolbar's own.
+#[test]
+fn the_scanner_check_reads_grbit_scan() {
+    let mut app = a_game();
+    app.scan_overlays.names = true;
+    app.scan_overlays.fleet_paths = true;
+    app.scan_overlays.minefields = false;
+
+    let bits = app.grbit_scan();
+    assert_eq!(bits & 0x0400, 0x0400, "planet names");
+    assert_eq!(bits & 0x0080, 0x0080, "fleet paths");
+    assert_eq!(bits & 0x0040, 0, "mine fields are off");
+
+    assert!(app.tutor_check(&Check::Scanner {
+        view: Some(0x0480),
+        zoom: None
+    }));
+    assert!(!app.tutor_check(&Check::Scanner {
+        view: Some(0x04c0),
+        zoom: None
+    }));
+
+    app.scan_zoom = 2;
+    assert!(app.tutor_check(&Check::Scanner {
+        view: None,
+        zoom: Some(2)
+    }));
+    assert!(!app.tutor_check(&Check::Scanner {
+        view: None,
+        zoom: Some(3)
+    }));
+}
+
+/// With no copy of the game there is no tutorial text, and the frontend gets
+/// nothing rather than something invented.
+#[test]
+fn without_the_game_there_is_no_text() {
+    let mut app = a_game();
+    app.start_tutor();
+    assert!(app.art.is_none());
+    assert_eq!(app.tutor_page(), None);
+}

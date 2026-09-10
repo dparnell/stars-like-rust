@@ -95,6 +95,16 @@ pub enum NextField {
 }
 
 impl NextField {
+    /// Re-encode as the high nibble of the game's `iTechCur` byte.
+    #[must_use]
+    pub fn raw(self) -> u8 {
+        match self {
+            Self::Same => 6,
+            Self::Lowest => 7,
+            Self::Field(f) => u8::try_from(f).unwrap_or(0),
+        }
+    }
+
     /// Decode the high nibble of the game's `iTechCur` byte.
     #[must_use]
     pub fn from_raw(v: u8) -> Self {

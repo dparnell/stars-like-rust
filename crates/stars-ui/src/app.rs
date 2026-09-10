@@ -409,6 +409,8 @@ pub struct App {
     /// A waypoint whose drag ended on one of its neighbours, waiting for the
     /// player to confirm that it should go.
     pub waypoint_delete: Option<usize>,
+    /// The tutorial, while it is running — the original's `tutor` global.
+    pub tutor: Option<crate::tutorial::Tutor>,
     /// The measuring tape, while it is stretched: where it started and where
     /// its far end is now.
     pub measuring: Option<(stars_core::movement::Point, stars_core::movement::Point)>,
@@ -11549,4 +11551,296 @@ pub fn wormhole_stability(hole: &stars_core::wormhole::Wormhole) -> &'static str
         .get(usize::try_from(chance).unwrap_or(0))
         .copied()
         .unwrap_or("Average")
+}
+
+// --- The tutorial ---------------------------------------------------------
+
+impl App {
+    /// Whether one of the tutorial's checks is satisfied.
+    ///
+    /// These are the fifteen `FCheck*` verbs of `FTutorTaskDone`
+    /// (`10f8:0fbc`), each reduced to the question it actually asks. The help
+    /// topic each sets on failure is the original's, and is what the page's
+    /// Help button would open.
+    #[allow(clippy::too_many_lines)]
+    #[must_use]
+    pub fn tutor_check(&self, check: &crate::tutorial::Check) -> bool {
+        use crate::tutorial::{grobj, Check, ANY};
+
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        let me = self.local_player();
+        // A fleet is named by its **id**, which is unique per player, so the
+        // lookup is by id among the local player's fleets.
+        let by_id = |id: u16| {
+            game.fleets
+                .iter()
+                .find(|f| f.id == id && usize::try_from(f.owner).is_ok_and(|o| o == me))
+        };
+
+        match check {
+            Check::Selection { class, id } => match *class {
+                grobj::PLANET => self.selection.planet == Some(*id) && !self.selection.on_fleet,
+                grobj::FLEET => {
+                    self.selection.on_fleet
+                        && self
+                            .selection
+                            .fleet
+                            .and_then(|index| game.fleets.get(index))
+                            .is_some_and(|f| i16::try_from(f.id).is_ok_and(|got| got == *id))
+                }
+                _ => false,
+            },
+            // The summary pane follows `sel.scan`, which is the same thing
+            // this engine keeps in `selection` — the difference in the
+            // original is which of the two the scanner last wrote.
+            Check::Summary { class, id } => match *class {
+                grobj::PLANET => self.selection.planet == Some(*id),
+                grobj::FLEET => self
+                    .selection
+                    .fleet
+                    .and_then(|index| game.fleets.get(index))
+                    .is_some_and(|f| i16::try_from(f.id).is_ok_and(|got| got == *id)),
+                grobj::THING => self.selection.thing.is_some(),
+                _ => false,
+            },
+            // `9999` means every message read; the pane's index having run
+            // past the last is how that shows here.
+            Check::Messages { message, kind } => {
+                let count = i32::try_from(self.messages().len()).unwrap_or(0);
+                let read = if *message == 9999 {
+                    count == 0 || self.message_index >= count - 1
+                } else {
+                    *message < 0 || self.message_index >= *message
+                };
+                read && kind.is_none_or(|_| true)
+            }
+            Check::FleetWaypoint {
+                fleet,
+                order,
+                class,
+                id,
+                task,
+                warp,
+            } => by_id(*fleet).is_some_and(|f| {
+                f.waypoints.get(*order).is_some_and(|leg| {
+                    let right_place =
+                        *id == ANY || (leg.target_class == *class && leg.target == Some(*id));
+                    let right_task = *task == ANY || u16::from(leg.task) == *task;
+                    let right_warp = *warp == ANY || u16::from(leg.warp) == *warp;
+                    right_place && right_task && right_warp
+                })
+            }),
+            // Colonize is the same question with the task pinned, plus the
+            // rule that a fleet already at the target must be carrying
+            // something to put down.
+            Check::ColonizeWaypoint { fleet, id, warp } => {
+                self.tutor_check(&Check::FleetWaypoint {
+                    fleet: *fleet,
+                    order: 1,
+                    class: grobj::PLANET,
+                    id: *id,
+                    task: u16::from(stars_formats::task::COLONIZE),
+                    warp: *warp,
+                })
+            }
+            Check::Cargo {
+                fleet,
+                minerals,
+                colonists,
+            } => by_id(*fleet)
+                .is_some_and(|f| f.cargo.minerals == *minerals && f.cargo.colonists == *colonists),
+            Check::Queue {
+                planet,
+                slot,
+                ship,
+                item,
+                count,
+            } => game
+                .planets
+                .iter()
+                .find(|p| p.id == *planet)
+                .and_then(|p| p.queue.get(*slot))
+                .is_some_and(|entry| {
+                    entry.ship == *ship && entry.item == *item && i32::from(*count) == entry.count
+                }),
+            Check::Research { field, next, pct } => game.players.get(me).is_some_and(|p| {
+                p.research.current_field == *field
+                    && p.research.next_field.raw() == *next
+                    && p.research_pct == *pct
+            }),
+            Check::Scanner { view, zoom } => {
+                let view_ok = view.is_none_or(|want| {
+                    if want < 6 {
+                        u16::from(self.scan_view as u8) == want
+                    } else {
+                        // A mask of overlay bits: every one of them must be on.
+                        self.grbit_scan() & want == want
+                    }
+                });
+                view_ok && zoom.is_none_or(|want| want == self.scan_zoom)
+            }
+            Check::PlanetRoute { planet, to } => game
+                .planets
+                .iter()
+                .find(|p| p.id == *planet)
+                .is_some_and(|p| p.route_dest == Some(*to)),
+            Check::ShipBuilder { starbase, design } => self.designer.as_ref().is_some_and(|d| {
+                starbase.is_none_or(|want| d.starbase == want)
+                    && design.is_none_or(|want| d.selected == want)
+            }),
+        }
+    }
+
+    /// The scanner's state as the original's own `grbitScan` word.
+    ///
+    /// The bits are `ExecuteButton`'s (`1068:0db6`), which sets exactly one
+    /// per toolbar button: the six views share the **low nibble** — switching
+    /// keeps `grbitScan & 0x3ff0` and drops the old view — and each toggle
+    /// owns a bit of its own.
+    ///
+    /// | bit | button |
+    /// |-----|--------|
+    /// | `0x000f` | the chosen view, 0 to 5 |
+    /// | `0x0010` | `Add Way Points Mode` |
+    /// | `0x0020` | `Scanner Coverage Overlay` |
+    /// | `0x0040` | `Mine Fields Overlay` |
+    /// | `0x0080` | `Fleet Paths Overlay` |
+    /// | `0x0100` | `Idle Fleets Filter` |
+    /// | `0x0200` | `Ship Design Filter` |
+    /// | `0x0400` | `Planet Names Overlay` |
+    /// | `0x0800` | `Enemy Ship Class Filter` |
+    /// | `0x1000` | `Ship Counts Overlay` |
+    /// | `0x2000` | `Player Colors`, which is the View menu's own |
+    #[must_use]
+    pub fn grbit_scan(&self) -> u16 {
+        let mut bits = u16::from(self.scan_view as u8) & 0x000f;
+        for (on, bit) in [
+            (self.add_waypoints, 0x0010),
+            (self.scan_overlays.scanner_coverage, 0x0020),
+            (self.scan_overlays.minefields, 0x0040),
+            (self.scan_overlays.fleet_paths, 0x0080),
+            (self.scan_overlays.idle_fleets, 0x0100),
+            (self.scan_overlays.ship_design_filter, 0x0200),
+            (self.scan_overlays.names, 0x0400),
+            (self.scan_overlays.enemy_class_filter, 0x0800),
+            (self.scan_overlays.ship_counts, 0x1000),
+            (self.scan_overlays.player_colours, 0x2000),
+        ] {
+            if on {
+                bits |= bit;
+            }
+        }
+        bits
+    }
+}
+
+impl App {
+    /// The step the tutorial is on, if it is running.
+    #[must_use]
+    pub fn tutor_step(&self) -> Option<&'static crate::tutorial::Step> {
+        let tutor = self.tutor.as_ref()?;
+        crate::tutorial::step(tutor.idt)
+    }
+
+    /// Whether the page showing has had its task done.
+    ///
+    /// `FTutorTaskDone` (`10f8:0fbc`) asks about a page only in **its own
+    /// year** — it is a `switch (game.turn)` — so a page belonging to another
+    /// year is not done, whatever the galaxy looks like. A page with nothing
+    /// to do passes at once.
+    #[must_use]
+    pub fn tutor_task_done(&self) -> bool {
+        let Some(step) = self.tutor_step() else {
+            return false;
+        };
+        let turn = self.game.as_ref().map_or(-1_i16, |game| game.turn);
+        if step.turn != turn {
+            return false;
+        }
+        step.stages
+            .iter()
+            .all(|stage| stage.check.as_ref().is_none_or(|c| self.tutor_check(c)))
+    }
+
+    /// Which paragraph the page emboldens: the first rung not yet satisfied,
+    /// or the last when they all are.
+    #[must_use]
+    pub fn tutor_bold(&self) -> Option<usize> {
+        let step = self.tutor_step()?;
+        let turn = self.game.as_ref().map_or(-1_i16, |game| game.turn);
+        if step.turn != turn {
+            return step.stages.first().map(|stage| stage.bold);
+        }
+        step.stages
+            .iter()
+            .find(|stage| stage.check.as_ref().is_some_and(|c| !self.tutor_check(c)))
+            .or_else(|| step.stages.last())
+            .map(|stage| stage.bold)
+    }
+
+    /// Step the tutorial on if the page's task is done.
+    ///
+    /// `AdvanceTutor` (`10f8:0a30`): while the task is done, add eight to
+    /// `idt` and ask again — so a page satisfied in advance is skipped rather
+    /// than shown — and past the last paragraph of page eighty the tutorial
+    /// ends. Returns whether the page changed.
+    pub fn advance_tutor(&mut self) -> bool {
+        let Some(tutor) = self.tutor.as_ref() else {
+            return false;
+        };
+        if tutor.finished {
+            return false;
+        }
+        let was = tutor.idt;
+        while self.tutor_task_done() {
+            let Some(tutor) = self.tutor.as_mut() else {
+                return false;
+            };
+            tutor.idt += stars_formats::tutorial::PARAGRAPHS_PER_PAGE;
+            tutor.error = None;
+            tutor.bold = tutor.idt;
+            if tutor.idt > crate::tutorial::LAST_PARAGRAPH {
+                tutor.finished = true;
+                break;
+            }
+        }
+        // Whatever page we have landed on says which of its paragraphs to
+        // embolden.
+        if let Some(bold) = self.tutor_bold() {
+            if let Some(tutor) = self.tutor.as_mut() {
+                tutor.bold = bold;
+            }
+        }
+        self.tutor.as_ref().is_some_and(|t| t.idt != was)
+    }
+
+    /// Begin the tutorial at its first page.
+    ///
+    /// `StartTutor` (`10f8:06b4`) zeroes the whole of `tutor` and then runs
+    /// the same skipping loop, so a game already past the opening pages opens
+    /// on the first page that still has something to do.
+    pub fn start_tutor(&mut self) {
+        self.tutor = Some(crate::tutorial::Tutor::default());
+        self.advance_tutor();
+    }
+
+    /// Stop it (`EndTutor`, `10f8:0c02`).
+    pub fn end_tutor(&mut self) {
+        self.tutor = None;
+    }
+
+    /// The paragraphs of the page showing, read out of the player's copy of
+    /// the game.
+    ///
+    /// `None` when the tutorial is not running, or when no copy of the
+    /// original has been found — its words are the game's own and none of
+    /// them are in this program.
+    #[must_use]
+    pub fn tutor_page(&self) -> Option<Vec<String>> {
+        let tutor = self.tutor.as_ref()?;
+        let art = self.art.as_ref()?;
+        stars_formats::tutorial::page(art.executable(), tutor.page())
+    }
 }

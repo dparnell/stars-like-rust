@@ -72,6 +72,13 @@ impl Art {
         })
     }
 
+    /// The executable itself, for the readers that want more out of it than
+    /// pictures — the tutorial's text among them.
+    #[must_use]
+    pub fn executable(&self) -> &[u8] {
+        &self.executable
+    }
+
     /// How many bitmaps the executable holds.
     #[must_use]
     pub fn bitmaps(&self) -> usize {
