@@ -569,6 +569,14 @@ impl eframe::App for StarsApp {
             if ctx.input(|i| i.key_pressed(egui::Key::F9)) {
                 self.app.generate_turn();
             }
+            // F3 opens a report and Esc closes it. All four Report entries
+            // carry F3, so the key opens whichever was last up.
+            if ctx.input(|i| i.key_pressed(egui::Key::F3)) {
+                self.app.open_report();
+            }
+            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.app.close_report();
+            }
         }
 
         // Backspace and Delete drop the waypoint the map has in hand.
@@ -1093,10 +1101,15 @@ impl eframe::App for StarsApp {
                                     screen.title(),
                                 ),
                             )
+                            .on_hover_text(if App::is_report(screen) {
+                                "F3 opens whichever report was last up; Esc closes it."
+                            } else {
+                                "The map."
+                            })
                             .clicked()
                         {
                             ui.close_menu();
-                            self.app.screen = screen;
+                            self.app.show_screen(screen);
                         }
                     }
                     ui.separator();

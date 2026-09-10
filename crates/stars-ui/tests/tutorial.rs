@@ -536,3 +536,36 @@ fn an_unnamed_slot_is_called_custom() {
     assert!(app.zip_import(2, "   "));
     assert_eq!(app.zip_menu()[4], "Custom 3");
 }
+
+/// F3 opens a report and Esc closes it — "Hit F3 to open the Planet Summary
+/// Report", "Hit the Esc key to close the Planet Summary Report".
+///
+/// All four Report entries carry F3, which is one key that opens whichever
+/// report was last up, not four accelerators for one key.
+#[test]
+fn f3_opens_the_last_report_and_escape_closes_it() {
+    use stars_ui::Screen;
+
+    let mut app = a_game();
+    assert_eq!(app.screen, Screen::Galaxy);
+
+    // With none up yet, F3 opens the planets.
+    app.open_report();
+    assert_eq!(app.screen, Screen::Planets);
+    // Again while one is open changes nothing.
+    app.open_report();
+    assert_eq!(app.screen, Screen::Planets);
+
+    assert!(app.close_report());
+    assert_eq!(app.screen, Screen::Galaxy);
+    assert!(!app.close_report(), "nothing to close on the map");
+
+    // It comes back to the one last up.
+    app.show_screen(Screen::Fleets);
+    assert!(app.close_report());
+    app.open_report();
+    assert_eq!(app.screen, Screen::Fleets);
+
+    assert!(App::is_report(Screen::Battles));
+    assert!(!App::is_report(Screen::Galaxy));
+}

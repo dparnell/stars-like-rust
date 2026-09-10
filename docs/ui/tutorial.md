@@ -148,7 +148,8 @@ name, and where each stands:
 | "The **shift** key causes the Add button to add 10 items at a time" | `App::production_step` | already right |
 | "click on the **Next** button, or use the **down arrow** key" — messages | | already right |
 | "Hit the **v** key to pinpoint it for you" | `CtrPointScan` | **not done**: this map fits the whole galaxy and has no scroll to recentre |
-| "Hit the **Esc** key to close the Planet Summary Report" | | not checked yet |
+| "Hit **F3** to open the Planet Summary Report" / "Hit the **Esc** key to close" it | menu `0x6d4` | **added** |
+| "Open the Planet Summary Report and **sort by Population**" | `SortReportCache` (`1108:589c`) | not done: the reports here are lists, not sortable tables |
 | "select **Generate** from the **Turn** menu" | menu `0x6d4` | **added** — the whole menu bar, see `menus.md` |
 | "Choose **Research** on the **Commands** menu" | menu `0x6d4` | **added** |
 | "choose **Tutorial** from the **Help** menu" | `0x9c5` | **added** |
@@ -212,6 +213,26 @@ empties the slot. An unnamed slot is called `Custom n`.
 `ITEMACTION` words a Transport waypoint carries, and a name kept beside them
 at `0x526e + i * 0x18`. The production tile has a diamond of its own over
 `vrgZipProd`, which this project already draws.
+
+## The reports, and their sort
+
+`SortReportCache` (`1108:589c`) knows **four** reports — planets, your
+fleets, everybody else's fleets, and battles — and each keeps `icolSort`,
+`iSubsort` and `fAscending` of its own.
+
+Two things fall out of it. The first is why all four Report entries carry
+F3: it is **one** key that opens whichever report was last up, not four
+accelerators for the same key. That is reproduced.
+
+The second is not, and is worth writing down before anyone builds the tables:
+when you sort by a new column the routine does not simply forget the old one.
+It copies the current column, subsort and direction into `vicolSortPrev`,
+`viSubsortPrev` and `vfAscendingPrev` **before** overwriting them, so the
+comparator can break ties with whatever you sorted by last. Sorting by
+population and then by name leaves equally-named planets in population order.
+
+This project's reports are lists rather than column tables, so there is
+nothing to click yet — the tutorial's *"sort by Population"* has no home.
 
 ## What this project does
 

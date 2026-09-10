@@ -409,6 +409,9 @@ pub struct App {
     /// A waypoint whose drag ended on one of its neighbours, waiting for the
     /// player to confirm that it should go.
     pub waypoint_delete: Option<usize>,
+    /// Which report **F3** comes back to: the one last open, and the planets
+    /// until one has been.
+    pub last_report: Screen,
     /// The four saved cargo orders the blue diamond offers (`vrgZip`).
     pub zip_orders: [ZipOrder; 4],
     /// Which slot the Customize dialog is showing, while it is open.
@@ -12092,5 +12095,57 @@ impl App {
         }
         *slot = ZipOrder::default();
         true
+    }
+}
+
+impl App {
+    /// Whether a screen is one of the original's four **reports** rather than
+    /// the map.
+    ///
+    /// `SortReportCache` (`1108:589c`) knows four: planets, your fleets,
+    /// everybody else's fleets, and battles. This project's Players screen is
+    /// its own, and counts as a report for the purpose of F3 and Esc.
+    #[must_use]
+    pub fn is_report(screen: Screen) -> bool {
+        screen != Screen::Galaxy
+    }
+
+    /// Open a report, as **F3** does.
+    ///
+    /// All four of the Report menu's entries carry F3 — `&Planets...\tF3`,
+    /// `&Fleets...\tF3`, `&Others' Fleets...\tF3`, `&Battles...\tF3` — which
+    /// is not four accelerators for one key but one: the key opens whichever
+    /// report was last up. With none up yet it opens the planets.
+    pub fn open_report(&mut self) {
+        if Self::is_report(self.screen) {
+            return;
+        }
+        self.screen = if Self::is_report(self.last_report) {
+            self.last_report
+        } else {
+            Screen::Planets
+        };
+    }
+
+    /// Close the report and go back to the map, as **Esc** does — "Hit the
+    /// Esc key to close the Planet Summary Report."
+    ///
+    /// Returns whether one was open to close.
+    pub fn close_report(&mut self) -> bool {
+        if !Self::is_report(self.screen) {
+            return false;
+        }
+        self.last_report = self.screen;
+        self.screen = Screen::Galaxy;
+        true
+    }
+
+    /// Go to a screen, remembering it if it is a report so F3 can come back
+    /// to it.
+    pub fn show_screen(&mut self, screen: Screen) {
+        if Self::is_report(screen) {
+            self.last_report = screen;
+        }
+        self.screen = screen;
     }
 }
