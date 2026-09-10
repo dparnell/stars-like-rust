@@ -1705,6 +1705,36 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 12,
+        idt: 304,
+        escape: None,
+        stages: &[
+            hint(
+                0x132,
+                Check::Messages {
+                    message: 5,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            hint(
+                0x134,
+                Check::Messages {
+                    message: 6,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            ask(
+                0x136,
+                Check::Selection {
+                    class: grobj::PLANET,
+                    id: 0x12,
+                },
+            ),
+        ],
+    },
 ];
 
 /// The Scrap Fleet task id.
