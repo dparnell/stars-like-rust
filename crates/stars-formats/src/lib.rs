@@ -72,6 +72,7 @@ pub mod resources;
 pub mod score;
 pub mod strings;
 pub mod thing;
+pub mod tutorial;
 pub mod waypoint;
 pub mod xy;
 

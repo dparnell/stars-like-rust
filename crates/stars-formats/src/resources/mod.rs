@@ -347,3 +347,40 @@ pub fn read_bitmap(exe: &[u8], name: &Name) -> Result<Image> {
 }
 
 pub mod art;
+
+/// Where a segment of an NE executable starts in the file.
+///
+/// `selector` is the value a far pointer carries — `0x1000` for the first
+/// segment, `0x1008` for the second and so on, eight apart, which is how the
+/// loader hands them out and how every address in this project's Ghidra notes
+/// is written. The segment table's own entries hold the offset in units of
+/// `1 << shift` bytes, with the shift in the NE header at `+0x32`.
+///
+/// Returns `None` when the file is not an NE executable, when it has no such
+/// segment, or when the segment would run off the end.
+#[must_use]
+pub fn segment_offset(exe: &[u8], selector: u16) -> Option<(usize, usize)> {
+    if exe.len() < 0x40 || exe.get(..2) != Some(b"MZ") {
+        return None;
+    }
+    let ne = u32::from_le_bytes([exe[0x3c], exe[0x3d], exe[0x3e], exe[0x3f]]) as usize;
+    if exe.get(ne..ne + 2) != Some(b"NE") {
+        return None;
+    }
+    let count = usize::from(u16_at(exe, ne + 0x1c)?);
+    let table = ne + usize::from(u16_at(exe, ne + 0x22)?);
+    let shift = u32::from(u16_at(exe, ne + 0x32)?);
+    if shift > 16 {
+        return None;
+    }
+    let index = usize::from(selector.checked_sub(0x1000)? / 8);
+    if index >= count {
+        return None;
+    }
+    let entry = table + index * 8;
+    let at = usize::try_from(u32::from(u16_at(exe, entry)?) << shift).ok()?;
+    let len = usize::from(u16_at(exe, entry + 2)?);
+    // A zero length means 64K, which is how the format says "the whole thing".
+    let len = if len == 0 { 0x1_0000 } else { len };
+    (at.checked_add(len)? <= exe.len()).then_some((at, len))
+}
