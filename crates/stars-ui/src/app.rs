@@ -11774,6 +11774,7 @@ impl App {
                 .is_some_and(|fitted| {
                     fitted.item == u8::try_from(*item & 0xff).unwrap_or(0) && fitted.count >= *count
                 }),
+            Check::Fuel { fleet, amount } => by_id(*fleet).is_some_and(|f| f.cargo.fuel == *amount),
             Check::DesignCount { count, cmp } => game
                 .designs
                 .get(me)

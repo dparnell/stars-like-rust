@@ -167,6 +167,12 @@ pub enum Check {
     /// `count` of them are in. It only ever answers while the designer is in
     /// edit mode, so this asks the same.
     DesignSlot { slot: usize, item: u16, count: u8 },
+    /// How much **fuel** a fleet is carrying.
+    ///
+    /// The arms read `pfl->rgwtMin[4]` directly rather than through
+    /// `FCheckCargo`, which only ever compares the four holds. Page 56 is
+    /// done when the freighter has been filled to exactly 383mg.
+    Fuel { fleet: u16, amount: i32 },
     /// How many ship designs the player has (`rgplr[idPlayer].cShDef`).
     ///
     /// How the tutorial checks that a **new design** has been drawn up,
@@ -256,6 +262,7 @@ impl Check {
             Check::RepeatOrders { .. } => "repeat orders",
             Check::FleetCount { .. } => "fleet count",
             Check::DesignCount { .. } => "design count",
+            Check::Fuel { .. } => "fuel",
             Check::DesignSlot { .. } => "design slot",
             Check::Designer { .. } => "designer open",
             Check::ResearchDialog { .. } => "research dialog",
@@ -2416,6 +2423,28 @@ pub static STEPS: &[Step] = &[
                 filter: false,
             },
         )],
+    },
+    // Year 22. Fuel, which none of the check verbs can see.
+    Step {
+        turn: 22,
+        idt: 440,
+        escape: None,
+        stages: &[
+            hint(
+                0x1b8,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 3,
+                },
+            ),
+            ask(
+                0x1bd,
+                Check::Fuel {
+                    fleet: 3,
+                    amount: 383,
+                },
+            ),
+        ],
     },
 ];
 
