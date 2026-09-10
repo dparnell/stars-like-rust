@@ -2129,6 +2129,23 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    // Year 17. One page, and a quiet one.
+    Step {
+        turn: 17,
+        idt: 384,
+        escape: None,
+        stages: &[
+            hint(
+                0x180,
+                Check::Messages {
+                    message: 9999,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            ask(0x181, at_planet(0, 1, 0x0d, ANY)),
+        ],
+    },
 ];
 
 /// The Merge with Fleet task id.
