@@ -975,126 +975,179 @@ impl eframe::App for StarsApp {
                         self.app.game_parameters = true;
                     }
                 });
-                ui.separator();
-                if ui
-                    .add_enabled(
-                        self.app.game.is_some() && self.app.setup.is_none(),
-                        egui::Button::new("Host Mode…"),
-                    )
-                    .on_hover_text(
-                        "Watch for the other players' turns and generate the year. \
-                         The original makes this a mode of its own, entered by opening \
-                         the host file.",
-                    )
-                    .clicked()
-                {
-                    ui.close_menu();
-                    self.app.open_host_mode();
-                }
-                if ui
-                    .add_enabled(
-                        self.app.game.is_some() && self.app.setup.is_none(),
-                        egui::Button::new("Generate turn").shortcut_text("F9"),
-                    )
-                    .on_hover_text(
-                        "Advance one year. The rolls will differ from the original \
-                         engine's: its generator is seeded from the clock and its state \
-                         is in no save file.",
-                    )
-                    .clicked()
-                {
-                    self.app.generate_turn();
-                }
-                ui.separator();
-                // The original's Commands menu opens the designer with F4.
-                if ui
-                    .add_enabled(
-                        self.app.game.is_some() && self.app.setup.is_none(),
-                        egui::Button::new("Ship Design…").shortcut_text("F4"),
-                    )
-                    .clicked()
-                {
-                    self.app.open_designer();
-                }
-                if ui
-                    .add_enabled(
-                        self.app.selected_planet().is_some() && self.app.setup.is_none(),
-                        egui::Button::new("Production…"),
-                    )
-                    .clicked()
-                {
-                    self.app.open_production();
-                }
-                if ui
-                    .add_enabled(
-                        self.app.game.is_some() && self.app.setup.is_none(),
-                        egui::Button::new("Research…").shortcut_text("F5"),
-                    )
-                    .clicked()
-                {
-                    self.app.open_research();
-                }
-                if ui
-                    .add_enabled(
-                        self.app.game.is_some() && self.app.setup.is_none(),
-                        egui::Button::new("Technology Browser…").shortcut_text("F2"),
-                    )
-                    .clicked()
-                {
-                    self.app.open_browser();
-                }
-                if ui
-                    .add_enabled(
-                        self.app.game.is_some() && self.app.setup.is_none(),
-                        egui::Button::new("Score…").shortcut_text("F10"),
-                    )
-                    .clicked()
-                {
-                    self.app.open_score_sheet();
-                }
-                if ui
-                    .add_enabled(
-                        self.app.game.is_some() && self.app.setup.is_none(),
-                        egui::Button::new("Battle Plans…").shortcut_text("F6"),
-                    )
-                    .clicked()
-                {
-                    self.app.open_battle_plans();
-                }
-                if ui
-                    .add_enabled(
-                        self.app.game.is_some() && self.app.setup.is_none(),
-                        egui::Button::new("Player Relations…").shortcut_text("F7"),
-                    )
-                    .clicked()
-                {
-                    self.app.open_relations();
-                }
-                // The last item of the original's Commands menu, with no
-                // accelerator of its own.
-                if ui
-                    .add_enabled(
-                        self.app.game.is_some() && self.app.setup.is_none(),
-                        egui::Button::new("Change Password…"),
-                    )
-                    .clicked()
-                {
-                    ui.close_menu();
-                    self.app.open_password_dialog();
-                }
-                ui.separator();
-                for screen in Screen::ALL {
-                    let enabled = self.app.game.is_some() && self.app.setup.is_none();
+                // The original's menu bar has six menus, and the four after
+                // File and View are these. Resource `0x6d4`: Turn, Commands,
+                // Report and Help, in that order, with the original's own
+                // items and accelerators. The tutorial names them by name —
+                // "select Generate from the Turn menu", "Choose Research on
+                // the Commands menu" — so the shape matters, not just the
+                // reachability.
+                let playing = self.app.game.is_some() && self.app.setup.is_none();
+
+                ui.menu_button("Turn", |ui| {
                     if ui
-                        .add_enabled(
-                            enabled,
-                            egui::SelectableLabel::new(self.app.screen == screen, screen.title()),
+                        .add_enabled(playing, egui::Button::new("Wait for New"))
+                        .on_hover_text(
+                            "Watch for the other players' turns and generate the \
+                             year. The original makes this a mode of its own, \
+                             entered by opening the host file.",
                         )
                         .clicked()
                     {
-                        self.app.screen = screen;
+                        ui.close_menu();
+                        self.app.open_host_mode();
                     }
-                }
+                    if ui
+                        .add_enabled(
+                            playing,
+                            egui::Button::new("Generate").shortcut_text("F9"),
+                        )
+                        .on_hover_text(
+                            "Advance one year. The rolls will differ from the \
+                             original engine's: its generator is seeded from the \
+                             clock and its state is in no save file.",
+                        )
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.app.generate_turn();
+                    }
+                });
+
+                ui.menu_button("Commands", |ui| {
+                    if ui
+                        .add_enabled(
+                            playing,
+                            egui::Button::new("Ship Design…").shortcut_text("F4"),
+                        )
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.app.open_designer();
+                    }
+                    if ui
+                        .add_enabled(
+                            playing,
+                            egui::Button::new("Research…").shortcut_text("F5"),
+                        )
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.app.open_research();
+                    }
+                    if ui
+                        .add_enabled(
+                            playing,
+                            egui::Button::new("Battle Plans…").shortcut_text("F6"),
+                        )
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.app.open_battle_plans();
+                    }
+                    if ui
+                        .add_enabled(
+                            playing,
+                            egui::Button::new("Player Relations…").shortcut_text("F7"),
+                        )
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.app.open_relations();
+                    }
+                    ui.separator();
+                    if ui
+                        .add_enabled(playing, egui::Button::new("Change Password…"))
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.app.open_password_dialog();
+                    }
+                    ui.separator();
+                    // Not the original's — its production queue is reached
+                    // from the planet tile's Change button and the `q` key,
+                    // both of which work. This is a third way to the same
+                    // dialog.
+                    if ui
+                        .add_enabled(
+                            self.app.selected_planet().is_some() && self.app.setup.is_none(),
+                            egui::Button::new("Production…").shortcut_text("Q"),
+                        )
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.app.open_production();
+                    }
+                });
+
+                ui.menu_button("Report", |ui| {
+                    // The original's four report windows are this project's
+                    // screens, so they are listed here under the menu that
+                    // opens them.
+                    for screen in Screen::ALL {
+                        if ui
+                            .add_enabled(
+                                playing,
+                                egui::SelectableLabel::new(
+                                    self.app.screen == screen,
+                                    screen.title(),
+                                ),
+                            )
+                            .clicked()
+                        {
+                            ui.close_menu();
+                            self.app.screen = screen;
+                        }
+                    }
+                    ui.separator();
+                    if ui
+                        .add_enabled(
+                            playing,
+                            egui::Button::new("Score…").shortcut_text("F10"),
+                        )
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.app.open_score_sheet();
+                    }
+                });
+
+                ui.menu_button("Help", |ui| {
+                    if ui
+                        .add_enabled(
+                            playing,
+                            egui::Button::new("Technology Browser…").shortcut_text("F2"),
+                        )
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.app.open_browser();
+                    }
+                    ui.separator();
+                    let running = self.app.tutor.is_some();
+                    if ui
+                        .add_enabled(
+                            playing && !running,
+                            egui::Button::new("Tutorial"),
+                        )
+                        .on_hover_text(
+                            "Walk through the game a page at a time. The text is \
+                             the game's own and is read from a copy of the original.",
+                        )
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.app.start_tutor();
+                    }
+                    if ui
+                        .add_enabled(running, egui::Button::new("Stop the tutorial"))
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.app.end_tutor();
+                    }
+                });
+
                 // Find lives in the original's View menu, not on the
                 // scanner's toolbar, so it sits in this frontend's own menu
                 // bar rather than cluttering the toolbar with a control the

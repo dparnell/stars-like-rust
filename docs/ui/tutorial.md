@@ -149,6 +149,9 @@ name, and where each stands:
 | "click on the **Next** button, or use the **down arrow** key" — messages | | already right |
 | "Hit the **v** key to pinpoint it for you" | `CtrPointScan` | **not done**: this map fits the whole galaxy and has no scroll to recentre |
 | "Hit the **Esc** key to close the Planet Summary Report" | | not checked yet |
+| "select **Generate** from the **Turn** menu" | menu `0x6d4` | **added** — the whole menu bar, see `menus.md` |
+| "Choose **Research** on the **Commands** menu" | menu `0x6d4` | **added** |
+| "choose **Tutorial** from the **Help** menu" | `0x9c5` | **added** |
 
 `SelectAdjFleet` is worth stating exactly, because two of those entries are
 it: with a non-zero step it walks **your own** fleet list — never somebody
