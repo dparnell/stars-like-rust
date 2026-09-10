@@ -755,3 +755,115 @@ fn a_queue_rung_can_ask_about_leftover_research() {
     }
     assert!(app.tutor_check(&asking(Some(true))));
 }
+
+/// The transport check compares each cargo's **action** and not its figure,
+/// which is what lets QuikDrop satisfy a page however much is aboard.
+#[test]
+fn the_transport_check_compares_actions() {
+    use stars_formats::{task, XferAction};
+
+    let mut app = a_game();
+    let index = app.own_fleets()[0];
+    let (id, planet, at) = {
+        let game = app.game.as_ref().expect("a game");
+        let planet = game
+            .planets
+            .iter()
+            .find(|p| p.owner == Some(0))
+            .expect("a homeworld");
+        (
+            game.fleets[index].id,
+            u16::try_from(planet.id).expect("small"),
+            planet.position.expect("a position"),
+        )
+    };
+    {
+        let game = app.game.as_mut().expect("a game");
+        let from = game.fleets[index].position;
+        game.fleets[index].waypoints = vec![
+            stars_core::fleet::Waypoint {
+                position: from,
+                target: None,
+                target_class: grobj::POSITION,
+                warp: 0,
+                task: task::NONE,
+                transport: None,
+                task_data: Vec::new(),
+            },
+            stars_core::fleet::Waypoint {
+                position: at,
+                target: Some(planet),
+                target_class: grobj::PLANET,
+                warp: 5,
+                task: task::TRANSPORT,
+                transport: None,
+                task_data: vec![0; 10],
+            },
+        ];
+    }
+    app.select_object(stars_ui::ScanObject::Fleet(index));
+    app.selection.waypoint = Some(1);
+
+    let asking = Check::TransportWaypoint {
+        fleet: id,
+        order: 1,
+        id: planet,
+        warp: ANY,
+        goal: [XferAction::UnloadAll; 5],
+    };
+    assert!(!app.tutor_check(&asking), "nothing set yet");
+
+    // QuikDrop is exactly this order.
+    assert!(app.zip_quik(false));
+    assert!(app.tutor_check(&asking));
+
+    // The figures do not come into it: an unload-all with a quantity still
+    // satisfies the page.
+    assert!(app.set_waypoint_transport(0, XferAction::UnloadAll, 500));
+    assert!(app.tutor_check(&asking));
+
+    // A different action does not.
+    assert!(app.set_waypoint_transport(0, XferAction::LoadAll, 0));
+    assert!(!app.tutor_check(&asking));
+}
+
+/// The order-count check is how "delete that waypoint" is asked.
+#[test]
+fn the_order_count_check_sees_a_deletion() {
+    use stars_ui::tutorial::Cmp;
+
+    let mut app = a_game();
+    let index = app.own_fleets()[0];
+    let id = app.game.as_ref().expect("a game").fleets[index].id;
+    {
+        let game = app.game.as_mut().expect("a game");
+        let at = game.fleets[index].position;
+        game.fleets[index].waypoints = (0..6)
+            .map(|n| stars_core::fleet::Waypoint {
+                position: stars_core::movement::Point::new(at.x + n * 20, at.y),
+                target: None,
+                target_class: grobj::POSITION,
+                warp: 5,
+                task: stars_formats::task::NONE,
+                transport: None,
+                task_data: Vec::new(),
+            })
+            .collect();
+    }
+    app.select_object(stars_ui::ScanObject::Fleet(index));
+
+    let six = |cmp| Check::FleetOrders {
+        fleet: id,
+        count: 6,
+        cmp,
+    };
+    assert!(app.tutor_check(&six(Cmp::Exactly)));
+    assert!(!app.tutor_check(&six(Cmp::NotExactly)));
+    assert!(!app.tutor_check(&six(Cmp::Fewer)));
+
+    // Delete one and the page is done.
+    app.selection.waypoint = Some(3);
+    assert!(app.delete_current_waypoint());
+    assert!(app.tutor_check(&six(Cmp::NotExactly)));
+    assert!(app.tutor_check(&six(Cmp::Fewer)));
+}

@@ -1,7 +1,7 @@
 # The tutorial
 
 Status: **in progress** — the text, the checks and the advance machine are
-written; fourteen of the eighty pages are transcribed, and the hooks, the window
+written; sixteen of the eighty pages are transcribed, and the hooks, the window
 and the tutorial world are not written yet.
 
 The original ships a tutorial that walks a new player through **36 years of a
@@ -74,7 +74,7 @@ come from a vocabulary of **fifteen** verbs:
 | `FCheckSummary` (`10f8:69e2`) | 18 | is the summary pane showing *that* |
 | `FCheckColonizeWP` (`10f8:70c0`) | 16 | a colonize task set where it should be |
 | `FCheckCargo` (`10f8:7664`) | 15 | is the right cargo aboard |
-| `FCheckXferWP` (`10f8:7280`) | 13 | a transport task set up |
+| `FCheckXferWP` (`10f8:7280`) | 13 | a transport task set up — **actions only**, except `UnloadExact` and `SetAmount`, where the figure counts too |
 | `FCheckShipBuilder` (`10f8:7964`) | 12 | a design built to spec |
 | `FCheckResearch` (`10f8:6da4`) | 11 | the research settings |
 | `FCheckScanner` (`10f8:685c`) | 5 | the scanner's view and filters |
@@ -85,6 +85,11 @@ come from a vocabulary of **fifteen** verbs:
 
 That table is the argument for doing this at all: between them those fifteen
 verbs read almost everything the UI can set.
+
+One thing the arms ask that is not in the table: **how many orders a fleet
+has**, read straight off `pfl->cord` rather than through a verb. It is how the
+tutorial checks that a waypoint has been *deleted* — page 16 is done when
+Armed Probe #1 no longer has its six.
 
 ## A page is a chain, not a check
 
@@ -264,7 +269,7 @@ eleven of the fifteen verbs; the chain-of-rungs page model; and
 `AdvanceTutor`'s skipping loop, which steps on by eight while the page's task
 is done so a page satisfied in advance is never shown.
 
-Fourteen of the eighty pages are transcribed — the first four years, whole. Pages not yet transcribed are simply
+Sixteen of the eighty pages are transcribed — the first four years, whole. Pages not yet transcribed are simply
 absent from the table and the tutorial stops at the first gap rather than
 pretending to know what comes next.
 

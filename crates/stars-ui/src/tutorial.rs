@@ -112,6 +112,26 @@ pub enum Check {
     },
     /// `FCheckColonizeWP` (`10f8:70c0`): a colonize task set on waypoint one.
     ColonizeWaypoint { fleet: u16, id: u16, warp: u16 },
+    /// `FCheckXferWP` (`10f8:7280`): a Transport task with the right cargo
+    /// instructions on it.
+    ///
+    /// Only the **action** of each cargo is compared, unless the action is
+    /// `UnloadExact` or `SetAmount`, where the quantity is compared too —
+    /// the other actions carry no meaningful figure.
+    TransportWaypoint {
+        fleet: u16,
+        order: usize,
+        id: u16,
+        warp: u16,
+        /// One action per cargo, ironium first and fuel last.
+        goal: [stars_formats::XferAction; 5],
+    },
+    /// How many orders a fleet has.
+    ///
+    /// Not a verb of its own in the original — the arms read `pfl->cord`
+    /// directly — but it is how the tutorial checks that a waypoint has been
+    /// **deleted**: page 16 is done when Armed Probe #1 no longer has six.
+    FleetOrders { fleet: u16, count: usize, cmp: Cmp },
     /// `FCheckCargo` (`10f8:7664`): exactly this aboard and nothing else.
     Cargo {
         fleet: u16,
@@ -166,8 +186,21 @@ impl Check {
             Check::Scanner { .. } => "scanner",
             Check::PlanetRoute { .. } => "planet route",
             Check::ShipBuilder { .. } => "ship designer",
+            Check::TransportWaypoint { .. } => "transport waypoint",
+            Check::FleetOrders { .. } => "order count",
         }
     }
+}
+
+/// How a count is compared.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cmp {
+    /// Fewer than the number given.
+    Fewer,
+    /// Exactly it.
+    Exactly,
+    /// Anything but it — which is how "delete one of these" is asked.
+    NotExactly,
 }
 
 /// The last paragraph there is.
@@ -663,7 +696,83 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 3,
+        idt: 112,
+        escape: None,
+        stages: &[
+            hint(0x70, at_planet(3, 1, 0x10, ANY)),
+            hint(0x71, at_planet(3, 1, 0x10, TRANSPORT_TASK)),
+            // "change the waypoint task to Transport. Then right click on
+            // the blue diamond and select QuikDrop to empty the freighter's
+            // hold at 90210."
+            ask(
+                0x72,
+                Check::TransportWaypoint {
+                    fleet: 3,
+                    order: 1,
+                    id: 0x10,
+                    warp: ANY,
+                    goal: [stars_formats::XferAction::UnloadAll; 5],
+                },
+            ),
+            hint(
+                0x73,
+                Check::Summary {
+                    class: grobj::PLANET,
+                    id: 0x09,
+                },
+            ),
+            ask(
+                0x76,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 0,
+                },
+            ),
+        ],
+    },
+    Step {
+        turn: 3,
+        idt: 120,
+        escape: None,
+        stages: &[
+            hint(
+                0x79,
+                Check::Summary {
+                    class: grobj::PLANET,
+                    id: 0x09,
+                },
+            ),
+            // "Armed Probe #1 doesn't need to go all the way to Hiho so
+            // let's get rid of that waypoint. Click on Hiho and hit the
+            // Delete key." Done when it no longer has its six.
+            ask(
+                0x7b,
+                Check::FleetOrders {
+                    fleet: 0,
+                    count: 6,
+                    cmp: Cmp::NotExactly,
+                },
+            ),
+        ],
+    },
 ];
+
+/// The Transport task id, as a `Check`'s `task` field wants it.
+const TRANSPORT_TASK: u16 = stars_formats::task::TRANSPORT as u16;
+
+/// A waypoint on a planet with a given task, or [`ANY`] task.
+const fn at_planet(fleet: u16, order: usize, id: u16, task: u16) -> Check {
+    Check::FleetWaypoint {
+        fleet,
+        order,
+        class: grobj::PLANET,
+        id,
+        task,
+        warp: ANY,
+    }
+}
 
 /// A waypoint with the **Remote Mining** task on it.
 const fn mine(fleet: u16, id: u16) -> Check {

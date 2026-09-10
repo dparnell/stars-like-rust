@@ -11722,6 +11722,42 @@ impl App {
                 .iter()
                 .find(|p| p.id == *planet)
                 .is_some_and(|p| p.route_dest == Some(*to)),
+            // Only the action of each cargo is compared, unless it is one
+            // that carries a meaningful figure.
+            Check::TransportWaypoint {
+                fleet,
+                order,
+                id,
+                warp,
+                goal,
+            } => {
+                self.tutor_check(&Check::FleetWaypoint {
+                    fleet: *fleet,
+                    order: *order,
+                    class: grobj::PLANET,
+                    id: *id,
+                    task: u16::from(stars_formats::task::TRANSPORT),
+                    warp: *warp,
+                }) && by_id(*fleet).is_some_and(|f| {
+                    f.waypoints.get(*order).is_some_and(|leg| {
+                        let held = stars_formats::TransportTask::decode(&leg.task_data);
+                        held.is_some_and(|held| {
+                            held.items
+                                .iter()
+                                .zip(goal.iter())
+                                .all(|(had, want)| had.action == *want)
+                        })
+                    })
+                })
+            }
+            Check::FleetOrders { fleet, count, cmp } => by_id(*fleet).is_some_and(|f| {
+                let held = f.waypoints.len();
+                match cmp {
+                    crate::tutorial::Cmp::Fewer => held < *count,
+                    crate::tutorial::Cmp::Exactly => held == *count,
+                    crate::tutorial::Cmp::NotExactly => held != *count,
+                }
+            }),
             Check::ShipBuilder { starbase, design } => self.designer.as_ref().is_some_and(|d| {
                 starbase.is_none_or(|want| d.starbase == want)
                     && design.is_none_or(|want| d.selected == want)
