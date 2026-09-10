@@ -135,6 +135,16 @@ pub enum Check {
     Template { slot: usize },
     /// Whether the Battle VCR is up (`vrgtok`, its token list).
     BattleVcr { open: bool },
+    /// Whether a **zip order** slot has been saved with a given cargo
+    /// table.
+    ///
+    /// `FCheckZip` (`10f8:6460`) compares the slot's five actions against a
+    /// goal and its name against a string. This asks the part the UI can
+    /// answer: that the slot is filled and holds those actions.
+    Zip {
+        slot: usize,
+        goal: [stars_formats::XferAction; 5],
+    },
     /// Whether the Technology Browser is open (`hwndBrowser`).
     Browser { open: bool },
     /// Whether the Research dialog is open.
@@ -252,6 +262,7 @@ impl Check {
             Check::Template { .. } => "production template",
             Check::Browser { .. } => "technology browser",
             Check::BattleVcr { .. } => "battle VCR",
+            Check::Zip { .. } => "zip order",
         }
     }
 }
@@ -2344,6 +2355,53 @@ pub static STEPS: &[Step] = &[
                     no_research: Some(false),
                 },
             ),
+        ],
+    },
+    // Year 21. A zip order saved from a waypoint and named.
+    Step {
+        turn: 21,
+        idt: 424,
+        escape: None,
+        stages: &[
+            ask(
+                0x1a8,
+                Check::Cargo {
+                    fleet: 0,
+                    minerals: [0, 0, 0],
+                    colonists: 25,
+                },
+            ),
+            ask(
+                0x1a9,
+                Check::TransportWaypoint {
+                    fleet: 0,
+                    order: 1,
+                    id: 0x05,
+                    warp: ANY,
+                    goal: UNLOAD_COLONISTS,
+                },
+            ),
+            // "Right click on the blue diamond in the Waypoint Task tile
+            // and select Customize.  Hit Import, name the order DropCol and
+            // OK both dialogs."
+            ask(
+                0x1ac,
+                Check::Zip {
+                    slot: 0,
+                    goal: UNLOAD_COLONISTS,
+                },
+            ),
+            ask(
+                0x1ae,
+                Check::TransportWaypoint {
+                    fleet: 0,
+                    order: 2,
+                    id: 0x0d,
+                    warp: ANY,
+                    goal: LOAD_ALL,
+                },
+            ),
+            ask(0x1af, Check::RepeatOrders { fleet: 0 }),
         ],
     },
 ];

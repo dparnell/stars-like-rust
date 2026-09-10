@@ -11778,6 +11778,14 @@ impl App {
                 .designs
                 .get(me)
                 .is_some_and(|designs| compare(designs.len(), *count, *cmp)),
+            Check::Zip { slot, goal } => self.zip_orders.get(*slot).is_some_and(|saved| {
+                !saved.name.is_empty()
+                    && saved
+                        .items
+                        .iter()
+                        .zip(goal.iter())
+                        .all(|((action, _), want)| action == want)
+            }),
             Check::BattleVcr { open } => self.vcr.is_some() == *open,
             Check::Browser { open } => self.browser.is_some() == *open,
             Check::ResearchDialog { open } => self.research_dialog.is_some() == *open,
