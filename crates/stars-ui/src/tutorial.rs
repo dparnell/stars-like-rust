@@ -160,6 +160,16 @@ pub enum Check {
     /// pages 43 and 29 both do, each being the closing half of the page
     /// before it.
     Designer { open: bool },
+    /// What is fitted in one slot of an **existing** design.
+    ///
+    /// Distinct from [`Check::DesignSlot`], which asks about the design open
+    /// in the editor. Page 63 edits design 2 in place and the arm checks
+    /// `rgshdef[2]` directly, so what it wants is the saved design changed.
+    SavedDesignSlot {
+        design: usize,
+        slot: usize,
+        item: u8,
+    },
     /// What is fitted in one slot of the design being edited.
     ///
     /// `FCheckBuilderPart` (`10f8:77d8`) compares the slot's item **and**
@@ -264,6 +274,7 @@ impl Check {
             Check::DesignCount { .. } => "design count",
             Check::Fuel { .. } => "fuel",
             Check::DesignSlot { .. } => "design slot",
+            Check::SavedDesignSlot { .. } => "saved design slot",
             Check::Designer { .. } => "designer open",
             Check::ResearchDialog { .. } => "research dialog",
             Check::Template { .. } => "production template",
@@ -2717,6 +2728,48 @@ pub static STEPS: &[Step] = &[
                     message: 9999,
                     kind: None,
                     filter: false,
+                },
+            ),
+        ],
+    },
+    // Year 25. An existing design edited in place rather than a new one
+    // drawn.
+    Step {
+        turn: 25,
+        idt: 496,
+        escape: None,
+        stages: &[
+            hint(
+                0x1f0,
+                Check::Messages {
+                    message: 3,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            hint(
+                0x1f1,
+                Check::Scanner {
+                    view: Some(3),
+                    zoom: None,
+                },
+            ),
+            hint(
+                0x1f5,
+                Check::ShipBuilder {
+                    starbase: None,
+                    design: None,
+                },
+            ),
+            // "Upgrade the Santa Maria": design 2's engine slot becomes
+            // item 4. The arm reads rgshdef[2] rather than the editor, so
+            // the page is done once the change is **saved**.
+            ask(
+                0x1f7,
+                Check::SavedDesignSlot {
+                    design: 2,
+                    slot: 0,
+                    item: 4,
                 },
             ),
         ],

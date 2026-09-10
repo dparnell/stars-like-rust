@@ -11766,6 +11766,12 @@ impl App {
             // index in its low one, which is how `FCheckBuilderPart`
             // compares the two separately.
             Check::Designer { open } => self.designer.is_some() == *open,
+            Check::SavedDesignSlot { design, slot, item } => game
+                .designs
+                .get(me)
+                .and_then(|designs| designs.get(*design))
+                .and_then(|d| d.slots.get(*slot))
+                .is_some_and(|fitted| fitted.item == *item),
             Check::DesignSlot { slot, item, count } => self
                 .designer
                 .as_ref()
