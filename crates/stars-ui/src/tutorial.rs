@@ -2069,7 +2069,70 @@ pub static STEPS: &[Step] = &[
             ask(0x174, at_planet(0x0b, 1, 0x0d, ANY)),
         ],
     },
+    // Year 16. A merge order, which is a waypoint aimed at one of your own
+    // fleets.
+    Step {
+        turn: 16,
+        idt: 376,
+        escape: None,
+        stages: &[
+            ask(0x178, at_planet(4, 1, 0x05, ANY)),
+            hint(
+                0x179,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 7,
+                },
+            ),
+            // Task 4 is Merge with Fleet, and the target class is a fleet —
+            // your own fleet 5 this time, not an enemy's.
+            ask(
+                0x17a,
+                Check::FleetWaypoint {
+                    fleet: 7,
+                    order: 1,
+                    class: grobj::FLEET,
+                    id: 5,
+                    task: MERGE_TASK,
+                    warp: ANY,
+                },
+            ),
+            ask(
+                0x17d,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 0,
+                    ship: false,
+                    item: stars_core::production::item::AUTO_FACTORY,
+                    count: 60,
+                    no_research: Some(false),
+                },
+            ),
+            ask(
+                0x17d,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 1,
+                    ship: false,
+                    item: stars_core::production::item::AUTO_MINE,
+                    count: 60,
+                    no_research: Some(false),
+                },
+            ),
+            ask(
+                0x17f,
+                Check::Research {
+                    field: 2,
+                    next: 3,
+                    pct: 30,
+                },
+            ),
+        ],
+    },
 ];
+
+/// The Merge with Fleet task id.
+const MERGE_TASK: u16 = stars_formats::task::MERGE as u16;
 
 /// The Scrap Fleet task id.
 const SCRAP_TASK: u16 = stars_formats::task::SCRAP as u16;
