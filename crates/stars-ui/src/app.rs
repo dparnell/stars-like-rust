@@ -11762,6 +11762,17 @@ impl App {
             }
             Check::RepeatOrders { fleet } => by_id(*fleet).is_some_and(|f| f.repeat_orders),
             Check::FleetCount { count, cmp } => compare(self.own_fleets().len(), *count, *cmp),
+            // `iItem` packs the count in its high byte and the component
+            // index in its low one, which is how `FCheckBuilderPart`
+            // compares the two separately.
+            Check::DesignSlot { slot, item, count } => self
+                .designer
+                .as_ref()
+                .and_then(|d| d.editing.as_ref())
+                .and_then(|e| e.design.slots.get(*slot))
+                .is_some_and(|fitted| {
+                    fitted.item == u8::try_from(*item & 0xff).unwrap_or(0) && fitted.count >= *count
+                }),
             Check::DesignCount { count, cmp } => game
                 .designs
                 .get(me)

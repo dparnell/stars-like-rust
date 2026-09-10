@@ -143,6 +143,13 @@ pub enum Check {
     /// and holds its pending percentage while it is up. Page 28 wants it
     /// opened and page 29 wants it closed again, so both senses are used.
     ResearchDialog { open: bool },
+    /// What is fitted in one slot of the design being edited.
+    ///
+    /// `FCheckBuilderPart` (`10f8:77d8`) compares the slot's item **and**
+    /// its kind against a wanted pair, and separately checks that at least
+    /// `count` of them are in. It only ever answers while the designer is in
+    /// edit mode, so this asks the same.
+    DesignSlot { slot: usize, item: u16, count: u8 },
     /// How many ship designs the player has (`rgplr[idPlayer].cShDef`).
     ///
     /// How the tutorial checks that a **new design** has been drawn up,
@@ -232,6 +239,7 @@ impl Check {
             Check::RepeatOrders { .. } => "repeat orders",
             Check::FleetCount { .. } => "fleet count",
             Check::DesignCount { .. } => "design count",
+            Check::DesignSlot { .. } => "design slot",
             Check::ResearchDialog { .. } => "research dialog",
             Check::Template { .. } => "production template",
             Check::Browser { .. } => "technology browser",
@@ -1853,6 +1861,42 @@ pub static STEPS: &[Step] = &[
                 Check::ShipBuilder {
                     starbase: None,
                     design: None,
+                },
+            ),
+        ],
+    },
+    Step {
+        turn: 13,
+        idt: 328,
+        // The designer shut with a seventh design in hand: this page done.
+        escape: Some(Check::DesignCount {
+            count: 7,
+            cmp: Cmp::Exactly,
+        }),
+        stages: &[
+            hint(
+                0x148,
+                Check::ShipBuilder {
+                    starbase: None,
+                    design: None,
+                },
+            ),
+            // "select the Scout hull ... put a Long Hump 6 in the engine
+            // slot and a Rhino Scanner in the scanner slot."
+            ask(
+                0x14c,
+                Check::DesignSlot {
+                    slot: 0,
+                    item: 0x103,
+                    count: 1,
+                },
+            ),
+            ask(
+                0x14d,
+                Check::DesignSlot {
+                    slot: 1,
+                    item: 0x101,
+                    count: 1,
                 },
             ),
         ],
