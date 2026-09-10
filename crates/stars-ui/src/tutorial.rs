@@ -2525,6 +2525,40 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 22,
+        idt: 456,
+        escape: None,
+        stages: &[
+            hint(
+                0x1c8,
+                Check::Summary {
+                    class: grobj::FLEET,
+                    id: 0x204,
+                },
+            ),
+            hint(
+                0x1ca,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 4,
+                },
+            ),
+            // Chase another of player one's fleets: 0x204 is their fleet
+            // four.
+            ask(
+                0x1cb,
+                Check::FleetWaypoint {
+                    fleet: 4,
+                    order: 1,
+                    class: grobj::FLEET,
+                    id: 0x204,
+                    task: ANY,
+                    warp: ANY,
+                },
+            ),
+        ],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
