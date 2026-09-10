@@ -11568,6 +11568,7 @@ fn compare(held: usize, want: usize, cmp: crate::tutorial::Cmp) -> bool {
         crate::tutorial::Cmp::Fewer => held < want,
         crate::tutorial::Cmp::Exactly => held == want,
         crate::tutorial::Cmp::NotExactly => held != want,
+        crate::tutorial::Cmp::AtLeast => held >= want,
     }
 }
 

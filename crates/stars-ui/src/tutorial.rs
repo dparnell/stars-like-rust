@@ -215,6 +215,9 @@ pub enum Cmp {
     Exactly,
     /// Anything but it — which is how "delete one of these" is asked.
     NotExactly,
+    /// At least it. Page 23 wants the homeworld's queue to have grown to
+    /// three or more, whatever else has been put in it.
+    AtLeast,
 }
 
 /// The last paragraph there is.
@@ -996,6 +999,64 @@ pub static STEPS: &[Step] = &[
                     item: 2,
                     count: 1,
                     no_research: Some(false),
+                },
+            ),
+        ],
+    },
+    // Year 7. A third colony, and the homeworld's queue grows to three
+    // colony ships.
+    Step {
+        turn: 7,
+        idt: 176,
+        escape: None,
+        stages: &[
+            ask(
+                0xb0,
+                Check::Cargo {
+                    fleet: 6,
+                    minerals: [0, 0, 0],
+                    colonists: 25,
+                },
+            ),
+            hint(
+                0xb1,
+                Check::Scanner {
+                    view: Some(3),
+                    zoom: None,
+                },
+            ),
+            ask(
+                0xb3,
+                Check::ColonizeWaypoint {
+                    fleet: 6,
+                    id: 0x12,
+                    warp: ANY,
+                },
+            ),
+            ask(
+                0xb5,
+                Check::QueueLength {
+                    planet: 0x0d,
+                    count: 3,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            ask(
+                0xb5,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 1,
+                    ship: true,
+                    item: 2,
+                    count: 3,
+                    no_research: Some(false),
+                },
+            ),
+            ask(
+                0xb6,
+                Check::Scanner {
+                    view: Some(0),
+                    zoom: None,
                 },
             ),
         ],
