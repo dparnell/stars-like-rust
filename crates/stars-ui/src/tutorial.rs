@@ -3243,6 +3243,37 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    // Year 30. Reading, and one fleet selected.
+    Step {
+        turn: 30,
+        idt: 584,
+        escape: None,
+        stages: &[
+            hint(
+                0x24a,
+                Check::Messages {
+                    message: 5,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            hint(
+                0x24c,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 0x0e,
+                },
+            ),
+            ask(
+                0x24e,
+                Check::Messages {
+                    message: 9999,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+        ],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
