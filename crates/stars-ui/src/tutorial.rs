@@ -143,6 +143,13 @@ pub enum Check {
     /// and holds its pending percentage while it is up. Page 28 wants it
     /// opened and page 29 wants it closed again, so both senses are used.
     ResearchDialog { open: bool },
+    /// Whether the ship designer is open at all.
+    ///
+    /// `FCheckShipBuilder` answers only while `hwndSlotDlg` is up, so the
+    /// arms test the handle directly when they want it **shut** — which
+    /// pages 43 and 29 both do, each being the closing half of the page
+    /// before it.
+    ShipBuilder2 { open: bool },
     /// What is fitted in one slot of the design being edited.
     ///
     /// `FCheckBuilderPart` (`10f8:77d8`) compares the slot's item **and**
@@ -240,6 +247,7 @@ impl Check {
             Check::FleetCount { .. } => "fleet count",
             Check::DesignCount { .. } => "design count",
             Check::DesignSlot { .. } => "design slot",
+            Check::ShipBuilder2 { .. } => "designer open",
             Check::ResearchDialog { .. } => "research dialog",
             Check::Template { .. } => "production template",
             Check::Browser { .. } => "technology browser",
@@ -1897,6 +1905,56 @@ pub static STEPS: &[Step] = &[
                     slot: 1,
                     item: 0x101,
                     count: 1,
+                },
+            ),
+        ],
+    },
+    Step {
+        turn: 13,
+        idt: 336,
+        escape: None,
+        stages: &[
+            // The designer must be **shut** before this page will move: it
+            // is the other half of page 42, the way page 29 was the other
+            // half of page 28.
+            ask(0x151, Check::ShipBuilder2 { open: false }),
+            ask(
+                0x153,
+                Check::QueueLength {
+                    planet: 0x0d,
+                    count: 3,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            // The new design queued: item 6, the seventh design slot.
+            ask(
+                0x153,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 1,
+                    ship: true,
+                    item: 6,
+                    count: 1,
+                    no_research: Some(false),
+                },
+            ),
+            ask(
+                0x156,
+                Check::QueueLength {
+                    planet: 0x0d,
+                    count: 4,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            ask(
+                0x156,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 0,
+                    ship: false,
+                    item: stars_core::production::item::MINE,
+                    count: 100,
+                    no_research: Some(false),
                 },
             ),
         ],

@@ -11765,6 +11765,7 @@ impl App {
             // `iItem` packs the count in its high byte and the component
             // index in its low one, which is how `FCheckBuilderPart`
             // compares the two separately.
+            Check::ShipBuilder2 { open } => self.designer.is_some() == *open,
             Check::DesignSlot { slot, item, count } => self
                 .designer
                 .as_ref()
