@@ -3274,6 +3274,56 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    // Year 31.
+    Step {
+        turn: 31,
+        idt: 592,
+        escape: None,
+        stages: &[
+            hint(
+                0x250,
+                Check::Messages {
+                    message: 6,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            hint(
+                0x250,
+                Check::Selection {
+                    class: grobj::PLANET,
+                    id: 0x05,
+                },
+            ),
+            ask(
+                0x252,
+                Check::QueueLength {
+                    planet: 0x05,
+                    count: 4,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            ask(
+                0x252,
+                Check::Queue {
+                    planet: 0x05,
+                    slot: 0,
+                    ship: false,
+                    item: stars_core::production::item::MINE,
+                    count: 100,
+                    no_research: Some(true),
+                },
+            ),
+            ask(
+                0x254,
+                Check::Messages {
+                    message: 9999,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+        ],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
