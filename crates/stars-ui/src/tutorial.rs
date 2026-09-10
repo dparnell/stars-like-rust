@@ -133,6 +133,8 @@ pub enum Check {
     /// is that you have pressed **Import** on the `<Customize>` dialog, so
     /// this asks the simpler question the UI can answer: is the slot filled.
     Template { slot: usize },
+    /// Whether the Technology Browser is open (`hwndBrowser`).
+    Browser { open: bool },
     /// Whether the Research dialog is open.
     ///
     /// The arms read `pctResGlob`, which is `-1` while the dialog is shut
@@ -224,6 +226,7 @@ impl Check {
             Check::FleetCount { .. } => "fleet count",
             Check::ResearchDialog { .. } => "research dialog",
             Check::Template { .. } => "production template",
+            Check::Browser { .. } => "technology browser",
         }
     }
 }
@@ -1581,6 +1584,55 @@ pub static STEPS: &[Step] = &[
                         stars_formats::XferAction::UnloadAll,
                         stars_formats::XferAction::None,
                     ],
+                },
+            ),
+        ],
+    },
+    Step {
+        turn: 11,
+        idt: 280,
+        escape: None,
+        stages: &[
+            ask(
+                0x118,
+                Check::QueueLength {
+                    planet: 0x0d,
+                    count: 2,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            // "add 70 mines to the top of Stove Top's production queue" —
+            // the top, so slot 0, pushing what was there down.
+            ask(
+                0x118,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 0,
+                    ship: false,
+                    item: stars_core::production::item::MINE,
+                    count: 70,
+                    no_research: Some(false),
+                },
+            ),
+            hint(0x119, Check::ResearchDialog { open: true }),
+            // "Leave the Field of Study at Construction but change the Next
+            // field to research to Biotechnology."
+            ask(
+                0x11a,
+                Check::Research {
+                    field: 3,
+                    next: 5,
+                    pct: 30,
+                },
+            ),
+            // "hit Goto to open the Technology Browser ... close the Tech
+            // Browser."
+            hint(0x11c, Check::Browser { open: true }),
+            ask(
+                0x11e,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 8,
                 },
             ),
         ],
