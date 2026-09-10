@@ -1975,6 +1975,53 @@ pub static STEPS: &[Step] = &[
             ask(0x15c, at_planet(8, 1, 0x0d, ANY)),
         ],
     },
+    // Year 14. A second production template, built from a terraforming
+    // queue.
+    Step {
+        turn: 14,
+        idt: 352,
+        escape: None,
+        stages: &[
+            hint(
+                0x160,
+                Check::Selection {
+                    class: grobj::PLANET,
+                    id: 0x11,
+                },
+            ),
+            hint(
+                0x162,
+                Check::Selection {
+                    class: grobj::PLANET,
+                    id: 0x02,
+                },
+            ),
+            ask(
+                0x164,
+                Check::QueueLength {
+                    planet: 0x02,
+                    count: 3,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            // "Add 'Min Terraform Up To 2%' to Oxygen's queue" — item 4,
+            // one of the auto-build family.
+            ask(
+                0x164,
+                Check::Queue {
+                    planet: 0x02,
+                    slot: 0,
+                    ship: false,
+                    item: 4,
+                    count: 2,
+                    no_research: Some(true),
+                },
+            ),
+            // "right click on the blue diamond and select <Customize> and
+            // Import then OK both dialogs" — the **second** template slot.
+            ask(0x166, Check::Template { slot: 1 }),
+        ],
+    },
 ];
 
 /// The Scrap Fleet task id.
