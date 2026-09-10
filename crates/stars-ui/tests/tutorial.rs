@@ -378,3 +378,161 @@ fn shift_adds_ten_at_a_time() {
     assert_eq!(App::production_step(false, true), 10);
     assert_eq!(App::production_step(true, false), 100);
 }
+
+/// Split All puts every ship into a fleet of its own, keeping one behind —
+/// "We don't want both colonizers to go to Slime so hit the Split All button
+/// in the Fleet Composition tile."
+#[test]
+fn split_all_gives_every_ship_its_own_fleet() {
+    let mut app = a_game();
+    // Find one of our own fleets with more than one ship, or make one.
+    let index = app.own_fleets()[0];
+    {
+        let game = app.game.as_mut().expect("a game");
+        game.fleets[index].stacks = vec![stars_core::fleet::ShipStack {
+            design: 0,
+            count: 3,
+            damaged_pct: 0,
+            damage_pct: 0,
+        }];
+    }
+    app.select_object(stars_ui::ScanObject::Fleet(index));
+    let before = app.game.as_ref().expect("a game").fleets.len();
+    assert_eq!(app.pane_fleet_ships(), 3);
+
+    let made = app.split_all(index);
+    assert_eq!(made, 2, "two of the three ships left");
+    let after = app.game.as_ref().expect("a game").fleets.len();
+    assert_eq!(after, before + 2);
+    assert_eq!(
+        app.game.as_ref().expect("a game").fleets[index]
+            .stacks
+            .iter()
+            .map(|s| s.count)
+            .sum::<i32>(),
+        1,
+        "the fleet you were commanding keeps one"
+    );
+
+    // A single-ship fleet has nothing to split.
+    assert_eq!(app.split_all(index), 0);
+}
+
+// --- The blue diamond ----------------------------------------------------
+//
+// The tutorial reaches for it again and again: "right click on the blue
+// diamond in the Waypoint Task tile and select QuikDrop to empty the
+// freighter's hold at 90210."
+
+/// The menu is the two built-in orders, four slots, and Customize.
+#[test]
+fn the_diamonds_menu_is_the_originals() {
+    let app = a_game();
+    let menu = app.zip_menu();
+    assert_eq!(menu.len(), App::ZIP_ORDERS + 3);
+    assert_eq!(menu[0], "QuikLoad");
+    assert_eq!(menu[1], "QuikDrop");
+    assert_eq!(menu[2], "<Unused 1>");
+    assert_eq!(menu[App::ZIP_ORDERS + 1], "<Unused 4>");
+    assert_eq!(menu[App::ZIP_ORDERS + 2], "<Customize>");
+}
+
+/// QuikDrop empties the hold and QuikLoad fills it, on every cargo at once.
+#[test]
+fn quikdrop_empties_and_quikload_fills() {
+    use stars_formats::{task, XferAction};
+
+    let mut app = a_game();
+    let index = app.own_fleets()[0];
+    {
+        let game = app.game.as_mut().expect("a game");
+        let at = game.fleets[index].position;
+        game.fleets[index].waypoints = vec![
+            stars_core::fleet::Waypoint {
+                position: at,
+                target: None,
+                target_class: grobj::POSITION,
+                warp: 0,
+                task: task::NONE,
+                transport: None,
+                task_data: Vec::new(),
+            },
+            stars_core::fleet::Waypoint {
+                position: stars_core::movement::Point::new(at.x + 40, at.y),
+                target: None,
+                target_class: grobj::POSITION,
+                warp: 5,
+                task: task::NONE,
+                transport: None,
+                task_data: Vec::new(),
+            },
+        ];
+    }
+    app.select_object(stars_ui::ScanObject::Fleet(index));
+    app.selection.waypoint = Some(1);
+    assert!(app.set_waypoint_task(task::TRANSPORT));
+
+    assert!(app.zip_quik(false));
+    for slot in 0..5 {
+        assert_eq!(app.waypoint_transport(slot).0, XferAction::UnloadAll);
+    }
+    assert!(app.zip_quik(true));
+    for slot in 0..5 {
+        assert_eq!(app.waypoint_transport(slot).0, XferAction::LoadAll);
+    }
+
+    // Import that table into a slot, and it comes back out again.
+    assert!(app.zip_import(0, "DropCol"));
+    assert_eq!(app.zip_menu()[2], "DropCol");
+    assert!(app.zip_quik(false));
+    assert_eq!(app.waypoint_transport(0).0, XferAction::UnloadAll);
+    assert!(app.zip_apply(0));
+    assert_eq!(
+        app.waypoint_transport(0).0,
+        XferAction::LoadAll,
+        "the saved order came back"
+    );
+
+    // An empty slot applies nothing, and deleting empties one.
+    assert!(!app.zip_apply(1));
+    assert!(app.zip_delete(0));
+    assert_eq!(app.zip_menu()[2], "<Unused 1>");
+    assert!(!app.zip_delete(0));
+}
+
+/// An unnamed import is called `Custom n`, as the original names it.
+#[test]
+fn an_unnamed_slot_is_called_custom() {
+    use stars_formats::task;
+
+    let mut app = a_game();
+    let index = app.own_fleets()[0];
+    {
+        let game = app.game.as_mut().expect("a game");
+        let at = game.fleets[index].position;
+        game.fleets[index].waypoints = vec![
+            stars_core::fleet::Waypoint {
+                position: at,
+                target: None,
+                target_class: grobj::POSITION,
+                warp: 0,
+                task: task::NONE,
+                transport: None,
+                task_data: Vec::new(),
+            },
+            stars_core::fleet::Waypoint {
+                position: stars_core::movement::Point::new(at.x + 40, at.y),
+                target: None,
+                target_class: grobj::POSITION,
+                warp: 5,
+                task: task::TRANSPORT,
+                transport: None,
+                task_data: vec![0; 10],
+            },
+        ];
+    }
+    app.select_object(stars_ui::ScanObject::Fleet(index));
+    app.selection.waypoint = Some(1);
+    assert!(app.zip_import(2, "   "));
+    assert_eq!(app.zip_menu()[4], "Custom 3");
+}

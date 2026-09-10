@@ -409,6 +409,10 @@ pub struct App {
     /// A waypoint whose drag ended on one of its neighbours, waiting for the
     /// player to confirm that it should go.
     pub waypoint_delete: Option<usize>,
+    /// The four saved cargo orders the blue diamond offers (`vrgZip`).
+    pub zip_orders: [ZipOrder; 4],
+    /// Which slot the Customize dialog is showing, while it is open.
+    pub zip_dialog: Option<usize>,
     /// The tutorial, while it is running — the original's `tutor` global.
     pub tutor: Option<crate::tutorial::Tutor>,
     /// The measuring tape, while it is stretched: where it started and where
@@ -11935,6 +11939,158 @@ impl App {
             return false;
         };
         self.select_object(ScanObject::Planet(id));
+        true
+    }
+}
+
+impl App {
+    /// Put every ship of a fleet into a fleet of its own.
+    ///
+    /// `FFleetSplitAll` (`1038:3a00`) walks the sixteen design slots and,
+    /// for **every ship after the first overall**, makes a new fleet holding
+    /// one of them, moving a share of the cargo across as it goes
+    /// (`FleetTransferCargoBalance`). The fleet you were commanding keeps the
+    /// first ship and nothing else.
+    ///
+    /// Returns how many new fleets were made — the original returns whether
+    /// there was more than one ship to begin with, which is the same
+    /// question.
+    pub fn split_all(&mut self, fleet: usize) -> usize {
+        let Some(stacks) = self
+            .game
+            .as_ref()
+            .and_then(|game| game.fleets.get(fleet))
+            .map(|f| f.stacks.clone())
+        else {
+            return 0;
+        };
+        // One ship stays behind; every other becomes a fleet.
+        let mut first = true;
+        let mut made = 0;
+        for stack in stacks {
+            let mut peel = stack.count;
+            if first {
+                peel -= 1;
+                first = false;
+            }
+            for _ in 0..peel {
+                if self.split_fleet(fleet, stack.design, 1) {
+                    made += 1;
+                }
+            }
+        }
+        made
+    }
+
+    /// How many ships the selected fleet holds altogether.
+    #[must_use]
+    pub fn pane_fleet_ships(&self) -> i32 {
+        self.pane_fleet()
+            .map_or(0, |fleet| fleet.stacks.iter().map(|s| s.count).sum())
+    }
+}
+
+// --- Zip orders: the blue diamond's menu ----------------------------------
+
+/// One of the four saved cargo orders the blue diamond offers.
+///
+/// `vrgZip` in the original: four slots of `0x18` bytes, each a validity
+/// byte, the same five `ITEMACTION` words a Transport waypoint carries, and a
+/// name kept beside them at `0x526e + i * 0x18`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ZipOrder {
+    /// What it is called. An empty slot has no name and shows as
+    /// `<Unused n>` (string `0x4be`).
+    pub name: String,
+    /// The five cargo instructions, ironium first and fuel last, exactly as a
+    /// Transport waypoint stores them.
+    pub items: [(stars_formats::XferAction, u16); 5],
+}
+
+impl App {
+    /// How many custom order slots there are (`vrgZip`).
+    pub const ZIP_ORDERS: usize = 4;
+
+    /// What the blue diamond's menu offers, in the original's order.
+    ///
+    /// Two built-in orders, then the four custom slots, then `<Customize>`
+    /// (string `0x4c0`) which opens the dialog that fills them in. An empty
+    /// slot reads `<Unused n>`.
+    #[must_use]
+    pub fn zip_menu(&self) -> Vec<String> {
+        let mut out = vec!["QuikLoad".to_string(), "QuikDrop".to_string()];
+        for (index, slot) in self.zip_orders.iter().enumerate() {
+            out.push(if slot.name.is_empty() {
+                format!("<Unused {}>", index + 1)
+            } else {
+                slot.name.clone()
+            });
+        }
+        out.push("<Customize>".to_string());
+        out
+    }
+
+    /// Load everything there is to load — the first of the two built-in
+    /// orders.
+    ///
+    /// The tutorial names both by what they do: *"select QuikDrop to empty
+    /// the freighter's hold at 90210"*, so QuikDrop unloads everything and
+    /// QuikLoad is its opposite.
+    pub fn zip_quik(&mut self, load: bool) -> bool {
+        let action = if load {
+            stars_formats::XferAction::LoadAll
+        } else {
+            stars_formats::XferAction::UnloadAll
+        };
+        let mut any = false;
+        for slot in 0..5 {
+            any |= self.set_waypoint_transport(slot, action, 0);
+        }
+        any
+    }
+
+    /// Apply one of the four saved orders to the waypoint in hand.
+    pub fn zip_apply(&mut self, index: usize) -> bool {
+        let Some(order) = self.zip_orders.get(index).cloned() else {
+            return false;
+        };
+        if order.name.is_empty() {
+            return false;
+        }
+        let mut any = false;
+        for (slot, (action, quantity)) in order.items.iter().enumerate() {
+            any |= self.set_waypoint_transport(slot, *action, *quantity);
+        }
+        any
+    }
+
+    /// **Import**: copy the waypoint in hand's cargo table into a slot and
+    /// name it (`ZipOrderDlg`'s `0x816`).
+    ///
+    /// An empty name is replaced with `Custom n`, as the original does.
+    pub fn zip_import(&mut self, index: usize, name: &str) -> bool {
+        if index >= Self::ZIP_ORDERS || self.task_leg().is_none() {
+            return false;
+        }
+        let items = std::array::from_fn(|slot| self.waypoint_transport(slot));
+        let name = if name.trim().is_empty() {
+            format!("Custom {}", index + 1)
+        } else {
+            name.trim().to_string()
+        };
+        self.zip_orders[index] = ZipOrder { name, items };
+        true
+    }
+
+    /// **Delete**: empty a slot (`ZipOrderDlg`'s `0x817`).
+    pub fn zip_delete(&mut self, index: usize) -> bool {
+        let Some(slot) = self.zip_orders.get_mut(index) else {
+            return false;
+        };
+        if slot.name.is_empty() {
+            return false;
+        }
+        *slot = ZipOrder::default();
         true
     }
 }

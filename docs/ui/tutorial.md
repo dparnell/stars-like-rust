@@ -152,6 +152,11 @@ name, and where each stands:
 | "select **Generate** from the **Turn** menu" | menu `0x6d4` | **added** — the whole menu bar, see `menus.md` |
 | "Choose **Research** on the **Commands** menu" | menu `0x6d4` | **added** |
 | "choose **Tutorial** from the **Help** menu" | `0x9c5` | **added** |
+| "hit the **Split All** button in the Fleet Composition tile" | `FFleetSplitAll` (`1038:3a00`) | **added** |
+| "right click on the **blue diamond** … select **QuikDrop**" | `vrgZip`, `ZipOrderDlg` (`1080:0175`) | **added** |
+| "hit the **Split** button" — a dialog for moving ships one at a time | | not done: split from the Fleets screen |
+| "Click on the **Xfer** button … drag in the Colonists gauge" | `TransferDlg` | not done |
+| "Click in various places in the **Summary pane** to get popup explanations" | | not done |
 
 `SelectAdjFleet` is worth stating exactly, because two of those entries are
 it: with a non-zero step it walks **your own** fleet list — never somebody
@@ -175,6 +180,38 @@ The fleet pane's buttons are `rghwndBtn`, wired in `ShipCommandProc`
 | 8 | `Jettison` | |
 | 9 | `Split All` | |
 | 10 | `Merge` | dialog `0x52` |
+
+## The blue diamond
+
+The single most-used control in the tutorial's later pages, and it had no
+equivalent here. `DrawShipWayPtOrders` (`1050:0912`) draws it with
+`DrawDiamond(hdc, rc, hbrBBlue)` beside the Transport cargo table and
+remembers where it put it in `rgrcRef[5]`, which is what makes it a click
+target. Right-clicking raises a menu of **saved cargo orders**:
+
+| entry | string | what |
+|-------|--------|------|
+| `QuikLoad` | `0x238` | load everything |
+| `QuikDrop` | `0x23a` | unload everything |
+| four slots | `0x4be` `<Unused %d>` | whatever has been saved into them |
+| `<Customize>` | `0x4c0` | opens `ZipOrderDlg` |
+
+What the two built-in ones do is not written in the code in so many words;
+the tutorial says it instead — *"select QuikDrop to empty the freighter's
+hold at 90210"* — so QuikDrop unloads everything and QuikLoad is its
+opposite.
+
+`ZipOrderDlg` (`1080:0175`), captioned `Customize Zip Orders` (`0x231`), is
+four radio buttons naming the slots, a painted list of what the chosen one
+holds, and three buttons: **Import** (`0x816`) copies the current waypoint's
+cargo table into the slot and asks for a name through the rename dialog
+(`0x7e3`), rename (`0x41b`) does the naming alone, and **Delete** (`0x817`)
+empties the slot. An unnamed slot is called `Custom n`.
+
+`vrgZip` is four slots of `0x18` bytes — a validity byte, the same five
+`ITEMACTION` words a Transport waypoint carries, and a name kept beside them
+at `0x526e + i * 0x18`. The production tile has a diamond of its own over
+`vrgZipProd`, which this project already draws.
 
 ## What this project does
 

@@ -82,7 +82,10 @@ fn tile_body(app: &mut App, ui: &mut egui::Ui, index: usize) {
         2 => crate::views::planet::grid(ui, "waypoints", &app.fleet_waypoints_tile(), false),
         3 => waypoint_task(app, ui),
         4 => crate::views::planet::grid(ui, "fuel-cargo", &app.fleet_cargo_tile(), false),
-        5 => crate::views::planet::grid(ui, "composition", &app.fleet_composition_tile(), false),
+        5 => {
+            crate::views::planet::grid(ui, "composition", &app.fleet_composition_tile(), false);
+            split_buttons(app, ui);
+        }
         _ => crate::views::fleets_here_body(app, ui),
     }
 }
@@ -193,7 +196,10 @@ fn waypoint_task(app: &mut App, ui: &mut egui::Ui) {
         task::LAY_MINES => years(app, ui),
         task::PATROL => patrol(app, ui),
         task::TRANSFER => transfer(app, ui),
-        task::TRANSPORT => transport(app, ui),
+        task::TRANSPORT => {
+            transport(app, ui);
+            zip_diamond(app, ui);
+        }
         _ => {}
     }
 
@@ -374,4 +380,166 @@ fn walk_buttons(app: &mut App, ui: &mut egui::Ui) {
         )
         .on_disabled_hover_text("Rename a fleet from the Fleets screen.");
     });
+}
+
+/// **Split** and **Split All** across the foot of the Fleet Composition tile.
+///
+/// `rghwndBtn[9]` is Split All — `FFleetSplitAll` (`1038:3a00`), which puts
+/// every ship after the first into a fleet of its own and shares the cargo
+/// out as it goes. The tutorial uses it to stop two colony ships going to the
+/// same planet: *"We don't want both colonizers to go to Slime so hit the
+/// Split All button in the Fleet Composition tile."*
+///
+/// Split itself opens a dialog for moving ships one at a time, which this
+/// project does from the Fleets screen instead.
+fn split_buttons(app: &mut App, ui: &mut egui::Ui) {
+    let mine = app
+        .survey_subject()
+        .fleet_index()
+        .and_then(|i| app.game.as_ref()?.fleets.get(i))
+        .is_some_and(|f| usize::try_from(f.owner).is_ok_and(|owner| owner == app.local_player()));
+    let several = app.pane_fleet_ships() > 1;
+    ui.horizontal(|ui| {
+        ui.add_enabled(
+            false,
+            egui::Button::new(egui::RichText::new("Split").small()),
+        )
+        .on_disabled_hover_text("Split a fleet ship by ship from the Fleets screen.");
+        if ui
+            .add_enabled(
+                mine && several,
+                egui::Button::new(egui::RichText::new("Split All").small()),
+            )
+            .on_hover_text("Put every ship into a fleet of its own.")
+            .clicked()
+        {
+            if let Some(index) = app.survey_subject().fleet_index() {
+                app.split_all(index);
+            }
+        }
+    });
+}
+
+/// The **blue diamond** beside the Transport cargo table, and the menu it
+/// raises.
+///
+/// `DrawShipWayPtOrders` (`1050:0912`) draws it with `DrawDiamond(hdc, rc,
+/// hbrBBlue)` and remembers where it put it in `rgrcRef[5]`, which is what
+/// makes it a click target. Right-clicking it offers the saved cargo orders:
+/// the two built-in ones, the four custom slots (`vrgZip`), and
+/// `<Customize>`, which opens the dialog that fills them in.
+///
+/// The tutorial leans on it repeatedly — *"right click on the blue diamond
+/// in the Waypoint Task tile and select QuikDrop to empty the freighter's
+/// hold at 90210"*.
+fn zip_diamond(app: &mut App, ui: &mut egui::Ui) {
+    let line = ui.text_style_height(&egui::TextStyle::Small);
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(line + 4.0, line + 2.0), egui::Sense::click());
+    let centre = rect.center();
+    let half = line / 2.0;
+    let blue = egui::Color32::from_rgb(
+        crate::dialog::DIAMOND[0],
+        crate::dialog::DIAMOND[1],
+        crate::dialog::DIAMOND[2],
+    );
+    ui.painter().add(egui::Shape::convex_polygon(
+        vec![
+            egui::pos2(centre.x, centre.y - half),
+            egui::pos2(centre.x + half, centre.y),
+            egui::pos2(centre.x, centre.y + half),
+            egui::pos2(centre.x - half, centre.y),
+        ],
+        blue,
+        egui::Stroke::NONE,
+    ));
+    let response = response.on_hover_text(
+        "Right-click for the saved cargo orders, or to define one from this waypoint.",
+    );
+
+    let mut chosen: Option<usize> = None;
+    // The original raises it on the **right** button; a left click is
+    // offered too, since a menu you cannot find is no menu at all.
+    response.context_menu(|ui| {
+        for (index, label) in app.zip_menu().iter().enumerate() {
+            let usable = index < 2
+                || index == App::ZIP_ORDERS + 2
+                || app
+                    .zip_orders
+                    .get(index - 2)
+                    .is_some_and(|slot| !slot.name.is_empty());
+            if ui
+                .add_enabled(
+                    usable,
+                    egui::Button::new(egui::RichText::new(label).small()),
+                )
+                .clicked()
+            {
+                chosen = Some(index);
+                ui.close_menu();
+            }
+        }
+    });
+
+    match chosen {
+        Some(0) => {
+            app.zip_quik(true);
+        }
+        Some(1) => {
+            app.zip_quik(false);
+        }
+        Some(index) if index == App::ZIP_ORDERS + 2 => app.zip_dialog = Some(0),
+        Some(index) => {
+            app.zip_apply(index - 2);
+        }
+        None => {}
+    }
+
+    if let Some(slot) = app.zip_dialog {
+        customize_zip(app, ui, slot);
+    }
+}
+
+/// `Customize Zip Orders` (string `0x231`), `ZipOrderDlg` (`1080:0175`).
+///
+/// Four slots to choose between, then **Import**, which copies the waypoint's
+/// own cargo table into the chosen slot and asks for a name, and **Delete**,
+/// which empties it. The original's list of what a slot holds is drawn in the
+/// dialog; here each slot's name carries it.
+fn customize_zip(app: &mut App, ui: &mut egui::Ui, slot: usize) {
+    let mut open = true;
+    let mut picked = slot;
+    egui::Window::new("Customize Zip Orders")
+        .open(&mut open)
+        .resizable(false)
+        .show(ui.ctx(), |ui| {
+            for index in 0..App::ZIP_ORDERS {
+                let held = app.zip_orders[index].name.clone();
+                let name = if held.is_empty() {
+                    format!("<Unused {}>", index + 1)
+                } else {
+                    held
+                };
+                ui.radio_value(&mut picked, index, egui::RichText::new(name).small());
+            }
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button("Import").clicked() {
+                    let name = format!("Custom {}", picked + 1);
+                    app.zip_import(picked, &name);
+                }
+                let filled = !app.zip_orders[picked].name.is_empty();
+                if ui
+                    .add_enabled(filled, egui::Button::new("Delete"))
+                    .clicked()
+                {
+                    app.zip_delete(picked);
+                }
+            });
+            if !app.zip_orders[picked].name.is_empty() {
+                ui.add_space(2.0);
+                ui.text_edit_singleline(&mut app.zip_orders[picked].name);
+            }
+        });
+    app.zip_dialog = open.then_some(picked);
 }

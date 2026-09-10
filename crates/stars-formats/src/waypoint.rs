@@ -74,9 +74,10 @@ pub struct WaypointRecord {
 /// What a Transport task does with one kind of cargo.
 ///
 /// Source: the `XferActionType` enum and the `iAction` nibble of `ITEMACTION`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum XferAction {
     /// Leave this cargo alone.
+    #[default]
     None,
     /// Load everything the other side has.
     LoadAll,
