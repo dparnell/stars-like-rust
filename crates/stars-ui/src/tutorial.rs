@@ -2190,7 +2190,78 @@ pub static STEPS: &[Step] = &[
             ask(0x18f, Check::ResearchDialog { open: false }),
         ],
     },
+    // Year 19. Two freighters set shuttling, each with a load leg and an
+    // unload leg and Repeat Orders on.
+    Step {
+        turn: 19,
+        idt: 400,
+        escape: None,
+        stages: &[
+            ask(
+                0x190,
+                Check::Cargo {
+                    fleet: 0x0b,
+                    minerals: [0, 0, 0],
+                    colonists: 25,
+                },
+            ),
+            // "Add a waypoint at Wallaby to Unload All Colonists."
+            ask(
+                0x191,
+                Check::TransportWaypoint {
+                    fleet: 0x0b,
+                    order: 1,
+                    id: 0x05,
+                    warp: ANY,
+                    goal: UNLOAD_COLONISTS,
+                },
+            ),
+            // "Shift click back on Stove Top and change the task to Load
+            // All Available."
+            ask(
+                0x192,
+                Check::TransportWaypoint {
+                    fleet: 0x0b,
+                    order: 2,
+                    id: 0x0d,
+                    warp: ANY,
+                    goal: LOAD_ALL,
+                },
+            ),
+            // "Click the Repeat Orders checkbox in the Fleet Waypoints
+            // tile."
+            ask(0x193, Check::RepeatOrders { fleet: 0x0b }),
+            hint(
+                0x196,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 1,
+                },
+            ),
+            ask(
+                0x197,
+                Check::Cargo {
+                    fleet: 1,
+                    minerals: [0, 0, 0],
+                    colonists: 25,
+                },
+            ),
+        ],
+    },
 ];
+
+/// "Unload All Colonists": nothing on the four other holds.
+const UNLOAD_COLONISTS: [stars_formats::XferAction; 5] = [
+    stars_formats::XferAction::None,
+    stars_formats::XferAction::None,
+    stars_formats::XferAction::None,
+    stars_formats::XferAction::UnloadAll,
+    stars_formats::XferAction::None,
+];
+
+/// "Load All Available" on every hold, which is what the return leg of a
+/// shuttle run carries.
+const LOAD_ALL: [stars_formats::XferAction; 5] = [stars_formats::XferAction::LoadAll; 5];
 
 /// The Merge with Fleet task id.
 const MERGE_TASK: u16 = stars_formats::task::MERGE as u16;
