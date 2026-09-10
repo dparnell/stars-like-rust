@@ -143,6 +143,11 @@ pub enum Check {
     /// and holds its pending percentage while it is up. Page 28 wants it
     /// opened and page 29 wants it closed again, so both senses are used.
     ResearchDialog { open: bool },
+    /// How many ship designs the player has (`rgplr[idPlayer].cShDef`).
+    ///
+    /// How the tutorial checks that a **new design** has been drawn up,
+    /// there being nothing else to point at once the designer is closed.
+    DesignCount { count: usize, cmp: Cmp },
     /// How many fleets the player has.
     ///
     /// Read off `rgplr[idPlayer].cFleet & 0xfff` in the arms. It is how the
@@ -226,6 +231,7 @@ impl Check {
             Check::QueueLength { .. } => "queue length",
             Check::RepeatOrders { .. } => "repeat orders",
             Check::FleetCount { .. } => "fleet count",
+            Check::DesignCount { .. } => "design count",
             Check::ResearchDialog { .. } => "research dialog",
             Check::Template { .. } => "production template",
             Check::Browser { .. } => "technology browser",
@@ -1785,6 +1791,68 @@ pub static STEPS: &[Step] = &[
                     item: 3,
                     count: 2,
                     no_research: Some(false),
+                },
+            ),
+        ],
+    },
+    // Year 13. The ship designer, and the first design of the player's own.
+    Step {
+        turn: 13,
+        idt: 320,
+        // A seventh design already drawn: page 42's work.
+        escape: Some(Check::DesignCount {
+            count: 7,
+            cmp: Cmp::Exactly,
+        }),
+        stages: &[
+            hint(
+                0x140,
+                Check::Cargo {
+                    fleet: 0,
+                    minerals: [0, 0, 0],
+                    colonists: 0,
+                },
+            ),
+            // The same colonists-unload-all goal page 35 set by hand.
+            ask(
+                0x141,
+                Check::TransportWaypoint {
+                    fleet: 0,
+                    order: 1,
+                    id: 0x08,
+                    warp: ANY,
+                    goal: [
+                        stars_formats::XferAction::None,
+                        stars_formats::XferAction::None,
+                        stars_formats::XferAction::None,
+                        stars_formats::XferAction::UnloadAll,
+                        stars_formats::XferAction::None,
+                    ],
+                },
+            ),
+            hint(
+                0x142,
+                Check::Messages {
+                    message: 3,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            ask(
+                0x144,
+                Check::Research {
+                    field: 5,
+                    next: 2,
+                    pct: 30,
+                },
+            ),
+            hint(0x145, Check::Browser { open: true }),
+            // "press F4" — the designer, checked by being open at all.
+            ask(
+                0x147,
+                Check::ShipBuilder {
+                    starbase: None,
+                    design: None,
                 },
             ),
         ],
