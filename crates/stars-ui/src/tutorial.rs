@@ -2597,6 +2597,46 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 23,
+        idt: 472,
+        escape: None,
+        stages: &[
+            ask(
+                0x1d8,
+                Check::Cargo {
+                    fleet: 6,
+                    minerals: [0, 0, 0],
+                    colonists: 25,
+                },
+            ),
+            hint(0x1d9, at_planet(6, 1, 0x11, TRANSPORT_TASK)),
+            ask(
+                0x1da,
+                Check::TransportWaypoint {
+                    fleet: 6,
+                    order: 1,
+                    id: 0x11,
+                    warp: ANY,
+                    goal: UNLOAD_COLONISTS,
+                },
+            ),
+            hint(
+                0x1db,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 3,
+                },
+            ),
+            ask(
+                0x1dd,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 2,
+                },
+            ),
+        ],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
