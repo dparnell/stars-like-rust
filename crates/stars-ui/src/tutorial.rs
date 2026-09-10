@@ -2637,6 +2637,62 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 23,
+        idt: 480,
+        escape: None,
+        stages: &[
+            // Task 6 is Lay Mine Field, and it is on waypoint **zero** —
+            // where the fleet already is, so it lays where it sits.
+            ask(
+                0x1e0,
+                Check::FleetWaypoint {
+                    fleet: 7,
+                    order: 0,
+                    class: grobj::PLANET,
+                    id: 0x0d,
+                    task: LAY_MINES_TASK,
+                    warp: ANY,
+                },
+            ),
+            ask(
+                0x1e1,
+                Check::QueueLength {
+                    planet: 0x0d,
+                    count: 3,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            ask(
+                0x1e1,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 0,
+                    ship: true,
+                    item: 6,
+                    count: 1,
+                    no_research: Some(false),
+                },
+            ),
+            hint(
+                0x1e5,
+                Check::Messages {
+                    message: 9999,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            hint(
+                0x1e6,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 8,
+                },
+            ),
+            ask(0x1e7, at_planet(8, 1, 0x01, ANY)),
+            ask(0x1e7, at_planet(8, 2, 0x00, ANY)),
+        ],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
@@ -2651,6 +2707,9 @@ const UNLOAD_COLONISTS: [stars_formats::XferAction; 5] = [
 /// "Load All Available" on every hold, which is what the return leg of a
 /// shuttle run carries.
 const LOAD_ALL: [stars_formats::XferAction; 5] = [stars_formats::XferAction::LoadAll; 5];
+
+/// The Lay Mine Field task id.
+const LAY_MINES_TASK: u16 = stars_formats::task::LAY_MINES as u16;
 
 /// The Merge with Fleet task id.
 const MERGE_TASK: u16 = stars_formats::task::MERGE as u16;
