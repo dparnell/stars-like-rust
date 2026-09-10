@@ -1854,3 +1854,112 @@ pub fn relation_group(friend: egui::Rect, enemy: egui::Rect, line: f32) -> egui:
 pub fn relation_group_caption(frame: egui::Rect, line: f32) -> egui::Pos2 {
     egui::pos2(frame.left() + 8.0, frame.top() - (line / 2.0).floor())
 }
+
+// --- The tutorial ---------------------------------------------------------
+
+/// `Stars! Tutor`, dialog resource 2502.
+///
+/// Three buttons along the foot and nothing else: everything above them is
+/// painted by `DrawTutorText` (`10f8:03c0`) rather than being a control, and
+/// the **`Hide` button's own top** is what the text area measures its bottom
+/// from.
+///
+/// The caption is replaced at run time with the page number —
+/// `AdvanceTutor` writes string `0x1e2` through `wsprintf`.
+pub const TUTOR: Template = Template {
+    caption: "Stars! Tutor",
+    size: (145, 184),
+    controls: &[
+        Control {
+            id: 0x2,
+            class: Class::Button,
+            at: (5, 167, 40, 12),
+            text: "Hide",
+        },
+        Control {
+            id: 0x76,
+            class: Class::Button,
+            at: (50, 167, 40, 12),
+            text: "Hint",
+        },
+        Control {
+            id: 0x9c7,
+            class: Class::Button,
+            at: (95, 167, 40, 12),
+            text: "Panic!",
+        },
+    ],
+};
+
+/// `Something's Really Gone Wrong!`, dialog resource 2504 — what **Panic!**
+/// opens.
+///
+/// Three ways out and a way back, each with a static beside it explaining
+/// what it does. The statics' wording here is this project's own; the
+/// original's is its authored prose.
+pub const TUTOR_PANIC: Template = Template {
+    caption: "Something's Really Gone Wrong!",
+    size: (174, 206),
+    controls: &[
+        Control {
+            id: 0x9c9,
+            class: Class::Button,
+            at: (4, 14, 60, 14),
+            text: "&Redo Turn",
+        },
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (70, 8, 100, 36),
+            text: "",
+        },
+        Control {
+            id: 0x9ca,
+            class: Class::Button,
+            at: (4, 60, 60, 14),
+            text: "&Complete Turn",
+        },
+        Control {
+            id: 0xfffe,
+            class: Class::Static,
+            at: (70, 46, 100, 60),
+            text: "",
+        },
+        Control {
+            id: 0x76,
+            class: Class::Button,
+            at: (4, 123, 60, 14),
+            text: "&Help",
+        },
+        Control {
+            id: 0xfffd,
+            class: Class::Static,
+            at: (70, 110, 100, 53),
+            text: "",
+        },
+        Control {
+            id: 0x2,
+            class: Class::Button,
+            at: (4, 173, 60, 14),
+            text: "&Never Mind",
+        },
+    ],
+};
+
+/// How the tutor's text area is inset from the dialog, in lines of the
+/// dialog's font.
+///
+/// `DrawTutorText` (`10f8:03c0`) takes the client rect, pulls its bottom up
+/// to the **`Hide` button's top**, then moves the top down by two lines and
+/// the other three sides in by two thirds of a line, draws a sunken frame on
+/// that rectangle and finally shrinks it by half a line all round before
+/// laying out any words.
+#[must_use]
+pub fn tutor_text_area(client: egui::Rect, hide_top: f32, line: f32) -> egui::Rect {
+    let two_thirds = (line * 2.0 / 3.0).floor();
+    let frame = egui::Rect::from_min_max(
+        egui::pos2(client.left() + two_thirds, client.top() + line * 2.0),
+        egui::pos2(client.right() - two_thirds, hide_top - two_thirds),
+    );
+    frame.shrink((line / 2.0).floor())
+}

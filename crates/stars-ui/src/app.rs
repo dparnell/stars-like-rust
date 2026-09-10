@@ -416,6 +416,10 @@ pub struct App {
     pub zip_orders: [ZipOrder; 4],
     /// Which slot the Customize dialog is showing, while it is open.
     pub zip_dialog: Option<usize>,
+    /// The notice `Hide` puts up the first time, while it is showing.
+    pub tutor_notice: Option<String>,
+    /// Whether the tutor's `Panic!` dialog is up.
+    pub tutor_panic: bool,
     /// The tutorial, while it is running — the original's `tutor` global.
     pub tutor: Option<crate::tutorial::Tutor>,
     /// The measuring tape, while it is stretched: where it started and where
@@ -11952,6 +11956,12 @@ impl App {
                 break;
             }
         }
+        // A page that has moved brings the window back up, which is
+        // `AdvanceTutor`'s own `ShowTutor(1)`.
+        let moved = self.tutor.as_ref().is_some_and(|t| t.idt != was);
+        if moved {
+            self.show_tutor();
+        }
         // Whatever page we have landed on says which of its paragraphs to
         // embolden.
         if let Some(bold) = self.tutor_bold() {
@@ -12399,5 +12409,39 @@ impl App {
 
         self.start_tutor();
         Ok(())
+    }
+}
+
+impl App {
+    /// **Hide** the tutor window without stopping the tutorial.
+    ///
+    /// `TutorDlg`'s `Hide` (`10f8:0000`, `wParam == 2`) calls `ShowTutor(0)`
+    /// and, the first time, puts up a notice saying how to get the window
+    /// back — string `0x51a`, *"To make the tutorial reappear complete your
+    /// task or choose Tutorial from the Help menu."* The bit that remembers
+    /// it has been said is cleared afterwards, so it is said once.
+    ///
+    /// Returns the notice, when this is the time to show it.
+    pub fn hide_tutor(&mut self) -> Option<&'static str> {
+        let tutor = self.tutor.as_mut()?;
+        tutor.hidden = true;
+        if tutor.told_how_to_return {
+            return None;
+        }
+        tutor.told_how_to_return = true;
+        Some(
+            "The tutorial is still running. Finish what the page asked for, or choose \
+             Tutorial from the Help menu, to bring it back.",
+        )
+    }
+
+    /// Put it back up.
+    ///
+    /// `AdvanceTutor` calls `ShowTutor(1)` whenever it moves to a new page,
+    /// so finishing a page brings a hidden window back by itself.
+    pub fn show_tutor(&mut self) {
+        if let Some(tutor) = self.tutor.as_mut() {
+            tutor.hidden = false;
+        }
     }
 }

@@ -54,6 +54,13 @@ pub struct Tutor {
     pub help: u16,
     /// Whether the tutorial has run off the end of page eighty.
     pub finished: bool,
+    /// Whether the window is up. **Hide** puts it away without ending the
+    /// tutorial: the pages go on being checked and the window comes back
+    /// when one is finished, or from Help (Tutorial).
+    pub hidden: bool,
+    /// Whether the notice explaining how to get the window back has been
+    /// shown. `TutorDlg` shows it once and then clears the bit.
+    pub told_how_to_return: bool,
 }
 
 impl Tutor {

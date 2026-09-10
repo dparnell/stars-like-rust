@@ -1159,3 +1159,73 @@ fn the_zoom_follows_the_screen_width() {
         assert_eq!(app.scan_zoom, want, "{width} wide");
     }
 }
+
+// --- The tutor window ----------------------------------------------------
+
+/// The window is three buttons and a panel painted by hand.
+#[test]
+fn the_window_is_the_games_own() {
+    use stars_ui::dialog::{Class, TUTOR, TUTOR_PANIC};
+
+    assert_eq!(TUTOR.caption, "Stars! Tutor");
+    assert_eq!(TUTOR.size, (145, 184));
+    assert_eq!(TUTOR.controls.len(), 3, "everything else is painted");
+    for (id, label) in [(0x2u16, "Hide"), (0x76, "Hint"), (0x9c7, "Panic!")] {
+        let button = TUTOR.control(id).expect("a button");
+        assert_eq!(button.class, Class::Button);
+        assert_eq!(button.label(), label);
+        assert_eq!(button.at.1, 167, "all three along the foot");
+        assert_eq!((button.at.2, button.at.3), (40, 12));
+    }
+
+    assert_eq!(TUTOR_PANIC.caption, "Something's Really Gone Wrong!");
+    assert_eq!(TUTOR_PANIC.controls.len(), 7);
+    assert_eq!(
+        TUTOR_PANIC.control(0x9ca).expect("complete").label(),
+        "Complete Turn"
+    );
+}
+
+/// The text panel measures its bottom from the **Hide button's top**, not
+/// from the dialog's foot, and is inset by lines of the dialog's font.
+#[test]
+fn the_text_panel_is_measured_off_the_hide_button() {
+    use stars_ui::dialog::{tutor_text_area, TUTOR};
+
+    let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, TUTOR.pixels());
+    let hide = TUTOR.place(rect, TUTOR.control(0x2).expect("Hide"));
+    let line = 13.0_f32;
+    let area = tutor_text_area(rect, hide.top(), line);
+
+    // Two lines down from the top, and clear of the buttons.
+    assert!(area.top() > rect.top() + line);
+    assert!(area.bottom() < hide.top());
+    // Inset from both sides by the same amount.
+    let left = area.left() - rect.left();
+    let right = rect.right() - area.right();
+    assert!((left - right).abs() < 0.01, "{left} against {right}");
+    // And it is the widest thing on the dialog.
+    assert!(area.width() > rect.width() * 0.8);
+}
+
+/// Hide puts the window away without stopping the tutorial, and says how to
+/// get it back — once.
+#[test]
+fn hide_is_not_stop() {
+    let mut app = a_game();
+    app.start_tutor();
+    assert!(app.tutor.is_some());
+    assert!(!app.tutor.as_ref().expect("running").hidden);
+
+    let notice = app.hide_tutor().expect("the notice, the first time");
+    assert!(notice.contains("Help menu"));
+    assert!(app.tutor.as_ref().expect("still running").hidden);
+    assert!(app.tutor.is_some(), "hiding does not end it");
+
+    // Only once.
+    assert_eq!(app.hide_tutor(), None);
+
+    // Finishing a page brings it back, which is AdvanceTutor's ShowTutor(1).
+    app.show_tutor();
+    assert!(!app.tutor.as_ref().expect("running").hidden);
+}

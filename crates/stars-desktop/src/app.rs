@@ -1313,6 +1313,36 @@ impl eframe::App for StarsApp {
             }
         }
 
+        // The tutor window: always on top, as `TutorDlg`'s WM_INITDIALOG
+        // puts it, and hidden rather than closed by its own Hide button.
+        if self.app.tutor.as_ref().is_some_and(|t| !t.hidden) {
+            let mut open = true;
+            egui::Window::new("Stars! Tutor")
+                .open(&mut open)
+                .resizable(false)
+                .default_width(stars_ui::dialog::TUTOR.pixels().x)
+                .show(ctx, |ui| stars_ui::views::tutorial::view(&mut self.app, ui));
+            if !open {
+                // Closing the window is the Hide button, not Stop: the
+                // tutorial goes on running.
+                self.app.tutor_notice = self.app.hide_tutor().map(str::to_string);
+            }
+        }
+        if let Some(notice) = self.app.tutor_notice.clone() {
+            let mut open = true;
+            egui::Window::new("Stars!")
+                .open(&mut open)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.label(notice);
+                    if ui.button("OK").clicked() {
+                        self.app.tutor_notice = None;
+                    }
+                });
+            if !open {
+                self.app.tutor_notice = None;
+            }
+        }
         if self.app.relations_dialog.is_some() {
             let mut open = true;
             egui::Window::new(stars_ui::dialog::RELATIONS.caption)

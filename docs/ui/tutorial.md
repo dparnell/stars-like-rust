@@ -1,8 +1,8 @@
 # The tutorial
 
-Status: **all eighty pages transcribed**; the text, the checks, the page
-model and the advance machine are written. The tutorial world
-(`CreateTutorWorld`) and the tutorial's own window are not.
+Status: **built** — the text, all eighty pages, the checks, the advance
+machine, the tutorial's world and its window. What is left is listed at the
+foot: the galaxy is not seed-identical, so the pages name the wrong planets.
 
 The original ships a tutorial that walks a new player through **36 years of a
 sample game**, and it is worth having for a reason beyond teaching: it
@@ -316,6 +316,68 @@ some other world. The pages are transcribed from the original and are right
 about the original; they will point at the wrong planets until
 seed-identical generation is solved, which is a problem in `newgame`, not in
 the tutorial.
+
+## The window
+
+`TutorDlg` (`10f8:0000`) over resource 2502, `Stars! Tutor`, 145 x 184
+dialog units. **Three controls**, all buttons along the foot — `Hide`
+(`0x2`), `Hint` (`0x76`) and `Panic!` (`0x9c7`) — and everything above them
+is painted by `DrawTutorText` (`10f8:03c0`) rather than being a control at
+all. The caption is rewritten each page with `Stars! Tutor - Page %d of 80`.
+
+### How the page is laid out
+
+The panel's bottom is the **`Hide` button's own top**, not the dialog's
+foot. From the client rect: the top comes down two lines, the other three
+sides in by two thirds of a line; a **sunken** frame is drawn on that —
+shadow above and left, highlight below and right, the raised groove of the
+rest of the game turned inside out; and then the rectangle shrinks by half a
+line all round before a single word is placed.
+
+The eight paragraphs are then **flowed**, not listed:
+
+* a paragraph whose first character is an **upper-case letter** starts a new
+  one, with half a line of air above it;
+* anything else — and in practice that means the ones beginning with a
+  space — runs straight on from where the last left off;
+* the first paragraph one character long ends the page, which is how a short
+  page stops without eight entries.
+
+That first test is `isupper()`. The arm indexes the C runtime's `_ctype`
+table at `DS:0x175f` with the paragraph's first byte and takes bit 0, and
+that table's bit 0 is `_UPPER` — `0x01` for `G`..`Z`, `0x81` for `A`..`F`
+where `_HEX` is set too, and clear for space, digits and punctuation.
+
+### `idtBold` is not bold
+
+Nothing in the drawing selects a bold face. For the emphasised paragraph the
+routine **swaps the text and background colours** and swaps them back
+afterwards, so the instruction you have not yet carried out comes out in
+**reverse video**. Every mention of "bold" in this spec and in the code
+means that.
+
+### The three buttons
+
+**Hide** is not Stop. It calls `ShowTutor(0)` and, the first time only, puts
+up a notice saying how to get the window back (string `0x51a`); the bit
+remembering that is then cleared. The tutorial goes on being checked while
+hidden, and `AdvanceTutor` calls `ShowTutor(1)` whenever it moves to a new
+page, so finishing the page brings the window back by itself.
+
+**Hint** opens WinHelp on `tutor.idh`, the topic the page's checks have been
+setting as they work out why the task is not done. There is no help file
+here, so the button says which topic it would have opened.
+
+**Panic!** opens resource 2504, `Something's Really Gone Wrong!`: `Redo Turn`
+(`0x9c9`), `Complete Turn` (`0x9ca`), `Help` (`0x76`) and `Never Mind`
+(`0x2`), each of the first three with a static explaining it. `Complete Turn`
+is the interesting one — it sets `tutor` flag bit **9**, and that bit is what
+several of the checks read to return satisfied whatever the galaxy looks
+like. The tutorial's escape hatch for a stuck player is, literally, a flag
+that makes the checks lie.
+
+Neither restart is wired up here: this project cannot replay a year it has
+already generated, so both are drawn disabled.
 
 ## What this project does
 
