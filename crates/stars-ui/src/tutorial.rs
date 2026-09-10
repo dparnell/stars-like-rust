@@ -1528,6 +1528,63 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 11,
+        idt: 272,
+        escape: None,
+        stages: &[
+            hint(
+                0x110,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 2,
+                },
+            ),
+            ask(
+                0x112,
+                Check::ColonizeWaypoint {
+                    fleet: 2,
+                    id: 0x04,
+                    warp: ANY,
+                },
+            ),
+            hint(
+                0x113,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 0x0b,
+                },
+            ),
+            ask(
+                0x114,
+                Check::Cargo {
+                    fleet: 0x0b,
+                    minerals: [0, 0, 0],
+                    colonists: 25,
+                },
+            ),
+            hint(0x115, at_planet(0x0b, 1, 0x05, TRANSPORT_TASK)),
+            // "Set the second dropdown in the Waypoint Task tile to
+            // Colonists and the third to Unload All" — one cargo only, so
+            // this is the first goal that is not all five the same.
+            ask(
+                0x116,
+                Check::TransportWaypoint {
+                    fleet: 0x0b,
+                    order: 1,
+                    id: 0x05,
+                    warp: ANY,
+                    goal: [
+                        stars_formats::XferAction::None,
+                        stars_formats::XferAction::None,
+                        stars_formats::XferAction::None,
+                        stars_formats::XferAction::UnloadAll,
+                        stars_formats::XferAction::None,
+                    ],
+                },
+            ),
+        ],
+    },
 ];
 
 /// The Scrap Fleet task id.
