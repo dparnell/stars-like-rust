@@ -167,12 +167,42 @@ fn waypoint_task(app: &mut App, ui: &mut egui::Ui) {
     };
     let current = leg.task;
 
-    // The task dropdown, the full width of the tile.
-    ui.label(
-        egui::RichText::new(format!("Waypoint {waypoint}"))
-            .small()
-            .weak(),
-    );
+    // Which waypoint the tile is about. The original keeps this in the
+    // Fleet Waypoints tile's orders listbox (`FillOrdersLB`, `1050:928c`,
+    // with `SetOrdersLbSel` moving the selection); here it is a row of
+    // numbers, which does the same job in the room a tile has.
+    //
+    // **Zero is on it.** Waypoint zero is where the fleet already is, and
+    // Lay Mine Field is a task you give there rather than somewhere you are
+    // going — page 61 of the tutorial is exactly that. Zero cannot be
+    // dragged or deleted, but its task is yours to set.
+    let count = app
+        .survey_subject()
+        .fleet_index()
+        .and_then(|i| app.game.as_ref()?.fleets.get(i))
+        .map_or(0, |f| f.waypoints.len());
+    if count > 1 {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(egui::RichText::new("Waypoint").small().weak());
+            for index in 0..count {
+                if ui
+                    .add(egui::SelectableLabel::new(
+                        index == waypoint,
+                        egui::RichText::new(index.to_string()).small(),
+                    ))
+                    .clicked()
+                {
+                    app.selection.waypoint = Some(index);
+                }
+            }
+        });
+    } else {
+        ui.label(
+            egui::RichText::new(format!("Waypoint {waypoint}"))
+                .small()
+                .weak(),
+        );
+    }
     let mut chosen = current;
     egui::ComboBox::from_id_source("waypoint-task")
         .width(ui.available_width() - 8.0)

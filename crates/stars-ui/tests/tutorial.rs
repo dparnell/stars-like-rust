@@ -1010,3 +1010,39 @@ fn fuel_can_be_dragged_between_two_fleets() {
     assert_eq!(game.fleets[a].cargo.fuel, 5);
     assert_eq!(game.fleets[b].cargo.fuel, 45);
 }
+
+/// Waypoint zero's task must be settable: Lay Mine Field is given where the
+/// fleet already is, which is page 61's whole instruction.
+#[test]
+fn waypoint_zero_can_take_a_task() {
+    use stars_formats::task;
+
+    let mut app = a_game();
+    let index = app.own_fleets()[0];
+    {
+        let game = app.game.as_mut().expect("a game");
+        let at = game.fleets[index].position;
+        game.fleets[index].waypoints = vec![stars_core::fleet::Waypoint {
+            position: at,
+            target: None,
+            target_class: grobj::POSITION,
+            warp: 0,
+            task: task::NONE,
+            transport: None,
+            task_data: Vec::new(),
+        }];
+    }
+    app.select_object(stars_ui::ScanObject::Fleet(index));
+
+    app.selection.waypoint = Some(0);
+    assert_eq!(app.task_waypoint(), Some(0));
+    assert!(app.set_waypoint_task(task::LAY_MINES));
+    assert_eq!(
+        app.game.as_ref().expect("a game").fleets[index].waypoints[0].task,
+        task::LAY_MINES
+    );
+
+    // It still cannot be dragged or deleted.
+    assert!(!app.move_waypoint(0, 1, 1, 0.0));
+    assert!(!app.delete_current_waypoint());
+}
