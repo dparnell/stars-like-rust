@@ -3413,6 +3413,20 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    // Year 34.
+    Step {
+        turn: 34,
+        idt: 616,
+        escape: None,
+        stages: &[ask(
+            0x26b,
+            Check::Messages {
+                message: 9999,
+                kind: None,
+                filter: false,
+            },
+        )],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
