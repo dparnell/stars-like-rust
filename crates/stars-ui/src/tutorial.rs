@@ -2951,6 +2951,50 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    // Year 27. A patrol-style intercept set on waypoint zero.
+    Step {
+        turn: 27,
+        idt: 528,
+        escape: None,
+        stages: &[
+            hint(
+                0x210,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 4,
+                },
+            ),
+            // Waypoint **zero** aimed at an enemy fleet: the intercept is
+            // set where your fleet already is, not at a destination.
+            ask(
+                0x212,
+                Check::FleetWaypoint {
+                    fleet: 4,
+                    order: 0,
+                    class: grobj::FLEET,
+                    id: 0x205,
+                    task: ANY,
+                    warp: ANY,
+                },
+            ),
+            hint(
+                0x214,
+                Check::Messages {
+                    message: 1,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            ask(
+                0x216,
+                Check::Cargo {
+                    fleet: 0x0c,
+                    minerals: [0, 0, 0],
+                    colonists: 25,
+                },
+            ),
+        ],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
