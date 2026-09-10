@@ -1061,6 +1061,71 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 7,
+        idt: 184,
+        escape: None,
+        stages: &[
+            // The second message the tutorial has you filter, and its
+            // neighbour: mines rather than factories.
+            hint(
+                0xb8,
+                Check::Messages {
+                    message: 3,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            ask(
+                0xba,
+                Check::Messages {
+                    message: -1,
+                    kind: Some(stars_core::message::id::BUILT_MINES),
+                    filter: true,
+                },
+            ),
+            hint(
+                0xbb,
+                Check::Selection {
+                    class: grobj::PLANET,
+                    id: 0x10,
+                },
+            ),
+            // "Shift-double click on 'Factories (Auto Build)' and then on
+            // 'Mines (Auto Build)' in the left hand listbox queueing 10 of
+            // each" — both with leftover-only research still ticked.
+            ask(
+                0xbd,
+                Check::Queue {
+                    planet: 0x10,
+                    slot: 0,
+                    ship: false,
+                    item: stars_core::production::item::AUTO_FACTORY,
+                    count: 10,
+                    no_research: Some(true),
+                },
+            ),
+            ask(
+                0xbd,
+                Check::Queue {
+                    planet: 0x10,
+                    slot: 1,
+                    ship: false,
+                    item: stars_core::production::item::AUTO_MINE,
+                    count: 10,
+                    no_research: Some(true),
+                },
+            ),
+            ask(
+                0xbe,
+                Check::Messages {
+                    message: 9999,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+        ],
+    },
 ];
 
 /// The Transport task id, as a `Check`'s `task` field wants it.
