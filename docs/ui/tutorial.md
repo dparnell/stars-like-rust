@@ -1,7 +1,7 @@
 # The tutorial
 
 Status: **in progress** — the text, the checks and the advance machine are
-written; eight of the eighty pages are transcribed, and the hooks, the window
+written; ten of the eighty pages are transcribed, and the hooks, the window
 and the tutorial world are not written yet.
 
 The original ships a tutorial that walks a new player through **36 years of a
@@ -114,6 +114,12 @@ else { ...the chain... }
 ahead is not made to go back and do this page a step at a time. It is the
 same idea as `AdvanceTutor`'s skipping loop, written inside one page, and
 `Step::escape` carries it.
+
+And not every check in an arm is part of the answer. Some are asked **only to
+decide where the emphasis goes**: page 9 asks whether you have read the fourth
+message and then, whatever the answer, gates on the summary pane instead. A
+rung like that is `hint` rather than `ask` — skipped when deciding whether the
+page is done, but still catching the emphasis on its way past.
 
 A few pages go further and pick a different paragraph for each *wrong* answer
 — page 4 has one for each of the three fleets you might have selected instead
@@ -253,7 +259,7 @@ eleven of the fifteen verbs; the chain-of-rungs page model; and
 `AdvanceTutor`'s skipping loop, which steps on by eight while the page's task
 is done so a page satisfied in advance is never shown.
 
-Eight of the eighty pages are transcribed. Pages not yet transcribed are simply
+Ten of the eighty pages are transcribed. Pages not yet transcribed are simply
 absent from the table and the tutorial stops at the first gap rather than
 pretending to know what comes next.
 

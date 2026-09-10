@@ -180,6 +180,15 @@ pub struct Stage {
     /// What has to be true. `None` is a rung that only moves the emphasis —
     /// the closing pages of a year, which ask for nothing.
     pub check: Option<Check>,
+    /// Whether this rung **gates** the page, or only moves the emphasis.
+    ///
+    /// Not every check in an arm is part of the answer. Some are asked only
+    /// to decide which paragraph to embolden — page 9 asks whether you have
+    /// read the fourth message and then, whatever the answer, gates on the
+    /// summary pane instead. A rung that does not gate is skipped when
+    /// deciding whether the page is done, but still catches the emphasis on
+    /// its way past.
+    pub gates: bool,
 }
 
 /// One page of the tutorial.
@@ -218,11 +227,21 @@ pub fn step(idt: usize) -> Option<&'static Step> {
     STEPS.iter().find(|step| step.idt == idt)
 }
 
-/// A rung with a check.
+/// A rung that has to be satisfied for the page to be done.
 const fn ask(bold: usize, check: Check) -> Stage {
     Stage {
         bold,
         check: Some(check),
+        gates: true,
+    }
+}
+
+/// A rung asked only to decide where the emphasis goes.
+const fn hint(bold: usize, check: Check) -> Stage {
+    Stage {
+        bold,
+        check: Some(check),
+        gates: false,
     }
 }
 
@@ -409,7 +428,71 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 2,
+        idt: 64,
+        // The miner already sent to mine: page 10's work.
+        escape: Some(mine(5, 0x0c)),
+        stages: &[
+            ask(0x40, leg(4, 1, 0x0e)),
+            ask(0x41, leg(4, 2, 0x11)),
+            ask(0x42, leg(4, 3, 0x12)),
+            ask(0x43, leg(4, 4, 0x17)),
+            ask(0x44, leg(4, 5, 0x16)),
+            // Reading the fourth message moves the emphasis on; it is not
+            // part of the answer.
+            hint(
+                0x45,
+                Check::Messages {
+                    message: 4,
+                    kind: None,
+                },
+            ),
+            ask(
+                0x47,
+                Check::Summary {
+                    class: grobj::PLANET,
+                    id: 0x0c,
+                },
+            ),
+        ],
+    },
+    Step {
+        turn: 2,
+        idt: 72,
+        // The colony ship already sent: page 12's work.
+        escape: Some(Check::ColonizeWaypoint {
+            fleet: 2,
+            id: 0x10,
+            warp: ANY,
+        }),
+        stages: &[
+            hint(
+                0x4d,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 5,
+                },
+            ),
+            // The leg without the task on it: the emphasis moves to the
+            // paragraph about the dropdown.
+            hint(0x4f, leg(5, 1, 0x0c)),
+            ask(0x4f, mine(5, 0x0c)),
+        ],
+    },
 ];
+
+/// A waypoint with the **Remote Mining** task on it.
+const fn mine(fleet: u16, id: u16) -> Check {
+    Check::FleetWaypoint {
+        fleet,
+        order: 1,
+        class: grobj::PLANET,
+        id,
+        task: stars_formats::task::REMOTE_MINING as u16,
+        warp: ANY,
+    }
+}
 
 /// A plain waypoint: fleet `fleet`'s leg `order` on planet `id`, no task and
 /// any warp. Most of the table is these.

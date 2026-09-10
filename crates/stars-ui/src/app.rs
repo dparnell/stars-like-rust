@@ -11775,6 +11775,7 @@ impl App {
         }
         step.stages
             .iter()
+            .filter(|stage| stage.gates)
             .all(|stage| stage.check.as_ref().is_none_or(|c| self.tutor_check(c)))
     }
 

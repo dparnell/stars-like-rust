@@ -608,3 +608,32 @@ fn an_escape_hatch_carries_a_page() {
     assert!(step(with_escape.idt).is_some());
     assert!(step(with_escape.idt + 1).is_none(), "pages start on eights");
 }
+
+/// A rung that only moves the emphasis does not hold the page up.
+///
+/// Page 9 asks whether the fourth message has been read and then, whatever
+/// the answer, gates on the summary pane instead — so an unread message
+/// changes where the bold sits and nothing else.
+#[test]
+fn a_hint_moves_the_bold_without_gating() {
+    let page = STEPS
+        .iter()
+        .find(|s| s.stages.iter().any(|stage| !stage.gates))
+        .expect("a page with a hint");
+
+    let hints: Vec<_> = page.stages.iter().filter(|s| !s.gates).collect();
+    assert!(!hints.is_empty());
+    // A hint still carries a paragraph, which is the whole reason it is
+    // there.
+    for hint in &hints {
+        assert!(hint.check.is_some(), "a hint with no check asks nothing");
+        assert!(hint.bold >= page.idt);
+    }
+    // And the page still has something that does gate.
+    assert!(
+        page.stages.iter().any(|s| s.gates),
+        "a page of nothing but hints could never be finished"
+    );
+    // The last rung is always a gate: it is what finishes the page.
+    assert!(page.stages.last().expect("a rung").gates);
+}
