@@ -11766,6 +11766,13 @@ impl App {
         if step.turn != turn {
             return false;
         }
+        if step
+            .escape
+            .as_ref()
+            .is_some_and(|check| self.tutor_check(check))
+        {
+            return true;
+        }
         step.stages
             .iter()
             .all(|stage| stage.check.as_ref().is_none_or(|c| self.tutor_check(c)))

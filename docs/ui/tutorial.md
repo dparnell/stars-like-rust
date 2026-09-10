@@ -1,7 +1,7 @@
 # The tutorial
 
 Status: **in progress** — the text, the checks and the advance machine are
-written; six of the eighty pages are transcribed, and the hooks, the window
+written; eight of the eighty pages are transcribed, and the hooks, the window
 and the tutorial world are not written yet.
 
 The original ships a tutorial that walks a new player through **36 years of a
@@ -102,6 +102,18 @@ if (FCheckSelection(grobjFleet, 0)) {
 is done when every rung passes, and the paragraph shown in bold is the first
 rung that does not. That is how a page manages to say "select the scout"
 first and "now send it to Bandersnatch" second without being two pages.
+
+Several arms open with an **escape hatch**:
+
+```c
+if (FCheckFleetWP(1, 1, grobjPlanet, 0x15, 0, 0xffff)) done = 1;
+else { ...the chain... }
+```
+
+— where the check is usually the **next** page's task. A player who has run
+ahead is not made to go back and do this page a step at a time. It is the
+same idea as `AdvanceTutor`'s skipping loop, written inside one page, and
+`Step::escape` carries it.
 
 A few pages go further and pick a different paragraph for each *wrong* answer
 — page 4 has one for each of the three fleets you might have selected instead
@@ -241,7 +253,7 @@ eleven of the fifteen verbs; the chain-of-rungs page model; and
 `AdvanceTutor`'s skipping loop, which steps on by eight while the page's task
 is done so a page satisfied in advance is never shown.
 
-Six of the eighty pages are transcribed. Pages not yet transcribed are simply
+Eight of the eighty pages are transcribed. Pages not yet transcribed are simply
 absent from the table and the tutorial stops at the first gap rather than
 pretending to know what comes next.
 

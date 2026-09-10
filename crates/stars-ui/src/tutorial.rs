@@ -192,6 +192,14 @@ pub struct Step {
     pub turn: i16,
     /// The first paragraph of the page.
     pub idt: usize,
+    /// A way past the page without doing any of it.
+    ///
+    /// Several arms open with `if (FCheckX(...)) done = 1; else { ...the
+    /// chain... }` — where `FCheckX` is usually the *next* page's task. A
+    /// player who has run ahead is not made to go back and do this page
+    /// step by step. It is the same idea as `AdvanceTutor`'s skipping loop,
+    /// written inside one page.
+    pub escape: Option<Check>,
     /// The rungs, in order.
     pub stages: &'static [Stage],
 }
@@ -230,6 +238,7 @@ pub static STEPS: &[Step] = &[
     Step {
         turn: 0,
         idt: 0,
+        escape: None,
         stages: &[ask(
             5,
             Check::Messages {
@@ -241,6 +250,7 @@ pub static STEPS: &[Step] = &[
     Step {
         turn: 0,
         idt: 8,
+        escape: None,
         stages: &[
             ask(
                 11,
@@ -265,6 +275,7 @@ pub static STEPS: &[Step] = &[
     Step {
         turn: 0,
         idt: 16,
+        escape: None,
         stages: &[
             ask(
                 18,
@@ -289,6 +300,7 @@ pub static STEPS: &[Step] = &[
     Step {
         turn: 0,
         idt: 24,
+        escape: None,
         stages: &[
             // The original picks a different paragraph for each of the three
             // wrong fleets you might have selected instead; this points at
@@ -316,6 +328,7 @@ pub static STEPS: &[Step] = &[
     Step {
         turn: 0,
         idt: 32,
+        escape: None,
         stages: &[ask(
             32,
             Check::Research {
@@ -329,6 +342,7 @@ pub static STEPS: &[Step] = &[
     Step {
         turn: 1,
         idt: 40,
+        escape: None,
         stages: &[ask(
             40,
             Check::Queue {
@@ -340,4 +354,72 @@ pub static STEPS: &[Step] = &[
             },
         )],
     },
+    // Year 2. The scouts have arrived and are given a string of waypoints
+    // each, one planet per paragraph.
+    Step {
+        turn: 2,
+        idt: 48,
+        // Fleet 1 already sent on: the next page's work is done, so this one
+        // is not asked for.
+        escape: Some(leg(1, 1, 0x15)),
+        stages: &[
+            ask(
+                0x32,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 0,
+                },
+            ),
+            ask(0x33, leg(0, 1, 0x09)),
+            ask(0x34, leg(0, 2, 0x03)),
+            ask(0x35, leg(0, 3, 0x08)),
+            ask(0x36, leg(0, 4, 0x05)),
+            ask(0x37, leg(0, 5, 0x02)),
+            ask(
+                0x37,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 1,
+                },
+            ),
+        ],
+    },
+    Step {
+        turn: 2,
+        idt: 56,
+        escape: Some(leg(4, 1, 0x0e)),
+        stages: &[
+            ask(0x39, leg(1, 1, 0x15)),
+            ask(0x3a, leg(1, 2, 0x13)),
+            ask(0x3b, leg(1, 3, 0x14)),
+            ask(0x3c, leg(1, 4, 0x07)),
+            ask(
+                0x3d,
+                Check::Messages {
+                    message: 2,
+                    kind: None,
+                },
+            ),
+            ask(
+                0x3f,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 4,
+                },
+            ),
+        ],
+    },
 ];
+
+/// A plain waypoint: fleet `fleet`'s leg `order` on planet `id`, no task and
+/// any warp. Most of the table is these.
+const fn leg(fleet: u16, order: usize, id: u16) -> Check {
+    Check::FleetWaypoint {
+        fleet,
+        order,
+        class: grobj::PLANET,
+        id,
+        task: 0,
+        warp: ANY,
+    }
+}

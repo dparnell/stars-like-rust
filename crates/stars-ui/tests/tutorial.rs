@@ -68,6 +68,10 @@ fn the_step_table_is_well_formed() {
             );
         }
     }
+    // Turn 2's pages are the ones with escape hatches.
+    let escapes = STEPS.iter().filter(|s| s.escape.is_some()).count();
+    assert!(escapes >= 2, "the escape hatch is in the table");
+
     // The first page reads the messages, which is where the tutorial opens.
     assert_eq!(STEPS[0].idt, 0);
     assert_eq!(STEPS[0].turn, 0);
@@ -568,4 +572,39 @@ fn f3_opens_the_last_report_and_escape_closes_it() {
 
     assert!(App::is_report(Screen::Battles));
     assert!(!App::is_report(Screen::Galaxy));
+}
+
+/// A page whose escape hatch is satisfied is done without any of its rungs.
+///
+/// Several arms open `if (FCheckX(...)) done = 1; else { ...the chain... }`,
+/// where `FCheckX` is usually the next page's task — a player who has run
+/// ahead is not made to go back and do this page step by step.
+#[test]
+fn an_escape_hatch_carries_a_page() {
+    use stars_ui::tutorial::step;
+
+    let with_escape = STEPS
+        .iter()
+        .find(|s| s.escape.is_some())
+        .expect("a page with one");
+    assert_eq!(with_escape.turn, 2);
+    // It is the same shape of check as the rungs, not a special case.
+    assert!(matches!(
+        with_escape.escape,
+        Some(Check::FleetWaypoint { .. })
+    ));
+    // And it is a *different* fleet from the one the rungs are about, which
+    // is what makes it the next page's task rather than this one's.
+    let rung_fleet = with_escape.stages.iter().find_map(|s| match s.check {
+        Some(Check::FleetWaypoint { fleet, .. }) => Some(fleet),
+        _ => None,
+    });
+    let escape_fleet = match with_escape.escape {
+        Some(Check::FleetWaypoint { fleet, .. }) => Some(fleet),
+        _ => None,
+    };
+    assert_ne!(rung_fleet, escape_fleet);
+
+    assert!(step(with_escape.idt).is_some());
+    assert!(step(with_escape.idt + 1).is_none(), "pages start on eights");
 }
