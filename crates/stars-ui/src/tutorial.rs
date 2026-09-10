@@ -2404,6 +2404,19 @@ pub static STEPS: &[Step] = &[
             ask(0x1af, Check::RepeatOrders { fleet: 0 }),
         ],
     },
+    Step {
+        turn: 21,
+        idt: 432,
+        escape: None,
+        stages: &[ask(
+            0x1b0,
+            Check::Messages {
+                message: 9999,
+                kind: None,
+                filter: false,
+            },
+        )],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
