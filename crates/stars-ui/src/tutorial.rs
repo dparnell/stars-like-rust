@@ -3110,6 +3110,52 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    // Year 29. A planet route, and the only page in the tutorial that
+    // pins a **warp factor**.
+    Step {
+        turn: 29,
+        idt: 560,
+        escape: None,
+        stages: &[
+            hint(
+                0x230,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 3,
+                },
+            ),
+            // Warp 5 exactly: every other waypoint rung in the table
+            // passes ANY for the warp.
+            ask(
+                0x232,
+                Check::FleetWaypoint {
+                    fleet: 3,
+                    order: 1,
+                    class: grobj::PLANET,
+                    id: 0x0d,
+                    task: ANY,
+                    warp: 5,
+                },
+            ),
+            hint(
+                0x234,
+                Check::Messages {
+                    message: 6,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            ask(0x235, at_planet(0x0d, 1, 0x0a, ANY)),
+            // The only use of FCheckPlanetRoute in the whole tutorial.
+            ask(
+                0x237,
+                Check::PlanetRoute {
+                    planet: 0x0d,
+                    to: 0x0a,
+                },
+            ),
+        ],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
