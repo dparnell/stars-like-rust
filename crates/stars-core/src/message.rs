@@ -31,6 +31,11 @@ pub mod id {
     pub const BUILT_MINE: u16 = 55;
     /// Several mines.
     pub const BUILT_MINES: u16 = 56;
+    /// `idmHasUnloaded`: a fleet put its cargo down somewhere.
+    ///
+    /// The third message the tutorial teaches you to filter, once the
+    /// freighter is shuttling and sends one every year.
+    pub const HAS_UNLOADED: u16 = 45;
     /// `idmHasCompletedAssignedOrders`: a fleet has run out of orders.
     /// `SatisfyOrders`' cancel path.
     pub const ORDERS_COMPLETE: u16 = 0x4e;

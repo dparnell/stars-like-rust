@@ -126,6 +126,12 @@ pub enum Check {
         /// One action per cargo, ironium first and fuel last.
         goal: [stars_formats::XferAction; 5],
     },
+    /// Whether the Research dialog is open.
+    ///
+    /// The arms read `pctResGlob`, which is `-1` while the dialog is shut
+    /// and holds its pending percentage while it is up. Page 28 wants it
+    /// opened and page 29 wants it closed again, so both senses are used.
+    ResearchDialog { open: bool },
     /// How many fleets the player has.
     ///
     /// Read off `rgplr[idPlayer].cFleet & 0xfff` in the arms. It is how the
@@ -209,6 +215,7 @@ impl Check {
             Check::QueueLength { .. } => "queue length",
             Check::RepeatOrders { .. } => "repeat orders",
             Check::FleetCount { .. } => "fleet count",
+            Check::ResearchDialog { .. } => "research dialog",
         }
     }
 }
@@ -1237,6 +1244,59 @@ pub static STEPS: &[Step] = &[
                 },
             ),
             ask(0xd6, at_planet(8, 1, 0x09, ANY)),
+        ],
+    },
+    Step {
+        turn: 8,
+        idt: 216,
+        // Research already set the way page 29 wants it.
+        escape: Some(Check::Research {
+            field: 1,
+            next: 6,
+            pct: 30,
+        }),
+        stages: &[
+            // The third message the tutorial teaches you to hide.
+            ask(
+                0xd8,
+                Check::Messages {
+                    message: -1,
+                    kind: Some(stars_core::message::id::HAS_UNLOADED),
+                    filter: true,
+                },
+            ),
+            hint(
+                0xd9,
+                Check::Messages {
+                    message: 9999,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            hint(
+                0xd9,
+                Check::Summary {
+                    class: grobj::PLANET,
+                    id: 0x05,
+                },
+            ),
+            ask(0xdd, Check::ResearchDialog { open: true }),
+        ],
+    },
+    Step {
+        turn: 8,
+        idt: 224,
+        escape: None,
+        stages: &[
+            ask(0xe4, Check::ResearchDialog { open: false }),
+            ask(
+                0xe6,
+                Check::Research {
+                    field: 1,
+                    next: 6,
+                    pct: 30,
+                },
+            ),
         ],
     },
 ];
