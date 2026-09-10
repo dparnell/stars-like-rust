@@ -1659,6 +1659,52 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    // Year 12. Salvage: a space object in the summary pane for the first
+    // time.
+    Step {
+        turn: 12,
+        idt: 296,
+        // Planet 8's queue already grown: this year's later work is done.
+        escape: Some(Check::QueueLength {
+            planet: 0x08,
+            count: 3,
+            cmp: Cmp::AtLeast,
+        }),
+        stages: &[
+            hint(
+                0x129,
+                Check::Messages {
+                    message: 1,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            hint(
+                0x12c,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 8,
+                },
+            ),
+            // "There is a yellow diamond at the same location as Armed
+            // Probe #9.  This symbol represents salvage."  `-1` is any
+            // thing at all, which is how the arm asks.
+            hint(
+                0x12f,
+                Check::Summary {
+                    class: grobj::THING,
+                    id: -1,
+                },
+            ),
+            ask(
+                0x12f,
+                Check::Summary {
+                    class: grobj::FLEET,
+                    id: 3,
+                },
+            ),
+        ],
+    },
 ];
 
 /// The Scrap Fleet task id.
