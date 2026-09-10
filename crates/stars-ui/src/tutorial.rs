@@ -2022,6 +2022,44 @@ pub static STEPS: &[Step] = &[
             ask(0x166, Check::Template { slot: 1 }),
         ],
     },
+    // Year 15. The Planet Summary Report, sorted.
+    Step {
+        turn: 15,
+        idt: 360,
+        escape: None,
+        stages: &[
+            ask(0x168, at_planet(8, 1, 0x0b, ANY)),
+            ask(
+                0x169,
+                Check::Cargo {
+                    fleet: 6,
+                    minerals: [0, 0, 0],
+                    colonists: 25,
+                },
+            ),
+            // The arm's next branch watches `vprptCur->icolSort` for column
+            // 4 — the report sorted by population. It only chooses the
+            // emphasis, and this project's reports are lists rather than
+            // sortable tables, so it is left out rather than written as a
+            // rung that could never pass. See the report note in the spec.
+            ask(
+                0x16f,
+                Check::TransportWaypoint {
+                    fleet: 6,
+                    order: 1,
+                    id: 0x05,
+                    warp: ANY,
+                    goal: [
+                        stars_formats::XferAction::None,
+                        stars_formats::XferAction::None,
+                        stars_formats::XferAction::None,
+                        stars_formats::XferAction::UnloadAll,
+                        stars_formats::XferAction::None,
+                    ],
+                },
+            ),
+        ],
+    },
 ];
 
 /// The Scrap Fleet task id.
