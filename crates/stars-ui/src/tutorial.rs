@@ -1487,7 +1487,51 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    // Year 11. Fleets sent home to be scrapped, and the first waypoint
+    // aimed at another player's ship.
+    Step {
+        turn: 11,
+        idt: 264,
+        escape: None,
+        stages: &[
+            hint(
+                0x108,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 0,
+                },
+            ),
+            ask(0x109, at_planet(0, 1, 0x0a, ANY)),
+            hint(
+                0x10a,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 1,
+                },
+            ),
+            // Task 5 is Scrap Fleet: the scout goes home to be broken up.
+            ask(0x10c, at_planet(1, 1, 0x0d, SCRAP_TASK)),
+            ask(0x10d, at_planet(4, 1, 0x0d, ANY)),
+            // The first waypoint in the tutorial aimed at a **fleet** rather
+            // than a planet, and at somebody else's: 0x200 is player one's
+            // fleet zero, the enemy scout from page 25.
+            ask(
+                0x10f,
+                Check::FleetWaypoint {
+                    fleet: 8,
+                    order: 1,
+                    class: grobj::FLEET,
+                    id: 0x200,
+                    task: ANY,
+                    warp: ANY,
+                },
+            ),
+        ],
+    },
 ];
+
+/// The Scrap Fleet task id.
+const SCRAP_TASK: u16 = stars_formats::task::SCRAP as u16;
 
 /// The Colonize task id.
 const COLONIZE_TASK: u16 = stars_formats::task::COLONIZE as u16;
