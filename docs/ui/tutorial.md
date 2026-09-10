@@ -1,7 +1,7 @@
 # The tutorial
 
 Status: **in progress** — the text, the checks and the advance machine are
-written; ten of the eighty pages are transcribed, and the hooks, the window
+written; twelve of the eighty pages are transcribed, and the hooks, the window
 and the tutorial world are not written yet.
 
 The original ships a tutorial that walks a new player through **36 years of a
@@ -100,7 +100,12 @@ if (FCheckSelection(grobjFleet, 0)) {
 
 — so each rung both **emboldens a paragraph** and **gates the next**. The page
 is done when every rung passes, and the paragraph shown in bold is the first
-rung that does not. That is how a page manages to say "select the scout"
+rung that does not.
+
+The emphasis is set **immediately before** the check it belongs to, so a
+rung's paragraph is the instruction you have *not yet carried out* — not the
+one you just did. That is worth stating because it is easy to transcribe the
+other way round and end up a paragraph ahead all the way down the page. That is how a page manages to say "select the scout"
 first and "now send it to Bandersnatch" second without being two pages.
 
 Several arms open with an **escape hatch**:
@@ -259,7 +264,7 @@ eleven of the fifteen verbs; the chain-of-rungs page model; and
 `AdvanceTutor`'s skipping loop, which steps on by eight while the page's task
 is done so a page satisfied in advance is never shown.
 
-Ten of the eighty pages are transcribed. Pages not yet transcribed are simply
+Twelve of the eighty pages are transcribed — the first three years, whole. Pages not yet transcribed are simply
 absent from the table and the tutorial stops at the first gap rather than
 pretending to know what comes next.
 

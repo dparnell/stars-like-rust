@@ -637,3 +637,42 @@ fn a_hint_moves_the_bold_without_gating() {
     // The last rung is always a gate: it is what finishes the page.
     assert!(page.stages.last().expect("a rung").gates);
 }
+
+/// A rung's `bold` is the paragraph shown **while that rung is outstanding**,
+/// which is how the original writes it: the bold is set immediately before
+/// the check it belongs to, so it is the instruction you have not yet
+/// carried out.
+#[test]
+fn the_bold_is_what_is_still_to_do() {
+    // Page 7 is the clearest case: select the scout, then five planets.
+    let page = stars_ui::tutorial::step(48).expect("page 7");
+    let bolds: Vec<usize> = page.stages.iter().map(|s| s.bold).collect();
+    // Strictly increasing: each rung points further down the page than the
+    // one before, because each is the next thing to do.
+    for pair in bolds.windows(2) {
+        assert!(pair[0] <= pair[1], "the emphasis walks forward: {bolds:?}");
+    }
+    // The first rung is the selection and it does **not** gate: the original
+    // never refuses to move on because the wrong fleet is in front, it just
+    // says which one it wants.
+    assert!(!page.stages[0].gates);
+    assert!(matches!(
+        page.stages[0].check,
+        Some(Check::Selection { .. })
+    ));
+    // Every planet after it does gate.
+    assert_eq!(page.stages.iter().filter(|s| s.gates).count(), 6);
+}
+
+/// Turn 2 is transcribed end to end, and every page of it belongs to year 2.
+#[test]
+fn year_two_is_whole() {
+    let year_two: Vec<_> = STEPS.iter().filter(|s| s.turn == 2).collect();
+    assert_eq!(year_two.len(), 6, "six pages in the second year");
+    let pages: Vec<usize> = year_two.iter().map(|s| s.page()).collect();
+    assert_eq!(pages, vec![7, 8, 9, 10, 11, 12]);
+    // Five of the six can be skipped by having run ahead; only the last,
+    // which loads and sends the colony ship, has to be done.
+    assert_eq!(year_two.iter().filter(|s| s.escape.is_some()).count(), 5);
+    assert!(year_two.last().expect("page 12").escape.is_none());
+}

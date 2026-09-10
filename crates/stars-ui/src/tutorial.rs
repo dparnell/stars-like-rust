@@ -375,6 +375,12 @@ pub static STEPS: &[Step] = &[
     },
     // Year 2. The scouts have arrived and are given a string of waypoints
     // each, one planet per paragraph.
+    //
+    // These pages set the pattern for the rest of the tutorial: the
+    // selection is a **hint**, not a gate — the original never makes you
+    // select the right fleet, it just tells you to while you have not — and
+    // each leg laid moves the emphasis to the paragraph naming the next
+    // planet.
     Step {
         turn: 2,
         idt: 48,
@@ -382,18 +388,18 @@ pub static STEPS: &[Step] = &[
         // is not asked for.
         escape: Some(leg(1, 1, 0x15)),
         stages: &[
-            ask(
-                0x32,
+            hint(
+                0x30,
                 Check::Selection {
                     class: grobj::FLEET,
                     id: 0,
                 },
             ),
-            ask(0x33, leg(0, 1, 0x09)),
-            ask(0x34, leg(0, 2, 0x03)),
-            ask(0x35, leg(0, 3, 0x08)),
-            ask(0x36, leg(0, 4, 0x05)),
-            ask(0x37, leg(0, 5, 0x02)),
+            ask(0x32, leg(0, 1, 0x09)),
+            ask(0x33, leg(0, 2, 0x03)),
+            ask(0x34, leg(0, 3, 0x08)),
+            ask(0x35, leg(0, 4, 0x05)),
+            ask(0x36, leg(0, 5, 0x02)),
             ask(
                 0x37,
                 Check::Selection {
@@ -412,7 +418,7 @@ pub static STEPS: &[Step] = &[
             ask(0x3a, leg(1, 2, 0x13)),
             ask(0x3b, leg(1, 3, 0x14)),
             ask(0x3c, leg(1, 4, 0x07)),
-            ask(
+            hint(
                 0x3d,
                 Check::Messages {
                     message: 2,
@@ -467,17 +473,86 @@ pub static STEPS: &[Step] = &[
             warp: ANY,
         }),
         stages: &[
+            // Three questions about one waypoint, and only the last is the
+            // answer: select the miner, lay the leg, then set the task. The
+            // first two walk the emphasis from "select it" to "now use the
+            // dropdown", which is the whole of what a tutorial does.
             hint(
-                0x4d,
+                0x4c,
                 Check::Selection {
                     class: grobj::FLEET,
                     id: 5,
                 },
             ),
-            // The leg without the task on it: the emphasis moves to the
-            // paragraph about the dropdown.
-            hint(0x4f, leg(5, 1, 0x0c)),
+            hint(0x4d, leg(5, 1, 0x0c)),
             ask(0x4f, mine(5, 0x0c)),
+        ],
+    },
+    Step {
+        turn: 2,
+        idt: 80,
+        escape: Some(Check::ColonizeWaypoint {
+            fleet: 2,
+            id: 0x10,
+            warp: ANY,
+        }),
+        stages: &[
+            hint(
+                0x50,
+                Check::Summary {
+                    class: grobj::PLANET,
+                    id: 0x0f,
+                },
+            ),
+            hint(
+                0x53,
+                Check::Messages {
+                    message: 9999,
+                    kind: None,
+                },
+            ),
+            ask(
+                0x56,
+                Check::Summary {
+                    class: grobj::PLANET,
+                    id: 0x10,
+                },
+            ),
+        ],
+    },
+    Step {
+        turn: 2,
+        idt: 88,
+        escape: None,
+        stages: &[
+            hint(
+                0x59,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 2,
+                },
+            ),
+            // Load the colony ship. How much is not readable from the
+            // decompilation — `FCheckCargo`'s argument list comes out
+            // garbled — but the page itself says it: "Click and drag in the
+            // Colonists gauge filling the hold with 25kT of colonists".
+            hint(
+                0x5a,
+                Check::Cargo {
+                    fleet: 2,
+                    minerals: [0, 0, 0],
+                    colonists: 25,
+                },
+            ),
+            hint(0x5c, leg(2, 1, 0x10)),
+            ask(
+                0x5d,
+                Check::ColonizeWaypoint {
+                    fleet: 2,
+                    id: 0x10,
+                    warp: ANY,
+                },
+            ),
         ],
     },
 ];
