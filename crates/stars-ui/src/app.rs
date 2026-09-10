@@ -11844,3 +11844,97 @@ impl App {
         stars_formats::tutorial::page(art.executable(), tutor.page())
     }
 }
+
+// --- Walking your own fleets ----------------------------------------------
+
+impl App {
+    /// Your own fleets, in the order the pane's Prev and Next walk them.
+    ///
+    /// `SelectAdjFleet` (`1050:3d32`) steps through `vlprgidFleet`, the local
+    /// player's own list, not through every fleet on the map — somebody
+    /// else's is never stepped onto.
+    #[must_use]
+    pub fn own_fleets(&self) -> Vec<usize> {
+        let me = self.local_player();
+        self.game.as_ref().map_or_else(Vec::new, |game| {
+            game.fleets
+                .iter()
+                .enumerate()
+                .filter(|(_, f)| usize::try_from(f.owner).is_ok_and(|o| o == me))
+                .map(|(index, _)| index)
+                .collect()
+        })
+    }
+
+    /// Step to the fleet before or after the one selected, wrapping round.
+    ///
+    /// `SelectAdjFleet` with a non-zero `dInc`: find where the current fleet
+    /// sits in your own list, move by `delta`, and **wrap** — past the end
+    /// goes to the first, before the start goes to the last. With nothing
+    /// selected it starts at the first. Returns whether the selection moved.
+    ///
+    /// The original also recentres the scanner on the fleet it lands on
+    /// (`CtrPointScan`); this frontend's map has no scroll to recentre.
+    pub fn select_adjacent_fleet(&mut self, delta: i32) -> bool {
+        let fleets = self.own_fleets();
+        if fleets.is_empty() {
+            return false;
+        }
+        let here = self
+            .selection
+            .fleet
+            .and_then(|index| fleets.iter().position(|f| *f == index));
+        let count = i32::try_from(fleets.len()).unwrap_or(1);
+        let next = match here {
+            Some(at) => {
+                let moved = i32::try_from(at).unwrap_or(0) + delta;
+                if moved >= count {
+                    0
+                } else if moved < 0 {
+                    count - 1
+                } else {
+                    moved
+                }
+            }
+            None => 0,
+        };
+        let index = fleets[usize::try_from(next).unwrap_or(0)];
+        if self.selection.fleet == Some(index) && self.selection.on_fleet {
+            return false;
+        }
+        self.select_object(ScanObject::Fleet(index));
+        true
+    }
+
+    /// Select one fleet by its id, as the tile's **Goto** button does.
+    ///
+    /// `SelectAdjFleet` with `dInc == 0`: no stepping, just go there.
+    pub fn goto_fleet(&mut self, id: u16) -> bool {
+        let me = self.local_player();
+        let Some(index) = self.game.as_ref().and_then(|game| {
+            game.fleets
+                .iter()
+                .position(|f| f.id == id && usize::try_from(f.owner).is_ok_and(|o| o == me))
+        }) else {
+            return false;
+        };
+        self.select_object(ScanObject::Fleet(index));
+        true
+    }
+
+    /// Go to the planet the selected fleet is orbiting, as the location
+    /// tile's **Goto** button does (`SelectAdjPlanet(0, sel.fl.idPlanet)`).
+    pub fn goto_orbited_planet(&mut self) -> bool {
+        let Some(id) = self
+            .selection
+            .fleet
+            .and_then(|index| self.game.as_ref()?.fleets.get(index))
+            .and_then(|fleet| fleet.orbiting)
+            .and_then(|id| i16::try_from(id).ok())
+        else {
+            return false;
+        };
+        self.select_object(ScanObject::Planet(id));
+        true
+    }
+}

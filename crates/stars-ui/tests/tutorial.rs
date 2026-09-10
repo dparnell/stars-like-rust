@@ -268,3 +268,113 @@ fn without_the_game_there_is_no_text() {
     assert!(app.art.is_none());
     assert_eq!(app.tutor_page(), None);
 }
+
+// --- What the tutorial's own words demand of the UI ----------------------
+//
+// The tutorial names buttons and keys, so its text is a specification: "Hit
+// the n key to look at your next fleet", "Press the tile's Goto button",
+// "press the Next button in the tile showing Long Range Scout #2".
+
+/// Next and Prev walk **your own** fleets and wrap round, and never step onto
+/// somebody else's (`SelectAdjFleet`, `1050:3d32`).
+#[test]
+fn next_and_prev_walk_your_own_fleets() {
+    use stars_core::fleet::{Fleet, ShipStack};
+    use stars_core::movement::Point;
+
+    let mut app = a_game();
+    let theirs = {
+        let game = app.game.as_mut().expect("a game");
+        let mut fleet = Fleet {
+            id: 99,
+            owner: 1,
+            position: Point::new(100, 100),
+            orbiting: None,
+            stacks: vec![ShipStack {
+                design: 0,
+                count: 1,
+                damaged_pct: 0,
+                damage_pct: 0,
+            }],
+            cargo: Default::default(),
+            battle_plan: 0,
+            warp: None,
+            waypoints: Vec::new(),
+            name: None,
+            repeat_orders: false,
+            direction: None,
+        };
+        fleet.waypoints.clear();
+        game.fleets.push(fleet);
+        game.fleets.len() - 1
+    };
+
+    let mine = app.own_fleets();
+    assert!(!mine.is_empty(), "the player starts with fleets");
+    assert!(
+        !mine.contains(&theirs),
+        "somebody else's is not in the walk"
+    );
+
+    // Walking the whole list comes back to where it started.
+    app.select_object(stars_ui::ScanObject::Fleet(mine[0]));
+    for _ in 0..mine.len() {
+        app.select_adjacent_fleet(1);
+    }
+    assert_eq!(app.selection.fleet, Some(mine[0]), "it wrapped round");
+
+    // And backwards from the first lands on the last.
+    app.select_adjacent_fleet(-1);
+    assert_eq!(app.selection.fleet, Some(*mine.last().expect("a fleet")));
+}
+
+/// Goto takes command of a fleet by id, which is what the tile's button does.
+#[test]
+fn goto_takes_command_of_a_fleet() {
+    let mut app = a_game();
+    let mine = app.own_fleets();
+    let last = *mine.last().expect("a fleet");
+    let id = app.game.as_ref().expect("a game").fleets[last].id;
+
+    app.selection.fleet = None;
+    app.selection.on_fleet = false;
+    assert!(app.goto_fleet(id));
+    assert_eq!(app.selection.fleet, Some(last));
+    assert!(app.selection.on_fleet);
+
+    // Somebody else's fleet is not gone to.
+    assert!(!app.goto_fleet(9999));
+}
+
+/// The location tile's Goto goes to the planet the fleet is orbiting.
+#[test]
+fn goto_reaches_the_planet_underneath() {
+    let mut app = a_game();
+    let mine = app.own_fleets();
+    let (index, orbiting) = mine
+        .iter()
+        .find_map(|i| {
+            let fleet = &app.game.as_ref().expect("a game").fleets[*i];
+            fleet.orbiting.map(|planet| (*i, planet))
+        })
+        .expect("a fleet in orbit at the start");
+
+    app.select_object(stars_ui::ScanObject::Fleet(index));
+    assert!(app.goto_orbited_planet());
+    assert_eq!(
+        app.selection.planet,
+        i16::try_from(orbiting).ok(),
+        "it went to the planet under the fleet"
+    );
+    assert!(!app.selection.on_fleet);
+}
+
+/// Shift makes the production dialog's Add put in ten at a time, which page 6
+/// spells out: "The shift key causes the Add button to add 10 items at a time
+/// instead of 1."
+#[test]
+fn shift_adds_ten_at_a_time() {
+    assert_eq!(App::production_step(false, false), 1);
+    assert_eq!(App::production_step(false, true), 10);
+    assert_eq!(App::production_step(true, false), 100);
+}

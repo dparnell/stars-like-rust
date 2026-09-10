@@ -199,6 +199,36 @@ pub fn fleets_here_body(app: &mut App, ui: &mut egui::Ui) {
         }
     }
 
+    // The three buttons across the tile's foot. `ShipCommandProc`
+    // (`1050:2640`) wires them as `rghwndBtn[0..2]`: Xfer with whatever is
+    // chosen, **Goto** it, and load everything off it. Goto is the one the
+    // tutorial leans on — it is how you take command of a fleet in orbit
+    // beside the one you are looking at.
+    let chosen_fleet = app
+        .pane_fleet_choice()
+        .and_then(|index| app.game.as_ref()?.fleets.get(index))
+        .filter(|f| usize::try_from(f.owner).is_ok_and(|owner| owner == app.local_player()))
+        .map(|f| f.id);
+    ui.horizontal(|ui| {
+        if ui
+            .add_enabled(
+                chosen_fleet.is_some(),
+                egui::Button::new(egui::RichText::new("Goto").small()),
+            )
+            .clicked()
+        {
+            if let Some(id) = chosen_fleet {
+                app.goto_fleet(id);
+            }
+        }
+        // Xfer and the load-everything button open the transfer dialog, which
+        // this project reaches from the Fleets screen instead.
+        for label in ["Xfer", "Load All"] {
+            ui.add_enabled(false, egui::Button::new(egui::RichText::new(label).small()))
+                .on_disabled_hover_text("Transfer cargo from the Fleets screen.");
+        }
+    });
+
     if let Some(key) = choose {
         app.choose_pane_fleet(key);
     }

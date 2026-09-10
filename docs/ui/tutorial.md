@@ -132,6 +132,47 @@ switching keeps `grbitScan & 0x3ff0` — and every toggle owns one bit:
 `App::grbit_scan` assembles it, so a check can be written the way the original
 writes it.
 
+## The text is a specification
+
+Reading the eighty pages as prose turns up a list of things the UI is
+*stated* to do, which is the point of building this at all. What the pages
+name, and where each stands:
+
+| the tutorial says | routine | state |
+|-------------------|---------|-------|
+| "Hit the **n** key to look at your next fleet" | `SelectAdjFleet` (`1050:3d32`) | **added** |
+| "press the **Next** button in the tile showing Long Range Scout #2" | `rghwndBtn[5]` | **added** |
+| "Press the tile's **Goto** button" | `rghwndBtn[1]` | **added** |
+| "Hit **F9** to generate the next year" | | **added** |
+| "Hit the **q** key" — opens the production queue | | **added** |
+| "The **shift** key causes the Add button to add 10 items at a time" | `App::production_step` | already right |
+| "click on the **Next** button, or use the **down arrow** key" — messages | | already right |
+| "Hit the **v** key to pinpoint it for you" | `CtrPointScan` | **not done**: this map fits the whole galaxy and has no scroll to recentre |
+| "Hit the **Esc** key to close the Planet Summary Report" | | not checked yet |
+
+`SelectAdjFleet` is worth stating exactly, because two of those entries are
+it: with a non-zero step it walks **your own** fleet list — never somebody
+else's — finds where the selected fleet sits, moves by the step and **wraps**,
+past the end to the first and before the start to the last. With a step of
+zero it is Goto: select that fleet and nothing more. It also recentres the
+scanner on what it lands on, which this frontend cannot do.
+
+The fleet pane's buttons are `rghwndBtn`, wired in `ShipCommandProc`
+(`1050:2640`):
+
+| index | button | what it does |
+|-------|--------|--------------|
+| 0 | `Xfer` | transfer with the fleet chosen in the fleets-here tile |
+| 1 | `Goto` | `SelectAdjFleet(0, id)` — take command of it |
+| 2 | load all | transfer everything off it |
+| 3 | `Goto` | the planet the fleet is orbiting |
+| 4, 5 | `Prev`, `Next` | walk your own fleets |
+| 6 | `Rename` | dialog `0x7e3` |
+| 7 | `Xfer` | with the planet |
+| 8 | `Jettison` | |
+| 9 | `Split All` | |
+| 10 | `Merge` | dialog `0x52` |
+
 ## What this project does
 
 The text and the segment reader; the `Tutor` state; the `Check` vocabulary and
@@ -142,6 +183,10 @@ is done so a page satisfied in advance is never shown.
 Six of the eighty pages are transcribed. Pages not yet transcribed are simply
 absent from the table and the tutorial stops at the first gap rather than
 pretending to know what comes next.
+
+And, from reading the text as a specification: `Prev`, `Next` and `Goto` on
+the fleet pane's tiles, `Goto` on the location tile, and the `n`, `q` and
+`F9` keys.
 
 Still to come: the remaining seventy-four pages; `FCheckLayingWP`,
 `FCheckPatrolWP`, `FCheckBtlPlan` and `FCheckFleetName`, which the pages

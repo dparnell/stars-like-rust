@@ -550,6 +550,27 @@ impl eframe::App for StarsApp {
             }
         }
 
+        // The letter keys and F9 the tutorial leans on. They stand aside for
+        // whatever has the focus, as `FHandleKey` (`1018:165a`) does for the
+        // toolbar, the lists and the message editor.
+        if self.app.game.is_some() && self.app.setup.is_none() && !ctx.wants_keyboard_input() {
+            // `n` walks your own fleets, wrapping round (`SelectAdjFleet`,
+            // `1050:3d32`) — "Hit the n key to look at your next fleet."
+            if ctx.input(|i| i.key_pressed(egui::Key::N)) {
+                self.app.select_adjacent_fleet(1);
+            }
+            // `q` opens the production queue of the planet selected, which is
+            // the Change button's dialog.
+            if ctx.input(|i| i.key_pressed(egui::Key::Q)) {
+                self.app.open_production();
+            }
+            // F9 generates the next year — the tutorial ends most of its
+            // pages with it.
+            if ctx.input(|i| i.key_pressed(egui::Key::F9)) {
+                self.app.generate_turn();
+            }
+        }
+
         // Backspace and Delete drop the waypoint the map has in hand.
         // `FHandleKey` (`1018:165a`) treats the two as one key and asks no
         // question, and it refuses when the selection is not a fleet. It also
@@ -973,7 +994,7 @@ impl eframe::App for StarsApp {
                 if ui
                     .add_enabled(
                         self.app.game.is_some() && self.app.setup.is_none(),
-                        egui::Button::new("Generate turn"),
+                        egui::Button::new("Generate turn").shortcut_text("F9"),
                     )
                     .on_hover_text(
                         "Advance one year. The rolls will differ from the original \

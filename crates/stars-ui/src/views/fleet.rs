@@ -55,8 +55,30 @@ fn tile_title(app: &mut App, index: usize) -> String {
 /// What goes inside one tile.
 fn tile_body(app: &mut App, ui: &mut egui::Ui, index: usize) {
     match index {
-        0 => summary(app, ui),
-        1 => location(app, ui),
+        0 => {
+            summary(app, ui);
+            walk_buttons(app, ui);
+        }
+        1 => {
+            location(app, ui);
+            // The location tile's Goto goes to the planet the fleet orbits
+            // (`rghwndBtn[3]`, `SelectAdjPlanet(0, sel.fl.idPlanet)`).
+            let orbiting = app
+                .survey_subject()
+                .fleet_index()
+                .and_then(|i| app.game.as_ref()?.fleets.get(i))
+                .and_then(|f| f.orbiting)
+                .is_some();
+            if ui
+                .add_enabled(
+                    orbiting,
+                    egui::Button::new(egui::RichText::new("Goto").small()),
+                )
+                .clicked()
+            {
+                app.goto_orbited_planet();
+            }
+        }
         2 => crate::views::planet::grid(ui, "waypoints", &app.fleet_waypoints_tile(), false),
         3 => waypoint_task(app, ui),
         4 => crate::views::planet::grid(ui, "fuel-cargo", &app.fleet_cargo_tile(), false),
@@ -321,4 +343,35 @@ fn transport(app: &mut App, ui: &mut egui::Ui) {
             app.set_waypoint_transport(slot, chosen, amount);
         }
     }
+}
+
+/// **Prev**, **Next** and **Rename** across the foot of the fleet's own tile.
+///
+/// `rghwndBtn[4]`, `[5]` and `[6]` in `ShipCommandProc` (`1050:2640`). Prev
+/// and Next are `SelectAdjFleet(-1, 0)` and `SelectAdjFleet(1, 0)`, which walk
+/// **your own** fleets and wrap round; the tutorial leans on them, and on the
+/// `n` key that does the same thing.
+fn walk_buttons(app: &mut App, ui: &mut egui::Ui) {
+    let mine = !app.own_fleets().is_empty();
+    ui.horizontal(|ui| {
+        if ui
+            .add_enabled(mine, egui::Button::new(egui::RichText::new("Prev").small()))
+            .clicked()
+        {
+            app.select_adjacent_fleet(-1);
+        }
+        if ui
+            .add_enabled(mine, egui::Button::new(egui::RichText::new("Next").small()))
+            .clicked()
+        {
+            app.select_adjacent_fleet(1);
+        }
+        // Rename opens a dialog of its own in the original; the fleet's name
+        // is edited from the Fleets screen here.
+        ui.add_enabled(
+            false,
+            egui::Button::new(egui::RichText::new("Rename").small()),
+        )
+        .on_disabled_hover_text("Rename a fleet from the Fleets screen.");
+    });
 }
