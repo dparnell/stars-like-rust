@@ -2906,6 +2906,51 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 26,
+        idt: 520,
+        escape: None,
+        stages: &[
+            ask(
+                0x209,
+                Check::QueueLength {
+                    planet: 0x0d,
+                    count: 4,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            ask(
+                0x209,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 1,
+                    ship: true,
+                    item: 3,
+                    count: 3,
+                    no_research: Some(false),
+                },
+            ),
+            hint(
+                0x20b,
+                Check::Summary {
+                    class: grobj::FLEET,
+                    id: 0x205,
+                },
+            ),
+            // A third enemy fleet chased: player one's fleet five.
+            ask(
+                0x20f,
+                Check::FleetWaypoint {
+                    fleet: 4,
+                    order: 1,
+                    class: grobj::FLEET,
+                    id: 0x205,
+                    task: ANY,
+                    warp: ANY,
+                },
+            ),
+        ],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
