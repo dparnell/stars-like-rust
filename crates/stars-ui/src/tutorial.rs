@@ -133,6 +133,8 @@ pub enum Check {
     /// is that you have pressed **Import** on the `<Customize>` dialog, so
     /// this asks the simpler question the UI can answer: is the slot filled.
     Template { slot: usize },
+    /// Whether the Battle VCR is up (`vrgtok`, its token list).
+    BattleVcr { open: bool },
     /// Whether the Technology Browser is open (`hwndBrowser`).
     Browser { open: bool },
     /// Whether the Research dialog is open.
@@ -227,6 +229,7 @@ impl Check {
             Check::ResearchDialog { .. } => "research dialog",
             Check::Template { .. } => "production template",
             Check::Browser { .. } => "technology browser",
+            Check::BattleVcr { .. } => "battle VCR",
         }
     }
 }
@@ -1633,6 +1636,25 @@ pub static STEPS: &[Step] = &[
                 Check::Selection {
                     class: grobj::FLEET,
                     id: 8,
+                },
+            ),
+        ],
+    },
+    Step {
+        turn: 11,
+        idt: 288,
+        escape: None,
+        stages: &[
+            // "Notice that the button normally labeled Goto now says View.
+            // Press View to open the Battle VCR. Use the VCR controls to
+            // watch a playback of the battle and then hit Done."
+            ask(0x122, Check::BattleVcr { open: true }),
+            hint(
+                0x123,
+                Check::Messages {
+                    message: 9999,
+                    kind: None,
+                    filter: false,
                 },
             ),
         ],

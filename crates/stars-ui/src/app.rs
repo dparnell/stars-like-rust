@@ -11762,6 +11762,7 @@ impl App {
             }
             Check::RepeatOrders { fleet } => by_id(*fleet).is_some_and(|f| f.repeat_orders),
             Check::FleetCount { count, cmp } => compare(self.own_fleets().len(), *count, *cmp),
+            Check::BattleVcr { open } => self.vcr.is_some() == *open,
             Check::Browser { open } => self.browser.is_some() == *open,
             Check::ResearchDialog { open } => self.research_dialog.is_some() == *open,
             Check::Template { slot } => self
