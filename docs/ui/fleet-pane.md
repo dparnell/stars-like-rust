@@ -102,8 +102,88 @@ There is a **Battle Plans...** button on this tile.
 
 ## Waypoint Task
 
-What the fleet will do when it arrives, named from the same list the survey pane
-uses.
+What the fleet will do when it arrives. `DrawShipWayPtOrders` (`1050:0912`)
+draws the tile and `UpdateOrdersDDs` (`1050:93ee`) fills its dropdowns, and
+both work on **`sel.iwpAct`** — the waypoint the scanner has in hand, not
+always the first leg. Set a different waypoint on the map and this tile follows
+it.
+
+It is up to three controls deep.
+
+**The task**, across the whole tile. Ten entries, strings `0x63` to `0x6c`, one
+per id in order, so the caption *is* the id:
+
+| id | caption | id | caption |
+|----|---------|----|---------|
+| 0 | `(no task here)` | 5 | `Scrap Fleet` |
+| 1 | `Transport` | 6 | `Lay Mine Field` |
+| 2 | `Colonize` | 7 | `Patrol` |
+| 3 | `Remote Mining` | 8 | `Route` |
+| 4 | `Merge with Fleet` | 9 | `Transfer Fleet` |
+
+**A second choice**, for the four tasks that need one. The ten payload bytes
+are a union, and each task reads its setting from a different word:
+
+| task | word | list |
+|------|------|------|
+| `Lay Mine Field` | 0 | ` for 1 year ` … ` for 5 years`, then `iindefinitely` |
+| `Patrol` | **1** | ` within %d l.y.`, then ` any enemy` — labelled `Intercept` |
+| `Transfer Fleet` | 0 | the other players, named with capital, plural and "the" |
+| `Transport` | 0–4 | one word per cargo |
+
+Patrol's setting is in word **one** because word zero is the warp it patrols
+at, which the original draws as a gauge under the dropdown.
+
+`iindefinitely` is not a transcription slip. String `0x386` really does carry a
+doubled letter where its neighbours in the same list (` within %d l.y.`,
+` any enemy`, ` for %d year%c`) all have a leading space, so the space was
+typed as an `i`. The table is transcribed rather than corrected.
+
+**Transport's cargo table**, an action and a quantity for each of the five
+kinds. The dropdown lists **fuel first** and then the four hold kinds:
+`UpdateOrdersDDs` maps its index 0 to slot 4 and index *n* to slot *n* − 1,
+while the stored words stay in slot order. Each word is packed
+`quantity:12, action:4`, so no quantity can exceed 4095.
+
+The ten actions are strings `0x6d` to `0x76`, again one per code in order —
+`(no action)`, `Load All Available`, `Unload All`, `Load Exactly...`,
+`Unload Exactly...`, `Fill Up to %...`, `Wait for %...`, `Load Dunnage`,
+`Set Amount to...`, `Set Waypoint to...`. Two details are worth having:
+
+* **`Load Dunnage` becomes `Load Optimal`** (string `0x77`) when the cargo
+  chosen is fuel. It is the only entry whose wording depends on the cargo.
+* The quantity box is **greyed** for codes 0, 1, 2 and 7 — the four that say
+  "all", "none" or "whatever is left" and so need no figure.
+
+The unit beside the box follows the cargo — `kT` for the three minerals, `00`
+for colonists, who are counted in hundreds, `mg` for fuel — except that
+`Fill Up to %` and `Wait for %` override all three with `%`.
+
+**The note**, under everything, red when it is a warning. Which note appears
+when is the original's; the wording in this project is its own, since the
+original's notices are authored prose.
+
+| task | note |
+|------|------|
+| `Scrap Fleet` | the fleet is broken up, some minerals recovered |
+| `Merge with Fleet` | **warning** unless the waypoint's class is a fleet |
+| `Colonize` | **warning** with no colonists aboard, otherwise the dismantling note |
+| `Lay Mine Field` | how many mines a year, or a **warning** with no layer aboard |
+
+### Where the patrol list parts company
+
+The binary's own list has **twelve** entries: eleven ` within %d l.y.` from 50
+to 550 in fifties, then ` any enemy`. This project's
+`stars_core::patrol::patrol_range` — written from `save.c` — treats the
+setting that would be 550 as "as far as it takes" instead, giving eleven. The
+two cannot both be right, and this has not been settled against our own
+binary: the multiply-by-fifty the range would need does not appear in it, so
+the reader has yet to be found.
+
+The tile is built from `patrol_range` rather than from the original's list, so
+that what it offers is exactly what the engine honours. It is the one place in
+this pane where the community reconstruction has been followed over the
+resource, and it is marked so it can be put right when the reader turns up.
 
 ## Fuel & Cargo
 
@@ -127,7 +207,10 @@ title bars, which are the planet pane's and shared with it; **collapsing a tile
 by clicking its title bar**, with the column reflowing under it; the tile order
 and columns; the location tile's title including `In Deep Space`; the whole waypoints table, with travel time computed as the
 distance over the square of the warp and the fuel estimate from the engine's own
-model; the waypoint task; fuel and cargo; the composition; and the fleets-here
+model; the **waypoint task**, editable, for the waypoint the map has in hand —
+the task list, the second choice each task needs and where each keeps it, the
+whole Transport cargo table with its packing and its greying rules, and the
+four notes; fuel and cargo; the composition; and the fleets-here
 tile shared with the planet pane.
 
 The fleet picture is drawn from the game's own ship sheets when a copy of the
@@ -146,7 +229,12 @@ Also reproduced: the last tile as described above — its two titles, the
 dropdown, the skipped selection, and the two gauges with the cargo one
 segmented by mineral.
 
-Not reproduced: persisting the open tiles to `stars.ini`; the small-window
+Not reproduced: the two notes that need a component scan this project does not
+yet do — Colonize's "no colonisation module aboard" warning, and the whole of
+Remote Mining's, which is either a mining-rate estimate in the three mineral
+colours or one of three warnings; the patrol **warp** gauge under the Intercept
+dropdown, which is the other half of that task's payload; persisting the open
+tiles to `stars.ini`; the small-window
 layout, since the frame has no `fSmallTiles` to set; the mining rate row, the
 *Fuel & Cargo* tile's own gauges (that tile gives the figures as text), and the
 buttons — Battle Plans, Jettison and

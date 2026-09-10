@@ -58,10 +58,7 @@ fn tile_body(app: &mut App, ui: &mut egui::Ui, index: usize) {
         0 => summary(app, ui),
         1 => location(app, ui),
         2 => crate::views::planet::grid(ui, "waypoints", &app.fleet_waypoints_tile(), false),
-        3 => {
-            let task = app.fleet_task_tile();
-            ui.label(egui::RichText::new(task).small());
-        }
+        3 => waypoint_task(app, ui),
         4 => crate::views::planet::grid(ui, "fuel-cargo", &app.fleet_cargo_tile(), false),
         5 => crate::views::planet::grid(ui, "composition", &app.fleet_composition_tile(), false),
         _ => crate::views::fleets_here_body(app, ui),
@@ -124,4 +121,204 @@ fn location(app: &App, ui: &mut egui::Ui) {
             .weak()
             .small(),
     );
+}
+
+/// The **Waypoint Task** tile: what the fleet does when it gets there.
+///
+/// `DrawShipWayPtOrders` (`1050:0912`) with `UpdateOrdersDDs` (`1050:93ee`)
+/// behind it. The tile is always about `sel.iwpAct`, the waypoint the scanner
+/// has in hand, and it is three controls deep: the task, then whatever second
+/// choice that task needs, then — for Transport only — an action and a
+/// quantity per cargo.
+fn waypoint_task(app: &mut App, ui: &mut egui::Ui) {
+    use stars_formats::task;
+
+    let Some(waypoint) = app.task_waypoint() else {
+        ui.label(egui::RichText::new(app.fleet_task_tile()).small());
+        return;
+    };
+    let Some(leg) = app.task_leg() else {
+        return;
+    };
+    let current = leg.task;
+
+    // The task dropdown, the full width of the tile.
+    ui.label(
+        egui::RichText::new(format!("Waypoint {waypoint}"))
+            .small()
+            .weak(),
+    );
+    let mut chosen = current;
+    egui::ComboBox::from_id_source("waypoint-task")
+        .width(ui.available_width() - 8.0)
+        .selected_text(egui::RichText::new(task::caption(current)).small())
+        .show_ui(ui, |ui| {
+            for id in task::ALL {
+                ui.selectable_value(
+                    &mut chosen,
+                    id,
+                    egui::RichText::new(task::caption(id)).small(),
+                );
+            }
+        });
+    if chosen != current {
+        app.set_waypoint_task(chosen);
+        return;
+    }
+
+    // The second choice, where the task has one.
+    match current {
+        task::LAY_MINES => years(app, ui),
+        task::PATROL => patrol(app, ui),
+        task::TRANSFER => transfer(app, ui),
+        task::TRANSPORT => transport(app, ui),
+        _ => {}
+    }
+
+    if let Some((note, warning)) = app.waypoint_task_note() {
+        ui.add_space(2.0);
+        let text = egui::RichText::new(note).small();
+        ui.label(if warning {
+            text.color(egui::Color32::from_rgb(0xff, 0x60, 0x60))
+        } else {
+            text.weak()
+        });
+    }
+}
+
+/// Lay Mine Field's duration: one to five years, then indefinitely.
+///
+/// The list is built from string `0x385` (` for %d year%c`, the `%c` being a
+/// space or an `s`) and then string `0x386` — which reads `iindefinitely` in
+/// the shipped table, a doubled letter where the other entries have a leading
+/// space. The typo is the game's; the wording here is not corrected because
+/// the table is transcribed, not rewritten.
+fn years(app: &mut App, ui: &mut egui::Ui) {
+    let caption = |index: u16| -> String {
+        match index {
+            0..=4 => format!(
+                " for {} year{}",
+                index + 1,
+                if index == 0 { " " } else { "s" }
+            ),
+            _ => "iindefinitely".to_string(),
+        }
+    };
+    let now = app.waypoint_task_word(0);
+    let mut chosen = now.min(5);
+    egui::ComboBox::from_id_source("waypoint-mine-years")
+        .selected_text(egui::RichText::new(caption(chosen)).small())
+        .show_ui(ui, |ui| {
+            for index in 0..=5u16 {
+                ui.selectable_value(
+                    &mut chosen,
+                    index,
+                    egui::RichText::new(caption(index)).small(),
+                );
+            }
+        });
+    if chosen != now {
+        app.set_waypoint_task_word(0, chosen);
+    }
+}
+
+/// Patrol's range, which the original labels `Intercept` and keeps in **word
+/// one** — word zero is the warp it patrols at.
+///
+/// The entries come from `stars_core::patrol::patrol_range`, so what the tile
+/// offers is exactly what the engine honours. See `docs/ui/fleet-pane.md` for
+/// where that parts company with the original's own list.
+fn patrol(app: &mut App, ui: &mut egui::Ui) {
+    let caption = |index: u16| -> String {
+        let range = stars_core::patrol::patrol_range(index);
+        if range >= 10_000 {
+            " any enemy".to_string()
+        } else {
+            format!(" within {range} l.y.")
+        }
+    };
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Intercept").small());
+        let now = app.waypoint_task_word(1);
+        let mut chosen = now.min(10);
+        egui::ComboBox::from_id_source("waypoint-patrol-range")
+            .selected_text(egui::RichText::new(caption(chosen)).small())
+            .show_ui(ui, |ui| {
+                for index in 0..=10u16 {
+                    ui.selectable_value(
+                        &mut chosen,
+                        index,
+                        egui::RichText::new(caption(index)).small(),
+                    );
+                }
+            });
+        if chosen != now {
+            app.set_waypoint_task_word(1, chosen);
+        }
+    });
+}
+
+/// Transfer Fleet's recipient: every player but you, named as the original
+/// names them — `PszPlayerName` with capital, plural and "the" all set.
+fn transfer(app: &mut App, ui: &mut egui::Ui) {
+    let others = app.relations_others();
+    let name = |app: &App, player: usize| -> String { app.psz_player_name(player) };
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("To").small());
+        let now = app.waypoint_task_word(0);
+        let mut chosen = now;
+        let showing = name(app, usize::from(now));
+        egui::ComboBox::from_id_source("waypoint-transfer-to")
+            .selected_text(egui::RichText::new(showing).small())
+            .show_ui(ui, |ui| {
+                for other in &others {
+                    let label = name(app, *other);
+                    ui.selectable_value(
+                        &mut chosen,
+                        u16::try_from(*other).unwrap_or(0),
+                        egui::RichText::new(label).small(),
+                    );
+                }
+            });
+        if chosen != now {
+            app.set_waypoint_task_word(0, chosen);
+        }
+    });
+}
+
+/// Transport's cargo table: an action and a quantity for each of the five
+/// kinds, listed fuel first as the original's dropdown lists them.
+///
+/// The quantity box is greyed for the four actions that need no figure, and
+/// its unit follows the cargo — kilotons, hundreds of colonists, milligrams —
+/// except that a percentage action overrides all three.
+fn transport(app: &mut App, ui: &mut egui::Ui) {
+    for slot in stars_formats::CARGO_ORDER {
+        let (action, quantity) = app.waypoint_transport(slot);
+        let fuel = slot == 4;
+        let mut chosen = action;
+        let mut amount = quantity;
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(format!("{}:", stars_formats::cargo_name(slot))).small());
+            egui::ComboBox::from_id_source(("waypoint-xfer", slot))
+                .width(130.0)
+                .selected_text(egui::RichText::new(action.caption(fuel)).small())
+                .show_ui(ui, |ui| {
+                    for option in stars_formats::XferAction::ALL {
+                        ui.selectable_value(
+                            &mut chosen,
+                            option,
+                            egui::RichText::new(option.caption(fuel)).small(),
+                        );
+                    }
+                });
+            if chosen.needs_quantity() {
+                ui.add(egui::DragValue::new(&mut amount).range(0..=0x0fff));
+                ui.label(egui::RichText::new(stars_formats::cargo_unit(slot, chosen)).small());
+            }
+        });
+        if chosen != action || amount != quantity {
+            app.set_waypoint_transport(slot, chosen, amount);
+        }
+    }
 }

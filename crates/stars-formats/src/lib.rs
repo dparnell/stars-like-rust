@@ -130,7 +130,10 @@ pub use thing::{
     thing_records, thing_section, Minefield, MineralPacket, MysteryTrader, Thing, ThingKind,
     ThingSection, ThingType, Wormhole, THING_BLOCK, THING_SIZE,
 };
-pub use waypoint::{task, waypoint_records, ItemAction, TransportTask, WaypointRecord, XferAction};
+pub use waypoint::{
+    cargo_name, cargo_unit, task, waypoint_records, ItemAction, TransportTask, WaypointRecord,
+    XferAction, CARGO_ORDER,
+};
 pub use xy::{game_flag, victory, GameInfo, Planet, PlanetPosition, Universe};
 
 use thiserror::Error;

@@ -101,6 +101,57 @@ pub enum XferAction {
 }
 
 impl XferAction {
+    /// The ten actions, in the order the game's action dropdown lists them —
+    /// which is the order of their codes.
+    pub const ALL: [XferAction; 10] = [
+        Self::None,
+        Self::LoadAll,
+        Self::UnloadAll,
+        Self::LoadExact,
+        Self::UnloadExact,
+        Self::FillPercent,
+        Self::WaitPercent,
+        Self::LoadDunnage,
+        Self::SetAmount,
+        Self::SetWaypoint,
+    ];
+
+    /// The caption the action dropdown carries (strings `0x6d`..`0x76`).
+    ///
+    /// `Load Dunnage` becomes **`Load Optimal`** (string `0x77`) when the
+    /// cargo is fuel, which is the one entry whose wording depends on which
+    /// cargo is chosen (`UpdateOrdersDDs`, `1050:93ee`).
+    #[must_use]
+    pub fn caption(self, fuel: bool) -> &'static str {
+        match self {
+            Self::None => "(no action)",
+            Self::LoadAll => "Load All Available",
+            Self::UnloadAll => "Unload All",
+            Self::LoadExact => "Load Exactly...",
+            Self::UnloadExact => "Unload Exactly...",
+            Self::FillPercent => "Fill Up to %...",
+            Self::WaitPercent => "Wait for %...",
+            Self::LoadDunnage if fuel => "Load Optimal",
+            Self::LoadDunnage => "Load Dunnage",
+            Self::SetAmount => "Set Amount to...",
+            Self::SetWaypoint => "Set Waypoint to...",
+            Self::Other(_) => "(unknown)",
+        }
+    }
+
+    /// Whether the action takes a number beside it.
+    ///
+    /// `DrawShipWayPtOrders` (`1050:0912`) greys the quantity box out for
+    /// codes 0, 1, 2 and 7 — the four that need no figure, since they say
+    /// "all", "none" or "whatever is left".
+    #[must_use]
+    pub fn needs_quantity(self) -> bool {
+        !matches!(
+            self,
+            Self::None | Self::LoadAll | Self::UnloadAll | Self::LoadDunnage
+        )
+    }
+
     /// Decode the 4-bit action code.
     #[must_use]
     pub fn from_raw(code: u8) -> Self {
@@ -296,6 +347,42 @@ pub mod task {
     /// Give the fleet away.
     pub const TRANSFER: u8 = 9;
 
+    /// The ten tasks, in the order the fleet pane's task dropdown lists them
+    /// — which is also the order of their ids.
+    pub const ALL: [u8; 10] = [
+        NONE,
+        TRANSPORT,
+        COLONIZE,
+        REMOTE_MINING,
+        MERGE,
+        SCRAP,
+        LAY_MINES,
+        PATROL,
+        ROUTE,
+        TRANSFER,
+    ];
+
+    /// The caption the game's own task dropdown carries.
+    ///
+    /// `UpdateOrdersDDs` (`1050:93ee`) fills the list from strings `0x63`
+    /// through `0x6c`, one per id in order, so the caption *is* the id.
+    #[must_use]
+    pub fn caption(task: u8) -> &'static str {
+        match task {
+            NONE => "(no task here)",
+            TRANSPORT => "Transport",
+            COLONIZE => "Colonize",
+            REMOTE_MINING => "Remote Mining",
+            MERGE => "Merge with Fleet",
+            SCRAP => "Scrap Fleet",
+            LAY_MINES => "Lay Mine Field",
+            PATROL => "Patrol",
+            ROUTE => "Route",
+            TRANSFER => "Transfer Fleet",
+            _ => "(unknown)",
+        }
+    }
+
     /// The name the game shows for a task id.
     #[must_use]
     pub fn name(task: u8) -> &'static str {
@@ -330,6 +417,46 @@ pub fn waypoint_records(file: &StarsFile) -> Vec<WaypointRecord> {
         .filter(|b| b.block_type() == BlockType::Waypoint)
         .filter_map(|b| WaypointRecord::decode(&b.data))
         .collect()
+}
+
+/// The five cargo kinds a Transport task can carry instructions for, in the
+/// order the game's cargo dropdown lists them.
+///
+/// The list starts with **fuel** and then runs through the four hold kinds:
+/// `UpdateOrdersDDs` (`1050:93ee`) walks its index 0 to slot 4 and index
+/// `n` to slot `n - 1`, so the dropdown reads Fuel, Ironium, Boranium,
+/// Germanium, Colonists while the stored words stay in slot order.
+pub const CARGO_ORDER: [usize; 5] = [4, 0, 1, 2, 3];
+
+/// What each cargo slot is called (`DS:0x4cc`).
+#[must_use]
+pub fn cargo_name(slot: usize) -> &'static str {
+    match slot {
+        0 => "Ironium",
+        1 => "Boranium",
+        2 => "Germanium",
+        3 => "Colonists",
+        4 => "Fuel",
+        _ => "",
+    }
+}
+
+/// The unit the quantity box is labelled with (`DS:0xb48`).
+///
+/// Minerals are kilotons, colonists are counted in hundreds, fuel in
+/// milligrams — and a percentage action overrides all of them, which is the
+/// sixth entry of the table the original indexes with a slot number.
+#[must_use]
+pub fn cargo_unit(slot: usize, action: XferAction) -> &'static str {
+    if matches!(action, XferAction::FillPercent | XferAction::WaitPercent) {
+        return "%";
+    }
+    match slot {
+        0..=2 => "kT",
+        3 => "00",
+        4 => "mg",
+        _ => "",
+    }
 }
 
 impl TransportTask {

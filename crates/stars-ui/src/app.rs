@@ -3153,6 +3153,228 @@ impl App {
         true
     }
 
+    /// Which waypoint the Waypoint Task tile is about.
+    ///
+    /// The original's tile is always about `sel.iwpAct`, the waypoint the
+    /// scanner has in hand. With nothing in hand it falls back to the first
+    /// leg, which is what the fleet is actually doing.
+    #[must_use]
+    pub fn task_waypoint(&self) -> Option<usize> {
+        let fleet = self.pane_fleet()?;
+        let held = self.selection.waypoint.unwrap_or(1);
+        (held < fleet.waypoints.len()).then_some(held)
+    }
+
+    /// The waypoint the Waypoint Task tile is about, if there is one.
+    #[must_use]
+    pub fn task_leg(&self) -> Option<&stars_core::fleet::Waypoint> {
+        self.pane_fleet()?.waypoints.get(self.task_waypoint()?)
+    }
+
+    /// Change the task of the waypoint in hand.
+    ///
+    /// Changing it clears the old task's payload: the ten bytes mean something
+    /// different under every task, and carrying a Transport's cargo table into
+    /// a Patrol would set a nonsense range.
+    ///
+    /// Returns whether anything changed.
+    pub fn set_waypoint_task(&mut self, task: u8) -> bool {
+        let Some(waypoint) = self.task_waypoint() else {
+            return false;
+        };
+        let Some(index) = self.pane_fleet_index() else {
+            return false;
+        };
+        if !self.own_fleet(index) {
+            return false;
+        }
+        let Some(leg) = self
+            .game
+            .as_mut()
+            .and_then(|game| game.fleets.get_mut(index))
+            .and_then(|fleet| fleet.waypoints.get_mut(waypoint))
+        else {
+            return false;
+        };
+        if leg.task == task {
+            return false;
+        }
+        leg.task = task;
+        leg.task_data = vec![0; 10];
+        leg.transport = (task == stars_formats::task::TRANSPORT)
+            .then(|| stars_formats::TransportTask::decode(&leg.task_data))
+            .flatten();
+        self.log_waypoint(index, waypoint, false);
+        self.dirty = true;
+        true
+    }
+
+    /// Write one word of the task payload of the waypoint in hand.
+    ///
+    /// The ten bytes are a union: Lay Mine Field and Transfer Fleet keep their
+    /// one setting in word 0, Patrol keeps its range in word 1 (the warp it
+    /// patrols at is word 0), and Transport fills all five with a packed
+    /// quantity and action per cargo.
+    pub fn set_waypoint_task_word(&mut self, word: usize, value: u16) -> bool {
+        let Some(waypoint) = self.task_waypoint() else {
+            return false;
+        };
+        let Some(index) = self.pane_fleet_index() else {
+            return false;
+        };
+        if !self.own_fleet(index) || word >= 5 {
+            return false;
+        }
+        let Some(leg) = self
+            .game
+            .as_mut()
+            .and_then(|game| game.fleets.get_mut(index))
+            .and_then(|fleet| fleet.waypoints.get_mut(waypoint))
+        else {
+            return false;
+        };
+        if leg.task_data.len() < 10 {
+            leg.task_data.resize(10, 0);
+        }
+        let at = word * 2;
+        let bytes = value.to_le_bytes();
+        if leg.task_data[at..at + 2] == bytes {
+            return false;
+        }
+        leg.task_data[at..at + 2].copy_from_slice(&bytes);
+        self.log_waypoint(index, waypoint, false);
+        self.dirty = true;
+        true
+    }
+
+    /// Read one word of the task payload of the waypoint in hand.
+    #[must_use]
+    pub fn waypoint_task_word(&self, word: usize) -> u16 {
+        self.task_leg()
+            .and_then(|leg| leg.task_data.get(word * 2..word * 2 + 2))
+            .map_or(0, |b| u16::from_le_bytes([b[0], b[1]]))
+    }
+
+    /// Set one cargo's instruction on a Transport task.
+    ///
+    /// Each of the five words is packed `quantity:12, action:4`, so a quantity
+    /// cannot exceed 4095 whatever is typed.
+    pub fn set_waypoint_transport(
+        &mut self,
+        slot: usize,
+        action: stars_formats::XferAction,
+        quantity: u16,
+    ) -> bool {
+        if slot >= 5 {
+            return false;
+        }
+        let packed = (quantity.min(0x0fff)) | (u16::from(action.to_raw()) << 12);
+        if !self.set_waypoint_task_word(slot, packed) {
+            return false;
+        }
+        // Keep the decoded view beside the raw bytes, since that is what the
+        // simulation reads.
+        let (Some(waypoint), Some(index)) = (self.task_waypoint(), self.pane_fleet_index()) else {
+            return true;
+        };
+        if let Some(leg) = self
+            .game
+            .as_mut()
+            .and_then(|game| game.fleets.get_mut(index))
+            .and_then(|fleet| fleet.waypoints.get_mut(waypoint))
+        {
+            leg.transport = stars_formats::TransportTask::decode(&leg.task_data);
+        }
+        true
+    }
+
+    /// One cargo's instruction on a Transport task.
+    #[must_use]
+    pub fn waypoint_transport(&self, slot: usize) -> (stars_formats::XferAction, u16) {
+        let word = self.waypoint_task_word(slot);
+        (
+            stars_formats::XferAction::from_raw(u8::try_from(word >> 12).unwrap_or(0)),
+            word & 0x0fff,
+        )
+    }
+
+    /// The fleet the pane is about, as an index.
+    #[must_use]
+    fn pane_fleet_index(&self) -> Option<usize> {
+        self.survey_subject().fleet_index()
+    }
+
+    /// Whether a fleet takes orders from the player at the keyboard.
+    fn own_fleet(&self, index: usize) -> bool {
+        let me = self.local_player();
+        self.game
+            .as_ref()
+            .and_then(|game| game.fleets.get(index))
+            .is_some_and(|fleet| usize::try_from(fleet.owner).map_or(true, |owner| owner == me))
+    }
+
+    /// The note the Waypoint Task tile writes under its dropdowns.
+    ///
+    /// `DrawShipWayPtOrders` (`1050:0912`) picks one per task and paints the
+    /// warnings in red. The wording here is this project's own — the
+    /// original's notices are its authored prose — but which note appears
+    /// when is the original's.
+    #[must_use]
+    pub fn waypoint_task_note(&self) -> Option<(String, bool)> {
+        let leg = self.task_leg()?;
+        let fleet = self.pane_fleet()?;
+        match leg.task {
+            stars_formats::task::SCRAP => Some((
+                "The whole fleet is broken up here. Some of its minerals come back.".to_string(),
+                false,
+            )),
+            stars_formats::task::MERGE => (leg.target_class != stars_core::fleet::grobj::FLEET)
+                .then(|| {
+                    (
+                        "This waypoint is not on a fleet, so there is nothing to merge into."
+                            .to_string(),
+                        true,
+                    )
+                }),
+            stars_formats::task::COLONIZE => Some(if fleet.cargo.colonists <= 0 {
+                (
+                    "The fleet is carrying no colonists. Load some before it gets there."
+                        .to_string(),
+                    true,
+                )
+            } else {
+                (
+                    "The ships are broken up on arrival to supply the new colony.".to_string(),
+                    false,
+                )
+            }),
+            stars_formats::task::LAY_MINES => {
+                let designs = self
+                    .game
+                    .as_ref()
+                    .and_then(|game| {
+                        usize::try_from(fleet.owner)
+                            .ok()
+                            .and_then(|owner| game.designs.get(owner))
+                    })
+                    .map_or(&[][..], Vec::as_slice);
+                let rate: i32 = (0..3)
+                    .map(|kind| stars_core::minefield::mines_laid(fleet, designs, kind))
+                    .sum();
+                Some(if rate > 0 {
+                    (format!("This fleet lays {rate} mines a year."), false)
+                } else {
+                    (
+                        "No ship in this fleet carries a mine layer, so nothing will be laid."
+                            .to_string(),
+                        true,
+                    )
+                })
+            }
+            _ => None,
+        }
+    }
+
     /// Delete the waypoint the map has in hand.
     ///
     /// `FHandleKey` (`1018:165a`) sends **Backspace** (`VK_BACK`) and
