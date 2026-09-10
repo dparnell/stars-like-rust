@@ -3041,6 +3041,42 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 27,
+        idt: 544,
+        escape: None,
+        stages: &[
+            // A ninth design, this one checked by its whole slot layout:
+            // one each in slots 0 to 3, two in slot 4, one each in 5 and 6.
+            ask(
+                0x225,
+                Check::DesignCount {
+                    count: 9,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            ask(0x225, Check::Designer { open: false }),
+            ask(
+                0x226,
+                Check::QueueLength {
+                    planet: 0x0d,
+                    count: 3,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            ask(
+                0x227,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 0,
+                    ship: true,
+                    item: 8,
+                    count: 10,
+                    no_research: Some(false),
+                },
+            ),
+        ],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
