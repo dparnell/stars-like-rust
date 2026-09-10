@@ -1076,3 +1076,86 @@ fn the_table_is_complete() {
         );
     }
 }
+
+// --- The tutorial's own world --------------------------------------------
+
+/// `CreateTutorWorld` hand-fills a `GAME` and then generates like any other
+/// new game, so everything about the tutorial's galaxy comes from these
+/// settings and one seed.
+#[test]
+fn the_tutorial_world_is_the_originals_settings() {
+    use stars_core::newgame::{Density, Size, StartDistance};
+
+    let (config, seed) = stars_core::newgame::tutorial();
+    assert_eq!(config.name, "Tutorial Game");
+    assert_eq!(config.id, 0x008c_ef49);
+    assert_eq!(config.size, Size::Tiny);
+    assert_eq!(config.density, Density::Sparse);
+    assert_eq!(config.start_distance, StartDistance::Close);
+    // Bit 7 of the flag word, `fNoRandom`, is set.
+    assert!(!config.random_events);
+    // Bit 6, `fVisScores`.
+    assert!(config.public_scores);
+    assert!(!config.slow_tech);
+    assert!(!config.unlimited_minerals);
+    assert!(!config.clumping);
+
+    assert_eq!(config.players.len(), 2);
+    assert_eq!(config.players[0].name, "Humanoid");
+    assert_eq!(config.players[1].name, "Berserker");
+    assert!(matches!(
+        config.players[0].control,
+        stars_core::ai::Control::Human
+    ));
+    assert!(matches!(
+        config.players[1].control,
+        stars_core::ai::Control::Computer { .. }
+    ));
+
+    // The seed is *not* the game id: `CreateTutorWorld` calls `Randomize`
+    // with a constant of its own.
+    assert_eq!(seed, 0x4996_02d2);
+    assert_ne!(seed, config.id);
+}
+
+/// Building it gives a playable two-player game with the tutorial waiting on
+/// its first page.
+#[test]
+fn the_tutorial_world_can_be_built_and_started() {
+    let mut app = App::new();
+    app.create_tutor_world(1024).expect("the tutorial's world");
+
+    let game = app.game.as_ref().expect("a game");
+    assert_eq!(game.players.len(), 2);
+    assert!(!game.planets.is_empty(), "a galaxy was generated");
+    assert!(
+        game.planets.iter().any(|p| p.owner == Some(0)),
+        "the player has a homeworld"
+    );
+    assert!(
+        game.planets.iter().any(|p| p.owner == Some(1)),
+        "so does the Berserker"
+    );
+
+    // The scanner is set the way StartTutor sets it: `grbitScan = 0x4e0`.
+    let bits = app.grbit_scan();
+    assert_eq!(bits & 0x000f, 0, "the normal view");
+    assert_eq!(bits & 0x0020, 0x0020, "scanner coverage");
+    assert_eq!(bits & 0x0040, 0x0040, "mine fields");
+    assert_eq!(bits & 0x0080, 0x0080, "fleet paths");
+    assert_eq!(bits & 0x0400, 0x0400, "planet names");
+    assert_eq!(app.scan_zoom, 2, "1024 wide picks zoom 2");
+
+    // And the tutorial is running.
+    assert!(app.tutor.is_some());
+}
+
+/// The zoom is picked from the screen's width, as `StartTutor` picks it.
+#[test]
+fn the_zoom_follows_the_screen_width() {
+    for (width, want) in [(640, 0), (800, 1), (1024, 2), (1600, 3)] {
+        let mut app = App::new();
+        app.create_tutor_world(width).expect("the tutorial's world");
+        assert_eq!(app.scan_zoom, want, "{width} wide");
+    }
+}

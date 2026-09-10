@@ -1139,10 +1139,7 @@ impl eframe::App for StarsApp {
                     ui.separator();
                     let running = self.app.tutor.is_some();
                     if ui
-                        .add_enabled(
-                            playing && !running,
-                            egui::Button::new("Tutorial"),
-                        )
+                        .add_enabled(!running, egui::Button::new("Tutorial"))
                         .on_hover_text(
                             "Walk through the game a page at a time. The text is \
                              the game's own and is read from a copy of the original.",
@@ -1150,7 +1147,19 @@ impl eframe::App for StarsApp {
                         .clicked()
                     {
                         ui.close_menu();
-                        self.app.start_tutor();
+                        // With no game up, the tutorial makes its own, as
+                        // `StartTutor` does; with one up it starts on that.
+                        if self.app.game.is_some() {
+                            self.app.start_tutor();
+                        } else {
+                            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                            let width = ctx
+                                .input(|i| i.screen_rect().width())
+                                .max(0.0) as u32;
+                            if let Err(why) = self.app.create_tutor_world(width) {
+                                self.written = vec![why];
+                            }
+                        }
                     }
                     if ui
                         .add_enabled(running, egui::Button::new("Stop the tutorial"))

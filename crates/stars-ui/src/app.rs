@@ -1023,7 +1023,22 @@ impl App {
     /// # Errors
     /// Returns a message suitable for showing to the player.
     pub fn new_game(&mut self, config: &NewGame) -> Result<(), String> {
-        let mut rng = stars_core::rng::Rng::randomize(config.id);
+        let seed = config.id;
+        self.new_game_seeded(config, seed)
+    }
+
+    /// The same, with the generator seeded from something other than the
+    /// game's id.
+    ///
+    /// Almost every game seeds from its own `lid`, but the tutorial does
+    /// not: `CreateTutorWorld` (`1078:5e5e`) calls `Randomize` with a fixed
+    /// `0x499602d2` and gives the game an unrelated id.
+    ///
+    /// # Errors
+    ///
+    /// A message suitable for showing to the player.
+    pub fn new_game_seeded(&mut self, config: &NewGame, seed: u32) -> Result<(), String> {
+        let mut rng = stars_core::rng::Rng::randomize(seed);
         let Created { state, universe } =
             stars_core::newgame::generate(config, &mut rng).map_err(|e| e.to_string())?;
 
@@ -12343,5 +12358,46 @@ impl App {
         }));
         self.dirty = true;
         moved
+    }
+}
+
+impl App {
+    /// Build the tutorial's sample game and start the tutorial on it.
+    ///
+    /// `StartTutor` (`10f8:06b4`) does this when no game is loaded: it calls
+    /// `CreateTutorWorld` and then runs the tutorial's own skipping loop, so
+    /// the first page shown is the first with something still to do.
+    ///
+    /// It also fixes the scanner: `grbitScan = 0x4e0` — the normal view with
+    /// scanner coverage, mine fields and fleet paths on — and picks a zoom
+    /// from the screen's width. Both are reproduced.
+    ///
+    /// # Errors
+    ///
+    /// A message suitable for showing to the player.
+    pub fn create_tutor_world(&mut self, screen_width: u32) -> Result<(), String> {
+        let (config, seed) = stars_core::newgame::tutorial();
+        self.new_game_seeded(&config, seed)?;
+
+        // `grbitScan = 0x4e0`: the low nibble is zero, so the normal view,
+        // and bits 5, 6, 7 and 10 are coverage, mine fields, fleet paths and
+        // planet names.
+        self.scan_view = ScanView::Normal;
+        self.scan_overlays.scanner_coverage = true;
+        self.scan_overlays.minefields = true;
+        self.scan_overlays.fleet_paths = true;
+        self.scan_overlays.names = true;
+
+        // `iScanZoom` from `GetSystemMetrics(SM_CXSCREEN)`: under 800 is 0,
+        // under 1024 is 1, under 1280 is 2, and 3 above that.
+        self.scan_zoom = match screen_width {
+            0..=799 => 0,
+            800..=1023 => 1,
+            1024..=1279 => 2,
+            _ => 3,
+        };
+
+        self.start_tutor();
+        Ok(())
     }
 }

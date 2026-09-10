@@ -271,6 +271,52 @@ population and then by name leaves equally-named planets in population order.
 This project's reports are lists rather than column tables, so there is
 nothing to click yet — the tutorial's *"sort by Population"* has no home.
 
+## The tutorial's own world
+
+`CreateTutorWorld` (`1078:5e5e`) turns out to hand-place nothing. It fills in
+a `GAME` by hand and calls `GenerateWorld` like any other new game, so
+everything about the tutorial's galaxy comes from these settings and one
+seed:
+
+| field | value |
+|-------|-------|
+| `cPlayer` | 2 |
+| `mdSize` | 0 — tiny, 400 light years |
+| `mdDensity` | 0 — sparse |
+| `mdStartDist` | 1 — close |
+| flags | `0xe8` |
+| `lid` | `0x008cef49` |
+| `rgvc[7]`, `rgvc[8]` | `0x80`, `0x81` |
+| seed | `Randomize(0x499602d2)` — 1,234,567,890 |
+
+Two things in that table are worth reading twice. The flag word `0xe8` is
+bits 3, 5, 6 and 7 — **tutorial**, BBS play, visible scores and **no random
+events** — and bit 2, single-player, is *not* among them, so a game with one
+human must pick that up later. And the **seed is not the game id**: almost
+every game seeds its generator from its own `lid`, and this one calls
+`Randomize` with a constant unrelated to it.
+
+Player 0 is the default race named `Humanoid`; player 1 is a computer player
+named `Berserker`.
+
+### The galaxy will not be the original's
+
+The seed is reproduced and the settings are reproduced, but this project
+cannot turn a seed into the *same* universe. `newgame`'s own note says why:
+the original sorts its scratch array with a 1996 C runtime's `qsort`, whose
+permutation of equal x coordinates is unspecified, and every later random
+draw indexes that array. Draw order and distributions are faithful; a given
+seed is not.
+
+So the tutorial's world here has the right **shape** — tiny, sparse, two
+players close together, no random events — and different planets. That
+matters, because the pages name planets and fleets by id: page 10 sends the
+miner to planet `0x0c`, which the original calls Prune, and here `0x0c` is
+some other world. The pages are transcribed from the original and are right
+about the original; they will point at the wrong planets until
+seed-identical generation is solved, which is a problem in `newgame`, not in
+the tutorial.
+
 ## What this project does
 
 The text and the segment reader; the `Tutor` state; the `Check` vocabulary and

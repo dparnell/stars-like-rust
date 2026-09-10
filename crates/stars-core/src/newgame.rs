@@ -1493,3 +1493,79 @@ mod tests {
         );
     }
 }
+
+/// The tutorial's sample game.
+///
+/// `CreateTutorWorld` (`1078:5e5e`) does not hand-place anything: it fills in
+/// a `GAME` by hand and then calls `GenerateWorld` like any other new game.
+/// Everything about the tutorial's galaxy therefore comes from these
+/// settings and one seed.
+///
+/// | field | value |
+/// |-------|-------|
+/// | `cPlayer` | 2 |
+/// | `mdSize` | 0 — tiny, 400 light years |
+/// | `mdDensity` | 0 — sparse |
+/// | `mdStartDist` | 1 — close |
+/// | flags | `0xe8` |
+/// | `lid` | `0x008cef49` |
+/// | `rgvc[7]`, `rgvc[8]` | `0x80`, `0x81` |
+/// | seed | `0x499602d2` — 1,234,567,890 |
+///
+/// The flag word is worth reading out: `0xe8` is bits 3, 5, 6 and 7 —
+/// **tutorial**, BBS play, visible scores and **no random events**. Bit 2,
+/// single-player, is *not* set here; a game with one human gets it later.
+///
+/// Player 0 is the default race named `Humanoid`; player 1 is a computer
+/// player named `Berserker`.
+///
+/// # The galaxy will not be the original's
+///
+/// The seed is fixed and reproduced, but this project cannot turn a seed
+/// into the *same* universe — see the note at the top of this module: the
+/// original sorts its scratch array with a 1996 C runtime's `qsort`, whose
+/// permutation of equal x coordinates is unspecified, and every later draw
+/// indexes that array. So the tutorial's world here has the right shape —
+/// tiny, sparse, two players close together, no random events — and
+/// different planets.
+///
+/// That matters for the tutorial's own pages, which name planets and fleets
+/// by id: page 10 sends the miner to planet `0x0c`, which the original calls
+/// Prune. Here planet `0x0c` is some other planet. The pages are transcribed
+/// from the original and are right about the original; they will point at
+/// the wrong worlds until seed-identical generation is solved.
+#[must_use]
+pub fn tutorial() -> (NewGame, u32) {
+    let config = NewGame {
+        name: "Tutorial Game".to_string(),
+        id: 0x008c_ef49,
+        size: Size::Tiny,
+        density: Density::Sparse,
+        start_distance: StartDistance::Close,
+        clumping: false,
+        // Bit 7 of the flag word is `fNoRandom`, and it is set.
+        random_events: false,
+        slow_tech: false,
+        unlimited_minerals: false,
+        // Bit 6, `fVisScores`.
+        public_scores: true,
+        players: vec![
+            NewPlayer {
+                race: Race::humanoid(),
+                control: Control::Human,
+                name: "Humanoid".to_string(),
+                plural_name: "Humanoids".to_string(),
+            },
+            NewPlayer {
+                race: Race::humanoid(),
+                control: Control::Computer {
+                    personality: None,
+                    skill_bits: 0,
+                },
+                name: "Berserker".to_string(),
+                plural_name: "Berserkers".to_string(),
+            },
+        ],
+    };
+    (config, 0x4996_02d2)
+}
