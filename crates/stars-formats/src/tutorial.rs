@@ -71,7 +71,7 @@ pub fn paragraph(exe: &[u8], idt: usize) -> Option<String> {
 
     let word = seg.get(BLOCKS + block * 2..BLOCKS + block * 2 + 2)?;
     let mut at = usize::from(u16::from_le_bytes([word[0], word[1]])) + start / 2;
-    let mut high = start % 2 == 0;
+    let mut high = start.is_multiple_of(2);
 
     let mut out = String::new();
     let mut sum = 0usize;
