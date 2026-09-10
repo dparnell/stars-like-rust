@@ -3207,6 +3207,42 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 29,
+        idt: 576,
+        escape: None,
+        stages: &[
+            // A tenth design, again checked from outside by its existence
+            // and the designer being shut.
+            ask(
+                0x245,
+                Check::DesignCount {
+                    count: 10,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            ask(0x245, Check::Designer { open: false }),
+            ask(
+                0x246,
+                Check::QueueLength {
+                    planet: 0x0d,
+                    count: 3,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            ask(
+                0x247,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 0,
+                    ship: true,
+                    item: 9,
+                    count: 10,
+                    no_research: Some(false),
+                },
+            ),
+        ],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
