@@ -193,6 +193,7 @@ name, and where each stands:
 | "right click on the **blue diamond** … select **QuikDrop**" | `vrgZip`, `ZipOrderDlg` (`1080:0175`) | **added** |
 | "hit the **Split** button" — a dialog for moving ships one at a time | | not done: split from the Fleets screen |
 | "Click on the **Xfer** button … drag in the Colonists gauge" | `TransferDlg` | not done |
+| "Click and **drag in the fuel gauge** in the Other Fleets Here tile" | | **added** |
 | "Click in various places in the **Summary pane** to get popup explanations" | | not done |
 
 `SelectAdjFleet` is worth stating exactly, because two of those entries are

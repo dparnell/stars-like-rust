@@ -969,3 +969,44 @@ fn the_years_transcribed_are_contiguous() {
     sorted.sort_unstable();
     assert_eq!(idts, sorted);
 }
+
+/// Page 56 asks for a fuel transfer by dragging a gauge: "Click and drag in
+/// the fuel gauge in the Other Fleets Here tile until Teamster #4 has 383mg
+/// of fuel."
+#[test]
+fn fuel_can_be_dragged_between_two_fleets() {
+    let mut app = a_game();
+    let mine = app.own_fleets();
+    let (a, b) = (mine[0], mine[1]);
+    let at = app.game.as_ref().expect("a game").fleets[a].position;
+    {
+        let game = app.game.as_mut().expect("a game");
+        game.fleets[b].position = at;
+        game.fleets[a].cargo.fuel = 10;
+        game.fleets[b].cargo.fuel = 40;
+    }
+    app.select_object(stars_ui::ScanObject::Fleet(a));
+    let capacity = {
+        let game = app.game.as_ref().expect("a game");
+        let designs = game.designs.first().cloned().unwrap_or_default();
+        game.fleets[a].fuel_capacity(&designs)
+    };
+    assert!(capacity >= 30, "a scout holds at least this much");
+
+    // Ask for more than the pane's fleet has: it comes from the other one.
+    let moved = app.drag_fleet_fuel(b, 30);
+    assert_eq!(moved, 20, "twenty came across");
+    let game = app.game.as_ref().expect("a game");
+    assert_eq!(game.fleets[a].cargo.fuel, 30);
+    assert_eq!(game.fleets[b].cargo.fuel, 20);
+
+    // Dragging to the same fleet is not a transfer.
+    assert_eq!(app.drag_fleet_fuel(a, 50), 0);
+    // Nor is asking for what it already has.
+    assert_eq!(app.drag_fleet_fuel(b, 30), 0);
+    // Dragging it back down gives fuel to the other fleet.
+    assert_eq!(app.drag_fleet_fuel(b, 5), -25);
+    let game = app.game.as_ref().expect("a game");
+    assert_eq!(game.fleets[a].cargo.fuel, 5);
+    assert_eq!(game.fleets[b].cargo.fuel, 45);
+}

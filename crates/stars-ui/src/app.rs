@@ -12266,3 +12266,75 @@ impl App {
         self.screen = screen;
     }
 }
+
+impl App {
+    /// Move fuel between the fleet the pane is about and another fleet at the
+    /// same place.
+    ///
+    /// The **Other Fleets Here** tile's fuel gauge is draggable, and dragging
+    /// it moves fuel between the two fleets — page 56 of the tutorial: *"Click
+    /// and drag in the fuel gauge in the Other Fleets Here tile until Teamster
+    /// #4 has 383mg of fuel."*
+    ///
+    /// `wanted` is what the **pane's** fleet should end up with. Returns how
+    /// much actually moved, which is limited by what the other fleet has and
+    /// by what this one can hold.
+    pub fn drag_fleet_fuel(&mut self, other: usize, wanted: i32) -> i32 {
+        use stars_formats::{CargoTransfer, LogRecord};
+
+        let Some(mine) = self.survey_subject().fleet_index() else {
+            return 0;
+        };
+        if mine == other {
+            return 0;
+        }
+        let me = self.local_player();
+        let Some(game) = self.game.as_ref() else {
+            return 0;
+        };
+        let (Some(a), Some(b)) = (game.fleets.get(mine), game.fleets.get(other)) else {
+            return 0;
+        };
+        // Both have to be yours: the original draws no gauges at all for a
+        // fleet it does not know in full.
+        if !usize::try_from(a.owner).is_ok_and(|o| o == me)
+            || !usize::try_from(b.owner).is_ok_and(|o| o == me)
+        {
+            return 0;
+        }
+        let designs = game.designs.get(me).map_or(&[][..], Vec::as_slice);
+        let room = a.fuel_capacity(designs) - a.cargo.fuel;
+        // Positive: fuel comes across to the pane's fleet.
+        let moved = (wanted - a.cargo.fuel).clamp(-a.cargo.fuel, room.min(b.cargo.fuel));
+        if moved == 0 {
+            return 0;
+        }
+        let owner = u16::try_from(a.owner.max(0)).unwrap_or(0);
+        let source = (owner << 9) | (a.id & 0x1ff);
+        let destination = (owner << 9) | (b.id & 0x1ff);
+
+        // Moved here rather than through `apply_cargo_transfer`: that
+        // routine is the turn engine's, and applies a *turn's* transfer with
+        // the engine's own clamping. This is the client moving fuel between
+        // two fleets sitting together, which the original does at once.
+        let Some(game) = self.game.as_mut() else {
+            return 0;
+        };
+        game.fleets[mine].cargo.fuel += moved;
+        game.fleets[other].cargo.fuel -= moved;
+
+        // Fuel is the fifth cargo kind, so bit 4 of the mask. The quantity
+        // is what the fleet named first gives up.
+        self.orders.push(LogRecord::cargo(&CargoTransfer {
+            id1: source,
+            id2: destination,
+            grobj1: FLEET_CLASS,
+            grobj2: FLEET_CLASS,
+            items_mask: 1 << 4,
+            quantities: vec![-moved],
+            quantity_bytes: Vec::new(),
+        }));
+        self.dirty = true;
+        moved
+    }
+}

@@ -175,14 +175,26 @@ pub fn fleets_here_body(app: &mut App, ui: &mut egui::Ui) {
                         })
                         .fold(0.0_f32, f32::max)
                 });
-                gauge(
+                // The fuel gauge is **draggable**: dragging it moves fuel
+                // between this fleet and the one the dropdown is showing.
+                // The tutorial's page 56 is the one that needs it — "Click
+                // and drag in the fuel gauge in the Other Fleets Here tile
+                // until Teamster #4 has 383mg of fuel."
+                let dragged = gauge(
                     ui,
                     "Fuel",
                     width,
                     gauges.fuel_capacity,
                     &[(gauges.fuel, egui::Color32::from_rgb(210, 170, 60))],
                     format!("{}mg", gauges.fuel),
+                    true,
                 );
+                if let (Some(fraction), Some(other)) = (dragged, app.pane_fleet_choice()) {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let wanted = (f32::from(i16::try_from(gauges.fuel_capacity).unwrap_or(0))
+                        * fraction) as i32;
+                    app.drag_fleet_fuel(other, wanted);
+                }
                 let mut bars: Vec<(i32, egui::Color32)> = (0..3)
                     .map(|m| (gauges.minerals[m], mineral_colour(m)))
                     .collect();
@@ -194,6 +206,7 @@ pub fn fleets_here_body(app: &mut App, ui: &mut egui::Ui) {
                     gauges.cargo_capacity,
                     &bars,
                     format!("{}kT", gauges.cargo()),
+                    false,
                 );
             }
         }
@@ -242,7 +255,9 @@ fn gauge(
     capacity: i32,
     segments: &[(i32, egui::Color32)],
     text: String,
-) {
+    draggable: bool,
+) -> Option<f32> {
+    let mut dragged = None;
     ui.horizontal(|ui| {
         ui.add_sized(
             egui::vec2(label_width, ui.spacing().interact_size.y * 0.6),
@@ -250,7 +265,21 @@ fn gauge(
         );
         let height = ui.text_style_height(&egui::TextStyle::Small);
         let bar = (ui.available_width() - 44.0).max(24.0);
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(bar, height), egui::Sense::hover());
+        let (rect, response) = ui.allocate_exact_size(
+            egui::vec2(bar, height),
+            if draggable {
+                egui::Sense::click_and_drag()
+            } else {
+                egui::Sense::hover()
+            },
+        );
+        if draggable {
+            if let Some(at) = response.interact_pointer_pos() {
+                if response.dragged() || response.clicked() {
+                    dragged = Some(((at.x - rect.left()) / rect.width()).clamp(0.0, 1.0));
+                }
+            }
+        }
         let painter = ui.painter();
         painter.rect_filled(rect, 1.0, egui::Color32::from_gray(40));
         if capacity > 0 {
@@ -278,6 +307,7 @@ fn gauge(
         }
         ui.label(egui::RichText::new(text).small());
     });
+    dragged
 }
 
 /// The frame every tile shares, as both panes draw it.
