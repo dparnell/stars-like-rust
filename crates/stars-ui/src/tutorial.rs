@@ -2298,6 +2298,54 @@ pub static STEPS: &[Step] = &[
             ask(0x19d, at_planet(6, 1, 0x0d, ANY)),
         ],
     },
+    // Year 20. A **starbase** design, which is the designer's other face.
+    Step {
+        turn: 20,
+        idt: 416,
+        escape: None,
+        stages: &[
+            ask(0x1a0, at_planet(8, 1, 0x06, ANY)),
+            ask(
+                0x1a1,
+                Check::Research {
+                    field: 3,
+                    next: 1,
+                    pct: 30,
+                },
+            ),
+            // The arm watches `fStarbaseMode` here, which is the designer's
+            // Ships / Starbases radio pair, and then a slot's contents. The
+            // page is done once the starbase design is queued, so that is
+            // what is transcribed: design 0x11 is the sixteenth slot, where
+            // starbases live.
+            hint(
+                0x1a3,
+                Check::ShipBuilder {
+                    starbase: Some(true),
+                    design: None,
+                },
+            ),
+            ask(
+                0x1a6,
+                Check::QueueLength {
+                    planet: 0x0d,
+                    count: 4,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            ask(
+                0x1a7,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 1,
+                    ship: true,
+                    item: 0x11,
+                    count: 1,
+                    no_research: Some(false),
+                },
+            ),
+        ],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
