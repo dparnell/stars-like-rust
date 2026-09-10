@@ -3156,6 +3156,57 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 29,
+        idt: 568,
+        escape: None,
+        stages: &[
+            hint(
+                0x239,
+                Check::Messages {
+                    message: 0x11,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            ask(
+                0x23a,
+                Check::Research {
+                    field: 3,
+                    next: 0,
+                    pct: 30,
+                },
+            ),
+            ask(
+                0x23b,
+                Check::Messages {
+                    message: 9999,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            hint(
+                0x23c,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 6,
+                },
+            ),
+            // Scrap Fleet on waypoint zero: the miner is broken up where
+            // it sits rather than sent home first.
+            ask(
+                0x23e,
+                Check::FleetWaypoint {
+                    fleet: 6,
+                    order: 0,
+                    class: grobj::PLANET,
+                    id: 0x11,
+                    task: SCRAP_TASK,
+                    warp: ANY,
+                },
+            ),
+        ],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
