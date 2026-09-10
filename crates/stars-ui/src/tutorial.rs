@@ -1213,6 +1213,32 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 8,
+        idt: 208,
+        escape: None,
+        stages: &[
+            // "Click on the waypoint at Slime and drag it to Sea Squared" —
+            // the colonize order moves with the waypoint, from planet 8 to
+            // planet 0x11.
+            ask(
+                0xd1,
+                Check::ColonizeWaypoint {
+                    fleet: 7,
+                    id: 0x11,
+                    warp: ANY,
+                },
+            ),
+            hint(
+                0xd4,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 8,
+                },
+            ),
+            ask(0xd6, at_planet(8, 1, 0x09, ANY)),
+        ],
+    },
 ];
 
 /// The Colonize task id.
