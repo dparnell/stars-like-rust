@@ -11562,6 +11562,15 @@ pub fn wormhole_stability(hole: &stars_core::wormhole::Wormhole) -> &'static str
 
 // --- The tutorial ---------------------------------------------------------
 
+/// Compare a count the three ways the tutorial's arms compare them.
+fn compare(held: usize, want: usize, cmp: crate::tutorial::Cmp) -> bool {
+    match cmp {
+        crate::tutorial::Cmp::Fewer => held < want,
+        crate::tutorial::Cmp::Exactly => held == want,
+        crate::tutorial::Cmp::NotExactly => held != want,
+    }
+}
+
 impl App {
     /// Whether one of the tutorial's checks is satisfied.
     ///
@@ -11750,14 +11759,14 @@ impl App {
                     })
                 })
             }
-            Check::FleetOrders { fleet, count, cmp } => by_id(*fleet).is_some_and(|f| {
-                let held = f.waypoints.len();
-                match cmp {
-                    crate::tutorial::Cmp::Fewer => held < *count,
-                    crate::tutorial::Cmp::Exactly => held == *count,
-                    crate::tutorial::Cmp::NotExactly => held != *count,
-                }
-            }),
+            Check::QueueLength { planet, count, cmp } => game
+                .planets
+                .iter()
+                .find(|p| p.id == *planet)
+                .is_some_and(|p| compare(p.queue.len(), *count, *cmp)),
+            Check::FleetOrders { fleet, count, cmp } => {
+                by_id(*fleet).is_some_and(|f| compare(f.waypoints.len(), *count, *cmp))
+            }
             Check::ShipBuilder { starbase, design } => self.designer.as_ref().is_some_and(|d| {
                 starbase.is_none_or(|want| d.starbase == want)
                     && design.is_none_or(|want| d.selected == want)

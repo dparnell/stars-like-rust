@@ -867,3 +867,105 @@ fn the_order_count_check_sees_a_deletion() {
     assert!(app.tutor_check(&six(Cmp::NotExactly)));
     assert!(app.tutor_check(&six(Cmp::Fewer)));
 }
+
+/// A queue entry that builds a **ship** is a different thing from one that
+/// builds an installation, and the check tells them apart: the class says
+/// which, and the item is a design slot rather than an installation id.
+#[test]
+fn a_queued_ship_is_not_a_queued_factory() {
+    let mut app = a_game();
+    let id = {
+        let game = app.game.as_ref().expect("a game");
+        game.planets
+            .iter()
+            .find(|p| p.owner == Some(0))
+            .expect("a homeworld")
+            .id
+    };
+    {
+        let game = app.game.as_mut().expect("a game");
+        let planet = game
+            .planets
+            .iter_mut()
+            .find(|p| p.id == id)
+            .expect("the homeworld");
+        planet.queue = vec![stars_core::production::QueueItem {
+            count: 1,
+            item: 2,
+            ship: true,
+            completion: 0,
+        }];
+        planet.no_research = false;
+    }
+
+    let asking = |ship| Check::Queue {
+        planet: id,
+        slot: 0,
+        ship,
+        item: 2,
+        count: 1,
+        no_research: Some(false),
+    };
+    assert!(app.tutor_check(&asking(true)));
+    assert!(
+        !app.tutor_check(&asking(false)),
+        "item 2 as an installation is a different order entirely"
+    );
+}
+
+/// Queue length is counted the same three ways as fleet orders, because the
+/// arms read both straight off their own count bytes.
+#[test]
+fn queue_length_is_counted_three_ways() {
+    use stars_ui::tutorial::Cmp;
+
+    let mut app = a_game();
+    let id = {
+        let game = app.game.as_ref().expect("a game");
+        game.planets
+            .iter()
+            .find(|p| p.owner == Some(0))
+            .expect("a homeworld")
+            .id
+    };
+    let three = |cmp| Check::QueueLength {
+        planet: id,
+        count: 3,
+        cmp,
+    };
+
+    {
+        let game = app.game.as_mut().expect("a game");
+        let planet = game
+            .planets
+            .iter_mut()
+            .find(|p| p.id == id)
+            .expect("the homeworld");
+        planet.queue = (0..3)
+            .map(|_| stars_core::production::QueueItem {
+                count: 1,
+                item: stars_core::production::item::FACTORY,
+                ship: false,
+                completion: 0,
+            })
+            .collect();
+    }
+    assert!(app.tutor_check(&three(Cmp::Exactly)));
+    assert!(!app.tutor_check(&three(Cmp::Fewer)));
+    assert!(!app.tutor_check(&three(Cmp::NotExactly)));
+}
+
+/// Every page transcribed so far belongs to a year, in order, with no gaps
+/// in the years themselves.
+#[test]
+fn the_years_transcribed_are_contiguous() {
+    let mut years: Vec<i16> = STEPS.iter().map(|s| s.turn).collect();
+    years.dedup();
+    let expected: Vec<i16> = (0..=years.len() as i16 - 1).collect();
+    assert_eq!(years, expected, "years run 0 upward without a gap");
+    // And the pages within them run in order too.
+    let idts: Vec<usize> = STEPS.iter().map(|s| s.idt).collect();
+    let mut sorted = idts.clone();
+    sorted.sort_unstable();
+    assert_eq!(idts, sorted);
+}

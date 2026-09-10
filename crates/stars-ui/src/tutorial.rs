@@ -126,6 +126,12 @@ pub enum Check {
         /// One action per cargo, ironium first and fuel last.
         goal: [stars_formats::XferAction; 5],
     },
+    /// How many entries a planet's production queue has.
+    ///
+    /// Read straight off the queue's own count byte in the arms, like
+    /// [`Check::FleetOrders`], and used the same way: page 18 is done when
+    /// the homeworld's queue has grown to three.
+    QueueLength { planet: i16, count: usize, cmp: Cmp },
     /// How many orders a fleet has.
     ///
     /// Not a verb of its own in the original — the arms read `pfl->cord`
@@ -188,6 +194,7 @@ impl Check {
             Check::ShipBuilder { .. } => "ship designer",
             Check::TransportWaypoint { .. } => "transport waypoint",
             Check::FleetOrders { .. } => "order count",
+            Check::QueueLength { .. } => "queue length",
         }
     }
 }
@@ -753,6 +760,78 @@ pub static STEPS: &[Step] = &[
                     fleet: 0,
                     count: 6,
                     cmp: Cmp::NotExactly,
+                },
+            ),
+        ],
+    },
+    // Year 4. Tidying up: a waypoint deleted from the destroyer's path, and
+    // the first ship queued.
+    Step {
+        turn: 4,
+        idt: 128,
+        // The colony ship already queued: page 18's work.
+        escape: Some(Check::QueueLength {
+            planet: 0x0d,
+            count: 3,
+            cmp: Cmp::Exactly,
+        }),
+        stages: &[
+            hint(
+                0x80,
+                Check::Summary {
+                    class: grobj::PLANET,
+                    id: 0x0e,
+                },
+            ),
+            ask(
+                0x82,
+                Check::FleetOrders {
+                    fleet: 4,
+                    count: 6,
+                    cmp: Cmp::NotExactly,
+                },
+            ),
+            hint(
+                0x85,
+                Check::Summary {
+                    class: grobj::PLANET,
+                    id: 0x15,
+                },
+            ),
+            ask(
+                0x87,
+                Check::Selection {
+                    class: grobj::PLANET,
+                    id: 0x0d,
+                },
+            ),
+        ],
+    },
+    Step {
+        turn: 4,
+        idt: 136,
+        escape: None,
+        stages: &[
+            ask(
+                0x88,
+                Check::QueueLength {
+                    planet: 0x0d,
+                    count: 3,
+                    cmp: Cmp::Exactly,
+                },
+            ),
+            // "Double click on Santa Maria in the left hand listbox and hit
+            // OK" — a ship, not an installation, so the entry's class is a
+            // fleet and its item is a design slot.
+            ask(
+                0x8f,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 1,
+                    ship: true,
+                    item: 2,
+                    count: 1,
+                    no_research: Some(false),
                 },
             ),
         ],

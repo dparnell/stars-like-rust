@@ -1,7 +1,7 @@
 # The tutorial
 
 Status: **in progress** — the text, the checks and the advance machine are
-written; sixteen of the eighty pages are transcribed, and the hooks, the window
+written; eighteen of the eighty pages are transcribed, and the hooks, the window
 and the tutorial world are not written yet.
 
 The original ships a tutorial that walks a new player through **36 years of a
@@ -86,10 +86,18 @@ come from a vocabulary of **fifteen** verbs:
 That table is the argument for doing this at all: between them those fifteen
 verbs read almost everything the UI can set.
 
-One thing the arms ask that is not in the table: **how many orders a fleet
-has**, read straight off `pfl->cord` rather than through a verb. It is how the
-tutorial checks that a waypoint has been *deleted* — page 16 is done when
-Armed Probe #1 no longer has its six.
+Two things the arms ask that are not in the table, both read straight off a
+count byte rather than through a verb:
+
+* **how many orders a fleet has** (`pfl->cord`), which is how the tutorial
+  checks that a waypoint has been *deleted* — page 16 is done when Armed Probe
+  #1 no longer has its six;
+* **how many entries a planet's queue has**, which is how it checks that
+  something has been *added* — page 18 is done when the homeworld's queue has
+  grown to three.
+
+Both are compared three ways — fewer, exactly, not exactly — because the arms
+use all three.
 
 ## A page is a chain, not a check
 
@@ -269,7 +277,7 @@ eleven of the fifteen verbs; the chain-of-rungs page model; and
 `AdvanceTutor`'s skipping loop, which steps on by eight while the page's task
 is done so a page satisfied in advance is never shown.
 
-Sixteen of the eighty pages are transcribed — the first four years, whole. Pages not yet transcribed are simply
+Eighteen of the eighty pages are transcribed — the first five years, whole. Pages not yet transcribed are simply
 absent from the table and the tutorial stops at the first gap rather than
 pretending to know what comes next.
 
