@@ -2693,6 +2693,34 @@ pub static STEPS: &[Step] = &[
             ask(0x1e7, at_planet(8, 2, 0x00, ANY)),
         ],
     },
+    // Year 24. One page: the merge the mine layer was built for.
+    Step {
+        turn: 24,
+        idt: 488,
+        escape: None,
+        stages: &[
+            ask(0x1e8, at_planet(4, 1, 0x05, ANY)),
+            ask(
+                0x1e9,
+                Check::FleetWaypoint {
+                    fleet: 2,
+                    order: 1,
+                    class: grobj::FLEET,
+                    id: 5,
+                    task: MERGE_TASK,
+                    warp: ANY,
+                },
+            ),
+            ask(
+                0x1ea,
+                Check::Messages {
+                    message: 9999,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+        ],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
