@@ -2248,6 +2248,56 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 19,
+        idt: 408,
+        escape: None,
+        stages: &[
+            // The same three instructions as page 51, on the other
+            // freighter: unload at Oxygen, load at home, repeat.
+            ask(
+                0x198,
+                Check::TransportWaypoint {
+                    fleet: 1,
+                    order: 1,
+                    id: 0x02,
+                    warp: ANY,
+                    goal: UNLOAD_COLONISTS,
+                },
+            ),
+            ask(
+                0x199,
+                Check::TransportWaypoint {
+                    fleet: 1,
+                    order: 2,
+                    id: 0x0d,
+                    warp: ANY,
+                    goal: LOAD_ALL,
+                },
+            ),
+            ask(0x19a, Check::RepeatOrders { fleet: 1 }),
+            ask(
+                0x19c,
+                Check::QueueLength {
+                    planet: 0x10,
+                    count: 3,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            ask(
+                0x19c,
+                Check::Queue {
+                    planet: 0x10,
+                    slot: 2,
+                    ship: false,
+                    item: 5,
+                    count: 1,
+                    no_research: Some(true),
+                },
+            ),
+            ask(0x19d, at_planet(6, 1, 0x0d, ANY)),
+        ],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
