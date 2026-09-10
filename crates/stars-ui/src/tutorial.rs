@@ -1299,6 +1299,35 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    // Year 9. Research is switched to a different next-field, and the
+    // miner's yearly report is silenced.
+    Step {
+        turn: 9,
+        idt: 232,
+        escape: None,
+        stages: &[
+            hint(0xe8, Check::ResearchDialog { open: false }),
+            // The same field as page 29 but a different **next**: 3 rather
+            // than 6, so once Weapons is done research moves on by itself
+            // instead of staying put.
+            ask(
+                0xec,
+                Check::Research {
+                    field: 1,
+                    next: 3,
+                    pct: 30,
+                },
+            ),
+            ask(
+                0xee,
+                Check::Messages {
+                    message: -1,
+                    kind: Some(stars_core::message::id::MINING_ROBOTS_LOADED),
+                    filter: true,
+                },
+            ),
+        ],
+    },
 ];
 
 /// The Colonize task id.
