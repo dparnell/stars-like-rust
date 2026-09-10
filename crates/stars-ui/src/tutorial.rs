@@ -2146,6 +2146,50 @@ pub static STEPS: &[Step] = &[
             ask(0x181, at_planet(0, 1, 0x0d, ANY)),
         ],
     },
+    // Year 18. One page again.
+    Step {
+        turn: 18,
+        idt: 392,
+        escape: None,
+        stages: &[
+            ask(
+                0x188,
+                Check::QueueLength {
+                    planet: 0x0d,
+                    count: 3,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            ask(
+                0x188,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 0,
+                    ship: true,
+                    item: 3,
+                    count: 1,
+                    no_research: Some(false),
+                },
+            ),
+            hint(
+                0x189,
+                Check::Messages {
+                    message: 5,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            hint(
+                0x18b,
+                Check::Selection {
+                    class: grobj::PLANET,
+                    id: 0x10,
+                },
+            ),
+            // Closes on the research dialog being shut again.
+            ask(0x18f, Check::ResearchDialog { open: false }),
+        ],
+    },
 ];
 
 /// The Merge with Fleet task id.
