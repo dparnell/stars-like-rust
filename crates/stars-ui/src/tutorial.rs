@@ -183,6 +183,12 @@ pub enum Check {
     /// `FCheckCargo`, which only ever compares the four holds. Page 56 is
     /// done when the freighter has been filled to exactly 383mg.
     Fuel { fleet: u16, amount: i32 },
+    /// Whether a fleet still exists at all.
+    ///
+    /// The later pages guard nearly everything with this: by year 27 a
+    /// fleet the tutorial named years ago may have been destroyed, merged
+    /// away or dismantled, and a page that assumed otherwise would wedge.
+    FleetExists { fleet: u16, exists: bool },
     /// How many ship designs the player has (`rgplr[idPlayer].cShDef`).
     ///
     /// How the tutorial checks that a **new design** has been drawn up,
@@ -271,6 +277,7 @@ impl Check {
             Check::QueueLength { .. } => "queue length",
             Check::RepeatOrders { .. } => "repeat orders",
             Check::FleetCount { .. } => "fleet count",
+            Check::FleetExists { .. } => "fleet exists",
             Check::DesignCount { .. } => "design count",
             Check::Fuel { .. } => "fuel",
             Check::DesignSlot { .. } => "design slot",
@@ -2991,6 +2998,45 @@ pub static STEPS: &[Step] = &[
                     fleet: 0x0c,
                     minerals: [0, 0, 0],
                     colonists: 25,
+                },
+            ),
+        ],
+    },
+    Step {
+        turn: 27,
+        idt: 536,
+        escape: None,
+        stages: &[
+            // The page only starts once fleet 0xc has gone -- merged into
+            // another on the page before.
+            ask(
+                0x219,
+                Check::FleetExists {
+                    fleet: 0x0c,
+                    exists: false,
+                },
+            ),
+            hint(
+                0x21a,
+                Check::Messages {
+                    message: 8,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            ask(
+                0x21c,
+                Check::Messages {
+                    message: 9999,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            ask(
+                0x21e,
+                Check::DesignCount {
+                    count: 9,
+                    cmp: Cmp::Exactly,
                 },
             ),
         ],

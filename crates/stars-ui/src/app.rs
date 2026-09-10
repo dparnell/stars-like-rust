@@ -11762,6 +11762,7 @@ impl App {
             }
             Check::RepeatOrders { fleet } => by_id(*fleet).is_some_and(|f| f.repeat_orders),
             Check::FleetCount { count, cmp } => compare(self.own_fleets().len(), *count, *cmp),
+            Check::FleetExists { fleet, exists } => by_id(*fleet).is_some() == *exists,
             // `iItem` packs the count in its high byte and the component
             // index in its low one, which is how `FCheckBuilderPart`
             // compares the two separately.
