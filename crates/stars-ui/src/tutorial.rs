@@ -2774,6 +2774,82 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 25,
+        idt: 504,
+        escape: None,
+        stages: &[
+            ask(
+                0x1f8,
+                Check::QueueLength {
+                    planet: 0x0d,
+                    count: 3,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            ask(
+                0x1f8,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 0,
+                    ship: true,
+                    item: 2,
+                    count: 3,
+                    no_research: Some(false),
+                },
+            ),
+            hint(
+                0x1f9,
+                Check::Messages {
+                    message: 4,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            hint(
+                0x1fb,
+                Check::Selection {
+                    class: grobj::PLANET,
+                    id: 0x11,
+                },
+            ),
+            ask(
+                0x1fb,
+                Check::QueueLength {
+                    planet: 0x11,
+                    count: 3,
+                    cmp: Cmp::Exactly,
+                },
+            ),
+            ask(
+                0x1fb,
+                Check::Queue {
+                    planet: 0x11,
+                    slot: 2,
+                    ship: false,
+                    item: 5,
+                    count: 2,
+                    no_research: Some(true),
+                },
+            ),
+            ask(
+                0x1fc,
+                Check::Research {
+                    field: 2,
+                    next: 3,
+                    pct: 30,
+                },
+            ),
+            ask(
+                0x1fd,
+                Check::Messages {
+                    message: 9999,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+        ],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
