@@ -1424,6 +1424,69 @@ pub static STEPS: &[Step] = &[
             ask(0xfe, Check::Template { slot: 0 }),
         ],
     },
+    Step {
+        turn: 10,
+        idt: 256,
+        escape: None,
+        stages: &[
+            // "Hit the Import button to copy Shaggy Dog's queue into the
+            // default template and hit OK."
+            ask(0x100, Check::Template { slot: 0 }),
+            hint(
+                0x103,
+                Check::Summary {
+                    class: grobj::PLANET,
+                    id: 0x17,
+                },
+            ),
+            hint(
+                0x104,
+                Check::Selection {
+                    class: grobj::PLANET,
+                    id: 0x0d,
+                },
+            ),
+            ask(
+                0x104,
+                Check::QueueLength {
+                    planet: 0x0d,
+                    count: 3,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            ask(
+                0x104,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 1,
+                    ship: true,
+                    item: 2,
+                    count: 1,
+                    no_research: Some(false),
+                },
+            ),
+            ask(
+                0x106,
+                Check::QueueLength {
+                    planet: 0x0d,
+                    count: 4,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            // A second ship design queued behind the colony ship.
+            ask(
+                0x107,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 2,
+                    ship: true,
+                    item: 3,
+                    count: 1,
+                    no_research: Some(false),
+                },
+            ),
+        ],
+    },
 ];
 
 /// The Colonize task id.
