@@ -2559,6 +2559,44 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    // Year 23. Mostly reading, with the report sorted by another column.
+    Step {
+        turn: 23,
+        idt: 464,
+        // The miner already loaded: the page's own work done.
+        escape: Some(Check::Cargo {
+            fleet: 6,
+            minerals: [0, 0, 0],
+            colonists: 25,
+        }),
+        stages: &[
+            hint(
+                0x1d0,
+                Check::Messages {
+                    message: 1,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            hint(
+                0x1d4,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 6,
+                },
+            ),
+            // A third report-sort branch — column 2 this time — and, like
+            // the other two, emphasis only.
+            ask(
+                0x1d5,
+                Check::Messages {
+                    message: 2,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+        ],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
