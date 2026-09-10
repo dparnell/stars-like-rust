@@ -1959,6 +1959,22 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 13,
+        idt: 344,
+        escape: None,
+        stages: &[
+            ask(
+                0x159,
+                Check::Messages {
+                    message: 9999,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            ask(0x15c, at_planet(8, 1, 0x0d, ANY)),
+        ],
+    },
 ];
 
 /// The Scrap Fleet task id.
