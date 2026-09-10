@@ -11763,6 +11763,10 @@ impl App {
             Check::RepeatOrders { fleet } => by_id(*fleet).is_some_and(|f| f.repeat_orders),
             Check::FleetCount { count, cmp } => compare(self.own_fleets().len(), *count, *cmp),
             Check::ResearchDialog { open } => self.research_dialog.is_some() == *open,
+            Check::Template { slot } => self
+                .production_templates()
+                .get(*slot)
+                .is_some_and(|t| t.queue.is_some()),
             Check::QueueLength { planet, count, cmp } => game
                 .planets
                 .iter()

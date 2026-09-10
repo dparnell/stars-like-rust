@@ -40,6 +40,9 @@ pub mod id {
     ///
     /// The fourth message the tutorial teaches you to filter.
     pub const MINING_ROBOTS_LOADED: u16 = 125;
+    /// `idmHasDismantledKtMineralsWhichHaveDeposited`: a colony ship broke
+    /// itself up on arrival. The fifth message the tutorial filters.
+    pub const FLEET_DISMANTLED: u16 = 89;
     /// `idmHasCompletedAssignedOrders`: a fleet has run out of orders.
     /// `SatisfyOrders`' cancel path.
     pub const ORDERS_COMPLETE: u16 = 0x4e;

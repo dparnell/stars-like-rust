@@ -126,6 +126,13 @@ pub enum Check {
         /// One action per cargo, ironium first and fuel last.
         goal: [stars_formats::XferAction; 5],
     },
+    /// Whether a production template slot has been filled in.
+    ///
+    /// `FCheckTemplate` (`10f8:666e`) compares `vrgZipProd[0]` against a
+    /// canned template, entry by entry. What the tutorial is really asking
+    /// is that you have pressed **Import** on the `<Customize>` dialog, so
+    /// this asks the simpler question the UI can answer: is the slot filled.
+    Template { slot: usize },
     /// Whether the Research dialog is open.
     ///
     /// The arms read `pctResGlob`, which is `-1` while the dialog is shut
@@ -216,6 +223,7 @@ impl Check {
             Check::RepeatOrders { .. } => "repeat orders",
             Check::FleetCount { .. } => "fleet count",
             Check::ResearchDialog { .. } => "research dialog",
+            Check::Template { .. } => "production template",
         }
     }
 }
@@ -1366,6 +1374,54 @@ pub static STEPS: &[Step] = &[
             // Armed Probe #1's next stop is moved from planet 2 to planet 4
             // now that a colony ship is going to 2.
             ask(0xf5, at_planet(0, 1, 0x04, ANY)),
+        ],
+    },
+    // Year 10. Production templates: set a queue up once and stamp it on
+    // every planet after.
+    Step {
+        turn: 10,
+        idt: 248,
+        escape: None,
+        stages: &[
+            ask(
+                0xf8,
+                Check::Messages {
+                    message: -1,
+                    kind: Some(stars_core::message::id::FLEET_DISMANTLED),
+                    filter: true,
+                },
+            ),
+            hint(
+                0xf9,
+                Check::Selection {
+                    class: grobj::PLANET,
+                    id: 0x0e,
+                },
+            ),
+            ask(
+                0xfb,
+                Check::Queue {
+                    planet: 0x0e,
+                    slot: 0,
+                    ship: false,
+                    item: stars_core::production::item::AUTO_FACTORY,
+                    count: 3,
+                    no_research: Some(true),
+                },
+            ),
+            ask(
+                0xfb,
+                Check::Queue {
+                    planet: 0x0e,
+                    slot: 1,
+                    ship: false,
+                    item: stars_core::production::item::AUTO_MINE,
+                    count: 3,
+                    no_research: Some(true),
+                },
+            ),
+            // "Right click on the blue diamond and select Customize."
+            ask(0xfe, Check::Template { slot: 0 }),
         ],
     },
 ];
