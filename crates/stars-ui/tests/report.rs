@@ -343,3 +343,108 @@ fn each_report_lists_what_the_original_puts_in_it() {
 
     assert!(data.rows(Report::Battles).is_empty());
 }
+
+/// `CommaFormatLong` puts a separator every three digits, and keeps the sign
+/// outside them.
+#[test]
+fn figures_are_written_with_thousands_separators() {
+    use stars_ui::report::commas;
+    assert_eq!(commas(0), "0");
+    assert_eq!(commas(999), "999");
+    assert_eq!(commas(1000), "1,000");
+    assert_eq!(commas(1_234_567), "1,234,567");
+    assert_eq!(commas(-25_000), "-25,000");
+}
+
+/// The name cell carries the planet's name and, when it has a starbase, a
+/// bar for each thing that base can do.
+#[test]
+fn a_home_worlds_name_cell_shows_its_starbase() {
+    use stars_ui::report::{Bar, Cell};
+
+    let app = a_game();
+    let game = app.game.as_ref().expect("a game");
+    let data = Data {
+        game,
+        player: 0,
+        battles: &[],
+    };
+    let home = data
+        .rows(Report::Planets)
+        .into_iter()
+        .find(|&r| game.planets[r].homeworld)
+        .expect("a home world");
+
+    let Cell::Name(name, bars) = data.cell(Report::Planets, home, 0).cell else {
+        panic!("the name column draws a name");
+    };
+    assert!(!name.is_empty());
+    assert_eq!(
+        bars.first(),
+        Some(&Bar::Base { cargo: true }),
+        "a home world starts with a starbase that can hold cargo"
+    );
+
+    // Population reads as a figure with separators, and the starbase column
+    // names the design rather than leaving a dash.
+    let Cell::Right(pop) = data.cell(Report::Planets, home, 2).cell else {
+        panic!("population is a figure");
+    };
+    assert!(pop.contains(','), "{pop} should carry a separator");
+    let Cell::Left(base) = data.cell(Report::Planets, home, 1).cell else {
+        panic!("the starbase column is text");
+    };
+    assert_ne!(base, "--");
+}
+
+/// A planet with nothing routed anywhere reads as two dashes, which is what
+/// `szDblDash` puts there.
+#[test]
+fn nothing_there_reads_as_two_dashes() {
+    use stars_ui::report::{Cell, DOUBLE_DASH};
+
+    let app = a_game();
+    let game = app.game.as_ref().expect("a game");
+    let data = Data {
+        game,
+        player: 0,
+        battles: &[],
+    };
+    let row = data.rows(Report::Planets)[0];
+    assert_eq!(
+        data.cell(Report::Planets, row, 14).cell,
+        Cell::Left(DOUBLE_DASH.to_string()),
+        "a planet routes nowhere to start with"
+    );
+}
+
+/// A fleet's row reads the way the original writes it: `#id`, a location, a
+/// cargo hold of four figures.
+#[test]
+fn a_fleets_row_reads_as_the_original_writes_it() {
+    use stars_ui::report::Cell;
+
+    let app = a_game();
+    let game = app.game.as_ref().expect("a game");
+    let data = Data {
+        game,
+        player: 0,
+        battles: &[],
+    };
+    let row = *data.rows(Report::Fleets).first().expect("a fleet");
+
+    let Cell::Right(id) = data.cell(Report::Fleets, row, 1).cell else {
+        panic!("the id column is a figure");
+    };
+    assert!(id.starts_with('#'), "{id}");
+
+    let Cell::Minerals(cargo) = data.cell(Report::Fleets, row, 7).cell else {
+        panic!("cargo is four figures");
+    };
+    assert_eq!(cargo.len(), 4);
+
+    let Cell::Left(location) = data.cell(Report::Fleets, row, 2).cell else {
+        panic!("location is text");
+    };
+    assert!(!location.is_empty());
+}

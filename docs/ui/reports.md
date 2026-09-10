@@ -1,7 +1,7 @@
 # The report windows
 
-Status: **in progress** — the model and the sort are done; the grid that
-draws them is not yet.
+Status: **in progress** — the columns, the sort and the grid are done; the
+per-column click behaviour is not.
 
 Four windows share one piece of code: **Planets**, **Fleets**, **Others'
 Fleets** and **Battles**, listed together on the Report menu, all four

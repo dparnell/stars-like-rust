@@ -10,7 +10,6 @@ pub mod battles;
 pub mod browser;
 pub mod designer;
 pub mod fleet;
-pub mod fleets;
 pub mod galaxy;
 pub mod host;
 pub mod messages;
@@ -18,13 +17,13 @@ pub mod newgame;
 pub mod parameters;
 pub mod password;
 pub mod planet;
-pub mod planets;
 pub mod players;
 pub mod popup;
 pub mod production;
 pub mod race;
 pub mod race_wizard;
 pub mod relations;
+pub mod report;
 pub mod research;
 pub mod score;
 pub mod statusbar;
@@ -33,6 +32,11 @@ pub mod toolbar;
 pub mod tutorial;
 
 use crate::{App, Screen};
+
+/// The name of a planetary production item.
+pub(crate) fn item_name(item: u16) -> String {
+    stars_core::production::item_name(item).to_string()
+}
 
 /// Draw whichever screen is selected.
 ///
@@ -49,8 +53,9 @@ pub fn central(app: &mut App, ui: &mut egui::Ui) -> Option<newgame::Action> {
     }
     match app.screen {
         Screen::Galaxy => galaxy::view(app, ui),
-        Screen::Planets => planets::view(app, ui),
-        Screen::Fleets => fleets::view(app, ui),
+        Screen::Planets => report::view(app, ui, crate::report::Report::Planets),
+        Screen::Fleets => report::view(app, ui, crate::report::Report::Fleets),
+        Screen::EnemyFleets => report::view(app, ui, crate::report::Report::EnemyFleets),
         Screen::Battles => battles::view(app, ui),
         Screen::Players => players::view(app, ui),
     }

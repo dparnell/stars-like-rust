@@ -721,7 +721,7 @@ impl Data<'_> {
                 .map_or(Key::Missing, |n| Key::Text(n.to_string())),
             1 => match (planet.starbase_design, designs) {
                 (Some(slot), Some(designs)) => designs
-                    .get(usize::from(slot))
+                    .get(starbase_slot(slot))
                     .map_or(Key::Missing, |d| Key::Text(d.name.clone())),
                 _ => Key::Missing,
             },
@@ -1041,4 +1041,479 @@ enum Class {
     BasesOnly,
     /// Ships of one class, or of none of the four named.
     Ship(Option<u8>),
+}
+
+/// The bars `DrawReportItem` paints down the right of a planet's name when it
+/// has a starbase — one per thing the base can do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bar {
+    /// The base itself: yellow when its hull can carry cargo, blue when it
+    /// cannot.
+    Base { cargo: bool },
+    /// A mass driver, in purple.
+    Driver,
+    /// A stargate, in green.
+    Gate,
+}
+
+/// How a cell reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Cell {
+    /// Nothing to draw.
+    Empty,
+    /// Text against the left edge.
+    Left(String),
+    /// Text against the right edge.
+    Right(String),
+    /// Centred text — the battle report's `SB` column, and nothing else.
+    Centre(String),
+    /// A planet's name, with whatever its starbase can do beside it.
+    Name(String, Vec<Bar>),
+    /// Two figures sharing the cell: the first at the width of the widest a
+    /// column can hold, the second against the right edge.
+    Pair(String, String),
+    /// One figure per mineral, each in its own colour.
+    Minerals(Vec<i64>),
+}
+
+/// How a figure is coloured, when the original colours it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Tint {
+    /// Black.
+    #[default]
+    Plain,
+    /// `0x0000ff` — over what the planet can staff, or a starving world.
+    Over,
+    /// `0x007f00` — exactly at the maximum.
+    AtMax,
+    /// `0x007f7f` — a value barely worth having.
+    Poor,
+}
+
+/// A cell, and how it is coloured.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Painted {
+    /// What to draw.
+    pub cell: Cell,
+    /// What colour to draw it.
+    pub tint: Tint,
+}
+
+impl Painted {
+    fn plain(cell: Cell) -> Painted {
+        Painted {
+            cell,
+            tint: Tint::Plain,
+        }
+    }
+
+    fn left(text: impl Into<String>) -> Painted {
+        Painted::plain(Cell::Left(text.into()))
+    }
+
+    fn right(text: impl Into<String>) -> Painted {
+        Painted::plain(Cell::Right(text.into()))
+    }
+
+    fn num(value: i64) -> Painted {
+        Painted::plain(Cell::Right(commas(value)))
+    }
+}
+
+/// `CommaFormatLong`: the thousands separators the report puts in every
+/// figure it can.
+#[must_use]
+pub fn commas(value: i64) -> String {
+    let negative = value < 0;
+    let digits = value.abs().to_string();
+    let mut out = String::new();
+    for (index, ch) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    if negative {
+        format!("-{out}")
+    } else {
+        out
+    }
+}
+
+/// The two dashes the original writes where there is nothing (`szDblDash`).
+pub const DOUBLE_DASH: &str = "--";
+
+/// Where a planet's starbase design sits in the flattened design list.
+///
+/// `PLANET.isb` counts within the **starbase** designs — the original adds
+/// `(isb & 0xf) * 0x93` to `lprgshdefSB` — and this project keeps ships and
+/// starbases in one list with the starbases from slot 16 on.
+fn starbase_slot(isb: u8) -> usize {
+    usize::from(isb & 0x0f) + usize::from(stars_core::startup::FIRST_STARBASE_SLOT)
+}
+
+/// Whether a starbase design carries a stargate — `IStargateFromLppl`, which
+/// looks for one among the base-only specials. The gate parts are the eight
+/// whose names begin `Stargate`; the rest of that table is mass drivers and
+/// the orbital fort's odds and ends.
+fn has_stargate(design: &stars_core::design::ShipDesign) -> bool {
+    design.slots.iter().any(|s| {
+        s.count > 0
+            && s.is(stars_core::components::slot::SPECIAL_SB)
+            && stars_core::components::SPECIALS_SB
+                .get(usize::from(s.item))
+                .is_some_and(|part| part.name.starts_with("Stargate"))
+    })
+}
+
+impl Data<'_> {
+    /// What one cell shows — `DrawReportItem` (`1108:3398`).
+    #[must_use]
+    pub fn cell(&self, report: Report, row: usize, column: usize) -> Painted {
+        match report {
+            Report::Planets => self.planet_cell(row, column),
+            Report::Fleets => self.fleet_cell(row, column),
+            Report::EnemyFleets => self.enemy_cell(row, column),
+            Report::Battles => self.battle_cell(row, column),
+        }
+    }
+
+    /// A figure against what the planet can staff: red past it, green on it.
+    fn against_max(value: i64, max: i64) -> Painted {
+        Painted {
+            cell: Cell::Right(commas(value)),
+            tint: if value > max {
+                Tint::Over
+            } else if value == max {
+                Tint::AtMax
+            } else {
+                Tint::Plain
+            },
+        }
+    }
+
+    fn planet_cell(&self, row: usize, column: usize) -> Painted {
+        let Some(planet) = self.game.planets.get(row) else {
+            return Painted::plain(Cell::Empty);
+        };
+        let designs = self.game.designs.get(self.player);
+        let base = planet
+            .starbase_design
+            .and_then(|slot| designs.and_then(|d| d.get(starbase_slot(slot))));
+        match column {
+            0 => {
+                let mut bars = Vec::new();
+                if let Some(base) = base {
+                    // `(pHVar8->hul).wtCargoMax`: the **hull's** hold, not
+                    // what the design has fitted. An Orbital Fort has none
+                    // and draws blue; every other base draws yellow.
+                    bars.push(Bar::Base {
+                        cargo: base.hull().is_some_and(|hull| hull.cargo_max != 0),
+                    });
+                    if planet.fling_warp > 0 {
+                        bars.push(Bar::Driver);
+                    }
+                    if has_stargate(base) {
+                        bars.push(Bar::Gate);
+                    }
+                }
+                Painted::plain(Cell::Name(planet.name.unwrap_or("").to_string(), bars))
+            }
+            1 => Painted::left(base.map_or(DOUBLE_DASH.to_string(), |d| d.name.clone())),
+            2 => {
+                let max = self
+                    .race()
+                    .and_then(|race| stars_core::hab::calc_planet_max_pop(planet, race))
+                    .unwrap_or(0);
+                // `pop * 100`: the file counts colonists in hundreds and the
+                // report shows people.
+                Painted {
+                    cell: Cell::Right(commas(i64::from(planet.pop) * 100)),
+                    tint: if planet.pop > max {
+                        Tint::Over
+                    } else {
+                        Tint::Plain
+                    },
+                }
+            }
+            3 => Painted::right(format!("{}%", self.capacity(planet))),
+            4 => {
+                let (now, best) = self.values(planet);
+                Painted {
+                    cell: Cell::Pair(format!("{now}%"), format!("({best}%)")),
+                    tint: if now < 0 {
+                        Tint::Over
+                    } else if now <= 10 {
+                        Tint::Poor
+                    } else {
+                        Tint::Plain
+                    },
+                }
+            }
+            5 => Painted::left(planet.queue.first().map_or(String::new(), |item| {
+                let what = if item.ship {
+                    designs
+                        .and_then(|d| d.get(usize::from(item.item)))
+                        .map_or(String::new(), |d| d.name.clone())
+                } else {
+                    stars_core::production::item_name(item.item).to_string()
+                };
+                format!("{} {what}", item.count)
+            })),
+            6 => Self::against_max(
+                i64::from(planet.mines),
+                self.race().map_or(0, |race| {
+                    i64::from(stars_core::resources::max_operable_mines(
+                        planet, race, false,
+                    ))
+                }),
+            ),
+            7 => Self::against_max(
+                i64::from(planet.factories),
+                self.race().map_or(0, |race| {
+                    i64::from(stars_core::resources::max_operable_factories(
+                        planet, race, false,
+                    ))
+                }),
+            ),
+            8 => {
+                if planet.defenses <= 0 {
+                    return Painted::right(DOUBLE_DASH);
+                }
+                let max = self.race().map_or(0, |race| {
+                    i64::from(stars_core::resources::max_operable_defenses(planet, race))
+                });
+                let coverage = self.race().map_or(0.0, |race| {
+                    1.0 - stars_core::bombing::pct_survive(planet, race, self.tech()).0
+                });
+                #[expect(clippy::cast_possible_truncation, reason = "a percentage")]
+                let pct = (coverage * 1000.0).round() as i64;
+                Painted {
+                    cell: Cell::Right(format!("{}.{}%", pct / 10, pct % 10)),
+                    tint: if i64::from(planet.defenses) > max {
+                        Tint::Over
+                    } else if i64::from(planet.defenses) == max {
+                        Tint::AtMax
+                    } else {
+                        Tint::Plain
+                    },
+                }
+            }
+            9 => Painted::plain(Cell::Minerals(
+                (0..3).map(|m| i64::from(planet.surface_min[m])).collect(),
+            )),
+            10 => {
+                let mined = self.race().map_or([0; 3], |race| {
+                    stars_core::mining::minerals_mined(planet, race, None, None)
+                });
+                Painted::plain(Cell::Minerals(
+                    (0..3).map(|m| i64::from(mined[m])).collect(),
+                ))
+            }
+            11 => Painted::plain(Cell::Minerals(
+                (0..3).map(|m| i64::from(planet.min_conc[m])).collect(),
+            )),
+            12 => {
+                let total = self.race().map_or(0, |race| {
+                    i64::from(
+                        stars_core::resources::resources_at_planet(
+                            planet,
+                            race,
+                            self.energy_tech(),
+                        )
+                        .unwrap_or(0),
+                    )
+                });
+                let research = self
+                    .game
+                    .players
+                    .get(self.player)
+                    .map_or(0, |p| i64::from(p.research_pct));
+                let spare = total - total * research / 100;
+                Painted::plain(Cell::Pair(format!("{} /", commas(total)), commas(spare)))
+            }
+            13 => Painted::left(self.name_or_dash(planet.fling_dest)),
+            14 => Painted::left(self.name_or_dash(planet.route_dest)),
+            _ => Painted::plain(Cell::Empty),
+        }
+    }
+
+    fn name_or_dash(&self, id: Option<i16>) -> String {
+        match id.map(|id| self.planet_name(id)) {
+            Some(Key::Text(name)) => name,
+            _ => DOUBLE_DASH.to_string(),
+        }
+    }
+
+    /// `PctPlanetCapacity`: how full the planet is, against what this race
+    /// could ever put there.
+    fn capacity(&self, planet: &stars_core::Planet) -> i64 {
+        self.race()
+            .and_then(|race| stars_core::hab::calc_planet_max_pop(planet, race))
+            .filter(|max| *max > 0)
+            .map_or(0, |max| i64::from(planet.pop) * 100 / i64::from(max))
+    }
+
+    /// The two habitability figures the Value column shows: what the planet
+    /// is worth now, and what it would be worth terraformed as far as this
+    /// race can take it.
+    fn values(&self, planet: &stars_core::Planet) -> (i16, i16) {
+        let Some(race) = self.race() else {
+            return (0, 0);
+        };
+        let now = stars_core::hab::pct_planet_desirability(planet, race);
+        let optimal = stars_core::terraform::optimal_env(planet, race, self.tech());
+        let best = stars_core::ai::colonise::pct_planet_opt_value(planet, race, optimal);
+        (now, best)
+    }
+
+    fn fleet_cell(&self, row: usize, column: usize) -> Painted {
+        let Some(fleet) = self.game.fleets.get(row) else {
+            return Painted::plain(Cell::Empty);
+        };
+        match column {
+            0 => Painted::left(fleet.name.clone().unwrap_or_default()),
+            1 => Painted::right(format!("#{}", fleet.id)),
+            2 => Painted::left(self.location_text(fleet)),
+            3 => Painted::left(self.destination_text(fleet)),
+            4 => Painted::right(match fleet.waypoints.len() {
+                0 | 1 => DOUBLE_DASH.to_string(),
+                n => format!("{}y", n - 1),
+            }),
+            5 => Painted::left(
+                fleet
+                    .waypoints
+                    .get(1)
+                    .map_or(String::new(), |w| crate::app::task_name(w.task).to_string()),
+            ),
+            6 => Painted::num(i64::from(fleet.cargo.fuel)),
+            7 => Painted::plain(Cell::Minerals(vec![
+                i64::from(fleet.cargo.minerals[0]),
+                i64::from(fleet.cargo.minerals[1]),
+                i64::from(fleet.cargo.minerals[2]),
+                i64::from(fleet.cargo.colonists),
+            ])),
+            8 => Painted::left(self.composition_text(fleet)),
+            9 => Painted::right(DOUBLE_DASH),
+            10 => Painted::left(
+                self.game
+                    .players
+                    .get(self.player)
+                    .and_then(|p| p.battle_plans.get(usize::from(fleet.battle_plan)))
+                    .map_or(String::new(), |plan| plan.name.clone()),
+            ),
+            11 => Painted::num(self.mass(fleet)),
+            _ => Painted::plain(Cell::Empty),
+        }
+    }
+
+    fn mass(&self, fleet: &stars_core::fleet::Fleet) -> i64 {
+        self.game
+            .designs
+            .get(usize::try_from(fleet.owner).unwrap_or(usize::MAX))
+            .map_or(0, |designs| i64::from(fleet.mass(designs)))
+    }
+
+    fn location_text(&self, fleet: &stars_core::fleet::Fleet) -> String {
+        match self.location_key(fleet) {
+            Key::Text(text) => text,
+            _ => DOUBLE_DASH.to_string(),
+        }
+    }
+
+    fn destination_text(&self, fleet: &stars_core::fleet::Fleet) -> String {
+        match fleet.waypoints.last() {
+            Some(w) if fleet.waypoints.len() > 1 => match w.target {
+                Some(id) => match self.planet_name(i16::try_from(id).unwrap_or(-1)) {
+                    Key::Text(name) => name,
+                    _ => format!("({}, {})", w.position.x, w.position.y),
+                },
+                None => format!("({}, {})", w.position.x, w.position.y),
+            },
+            _ => DOUBLE_DASH.to_string(),
+        }
+    }
+
+    /// The Composition column: the design most of the fleet is, and how many
+    /// other designs are aboard, which the original writes as a `+`.
+    fn composition_text(&self, fleet: &stars_core::fleet::Fleet) -> String {
+        let owner = usize::try_from(fleet.owner).unwrap_or(usize::MAX);
+        let Some(designs) = self.game.designs.get(owner) else {
+            return String::new();
+        };
+        let Some(primary) = stars_core::fleet::primary_design(fleet, designs) else {
+            return String::new();
+        };
+        let name = designs
+            .get(primary.design)
+            .map_or(String::new(), |d| d.name.clone());
+        let count: i32 = fleet
+            .stacks
+            .iter()
+            .filter(|s| usize::from(s.design) == primary.design)
+            .map(|s| s.count)
+            .sum();
+        if primary.distinct > 1 {
+            format!("{name} {count}+")
+        } else {
+            format!("{name} {count}")
+        }
+    }
+
+    fn enemy_cell(&self, row: usize, column: usize) -> Painted {
+        let Some(fleet) = self.game.fleets.get(row) else {
+            return Painted::plain(Cell::Empty);
+        };
+        match column {
+            0 => Painted::left(fleet.name.clone().unwrap_or_default()),
+            1 => Painted::right(format!("#{}", fleet.id)),
+            2 => Painted::left(self.location_text(fleet)),
+            3 => Painted::right(
+                fleet
+                    .warp
+                    .filter(|w| *w > 0)
+                    .map_or(DOUBLE_DASH.to_string(), |w| format!("w{w}")),
+            ),
+            4 => Painted::num(self.mass(fleet)),
+            5 => Painted::left(self.composition_text(fleet)),
+            6 => Painted::num(i64::from(fleet.ships())),
+            7 => Painted::num(self.class_count(fleet, None)),
+            8 => Painted::num(self.class_count(fleet, Some(2))),
+            9 => Painted::num(self.class_count(fleet, Some(3))),
+            10 => Painted::num(self.class_count(fleet, Some(5))),
+            11 => Painted::num(self.class_count(fleet, Some(4))),
+            _ => Painted::plain(Cell::Empty),
+        }
+    }
+
+    fn battle_cell(&self, row: usize, column: usize) -> Painted {
+        let Some(battle) = self.battles.get(row) else {
+            return Painted::plain(Cell::Empty);
+        };
+        if column == 0 {
+            return Painted::left(match self.battle_key(row, 0) {
+                Key::Text(text) => text,
+                _ => DOUBLE_DASH.to_string(),
+            });
+        }
+        if column == 1 {
+            let ours = self.battle_units(battle, true, false, Class::BasesOnly) > 0;
+            let theirs = self.battle_units(battle, false, true, Class::BasesOnly) > 0;
+            return Painted::plain(Cell::Centre(
+                if ours {
+                    "O"
+                } else if theirs {
+                    "T"
+                } else {
+                    " "
+                }
+                .to_string(),
+            ));
+        }
+        match self.battle_key(row, column) {
+            Key::Num(value) => Painted::num(value),
+            Key::Text(text) => Painted::left(text),
+            Key::Missing => Painted::plain(Cell::Empty),
+        }
+    }
 }

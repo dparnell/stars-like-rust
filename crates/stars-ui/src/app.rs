@@ -29,6 +29,9 @@ pub enum Screen {
     Planets,
     /// Fleet list.
     Fleets,
+    /// Everybody else's fleets — the original's third report, which this
+    /// project had no screen for until the report tables were built.
+    EnemyFleets,
     /// Battle playback.
     Battles,
     /// Player and race summary.
@@ -37,10 +40,11 @@ pub enum Screen {
 
 impl Screen {
     /// Every screen, in the order a frontend should offer them.
-    pub const ALL: [Screen; 5] = [
+    pub const ALL: [Screen; 6] = [
         Screen::Galaxy,
         Screen::Planets,
         Screen::Fleets,
+        Screen::EnemyFleets,
         Screen::Battles,
         Screen::Players,
     ];
@@ -52,6 +56,7 @@ impl Screen {
             Screen::Galaxy => "Galaxy",
             Screen::Planets => "Planets",
             Screen::Fleets => "Fleets",
+            Screen::EnemyFleets => "Others' Fleets",
             Screen::Battles => "Battles",
             Screen::Players => "Players",
         }
@@ -412,6 +417,12 @@ pub struct App {
     /// Which report **F3** comes back to: the one last open, and the planets
     /// until one has been.
     pub last_report: Screen,
+    /// The four report windows' state — which column each sorts on, which
+    /// columns it shows, and which is open. See [`crate::report`].
+    pub reports: crate::report::Reports,
+    /// The column menu a header click opened: the report, the column, and
+    /// where the click was.
+    pub report_menu: Option<(crate::report::Report, usize, egui::Pos2)>,
     /// The four saved cargo orders the blue diamond offers (`vrgZip`).
     pub zip_orders: [ZipOrder; 4],
     /// Which slot the Customize dialog is showing, while it is open.
@@ -2254,7 +2265,7 @@ impl App {
                         .filter(|d| d.hull_id >= 0 && !d.name.is_empty())
                         .map_or_else(|| format!("Design #{}", entry.item), |d| d.name.clone())
                 } else {
-                    crate::views::planets::item_name(entry.item)
+                    crate::views::item_name(entry.item)
                 };
                 let mark = who.as_ref().map_or(EtaMark::Ordinary, |who| {
                     stars_core::production::eta(planet, who, research_pct, designs, index)
@@ -4918,7 +4929,7 @@ pub(crate) fn env_text(variable: usize, clicks: i8) -> String {
 }
 
 /// The name of a waypoint task, as the survey pane spells it.
-fn task_name(task: u8) -> &'static str {
+pub(crate) fn task_name(task: u8) -> &'static str {
     match task {
         stars_formats::task::TRANSPORT => "Transport",
         stars_formats::task::COLONIZE => "Colonize",
