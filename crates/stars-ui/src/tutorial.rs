@@ -1735,6 +1735,60 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 12,
+        idt: 312,
+        escape: None,
+        stages: &[
+            hint(
+                0x139,
+                Check::Selection {
+                    class: grobj::PLANET,
+                    id: 0x08,
+                },
+            ),
+            // Item 0x0c is a planetary installation the new colony builds,
+            // with leftover-only research ticked.
+            ask(
+                0x13c,
+                Check::QueueLength {
+                    planet: 0x08,
+                    count: 3,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            ask(
+                0x13e,
+                Check::Queue {
+                    planet: 0x08,
+                    slot: 0,
+                    ship: false,
+                    item: 0x0c,
+                    count: 2,
+                    no_research: Some(true),
+                },
+            ),
+            ask(
+                0x13f,
+                Check::QueueLength {
+                    planet: 0x0d,
+                    count: 3,
+                    cmp: Cmp::AtLeast,
+                },
+            ),
+            ask(
+                0x13f,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 1,
+                    ship: true,
+                    item: 3,
+                    count: 2,
+                    no_research: Some(false),
+                },
+            ),
+        ],
+    },
 ];
 
 /// The Scrap Fleet task id.
