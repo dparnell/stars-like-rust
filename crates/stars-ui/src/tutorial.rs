@@ -3077,6 +3077,39 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    // Year 28. One page.
+    Step {
+        turn: 28,
+        idt: 552,
+        escape: None,
+        stages: &[
+            hint(
+                0x228,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 4,
+                },
+            ),
+            ask(0x22a, at_planet(4, 1, 0x05, ANY)),
+            hint(
+                0x22b,
+                Check::Messages {
+                    message: 6,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            ask(0x22c, at_planet(0x0c, 1, 0x0a, ANY)),
+            ask(
+                0x22d,
+                Check::Messages {
+                    message: 9999,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+        ],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
