@@ -2850,6 +2850,62 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    // Year 26. Two colony ships split apart and sent to different planets.
+    Step {
+        turn: 26,
+        idt: 512,
+        escape: None,
+        stages: &[
+            hint(
+                0x200,
+                Check::Messages {
+                    message: 4,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            hint(
+                0x201,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 9,
+                },
+            ),
+            // Ten fleets means the split has not happened yet; the page
+            // wants eleven and one colonize order on each half.
+            ask(
+                0x203,
+                Check::FleetCount {
+                    count: 10,
+                    cmp: Cmp::NotExactly,
+                },
+            ),
+            ask(
+                0x204,
+                Check::ColonizeWaypoint {
+                    fleet: 9,
+                    id: 0x01,
+                    warp: ANY,
+                },
+            ),
+            ask(
+                0x205,
+                Check::ColonizeWaypoint {
+                    fleet: 10,
+                    id: 0x17,
+                    warp: ANY,
+                },
+            ),
+            ask(
+                0x206,
+                Check::Messages {
+                    message: 9999,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+        ],
+    },
 ];
 
 /// "Unload All Colonists": nothing on the four other holds.
