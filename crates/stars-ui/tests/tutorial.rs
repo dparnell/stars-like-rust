@@ -676,3 +676,82 @@ fn year_two_is_whole() {
     assert_eq!(year_two.iter().filter(|s| s.escape.is_some()).count(), 5);
     assert!(year_two.last().expect("page 12").escape.is_none());
 }
+
+/// The messages check asks two different questions of a message kind: with
+/// `fFilter` set, whether that kind has been **filtered out**; without it,
+/// whether the message in front is one.
+#[test]
+fn the_message_check_asks_about_filtering() {
+    let mut app = a_game();
+    let asking = Check::Messages {
+        message: -1,
+        kind: Some(stars_core::message::id::BUILT_FACTORIES),
+        filter: true,
+    };
+    // Nothing filtered yet, and no such message either.
+    assert!(!app.tutor_check(&asking));
+
+    // Filtering that kind is what the page wants — "Filter it out by
+    // clicking the blue check mark in the upper left hand corner".
+    app.filter_message(stars_core::message::id::BUILT_FACTORIES, true);
+    let filtered = app
+        .game
+        .as_ref()
+        .expect("a game")
+        .players
+        .get(app.local_player())
+        .map(|p| p.message_filter);
+    assert!(filtered.is_some());
+}
+
+/// A queue rung can insist on "contribute only leftover resources to
+/// research", which is `FCheckQueue`'s last argument.
+#[test]
+fn a_queue_rung_can_ask_about_leftover_research() {
+    let mut app = a_game();
+    let (id, _) = {
+        let game = app.game.as_ref().expect("a game");
+        let planet = game
+            .planets
+            .iter()
+            .find(|p| p.owner == Some(0))
+            .expect("a homeworld");
+        (planet.id, planet.no_research)
+    };
+    let asking = |no_research| Check::Queue {
+        planet: id,
+        slot: 0,
+        ship: false,
+        item: stars_core::production::item::FACTORY,
+        count: 3,
+        no_research,
+    };
+
+    {
+        let game = app.game.as_mut().expect("a game");
+        let planet = game
+            .planets
+            .iter_mut()
+            .find(|p| p.id == id)
+            .expect("the homeworld");
+        planet.queue = vec![stars_core::production::QueueItem {
+            count: 3,
+            item: stars_core::production::item::FACTORY,
+            ship: false,
+            completion: 0,
+        }];
+        planet.no_research = false;
+    }
+    assert!(app.tutor_check(&asking(None)), "no opinion either way");
+    assert!(app.tutor_check(&asking(Some(false))));
+    assert!(!app.tutor_check(&asking(Some(true))));
+
+    if let Some(game) = app.game.as_mut() {
+        game.planets
+            .iter_mut()
+            .find(|p| p.id == id)
+            .expect("the homeworld")
+            .no_research = true;
+    }
+    assert!(app.tutor_check(&asking(Some(true))));
+}

@@ -11614,14 +11614,39 @@ impl App {
             },
             // `9999` means every message read; the pane's index having run
             // past the last is how that shows here.
-            Check::Messages { message, kind } => {
+            Check::Messages {
+                message,
+                kind,
+                filter,
+            } => {
                 let count = i32::try_from(self.messages().len()).unwrap_or(0);
                 let read = if *message == 9999 {
                     count == 0 || self.message_index >= count - 1
                 } else {
                     *message < 0 || self.message_index >= *message
                 };
-                read && kind.is_none_or(|_| true)
+                if !read {
+                    return false;
+                }
+                match (kind, filter) {
+                    // No kind: reading is the whole question.
+                    (None, _) => true,
+                    // With `fFilter`, the question is whether that kind has
+                    // been **filtered out** — "Filter it out by clicking the
+                    // blue check mark in the upper left hand corner of the
+                    // Messages pane."
+                    (Some(id), true) => self
+                        .messages()
+                        .iter()
+                        .find(|m| m.id == *id)
+                        .zip(game.players.get(me))
+                        .is_some_and(|(m, p)| m.hidden_by(&p.message_filter)),
+                    // Without it, whether the message in front is one.
+                    (Some(id), false) => self
+                        .messages()
+                        .get(usize::try_from(self.message_index).unwrap_or(0))
+                        .is_some_and(|m| m.id == *id),
+                }
             }
             Check::FleetWaypoint {
                 fleet,
@@ -11664,13 +11689,17 @@ impl App {
                 ship,
                 item,
                 count,
+                no_research,
             } => game
                 .planets
                 .iter()
                 .find(|p| p.id == *planet)
-                .and_then(|p| p.queue.get(*slot))
-                .is_some_and(|entry| {
-                    entry.ship == *ship && entry.item == *item && i32::from(*count) == entry.count
+                .and_then(|p| Some((p, p.queue.get(*slot)?)))
+                .is_some_and(|(planet, entry)| {
+                    entry.ship == *ship
+                        && entry.item == *item
+                        && i32::from(*count) == entry.count
+                        && no_research.is_none_or(|want| planet.no_research == want)
                 }),
             Check::Research { field, next, pct } => game.players.get(me).is_some_and(|p| {
                 p.research.current_field == *field

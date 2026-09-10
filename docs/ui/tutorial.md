@@ -1,7 +1,7 @@
 # The tutorial
 
 Status: **in progress** — the text, the checks and the advance machine are
-written; twelve of the eighty pages are transcribed, and the hooks, the window
+written; fourteen of the eighty pages are transcribed, and the hooks, the window
 and the tutorial world are not written yet.
 
 The original ships a tutorial that walks a new player through **36 years of a
@@ -69,7 +69,7 @@ come from a vocabulary of **fifteen** verbs:
 |------|------|--------------|
 | `FCheckSelection` (`10f8:6af4`) | 68 | is *that* object selected |
 | `FCheckFleetWP` (`10f8:6df4`) | 66 | does fleet *f* have waypoint *n* at *x* |
-| `FCheckMessages` (`10f8:6c48`) | 60 | have the messages been read |
+| `FCheckMessages` (`10f8:6c48`) | 60 | have the messages been read — or, with `fFilter`, has this kind been filtered out |
 | `FCheckQueue` (`10f8:7442`) | 35 | is *that* in the production queue |
 | `FCheckSummary` (`10f8:69e2`) | 18 | is the summary pane showing *that* |
 | `FCheckColonizeWP` (`10f8:70c0`) | 16 | a colonize task set where it should be |
@@ -264,7 +264,7 @@ eleven of the fifteen verbs; the chain-of-rungs page model; and
 `AdvanceTutor`'s skipping loop, which steps on by eight while the page's task
 is done so a page satisfied in advance is never shown.
 
-Twelve of the eighty pages are transcribed — the first three years, whole. Pages not yet transcribed are simply
+Fourteen of the eighty pages are transcribed — the first four years, whole. Pages not yet transcribed are simply
 absent from the table and the tutorial stops at the first gap rather than
 pretending to know what comes next.
 

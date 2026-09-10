@@ -19,6 +19,18 @@ use stars_formats::{MessageFilter, MessageRecord};
 /// with what the binary does at each of these call sites — a useful check on
 /// having read the right routine.
 pub mod id {
+    /// `idmHaveBuiltFactory`: one factory went up on a planet.
+    pub const BUILT_FACTORY: u16 = 53;
+    /// `idmHaveBuiltFactories`: several did.
+    ///
+    /// The commonest message in the game, and the one the tutorial teaches
+    /// you to filter: *"Your first message is quite common and we don't need
+    /// to look at it every year."*
+    pub const BUILT_FACTORIES: u16 = 54;
+    /// `idmHaveBuiltMine` and `idmHaveBuiltMines`, its two neighbours.
+    pub const BUILT_MINE: u16 = 55;
+    /// Several mines.
+    pub const BUILT_MINES: u16 = 56;
     /// `idmHasCompletedAssignedOrders`: a fleet has run out of orders.
     /// `SatisfyOrders`' cancel path.
     pub const ORDERS_COMPLETE: u16 = 0x4e;

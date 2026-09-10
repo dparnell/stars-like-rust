@@ -86,8 +86,14 @@ pub enum Check {
     /// `FCheckMessages` (`10f8:6c48`): the messages have been read.
     ///
     /// `9999` means "all of them"; anything else is "you have reached this
-    /// one". `kind` is `None` for "any message".
-    Messages { message: i32, kind: Option<u16> },
+    /// one". `kind` is `None` for "any message"; with a kind, `filter` says
+    /// which question is being asked about it — whether that kind has been
+    /// **filtered out**, or whether the message in front is one of them.
+    Messages {
+        message: i32,
+        kind: Option<u16>,
+        filter: bool,
+    },
     /// `FCheckFleetWP` (`10f8:6df4`): a fleet's waypoint is where it should
     /// be, doing what it should.
     FleetWaypoint {
@@ -121,6 +127,9 @@ pub enum Check {
         ship: bool,
         item: u16,
         count: u16,
+        /// Whether the entry is marked *contribute only leftover resources
+        /// to research*, or `None` when the page does not care.
+        no_research: Option<bool>,
     },
     /// `FCheckResearch` (`10f8:6da4`): the field, what follows it, and the
     /// percentage.
@@ -263,6 +272,7 @@ pub static STEPS: &[Step] = &[
             Check::Messages {
                 message: 9999,
                 kind: None,
+                filter: false,
             },
         )],
     },
@@ -368,8 +378,9 @@ pub static STEPS: &[Step] = &[
                 planet: 0x0d,
                 slot: 0,
                 ship: false,
-                item: 7,
+                item: stars_core::production::item::FACTORY,
                 count: 20,
+                no_research: Some(false),
             },
         )],
     },
@@ -423,6 +434,7 @@ pub static STEPS: &[Step] = &[
                 Check::Messages {
                     message: 2,
                     kind: None,
+                    filter: false,
                 },
             ),
             ask(
@@ -452,6 +464,7 @@ pub static STEPS: &[Step] = &[
                 Check::Messages {
                     message: 4,
                     kind: None,
+                    filter: false,
                 },
             ),
             ask(
@@ -509,6 +522,7 @@ pub static STEPS: &[Step] = &[
                 Check::Messages {
                     message: 9999,
                     kind: None,
+                    filter: false,
                 },
             ),
             ask(
@@ -551,6 +565,100 @@ pub static STEPS: &[Step] = &[
                     fleet: 2,
                     id: 0x10,
                     warp: ANY,
+                },
+            ),
+        ],
+    },
+    // Year 3. The first message the tutorial asks you to **filter**, and the
+    // first auto-build order.
+    Step {
+        turn: 3,
+        idt: 96,
+        escape: None,
+        stages: &[
+            // "Your first message is quite common and we don't need to look
+            // at it every year. Filter it out by clicking the blue check
+            // mark in the upper left hand corner of the Messages pane."
+            ask(
+                0x61,
+                Check::Messages {
+                    message: -1,
+                    kind: Some(stars_core::message::id::BUILT_FACTORIES),
+                    filter: true,
+                },
+            ),
+            hint(
+                0x62,
+                Check::Selection {
+                    class: grobj::PLANET,
+                    id: 0x0d,
+                },
+            ),
+            // Thirty on auto-build: shift-Add three times, ten a go.
+            ask(
+                0x66,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 0,
+                    ship: false,
+                    item: stars_core::production::item::AUTO_FACTORY,
+                    count: 30,
+                    no_research: Some(false),
+                },
+            ),
+        ],
+    },
+    Step {
+        turn: 3,
+        idt: 104,
+        escape: None,
+        stages: &[
+            hint(
+                0x68,
+                Check::Selection {
+                    class: grobj::PLANET,
+                    id: 0x10,
+                },
+            ),
+            // Three factories then three mines, with "contribute only
+            // leftover resources to research" ticked — which is what the
+            // `fNoResearch` argument is.
+            ask(
+                0x6b,
+                Check::Queue {
+                    planet: 0x10,
+                    slot: 0,
+                    ship: false,
+                    item: stars_core::production::item::FACTORY,
+                    count: 3,
+                    no_research: Some(true),
+                },
+            ),
+            ask(
+                0x6b,
+                Check::Queue {
+                    planet: 0x10,
+                    slot: 1,
+                    ship: false,
+                    item: stars_core::production::item::MINE,
+                    count: 3,
+                    no_research: Some(true),
+                },
+            ),
+            hint(
+                0x6d,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 3,
+                },
+            ),
+            // Fill the freighter with colonists for the new colony.
+            ask(
+                0x6e,
+                Check::Cargo {
+                    fleet: 3,
+                    minerals: [0, 0, 0],
+                    colonists: 25,
                 },
             ),
         ],
