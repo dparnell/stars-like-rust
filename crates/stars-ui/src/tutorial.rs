@@ -1328,6 +1328,46 @@ pub static STEPS: &[Step] = &[
             ),
         ],
     },
+    Step {
+        turn: 9,
+        idt: 240,
+        escape: None,
+        stages: &[
+            hint(
+                0xf0,
+                Check::Summary {
+                    class: grobj::PLANET,
+                    id: 0x02,
+                },
+            ),
+            hint(
+                0xf1,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 9,
+                },
+            ),
+            hint(
+                0xf2,
+                Check::Cargo {
+                    fleet: 9,
+                    minerals: [0, 0, 0],
+                    colonists: 25,
+                },
+            ),
+            ask(
+                0xf3,
+                Check::ColonizeWaypoint {
+                    fleet: 9,
+                    id: 0x02,
+                    warp: ANY,
+                },
+            ),
+            // Armed Probe #1's next stop is moved from planet 2 to planet 4
+            // now that a colony ship is going to 2.
+            ask(0xf5, at_planet(0, 1, 0x04, ANY)),
+        ],
+    },
 ];
 
 /// The Colonize task id.
