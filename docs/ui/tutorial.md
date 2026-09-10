@@ -1,7 +1,7 @@
 # The tutorial
 
 Status: **in progress** — the text, the checks and the advance machine are
-written; eighteen of the eighty pages are transcribed, and the hooks, the window
+written; twenty-two of the eighty pages are transcribed, and the hooks, the window
 and the tutorial world are not written yet.
 
 The original ships a tutorial that walks a new player through **36 years of a
@@ -277,7 +277,7 @@ eleven of the fifteen verbs; the chain-of-rungs page model; and
 `AdvanceTutor`'s skipping loop, which steps on by eight while the page's task
 is done so a page satisfied in advance is never shown.
 
-Eighteen of the eighty pages are transcribed — the first five years, whole. Pages not yet transcribed are simply
+Twenty-two of the eighty pages are transcribed — years zero to six, whole. Pages not yet transcribed are simply
 absent from the table and the tutorial stops at the first gap rather than
 pretending to know what comes next.
 

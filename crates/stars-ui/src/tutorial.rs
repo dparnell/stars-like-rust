@@ -126,6 +126,12 @@ pub enum Check {
         /// One action per cargo, ironium first and fuel last.
         goal: [stars_formats::XferAction; 5],
     },
+    /// Whether a fleet has **Repeat Orders** ticked.
+    ///
+    /// Read off `pfl->det` bit 9 in the arms, the same bit
+    /// `ShipCommandProc` sets from the pane's checkbox. Page 22 wants it on
+    /// so the freighter shuttles back and forth without being told again.
+    RepeatOrders { fleet: u16 },
     /// How many entries a planet's production queue has.
     ///
     /// Read straight off the queue's own count byte in the arms, like
@@ -195,6 +201,7 @@ impl Check {
             Check::TransportWaypoint { .. } => "transport waypoint",
             Check::FleetOrders { .. } => "order count",
             Check::QueueLength { .. } => "queue length",
+            Check::RepeatOrders { .. } => "repeat orders",
         }
     }
 }
@@ -825,6 +832,163 @@ pub static STEPS: &[Step] = &[
             // fleet and its item is a design slot.
             ask(
                 0x8f,
+                Check::Queue {
+                    planet: 0x0d,
+                    slot: 1,
+                    ship: true,
+                    item: 2,
+                    count: 1,
+                    no_research: Some(false),
+                },
+            ),
+        ],
+    },
+    // Year 5. The second colony goes out, and the scanner is switched to a
+    // value view and back.
+    Step {
+        turn: 5,
+        idt: 144,
+        escape: None,
+        stages: &[
+            hint(
+                0x90,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 2,
+                },
+            ),
+            ask(
+                0x92,
+                Check::Cargo {
+                    fleet: 2,
+                    minerals: [0, 0, 0],
+                    colonists: 25,
+                },
+            ),
+            hint(
+                0x96,
+                Check::Scanner {
+                    view: Some(3),
+                    zoom: None,
+                },
+            ),
+            ask(0x97, at_planet(2, 1, 0x0e, ANY)),
+        ],
+    },
+    Step {
+        turn: 5,
+        idt: 152,
+        escape: None,
+        stages: &[
+            ask(
+                0x98,
+                Check::ColonizeWaypoint {
+                    fleet: 2,
+                    id: 0x0e,
+                    warp: ANY,
+                },
+            ),
+            // "Switch the Scanner back to normal view by clicking the
+            // leftmost toolbar button" — view 0 is that button.
+            hint(
+                0x99,
+                Check::Scanner {
+                    view: Some(0),
+                    zoom: None,
+                },
+            ),
+            hint(
+                0x9a,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 3,
+                },
+            ),
+            ask(0x9b, at_planet(3, 1, 0x0d, ANY)),
+            hint(
+                0x9c,
+                Check::Messages {
+                    message: 9999,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            ask(
+                0x9f,
+                Check::FleetOrders {
+                    fleet: 0,
+                    count: 5,
+                    cmp: Cmp::NotExactly,
+                },
+            ),
+        ],
+    },
+    // Year 6. The freighter is set to shuttle: load at Prune, unload at the
+    // homeworld, and repeat.
+    Step {
+        turn: 6,
+        idt: 160,
+        escape: None,
+        stages: &[
+            hint(
+                0xa0,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 3,
+                },
+            ),
+            hint(0xa3, at_planet(3, 1, 0x0c, ANY)),
+            hint(0xa4, at_planet(3, 1, 0x0c, TRANSPORT_TASK)),
+            // "right click on the blue diamond and select QuikLoad from the
+            // Zip menu."
+            ask(
+                0xa5,
+                Check::TransportWaypoint {
+                    fleet: 3,
+                    order: 1,
+                    id: 0x0c,
+                    warp: ANY,
+                    goal: [stars_formats::XferAction::LoadAll; 5],
+                },
+            ),
+            ask(0xa6, at_planet(3, 2, 0x0d, ANY)),
+        ],
+    },
+    Step {
+        turn: 6,
+        idt: 168,
+        escape: None,
+        stages: &[
+            // "Right click on the blue diamond and select QuikDrop from the
+            // Zip menu."
+            ask(
+                0xaa,
+                Check::TransportWaypoint {
+                    fleet: 3,
+                    order: 2,
+                    id: 0x0d,
+                    warp: ANY,
+                    goal: [stars_formats::XferAction::UnloadAll; 5],
+                },
+            ),
+            ask(0xab, Check::RepeatOrders { fleet: 3 }),
+            hint(
+                0xad,
+                Check::Selection {
+                    class: grobj::PLANET,
+                    id: 0x0d,
+                },
+            ),
+            ask(
+                0xae,
+                Check::QueueLength {
+                    planet: 0x0d,
+                    count: 3,
+                    cmp: Cmp::Exactly,
+                },
+            ),
+            ask(
+                0xaf,
                 Check::Queue {
                     planet: 0x0d,
                     slot: 1,

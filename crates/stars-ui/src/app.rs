@@ -11759,6 +11759,7 @@ impl App {
                     })
                 })
             }
+            Check::RepeatOrders { fleet } => by_id(*fleet).is_some_and(|f| f.repeat_orders),
             Check::QueueLength { planet, count, cmp } => game
                 .planets
                 .iter()
