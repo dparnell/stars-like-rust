@@ -36,6 +36,7 @@ pub mod art;
 pub mod dialog;
 pub mod message;
 pub mod popup;
+pub mod recent;
 pub mod report;
 pub mod score;
 pub mod statusbar;

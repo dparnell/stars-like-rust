@@ -16,6 +16,8 @@ pub struct StarsApp {
     host_since: f64,
     /// The files the last "save a new game" wrote, to report back.
     written: Vec<String>,
+    /// The File menu's tail: the games opened most recently.
+    recent: stars_ui::recent::Recent,
 }
 
 impl StarsApp {
@@ -25,18 +27,49 @@ impl StarsApp {
         let mut app = App::new();
         // There is somebody here to ask, so a guarded turn asks.
         app.prompt_for_password = true;
+        let recent = read_recent();
+        // `ReadIniSettings` copies `[Files] File1` into `szBase` and sets the
+        // startup-file bit, so a launch with nothing to go on reopens the
+        // game last played.
+        let open = open.or_else(|| recent.startup_file().map(PathBuf::from));
+        let mut opened = None;
         if let Some(path) = open {
             if let Err(e) = app.open(&path) {
                 app.error = Some(e);
+            } else {
+                opened = Some(path);
             }
         }
         let mut this = Self {
             app,
             written: Vec::new(),
             host_since: 0.0,
+            recent,
         };
-        this.find_art(None);
+        if let Some(path) = opened.as_deref() {
+            this.note_opened(path);
+        }
+        this.find_art(opened.as_deref());
         this
+    }
+
+    /// Put a game at the head of the recently-opened list and write the list
+    /// out again, if anything actually moved.
+    fn note_opened(&mut self, path: &Path) {
+        if self.recent.opened(&path.display().to_string()) {
+            write_recent(&self.recent);
+        }
+    }
+
+    /// Open a game by path, from the menu's recently-used list.
+    fn open_path(&mut self, path: &Path) {
+        if let Err(e) = self.app.open(path) {
+            self.app.error = Some(e);
+        } else {
+            self.read_templates(path);
+            self.note_opened(path);
+            self.find_art(Some(path));
+        }
     }
 
     /// Look for a copy of the original executable and read its pictures.
@@ -382,6 +415,7 @@ impl StarsApp {
                 self.app.error = Some(e);
             } else {
                 self.read_templates(&path);
+                self.note_opened(&path);
                 // A game opened from its own directory may have the original
                 // sitting beside it, which is the likeliest place of all.
                 self.find_art(Some(&path));
@@ -933,6 +967,32 @@ impl eframe::App for StarsApp {
                             }
                         }
                     }
+                    // `InitializeMenu` rebuilds this every time the menu
+                    // drops: one item per remembered game, captioned with
+                    // its number and its whole path, inserted by position
+                    // just above Exit.
+                    if !self.recent.is_empty() {
+                        ui.separator();
+                        let mut reopen = None;
+                        for index in 0..self.recent.paths().len() {
+                            let Some(caption) = self.recent.caption(index) else {
+                                continue;
+                            };
+                            // The `&` marks the accelerator in Windows; egui
+                            // draws the text as it is given, so it goes.
+                            if ui.button(caption.replacen('&', "", 1)).clicked() {
+                                reopen = Some(index);
+                            }
+                        }
+                        if let Some(index) = reopen {
+                            ui.close_menu();
+                            if let Some(path) =
+                                self.recent.paths().get(index).map(PathBuf::from)
+                            {
+                                self.open_path(&path);
+                            }
+                        }
+                    }
                     ui.separator();
                     if ui.button("Exit").clicked() {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -1476,6 +1536,38 @@ pub fn run(open: Option<PathBuf>) -> eframe::Result<()> {
             Ok(Box::new(StarsApp::new(open)))
         }),
     )
+}
+
+/// Where this project keeps what the original keeps in `stars.ini`.
+///
+/// The original writes `stars.ini` in the Windows directory, which has no
+/// equivalent here; this is the same file, in the same format, in the place
+/// each system keeps a program's settings — `%APPDATA%` on Windows,
+/// `$XDG_CONFIG_HOME` or `~/.config` elsewhere.
+fn ini_path() -> Option<PathBuf> {
+    let base = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from))
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
+    Some(base.join("stars-like-rust").join("stars.ini"))
+}
+
+/// Read the recently-opened list. A missing or unreadable file is simply an
+/// empty list — the original treats a missing key the same way.
+fn read_recent() -> stars_ui::recent::Recent {
+    ini_path()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .map(|text| stars_ui::recent::Recent::from_ini(&text))
+        .unwrap_or_default()
+}
+
+/// Write it back. Failing costs nothing but the list.
+fn write_recent(recent: &stars_ui::recent::Recent) {
+    let Some(path) = ini_path() else { return };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(path, recent.to_ini());
 }
 
 /// Turn a game name into something safe to suggest as a file name.

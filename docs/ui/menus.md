@@ -31,9 +31,32 @@ below and gathered in [What the handler decides](#what-the-handler-decides).
 
 `InitializeMenu` rebuilds the tail of this menu every time it opens: it
 deletes ids `0x10cc`–`0x10d4` and reinserts up to **nine most recently used
-files** from `vrgszMRU`, each captioned `&1 <name>` … `&9 <name>` and
-inserted by position at index 9 — which puts them between the last separator
-and `E&xit`.
+files** from `vrgszMRU`, each captioned `&1 ` and the whole path — not the
+file's name alone — and inserted by position at index 9, which puts them
+between the last separator and `E&xit`.
+
+The list lives in `stars.ini`, which `ReadIniSettings` (`1000:1db3`) reads
+at startup:
+
+```ini
+[Files]
+File1=C:\STARS\GAME.M1
+File2=...
+```
+
+Three rules come out of that routine and out of `FLoadGame` (`1070:303d`),
+which is what promotes an entry:
+
+* a value of **fewer than four characters is no entry** and is thrown away;
+* after reading, the slots are **compacted**, so a missing `File3` does not
+  strand `File4`;
+* promotion compares **case-insensitively** (`_fstricmp`) and
+  short-circuits — a game already at the front is not promoted and nothing
+  moves, which is also what decides whether the file needs writing again.
+
+`File1` does double duty: `ReadIniSettings` copies it into `szBase` and sets
+the startup-file bit, so a launch with nothing else to go on **reopens the
+game last played**.
 
 ## `&View`
 
@@ -173,9 +196,21 @@ Not there, because there is nothing behind them yet: `Close`,
 `Introduction`, `Player's Guide` and `About Stars!`. `Wait for New` opens this
 project's host mode, which is the nearest thing it has.
 
-**The one real gap is the File menu's recently-used list.** Everything needed
-to build it is above; what is missing is somewhere to keep the nine names
-between runs, which this shell has no store for yet.
+The File menu's recently-used list is there, with all three of the rules
+above and the startup file. The original writes `stars.ini` into the Windows
+directory, which has no equivalent here, so this writes the same file in the
+same format where each system keeps a program's settings — `%APPDATA%` on
+Windows, `$XDG_CONFIG_HOME` or `~/.config` elsewhere.
+
+That file is the one place the original keeps rather more than this project
+yet does. `ReadIniSettings` also restores, and nothing here stores: the four
+report windows' positions and sizes (`[Windows] ReportPlanWin` and its
+three), **which columns each report shows and what it sorts on**
+(`ReportPlanFld` and `ReportPlanSort`, the latter packing `icolSort` with
+`fAscending` in bit 8 — and not `iSubsort`), the scanner's zoom, filters and
+view mode, the window layout, the toolbar, the four zip orders and five
+production templates, the default password, and the font names. All of it is
+the same mechanism as the list above, so each is a key away.
 
 Two items are this project's own and marked so in the code. `Production…`
 under Commands is a third way to a dialog the original reaches two other
