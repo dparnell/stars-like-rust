@@ -150,7 +150,7 @@ fn planet(app: &mut App, ui: &mut egui::Ui) {
     }
 
     let min_top = rect.top() + block + 6.0;
-    let scale = crate::MINERAL_GRAPH_MAX;
+    let scale = app.mineral_scale;
     let min_rect = frame(min_top);
     for (index, bar) in minerals.iter().enumerate() {
         #[allow(clippy::cast_precision_loss)]
@@ -196,6 +196,50 @@ fn planet(app: &mut App, ui: &mut egui::Ui) {
         font.clone(),
         text,
     );
+
+    // `MineClick`'s `htMineScale`: the scale itself is a hit area, and
+    // either button on it offers the nine the graph can be drawn against.
+    let strip = egui::Rect::from_min_max(
+        egui::pos2(rect.left(), min_rect.bottom()),
+        egui::pos2(rect.right(), tick_y + line),
+    );
+    let response = ui.interact(strip, ui.id().with("mineral scale"), egui::Sense::click());
+    if response.clicked() || response.secondary_clicked() {
+        app.mineral_menu = response.interact_pointer_pos();
+    }
+    mineral_scale_menu(app, ui);
+}
+
+/// The nine scales, with a tick on the one in use.
+fn mineral_scale_menu(app: &mut App, ui: &mut egui::Ui) {
+    let Some(at) = app.mineral_menu else {
+        return;
+    };
+    let (captions, checked) = app.mineral_scale_menu();
+    let mut chose = None;
+    let area = egui::Area::new(ui.id().with("mineral scale menu"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(at)
+        .show(ui.ctx(), |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                for (index, caption) in captions.iter().enumerate() {
+                    let mark = if checked == Some(index) {
+                        "\u{2713} "
+                    } else {
+                        "    "
+                    };
+                    if ui.button(format!("{mark}{caption}")).clicked() {
+                        chose = Some(index);
+                    }
+                }
+            });
+        });
+    if let Some(index) = chose {
+        app.set_mineral_scale(index);
+        app.mineral_menu = None;
+    } else if ui.ctx().input(|i| i.pointer.any_click()) && !area.response.hovered() {
+        app.mineral_menu = None;
+    }
 }
 
 /// One environment bar: the race's habitable band, the planet's diamond on it,

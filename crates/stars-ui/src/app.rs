@@ -444,6 +444,15 @@ pub struct App {
     /// A waypoint whose drag ended on one of its neighbours, waiting for the
     /// player to confirm that it should go.
     pub waypoint_delete: Option<usize>,
+    /// The scale the mineral graph and the mineral views are drawn against
+    /// (`cMinGrafMax`), which ships at [`MINERAL_GRAPH_MAX`].
+    ///
+    /// One number serves both — `MANUAL.PDF` p. 5-13: "rescaling that graph
+    /// rescales the bars in this view" — and the graph's own menu is what
+    /// changes it. See [`App::mineral_scale_menu`].
+    pub mineral_scale: i32,
+    /// Where the mineral graph's scale menu is showing, while it is.
+    pub mineral_menu: Option<egui::Pos2>,
     /// A design the **pop-up** is showing, which is not the designer being
     /// open on it.
     ///
@@ -626,6 +635,8 @@ impl App {
             open_tiles: [true; 6],
             open_ship_tiles: [true; 7],
             scan_minefield_filter: 0xf,
+            mineral_scale: MINERAL_GRAPH_MAX,
+            mineral_menu: None,
             scan_overlays: ScanOverlays {
                 scanner_coverage: true,
                 minefields: true,
@@ -7712,6 +7723,41 @@ impl App {
         }))
     }
 
+    /// The nine captions the mineral graph's scale offers, and which of
+    /// them is ticked.
+    ///
+    /// `MineClick` (`1028:4020`) builds the menu with the current scale
+    /// pre-checked and `fRightBtn` set, so it comes up on either button.
+    /// Returns `(captions, checked)`, where `checked` is `None` when the
+    /// scale in hand is not one of the nine — which the file can arrange,
+    /// since it accepts anything from 100 to 30000.
+    #[must_use]
+    pub fn mineral_scale_menu(&self) -> (Vec<String>, Option<usize>) {
+        (
+            MINERAL_SCALES.iter().map(|kt| format!("{kt}kT")).collect(),
+            MINERAL_SCALES
+                .iter()
+                .position(|kt| *kt == self.mineral_scale),
+        )
+    }
+
+    /// Choose one of them. Anything not on the ladder is refused, as the
+    /// menu can only offer what is on it.
+    ///
+    /// Returns whether the scale changed, which is what decides whether the
+    /// pane and — when the surface-mineral view is showing — the scanner
+    /// need redrawing.
+    pub fn set_mineral_scale(&mut self, index: usize) -> bool {
+        let Some(&scale) = MINERAL_SCALES.get(index) else {
+            return false;
+        };
+        if scale == self.mineral_scale {
+            return false;
+        }
+        self.mineral_scale = scale;
+        true
+    }
+
     /// The best planetary defence this race can build.
     ///
     /// `FGetBestDefensePart` walks the planetary table from item 9 — SDI,
@@ -8471,6 +8517,13 @@ impl App {
 /// the Summary pane's mineral content graph. Rescaling that graph rescales the
 /// bars in this view" — one number serves both, and the player can change it.
 pub const MINERAL_GRAPH_MAX: i32 = 5000;
+
+/// The nine scales the graph's own menu offers (`MineClick`, `1028:443c`),
+/// captioned `%dkT`.
+///
+/// The two ends are also the range `ReadIniSettings` will accept for
+/// `MineralScale`: anything outside 100 to 30000 goes back to 5000.
+pub const MINERAL_SCALES: [i32; 9] = [100, 500, 1000, 2500, 5000, 7500, 10000, 20000, 30000];
 
 /// The population each step of the Population view's circle stands for, in the
 /// hundreds of colonists this engine counts in.
@@ -9623,7 +9676,7 @@ impl App {
 
     /// The three bars the **mineral** views draw beside a planet.
     ///
-    /// Surface minerals are scaled against [`MINERAL_GRAPH_MAX`] and
+    /// Surface minerals are scaled against [`Self::mineral_scale`] and
     /// concentrations by a fifth, both capped at twenty pixels and halved when
     /// the map is zoomed out. A surface reading needs a planet this player has
     /// **been to**; a concentration only one that has been scanned.
@@ -9646,8 +9699,8 @@ impl App {
                 let height = if concentration {
                     i32::from(planet.min_conc[mineral]) / 5
                 } else {
-                    (planet.surface_min[mineral] + MINERAL_GRAPH_MAX / 40)
-                        / (MINERAL_GRAPH_MAX / 20)
+                    (planet.surface_min[mineral] + self.mineral_scale / 40)
+                        / (self.mineral_scale / 20).max(1)
                 }
                 .min(20);
                 MineralBar {

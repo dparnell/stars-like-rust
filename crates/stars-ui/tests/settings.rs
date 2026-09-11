@@ -734,3 +734,57 @@ fn an_unusable_report_rectangle_is_ignored() {
     assert!(reports.state(Report::Planets).centred());
     assert_eq!(reports.state(Report::Planets).size, (600, 400));
 }
+
+/// The mineral graph's scale: nine choices, the current one ticked, and a
+/// value out of range **replaced** rather than clamped.
+#[test]
+fn the_mineral_scale_is_one_of_nine() {
+    use stars_ui::settings::scanner;
+    use stars_ui::{App, MINERAL_GRAPH_MAX, MINERAL_SCALES};
+
+    assert_eq!(
+        MINERAL_SCALES,
+        [100, 500, 1000, 2500, 5000, 7500, 10000, 20000, 30000]
+    );
+
+    let mut app = App::new();
+    assert_eq!(app.mineral_scale, MINERAL_GRAPH_MAX);
+    let (captions, checked) = app.mineral_scale_menu();
+    assert_eq!(captions.len(), 9);
+    assert_eq!(captions[0], "100kT");
+    assert_eq!(checked, Some(4), "5000 is the fifth");
+
+    assert!(app.set_mineral_scale(7));
+    assert_eq!(app.mineral_scale, 20000);
+    assert!(
+        !app.set_mineral_scale(7),
+        "choosing it again changes nothing"
+    );
+    assert!(!app.set_mineral_scale(99), "and there is no tenth");
+
+    // Out and back.
+    let mut ini = Ini::parse("");
+    app.write_scanner_ini(&mut ini);
+    assert_eq!(ini.get(WINDOWS, scanner::MINERAL_SCALE), Some("20000"));
+    let mut read = App::new();
+    read.read_scanner_ini(&ini);
+    assert_eq!(read.mineral_scale, 20000);
+
+    // Outside 100..=30000 goes back to the shipped 5000 — not to the
+    // nearest end.
+    for silly in ["99", "30001", "0", "-5", "nonsense"] {
+        ini.set(WINDOWS, scanner::MINERAL_SCALE, silly);
+        let mut read = App::new();
+        read.mineral_scale = 100;
+        read.read_scanner_ini(&ini);
+        assert_eq!(read.mineral_scale, MINERAL_GRAPH_MAX, "{silly}");
+    }
+
+    // A value in range that is not on the ladder is kept, and then nothing
+    // is ticked.
+    ini.set(WINDOWS, scanner::MINERAL_SCALE, "4321");
+    let mut read = App::new();
+    read.read_scanner_ini(&ini);
+    assert_eq!(read.mineral_scale, 4321);
+    assert_eq!(read.mineral_scale_menu().1, None);
+}

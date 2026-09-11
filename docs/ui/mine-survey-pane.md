@@ -277,6 +277,29 @@ half the reciprocal of the upper: 1.00 in the middle, 0.12 at one end and 8.00
 at the other. Note that gravity prints **no unit** — the row's own label carries
 it — where temperature and radiation print theirs.
 
+## Rescaling the graph
+
+The scale is a hit area of its own, `htMineScale`, and `MineClick`
+(`1028:4020`) answers a click on it — **either button**, since it passes
+`fRightBtn` — with a menu of nine:
+
+```
+100kT  500kT  1000kT  2500kT  5000kT  7500kT  10000kT  20000kT  30000kT
+```
+
+captioned `%dkT`, with a tick on the one in use. Choosing one sets
+`cMinGrafMax`, redraws the pane, and redraws the **scanner** as well when
+the surface-mineral view is the one showing (`grbitScan & 0xf == 1`) —
+which is the manual's "rescaling that graph rescales the bars in this
+view" (p. 5-13): one number serves both.
+
+It is kept in `stars.ini` as `[Windows] MineralScale`, written every time.
+The reader takes anything from **100 to 30000** — the two ends of that
+ladder — and **replaces** anything outside with the shipped 5000 rather
+than clamping to the nearer end. A value inside the range but not on the
+ladder is kept and simply leaves nothing ticked, which is a thing only a
+hand-edited file can arrange.
+
 ## What this project does
 
 `crates/stars-ui/src/views/survey.rs`, over methods on `App` that build the rows

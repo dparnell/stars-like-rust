@@ -413,6 +413,8 @@ pub mod scanner {
     pub const TOOLBAR: &str = "Toolbar";
     /// `iWindowLayout`.
     pub const LAYOUT: &str = "Layout";
+    /// `cMinGrafMax`: the scale the mineral graph is drawn against.
+    pub const MINERAL_SCALE: &str = "MineralScale";
 
     /// What `grbitScan` is when the file says nothing: planet names and ship
     /// counts on, everything else off.
@@ -424,6 +426,10 @@ pub mod scanner {
     /// What `iScanZoom` is added to on the way out, and taken off on the way
     /// in, so that the value is a single printable digit.
     pub const ZOOM_BIAS: i64 = 5;
+    /// The narrowest and widest `MineralScale` the reader will take;
+    /// anything outside goes back to the shipped 5000. They are also the
+    /// two ends of the ladder the graph's own menu offers.
+    pub const MINERAL_RANGE: std::ops::RangeInclusive<i64> = 100..=30_000;
 }
 
 impl crate::App {
@@ -469,6 +475,18 @@ impl crate::App {
                 .int(WINDOWS, key::RADAR, scanner::RADAR_DEFAULT)
                 .clamp(0, 100) as u8;
         }
+        // Out of range is not clamped, it is **replaced**: the reader puts
+        // the shipped 5000 back rather than the nearest end.
+        let scale = ini.int(
+            WINDOWS,
+            key::MINERAL_SCALE,
+            i64::from(crate::MINERAL_GRAPH_MAX),
+        );
+        self.mineral_scale = if scanner::MINERAL_RANGE.contains(&scale) {
+            i32::try_from(scale).unwrap_or(crate::MINERAL_GRAPH_MAX)
+        } else {
+            crate::MINERAL_GRAPH_MAX
+        };
         self.toolbar_hidden = ini.int(WINDOWS, key::TOOLBAR, 1) == 0;
         self.window_layout = match ini.int(WINDOWS, key::LAYOUT, 1) {
             0 => crate::WindowLayout::Large,
@@ -507,6 +525,7 @@ impl crate::App {
             &(self.scan_minefield_filter & 0xf).to_string(),
         );
         ini.set(WINDOWS, key::RADAR, &self.scan_coverage_pct.to_string());
+        ini.set(WINDOWS, key::MINERAL_SCALE, &self.mineral_scale.to_string());
         ini.set(
             WINDOWS,
             key::TOOLBAR,
