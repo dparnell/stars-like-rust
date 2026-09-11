@@ -273,9 +273,11 @@ only its name. The other three are read and kept but nothing asks for them
 yet: no bold or italic proportional text is drawn anywhere, which
 `crate::popup` already notes.
 
-`MineralScale` comes back too, which is the last of them: **the whole of
-`stars.ini` is read and written now**, and anything in it this project
-does not understand is carried through rather than thrown away. All of it is the same mechanism, so each is a
+`MineralScale` comes back too, and `[Windows] PlanetTiles` — which of the
+planet pane's tiles stand open; see `planet-pane.md`. Anything in the file
+this project does not understand is carried through rather than thrown
+away, which is what `ShipTiles` relies on: the fleet pane's tiles do not
+collapse here, so that key is read and left exactly as it was. All of it is the same mechanism, so each is a
 key away.
 
 A `stars.ini` sitting **beside a save** still wins over the settings file

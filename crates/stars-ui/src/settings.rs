@@ -996,3 +996,139 @@ impl Fonts {
         &self.names[1]
     }
 }
+
+/// `idsPlanettiles` (`0xa3`) and `idsShiptiles` (`0xa4`): how the two panes'
+/// tiles are arranged.
+pub const PLANET_TILES: &str = "PlanetTiles";
+/// The fleet pane's, which this project reads and carries through but does
+/// not change: its tiles do not collapse here.
+pub const SHIP_TILES: &str = "ShipTiles";
+
+/// One tile as `stars.ini` names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TileSetting {
+    /// The tile's id, bits 3 to 6 of its packed word.
+    pub id: u8,
+    /// Which column it is in — `0`, or `1` after the `*`.
+    pub column: u8,
+    /// Whether it stands open. `fPopped`, bit 7, and the letter's **case**:
+    /// upper is open.
+    pub open: bool,
+}
+
+/// Read one of the two tile strings.
+///
+/// `ReadIniTileSettings` (`1000:1a20`) walks the letters: a `*` moves to the
+/// second column — only the first one does anything, so there are two
+/// columns and no more — and each letter names a tile by its id, counting
+/// from `a`, with its **case** saying whether the tile stands open. The
+/// order of the letters is the order of the tiles: the routine swaps each
+/// named tile up to the next slot as it goes.
+///
+/// Anything that is not a letter or a `*` is skipped, and a letter naming a
+/// tile that has already been placed is skipped too.
+#[must_use]
+pub fn read_tiles(value: &str) -> Vec<TileSetting> {
+    let mut out: Vec<TileSetting> = Vec::new();
+    let mut column = 0_u8;
+    for letter in value.chars() {
+        if letter == '*' {
+            column = 1;
+            continue;
+        }
+        let id = if letter.is_ascii_uppercase() {
+            letter as u8 - b'A'
+        } else if letter.is_ascii_lowercase() {
+            letter as u8 - b'a'
+        } else {
+            continue;
+        };
+        if out.iter().any(|t| t.id == id) {
+            continue;
+        }
+        out.push(TileSetting {
+            id,
+            column,
+            open: letter.is_ascii_uppercase(),
+        });
+    }
+    out
+}
+
+/// Write one back, `*`-separated by column the way `WriteIniSettings`
+/// writes it.
+#[must_use]
+pub fn write_tiles(tiles: &[TileSetting]) -> String {
+    let mut out = String::new();
+    let mut column = 0_u8;
+    for tile in tiles {
+        while column < tile.column {
+            column += 1;
+            out.push('*');
+        }
+        let base = if tile.open { b'A' } else { b'a' };
+        out.push(char::from(base + tile.id));
+    }
+    out
+}
+
+impl crate::App {
+    /// The planet pane's tiles as the file holds them: the table's own order
+    /// and columns, with whichever of them stand open now.
+    #[must_use]
+    pub fn planet_tile_settings(&self) -> Vec<TileSetting> {
+        crate::tiles::PLANET_TILES
+            .iter()
+            .enumerate()
+            .map(|(index, tile)| TileSetting {
+                id: tile.id,
+                column: tile.column,
+                open: self.open_tiles.get(index).copied().unwrap_or(true),
+            })
+            .collect()
+    }
+
+    /// Restore which of the planet pane's tiles stand open.
+    ///
+    /// Only the open bits are taken. The original also stores the tiles'
+    /// **order** and which column each is in, and lets the player change
+    /// both; this project draws them in the table's own order, so those two
+    /// are read, ignored, and left in the file as they were.
+    pub fn read_tiles_ini(&mut self, ini: &Ini) {
+        let Some(value) = ini.get(WINDOWS, PLANET_TILES) else {
+            return;
+        };
+        let stored = read_tiles(value);
+        for (index, tile) in crate::tiles::PLANET_TILES.iter().enumerate() {
+            if let Some(found) = stored.iter().find(|t| t.id == tile.id) {
+                if let Some(slot) = self.open_tiles.get_mut(index) {
+                    *slot = found.open;
+                }
+            }
+        }
+    }
+
+    /// Write them back, keeping whatever order and columns the file already
+    /// had so that an arrangement made in the original is not flattened.
+    pub fn write_tiles_ini(&self, ini: &mut Ini) {
+        let mine = self.planet_tile_settings();
+        let kept: Vec<TileSetting> = match ini.get(WINDOWS, PLANET_TILES) {
+            Some(value) => {
+                let stored = read_tiles(value);
+                if stored.len() == mine.len() {
+                    stored
+                        .iter()
+                        .map(|tile| TileSetting {
+                            open: mine.iter().find(|t| t.id == tile.id).is_none_or(|t| t.open),
+                            ..*tile
+                        })
+                        .collect()
+                } else {
+                    mine
+                }
+            }
+            None => mine,
+        };
+        ini.set(WINDOWS, PLANET_TILES, &write_tiles(&kept));
+    }
+}

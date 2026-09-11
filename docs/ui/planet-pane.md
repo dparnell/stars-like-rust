@@ -148,10 +148,33 @@ original's labels, formats and Alternate Reality special cases and the three
 mineral labels in `rgcrMin`'s own colours; the Production tile's queue and its
 empty text; the Starbase tile's title and its first rows; the fleets in orbit.
 
+### What the packed word holds
+
+Each record's word at `+10` is three fields — `column:3, id:4, fPopped:1` —
+and all three are kept in `stars.ini` under `[Windows] PlanetTiles`, with
+the fleet pane's under `ShipTiles`.
+
+`ReadIniTileSettings` (`1000:1a20`) reads the string a letter at a time. A
+`*` moves to the second column, and only the first one does anything, so
+there are two columns and no more. Each letter names a tile by its **id**
+counting from `a`, and the letter's **case** is `fPopped`: upper is open.
+The order of the letters is the order of the tiles — the routine swaps each
+named tile up to the next slot as it goes — so the setting carries the
+arrangement as well as which tiles stand open.
+
+The six planet tiles are ids 0, 1, 4, 5, 6 and 7, three to a column, so the
+shipped setting reads `ABE*FGH`; the seven fleet tiles are 0, 5, 3, 4 and
+then 1, 9, 8, which is `AFDE*BJI`.
+
+This project keeps **which tiles stand open** and reads the rest. It draws
+the tiles in the table's own order and offers no way to move them, so a
+file arranged in the original keeps its order and columns through a round
+trip rather than being flattened to this one's.
+
 Not reproduced: the planet **picture** when no copy of the game is found (this
 tile says in words what the picture says at a glance); the small-window layout,
 since the frame has no `fSmallTiles` to set — the tiles are always the full
-size; persisting the open tiles to `stars.ini`; the mass driver and destination
-rows and their gauge and button; the production tile's completion line and
-Route button; and the editing that the original's list box allows — the
-production queue is edited on the Planets screen instead.
+size; reordering the tiles or moving one between columns; the mass driver and
+destination rows and their gauge and button; the production tile's completion
+line and Route button; and the editing that the original's list box allows —
+the production queue is edited on the Planets screen instead.

@@ -45,6 +45,8 @@ impl StarsApp {
         // The four cargo orders the blue diamond offers and the five
         // production templates, which share `[ZipOrders]`.
         app.read_zip_ini(&ini);
+        // Which of the planet pane's tiles stand open.
+        app.read_tiles_ini(&ini);
         // `ReadIniSettings` copies `[Files] File1` into `szBase` and sets the
         // startup-file bit, so a launch with nothing to go on reopens the
         // game last played.
@@ -92,6 +94,7 @@ impl StarsApp {
         self.app.write_scanner_ini(&mut ini);
         self.app.write_zip_ini(&mut ini);
         self.app.write_selection_ini(&mut ini);
+        self.app.write_tiles_ini(&mut ini);
         if let Some((left, top, width, height)) = self.restored {
             stars_ui::settings::set_frame_window(
                 &mut ini,

@@ -788,3 +788,113 @@ fn the_mineral_scale_is_one_of_nine() {
     assert_eq!(read.mineral_scale, 4321);
     assert_eq!(read.mineral_scale_menu().1, None);
 }
+
+/// The planet pane's tiles: a letter each, the case saying whether the tile
+/// stands open, and a `*` where the second column starts.
+#[test]
+fn the_tile_string_names_each_tile_by_a_letter() {
+    use stars_ui::settings::{read_tiles, write_tiles};
+
+    // What the six `rgtilePlanet` records ship as: ids 0, 1, 4 in the first
+    // column and 5, 6, 7 in the second, every one open.
+    let shipped = read_tiles("ABE*FGH");
+    assert_eq!(shipped.len(), 6);
+    assert_eq!(
+        shipped.iter().map(|t| t.id).collect::<Vec<_>>(),
+        [0, 1, 4, 5, 6, 7]
+    );
+    assert_eq!(
+        shipped.iter().map(|t| t.column).collect::<Vec<_>>(),
+        [0, 0, 0, 1, 1, 1]
+    );
+    assert!(shipped.iter().all(|t| t.open));
+    assert_eq!(write_tiles(&shipped), "ABE*FGH");
+
+    // Lower case is a tile the player has collapsed.
+    let some_shut = read_tiles("AbE*FgH");
+    assert_eq!(
+        some_shut.iter().map(|t| t.open).collect::<Vec<_>>(),
+        [true, false, true, true, false, true]
+    );
+    assert_eq!(write_tiles(&some_shut), "AbE*FgH");
+
+    // Only the first `*` does anything: there are two columns and no more.
+    let two = read_tiles("A*B*C");
+    assert_eq!(two.iter().map(|t| t.column).collect::<Vec<_>>(), [0, 1, 1]);
+
+    // A letter naming a tile already placed is skipped, and so is anything
+    // that is not a letter.
+    assert_eq!(read_tiles("AA").len(), 1);
+    assert_eq!(read_tiles("A1B").len(), 2);
+    assert!(read_tiles("").is_empty());
+
+    // The order of the letters is the order of the tiles.
+    let reordered = read_tiles("EBA*HGF");
+    assert_eq!(
+        reordered.iter().map(|t| t.id).collect::<Vec<_>>(),
+        [4, 1, 0, 7, 6, 5]
+    );
+    assert_eq!(write_tiles(&reordered), "EBA*HGF");
+}
+
+/// Which tiles stand open survives a restart, and an arrangement made in
+/// the original — the order and the columns, which this project does not
+/// offer — is left as it was rather than flattened.
+#[test]
+fn the_open_tiles_come_back_without_flattening_the_order() {
+    use stars_ui::settings::{read_tiles, PLANET_TILES};
+    use stars_ui::App;
+
+    let mut app = App::new();
+    app.open_tiles = [true, false, true, true, true, false];
+
+    let mut ini = Ini::parse("");
+    app.write_tiles_ini(&mut ini);
+    assert_eq!(ini.get(WINDOWS, PLANET_TILES), Some("AbE*FGh"));
+
+    let mut back = App::new();
+    back.read_tiles_ini(&ini);
+    assert_eq!(back.open_tiles, app.open_tiles);
+
+    // A file arranged in the original keeps its order and columns through a
+    // write, with only the open bits taken from here.
+    let mut ini = Ini::parse("");
+    ini.set(WINDOWS, PLANET_TILES, "EBA*HGF");
+    let mut app = App::new();
+    app.read_tiles_ini(&ini);
+    assert_eq!(app.open_tiles, [true; 6], "all upper case, all open");
+    app.open_tiles[0] = false;
+    app.write_tiles_ini(&mut ini);
+    let written = ini.get(WINDOWS, PLANET_TILES).expect("a value");
+    assert_eq!(
+        read_tiles(written).iter().map(|t| t.id).collect::<Vec<_>>(),
+        [4, 1, 0, 7, 6, 5],
+        "the order the file had"
+    );
+    // Tile 0 of the table has id 0, and it is the one now shut.
+    assert!(
+        !read_tiles(written)
+            .iter()
+            .find(|t| t.id == 0)
+            .expect("it")
+            .open
+    );
+}
+
+/// The fleet pane's tiles do not collapse here, so `ShipTiles` is read and
+/// carried through untouched rather than rewritten.
+#[test]
+fn the_ship_tiles_are_left_alone() {
+    use stars_ui::settings::SHIP_TILES;
+    use stars_ui::App;
+
+    let mut ini = Ini::parse("");
+    ini.set(WINDOWS, SHIP_TILES, "AFDE*BJI");
+    let app = App::new();
+    app.write_tiles_ini(&mut ini);
+    assert_eq!(
+        ini.get(WINDOWS, SHIP_TILES),
+        Some("AFDE*BJI"),
+        "nothing here has an opinion about them"
+    );
+}

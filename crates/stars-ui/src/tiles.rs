@@ -45,6 +45,14 @@ pub struct Tile {
     pub title: &'static str,
     /// Which column it is in: the low three bits of the packed word.
     pub column: u8,
+    /// Which tile this is, whatever order the table happens to be in: bits
+    /// 3 to 6 of the packed word at `+10`.
+    ///
+    /// That word is three fields — `column:3, id:4, fPopped:1` — and the id
+    /// is what `stars.ini` names a tile by, as a letter counting from `a`.
+    /// The planet pane's six are 0, 1, 4, 5, 6 and 7, so its shipped
+    /// setting reads `ABE*FGH`: every tile open, three in each column.
+    pub id: u8,
     /// How many lines of `dyArial8` its height is built from.
     pub lines: i16,
     /// What is added to those lines.
@@ -73,6 +81,7 @@ pub const PLANET_TILES: [Tile; 6] = [
     Tile {
         title: "",
         column: 0,
+        id: 0,
         lines: 1,
         extra: 85,
         grbit: 0x80,
@@ -81,6 +90,7 @@ pub const PLANET_TILES: [Tile; 6] = [
     Tile {
         title: "Minerals On Hand",
         column: 0,
+        id: 1,
         lines: 6,
         extra: 5,
         grbit: 0x01,
@@ -89,6 +99,7 @@ pub const PLANET_TILES: [Tile; 6] = [
     Tile {
         title: "Status",
         column: 0,
+        id: 4,
         lines: 8,
         extra: 6,
         grbit: 0x08,
@@ -97,6 +108,7 @@ pub const PLANET_TILES: [Tile; 6] = [
     Tile {
         title: "",
         column: 1,
+        id: 5,
         lines: 6,
         extra: 22,
         grbit: 0x04,
@@ -105,6 +117,7 @@ pub const PLANET_TILES: [Tile; 6] = [
     Tile {
         title: "Production",
         column: 1,
+        id: 6,
         lines: 10,
         extra: 20,
         grbit: 0x40,
@@ -113,6 +126,7 @@ pub const PLANET_TILES: [Tile; 6] = [
     Tile {
         title: "",
         column: 1,
+        id: 7,
         lines: 8,
         extra: 15,
         grbit: 0x100,
@@ -152,6 +166,7 @@ pub const SHIP_TILES: [Tile; 7] = [
     Tile {
         title: "",
         column: 0,
+        id: 0,
         lines: 1,
         extra: 85,
         grbit: 0x80,
@@ -160,6 +175,7 @@ pub const SHIP_TILES: [Tile; 7] = [
     Tile {
         title: "",
         column: 0,
+        id: 5,
         lines: 3,
         extra: 5,
         grbit: 0x40,
@@ -168,6 +184,7 @@ pub const SHIP_TILES: [Tile; 7] = [
     Tile {
         title: "Fleet Waypoints",
         column: 0,
+        id: 3,
         lines: 11,
         extra: 19,
         grbit: 0x20,
@@ -176,6 +193,7 @@ pub const SHIP_TILES: [Tile; 7] = [
     Tile {
         title: "Waypoint Task",
         column: 0,
+        id: 4,
         lines: 6,
         extra: 12,
         grbit: 0x100,
@@ -184,6 +202,7 @@ pub const SHIP_TILES: [Tile; 7] = [
     Tile {
         title: "Fuel & Cargo",
         column: 1,
+        id: 1,
         lines: 7,
         extra: 14,
         grbit: 0x01,
@@ -192,6 +211,7 @@ pub const SHIP_TILES: [Tile; 7] = [
     Tile {
         title: "Fleet Composition",
         column: 1,
+        id: 9,
         lines: 12,
         extra: 16,
         grbit: 0x200,
@@ -200,6 +220,7 @@ pub const SHIP_TILES: [Tile; 7] = [
     Tile {
         title: "",
         column: 1,
+        id: 8,
         lines: 6,
         extra: 22,
         grbit: 0x04,
