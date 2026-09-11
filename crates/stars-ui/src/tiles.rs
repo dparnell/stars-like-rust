@@ -137,14 +137,23 @@ pub const PLANET_TILES: [Tile; 6] = [
 impl Tile {
     /// How tall the tile stands when it is open.
     ///
-    /// `InitTiles`'s `remainder + lines * dyArial8`, and then whatever
-    /// [`Tile::resize`] adds or takes off for the window layout.
+    /// `InitTiles`'s `remainder + lines * dyArial8` is the **full** size:
+    /// that is what the table ships holding, and what the window starts at.
+    /// `EnsureTileSize` (`1048:587e`) does not recompute it but **moves it
+    /// by a delta** — taking [`Tile::resize`] off on the way into the small
+    /// layout and adding it back on the way out — which is why it is
+    /// guarded by a bit that says which state the tables are in and does
+    /// nothing when asked for the one they are already in.
+    ///
+    /// So: the large size is the table's own, and only the small one is
+    /// arrived at by arithmetic.
     #[must_use]
     pub fn height(&self, line: f32, small: bool) -> f32 {
         let mut height = f32::from(self.extra) + f32::from(self.lines) * line;
-        let sign = if small { -1.0 } else { 1.0 };
-        let (lines, plus) = self.resize;
-        height += sign * (f32::from(lines) * line + f32::from(plus));
+        if small {
+            let (lines, plus) = self.resize;
+            height -= f32::from(lines) * line + f32::from(plus);
+        }
         height.max(line + CLOSED_EXTRA)
     }
 

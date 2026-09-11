@@ -360,10 +360,11 @@ pub(crate) fn tile_pane(
     body: fn(&mut App, &mut egui::Ui, usize),
 ) {
     let line = ui.text_style_height(&egui::TextStyle::Small);
-    // The original's `fSmallTiles`, which the frame sets from the screen it
-    // finds itself on; there is no such thing here, so the tiles are always
-    // the full size.
-    let small = false;
+    // `fSmallTiles`, which is not about the screen: `FrameWndProc`
+    // (`1020:072d`) asks `EnsureTileSize` for `iWindowLayout == 2`, so it is
+    // the **Window Layout** the View menu offers, and its smallest setting
+    // is the one that shrinks the tiles.
+    let small = app.window_layout == crate::WindowLayout::Small;
     let columns = [
         crate::tiles::column_tops(tiles, line, small, open, 0),
         crate::tiles::column_tops(tiles, line, small, open, 1),

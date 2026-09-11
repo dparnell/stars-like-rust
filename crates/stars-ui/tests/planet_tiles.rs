@@ -46,17 +46,29 @@ fn the_small_layout_shrinks_three_of_them() {
     let picture = PLANET_TILES[0];
     let ships = PLANET_TILES[3];
     let production = PLANET_TILES[4];
-    // A flat ten for the picture.
+    // The table ships holding the **large** size, and `EnsureTileSize` takes
+    // the resize off once on the way into the small layout — so the gap
+    // between the two layouts is the resize itself, not twice it.
     assert_eq!(
         picture.height(13.0, false) - picture.height(13.0, true),
-        20.0
+        10.0,
+        "a flat ten for the picture"
     );
-    // `(dyArial8 + 4) * 2` for the ship list and `(dyArial8 + 2) * 2` for the
-    // queue — so the difference between large and small is twice that.
-    assert_eq!(ships.height(13.0, false) - ships.height(13.0, true), 68.0);
+    assert_eq!(
+        ships.height(13.0, false) - ships.height(13.0, true),
+        34.0,
+        "(dyArial8 + 4) * 2 for the ship list"
+    );
     assert_eq!(
         production.height(13.0, false) - production.height(13.0, true),
-        60.0
+        30.0,
+        "(dyArial8 + 2) * 2 for the queue"
+    );
+
+    // And the large size is the table's own, untouched.
+    assert_eq!(
+        picture.height(13.0, false),
+        f32::from(picture.extra) + f32::from(picture.lines) * 13.0
     );
 }
 
@@ -120,11 +132,11 @@ fn the_two_tables_read_grbit_differently() {
     assert_eq!(queue.grbit, 0x40);
     assert_eq!(location.grbit, 0x40);
     assert_ne!(queue.resize, location.resize);
-    // `(dyArial8 + 2) * 2` against a flat six, so twice each between layouts.
-    assert_eq!(queue.height(13.0, false) - queue.height(13.0, true), 60.0);
+    // `(dyArial8 + 2) * 2` against a flat six.
+    assert_eq!(queue.height(13.0, false) - queue.height(13.0, true), 30.0);
     assert_eq!(
         location.height(13.0, false) - location.height(13.0, true),
-        12.0
+        6.0
     );
     // `0x01` is the other disagreement: Minerals On Hand does not move at all
     // and Fuel & Cargo moves by `dyArial8 * 4 + 2`.
@@ -136,5 +148,31 @@ fn the_two_tables_read_grbit_differently() {
     assert_eq!(
         PLANET_TILES[3].height(13.0, false) - PLANET_TILES[3].height(13.0, true),
         SHIP_TILES[6].height(13.0, false) - SHIP_TILES[6].height(13.0, true)
+    );
+}
+
+/// `fSmallTiles` is the **Window Layout**, not the screen: `FrameWndProc`
+/// (`1020:072d`) asks `EnsureTileSize` for `iWindowLayout == 2`, so only
+/// the smallest of the three settings shrinks the tiles.
+#[test]
+fn the_smallest_window_layout_is_what_shrinks_them() {
+    use stars_ui::{App, WindowLayout};
+
+    let mut app = App::new();
+    let line = 13.0_f32;
+    let small = |app: &App| app.window_layout == WindowLayout::Small;
+
+    for layout in [WindowLayout::Large, WindowLayout::Medium] {
+        app.window_layout = layout;
+        assert!(!small(&app), "{layout:?} leaves them full size");
+    }
+    app.window_layout = WindowLayout::Small;
+    assert!(small(&app));
+
+    // Which is the difference the tiles actually see.
+    let picture = PLANET_TILES[0];
+    assert_eq!(
+        picture.height(line, small(&app)) + 10.0,
+        picture.height(line, false)
     );
 }

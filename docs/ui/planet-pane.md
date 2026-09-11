@@ -171,10 +171,39 @@ the tiles in the table's own order and offers no way to move them, so a
 file arranged in the original keeps its order and columns through a round
 trip rather than being flattened to this one's.
 
+### The small layout
+
+`fSmallTiles` is not about the screen. `FrameWndProc` (`1020:072d`) asks
+`EnsureTileSize` (`1048:587e`) for `iWindowLayout == 2`, so it is the
+**Window Layout** the View menu offers and its smallest setting is the one
+that shrinks the tiles.
+
+The routine does not recompute a height: it **moves each by a delta**,
+taking the tile's resize off on the way into the small layout and adding it
+back on the way out, and it is guarded by a bit saying which state the
+tables are already in so that it cannot be applied twice. Two things follow.
+The table ships holding the **large** size, so that is the one to treat as
+given. And the difference between the two layouts is the resize **once**,
+not twice.
+
+Which tiles move, and by how much:
+
+| table | `grbit` | moves by |
+|-------|---------|----------|
+| planet | `0x80` | a flat 10 |
+| planet | `0x04` | `(dyArial8 + 4) * 2` |
+| planet | `0x40` | `(dyArial8 + 2) * 2` |
+| fleet | `0x01` | `dyArial8 * 4 + 2` |
+| fleet | `0x200` | `dyArial8 * 3 + 8` |
+| fleet | `0x20` | `dyArial8 + 9` |
+| fleet | `0x04` | `(dyArial8 + 4) * 2` |
+| fleet | `0x80` | a flat 10 |
+| fleet | `0x100` | a flat 2 |
+| fleet | `0x40` | a flat 6 |
+
 Not reproduced: the planet **picture** when no copy of the game is found (this
-tile says in words what the picture says at a glance); the small-window layout,
-since the frame has no `fSmallTiles` to set — the tiles are always the full
-size; reordering the tiles or moving one between columns; the mass driver and
-destination rows and their gauge and button; the production tile's completion
-line and Route button; and the editing that the original's list box allows —
-the production queue is edited on the Planets screen instead.
+tile says in words what the picture says at a glance); reordering the tiles or
+moving one between columns; the mass driver and destination rows and their
+gauge and button; the production tile's completion line and Route button; and
+the editing that the original's list box allows — the production queue is
+edited on the Planets screen instead.
