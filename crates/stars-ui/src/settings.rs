@@ -975,7 +975,7 @@ impl Fonts {
         for (slot, key) in FONT_KEYS.iter().enumerate() {
             if let Some(name) = ini.get(FONTS, key) {
                 let length = name.chars().count();
-                if length >= Self::SHORTEST && length <= Self::LONGEST {
+                if (Self::SHORTEST..=Self::LONGEST).contains(&length) {
                     fonts.names[slot] = name.to_string();
                 }
             }

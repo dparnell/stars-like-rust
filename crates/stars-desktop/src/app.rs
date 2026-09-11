@@ -1711,10 +1711,8 @@ fn install_font(ctx: &egui::Context, fonts: &stars_ui::settings::Fonts) {
         return;
     };
     let mut set = egui::FontDefinitions::default();
-    set.font_data.insert(
-        "stars-ini".to_string(),
-        egui::FontData::from_owned(bytes).into(),
-    );
+    set.font_data
+        .insert("stars-ini".to_string(), egui::FontData::from_owned(bytes));
     set.families
         .entry(egui::FontFamily::Proportional)
         .or_default()

@@ -88,3 +88,150 @@ fn the_filtered_watermark_runs_corner_to_corner() {
     assert_eq!(watermark_scale(egui::vec2(4.0, 4.0), text), 0.0);
     assert_eq!(WATERMARK_MIN, 10.0);
 }
+
+/// A game with two players, for the Goto tests.
+fn a_game() -> stars_ui::App {
+    use stars_core::newgame::{NewGame, NewPlayer, Size};
+    use stars_core::{opponents, Race};
+
+    let mut app = stars_ui::App::new();
+    app.new_game(&NewGame {
+        name: "messages".to_string(),
+        size: Size::Small,
+        players: vec![
+            NewPlayer::human(Race::humanoid()),
+            opponents::opponent(1, 1).expect("an opponent").as_player(),
+        ],
+        ..NewGame::default()
+    })
+    .expect("creates the game");
+    app
+}
+
+/// Put one message in front of the player. `object` is the word `SetMsgTitle`
+/// classifies: a positive id is a planet, a negative one a fleet.
+fn only_message(app: &mut stars_ui::App, object: i16) {
+    if let Some(game) = app.game.as_mut() {
+        game.messages = vec![stars_core::message::Message {
+            player: 0,
+            // `idmPlanetsProductionQueueIsEmpty`-ish: any id that is not
+            // filtered by default will do, since the Goto is about the
+            // object word rather than the text.
+            id: 1,
+            object,
+            params: Vec::new(),
+        }];
+    }
+    app.message_index = 0;
+}
+
+/// Goto selects the thing **on the map**, the way `SelectAdjPlanet` and
+/// `SelectAdjFleet` do — it does not open a report. The reports are windows
+/// of their own and Goto has never opened one.
+#[test]
+fn goto_selects_on_the_map() {
+    use stars_core::message::Goto;
+    use stars_ui::Screen;
+
+    let mut app = a_game();
+    let (planet, fleet) = {
+        let game = app.game.as_ref().expect("a game");
+        (
+            game.planets
+                .iter()
+                .find(|p| p.owner == Some(0))
+                .expect("a planet")
+                .id,
+            game.fleets
+                .iter()
+                .find(|f| f.owner == 0)
+                .expect("a fleet")
+                .id,
+        )
+    };
+
+    app.screen = Screen::Galaxy;
+    only_message(&mut app, planet);
+    assert_eq!(app.message_goto(), Goto::Planet(planet));
+    assert!(app.message_goto_follow());
+    assert_eq!(app.selection.planet, Some(planet));
+    assert!(!app.selection.on_fleet);
+    assert_eq!(app.screen, Screen::Galaxy, "the map, not a report window");
+
+    // A fleet's object word is negative, with the id in the low fifteen bits.
+    #[allow(clippy::cast_possible_wrap)]
+    let word = (fleet | 0x8000) as i16;
+    only_message(&mut app, word);
+    assert_eq!(app.message_goto(), Goto::Fleet(fleet));
+    assert!(app.message_goto_follow());
+    assert!(app.selection.on_fleet);
+    assert_eq!(app.screen, Screen::Galaxy);
+}
+
+/// The two-stage Goto: a production message whose planet is **already**
+/// selected opens Change Production instead of selecting it again. The
+/// original tests the selection, not a count of clicks.
+#[test]
+fn a_second_goto_on_a_selected_planet_opens_production() {
+    let mut app = a_game();
+    let planet = app
+        .game
+        .as_ref()
+        .expect("a game")
+        .planets
+        .iter()
+        .find(|p| p.owner == Some(0) && p.homeworld)
+        .expect("a home world")
+        .id;
+    only_message(&mut app, planet);
+    app.selection.planet = None;
+
+    // First: it selects.
+    assert!(!app.message_goto_opens_production());
+    assert!(app.message_goto_follow());
+    assert_eq!(app.selection.planet, Some(planet));
+    assert!(app.production.is_none());
+
+    // Second, with it already selected: the queue.
+    assert!(app.message_goto_opens_production());
+    assert!(app.message_goto_follow());
+    assert!(app.production.is_some());
+}
+
+/// A message about a battle opens the recording at that place, which is
+/// what the button says — `View` rather than `Goto`.
+#[test]
+fn a_battle_message_opens_the_recording() {
+    use stars_core::message::Goto;
+
+    let mut app = a_game();
+    if let Some(game) = app.game.as_mut() {
+        game.messages = vec![stars_core::message::Message {
+            player: 0,
+            id: 1,
+            // `0x4000` set: a place, from the first two parameters.
+            object: 0x4000,
+            params: vec![120, 240],
+        }];
+    }
+    app.message_index = 0;
+    assert_eq!(app.message_goto(), Goto::Position(120, 240));
+    assert_eq!(app.message_goto_label(), "View");
+
+    // With no recording there, the button does nothing rather than
+    // pretending.
+    assert!(!app.message_goto_follow());
+
+    app.battles = vec![stars_formats::battle::BattleRecord {
+        id: 7,
+        players: 2,
+        player_mask: 0b11,
+        planet: u16::MAX,
+        position: (120, 240),
+        tokens: Vec::new(),
+        actions: Vec::new(),
+        declared_len: 0,
+    }];
+    assert!(app.message_goto_follow());
+    assert_eq!(app.vcr.as_ref().map(|v| v.id), Some(7));
+}

@@ -4529,14 +4529,28 @@ impl App {
 
     /// Follow the message to what it is about: the Goto button, and Enter.
     ///
+    /// `MessageWndProc`'s Goto arm (`1030:6e30`) selects the thing **on the
+    /// map** — `SelectAdjPlanet(0, id)` or `SelectAdjFleet(0, id)`, the same
+    /// two calls a click on the scanner makes — and for a fleet it then
+    /// posts the scanner a `v`, the key that centres on the selection. It
+    /// does not open a report; the reports are windows of their own.
+    ///
     /// Returns whether it went anywhere.
     pub fn message_goto_follow(&mut self) -> bool {
         use stars_core::message::Goto;
 
         match self.message_goto() {
             Goto::Planet(id) => {
-                self.selection.planet = Some(id);
-                self.screen = Screen::Planets;
+                // The two-stage Goto: a production message whose planet is
+                // **already selected** opens Change Production instead of
+                // selecting it again. `1030:6e4c` tests `sel.grobj` and
+                // `sel.idpl` against the message's object, so it is the
+                // selection that decides, not a count of clicks.
+                if self.message_goto_opens_production() {
+                    self.open_production();
+                    return true;
+                }
+                self.select_object(ScanObject::Planet(id));
                 true
             }
             Goto::Fleet(id) => {
@@ -4547,19 +4561,85 @@ impl App {
                 else {
                     return false;
                 };
-                self.selection.fleet = Some(index);
-                self.screen = Screen::Fleets;
+                self.select_object(ScanObject::Fleet(index));
                 true
             }
+            // A space object: the scanner centres on it, which here is the
+            // selection changing.
+            Goto::Thing(id) => {
+                let Some(thing) = self.thing_by_id(id) else {
+                    return false;
+                };
+                self.select_object(ScanObject::Thing(thing));
+                true
+            }
+            // `BattleVCR` at that place — the battle the message is about.
             Goto::Position(x, y) => {
-                // The original opens the battle at that place; this engine
-                // shows the map there instead, which is as far as it goes.
-                self.screen = Screen::Galaxy;
-                let _ = (x, y);
+                let Some(index) = self.battle_at(x, y) else {
+                    return false;
+                };
+                self.open_battle(index);
                 true
             }
-            Goto::Thing(_) | Goto::Elsewhere | Goto::None => false,
+            // One of the original's own windows, from an object word of
+            // `-2`..`-5`, `-7` or a component. Which window each stands for
+            // is not recovered, so the button stays dead rather than
+            // guessing at one.
+            Goto::Elsewhere | Goto::None => false,
         }
+    }
+
+    /// Whether the Goto button would open Change Production rather than
+    /// select the planet: the message is about a planet that is **already**
+    /// the selection.
+    #[must_use]
+    pub fn message_goto_opens_production(&self) -> bool {
+        let stars_core::message::Goto::Planet(id) = self.message_goto() else {
+            return false;
+        };
+        !self.selection.on_fleet && self.selection.planet == Some(id)
+    }
+
+    /// The battle recorded at a place, for a message that points at one.
+    #[must_use]
+    pub fn battle_at(&self, x: i16, y: i16) -> Option<usize> {
+        self.battles
+            .iter()
+            .position(|battle| battle.position == (x, y))
+    }
+
+    /// A space object by the id a message names it with.
+    ///
+    /// A `-6` message carries the `THING`'s **own id** in its first
+    /// parameter, not an index, so this looks for that id across the four
+    /// collections this engine splits `lpThings` into.
+    #[must_use]
+    pub fn thing_by_id(&self, id: u16) -> Option<ScanThing> {
+        let game = self.game.as_ref()?;
+        let found = game
+            .minefields
+            .iter()
+            .position(|f| f.id == id)
+            .map(ScanThing::Minefield)
+            .or_else(|| {
+                game.packets
+                    .iter()
+                    .position(|p| p.id == id)
+                    .map(ScanThing::Packet)
+            })
+            .or_else(|| {
+                game.wormholes
+                    .iter()
+                    .position(|w| w.id == id)
+                    .map(ScanThing::Wormhole)
+            })
+            .or_else(|| {
+                game.traders
+                    .iter()
+                    .position(|t| t.id == id)
+                    .map(ScanThing::Trader)
+            });
+        found
     }
 
     /// The body of the pane: what the message says, or why it is not saying

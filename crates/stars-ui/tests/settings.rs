@@ -503,13 +503,13 @@ fn a_selection_belongs_to_one_game_and_one_player() {
         player: 1,
         id: 13,
     };
-    assert!(selection_applies(last, 1, 0x8cef_49, 0x8cef_49));
+    assert!(selection_applies(last, 1, 0x008c_ef49, 0x008c_ef49));
     assert!(
-        !selection_applies(last, 0, 0x8cef_49, 0x8cef_49),
+        !selection_applies(last, 0, 0x008c_ef49, 0x008c_ef49),
         "another player's selection is not yours"
     );
     assert!(
-        !selection_applies(last, 1, 0x8cef_49, 0x1234),
+        !selection_applies(last, 1, 0x008c_ef49, 0x1234),
         "and not another game's"
     );
 }

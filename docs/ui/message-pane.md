@@ -1,6 +1,6 @@
 # The message pane
 
-Status: **behaviour, hit-testing and the watermark recovered and
+Status: **behaviour, hit-testing, Goto and the watermark recovered and
 reimplemented**; the title bar's bitmaps are not.
 
 The pane along the bottom-left of the main window is where a player reads the
@@ -127,9 +127,20 @@ across the text, corner to corner (`DiaganolTextOut`).
 
 A filtered message's button is dead even while it is on screen.
 
-There is a two-stage Goto worth noting: for a message about a planet whose id is
-`0x3e`, `0x3f` or in `0xaf..=0xb4` — the production ones — the first Goto
-selects the planet and the second opens **Change Production**.
+Goto **selects on the map**: `SelectAdjPlanet(0, id)` or
+`SelectAdjFleet(0, id)`, the same two calls a click on the scanner makes. It
+opens no report — the reports are windows of their own. After a fleet it
+posts the scanner a `v`, the key that centres on the selection, which is how
+the tutorial's *"Hit the v key to pinpoint it"* and Goto come to do the same
+thing.
+
+There is a two-stage Goto worth noting, and the second stage is not a count
+of clicks. `1030:6e4c` compares `sel.grobj` and `sel.idpl` against the
+message's object: a production message whose planet is **already the
+selection** opens **Change Production** instead of selecting it again. Which
+is the same shape as the Battles report's two-step, where a row selects the
+place first and plays the recording only once the place is already
+selected.
 
 ## What this project does
 
@@ -148,8 +159,14 @@ longer of the two sides and giving up entirely on a rectangle under ten pixels
 either way. This solves the same fit in one step rather than looping, since the
 extent scales with the size, and turns the galley by the same angle.
 
-Not reproduced: the original's bitmaps (this has short labelled buttons in the
-same places), writing messages to other players, and the Goto targets that need
-windows this project does not have — the part browser, the report dialogs, the
-battle VCR at a position. Those leave the button dead rather than lying about
-where it would go.
+Goto goes where the original sends it: a planet or a fleet becomes the
+selection on the map, a space object is found by the **id** its message
+carries — a `-6` message's first parameter is the `THING`'s own id, not an
+index — and a battle at a place opens the **VCR**, which this project now
+has.
+
+Not reproduced: the original's bitmaps (this has short labelled buttons in
+the same places), and writing messages to other players. One Goto target is
+left dead on purpose: the object words `-2`..`-5` and `-7`, and a component
+word, each name one of the game's own windows, and which window each stands
+for is not recovered. The button does nothing rather than guessing at one.
