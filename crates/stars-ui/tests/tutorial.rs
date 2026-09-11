@@ -1373,3 +1373,58 @@ fn the_tutor_sees_the_report_and_how_it_is_sorted() {
     assert!(!app.tutor_check(&strict));
     assert!(!app.tutor_check(&Check::ReportOpen));
 }
+
+/// `InitializeMenu` greys five items, each on its own condition rather than
+/// on one blanket "a game is open".
+#[test]
+fn the_menu_greys_what_a_single_player_game_cannot_use() {
+    use stars_ui::MenuItem;
+
+    let mut app = App::new();
+    // No game: everything is dead.
+    for item in [
+        MenuItem::Generate,
+        MenuItem::WaitForNew,
+        MenuItem::PlayerRelations,
+        MenuItem::SaveAndSubmit,
+        MenuItem::ChangePassword,
+    ] {
+        assert!(!app.menu_item_enabled(item), "{item:?} with no game");
+    }
+
+    // A game with other people in it: everything is alive.
+    app = a_game();
+    assert!(!app.single_player(), "two players");
+    for item in [
+        MenuItem::Generate,
+        MenuItem::WaitForNew,
+        MenuItem::PlayerRelations,
+        MenuItem::SaveAndSubmit,
+        MenuItem::ChangePassword,
+    ] {
+        assert!(app.menu_item_enabled(item), "{item:?} in a shared game");
+    }
+
+    // Alone: the three that are about other people go dead, and Generate
+    // stays — it is greyed only when there is no game at all.
+    if let Some(game) = app.game.as_mut() {
+        game.single_player = true;
+    }
+    assert!(app.menu_item_enabled(MenuItem::Generate));
+    assert!(!app.menu_item_enabled(MenuItem::WaitForNew));
+    assert!(!app.menu_item_enabled(MenuItem::PlayerRelations));
+    assert!(!app.menu_item_enabled(MenuItem::SaveAndSubmit));
+
+    // Change Password is the exception: dead alone with no password, alive
+    // again once there is one to take off.
+    assert_eq!(app.current_password_salt(), 0);
+    assert!(!app.menu_item_enabled(MenuItem::ChangePassword));
+    let me = app.local_player();
+    if let Some(player) = app.game.as_mut().and_then(|g| g.players.get_mut(me)) {
+        player.password = 0x1234_5678;
+    }
+    assert!(
+        app.menu_item_enabled(MenuItem::ChangePassword),
+        "a lone player can still take the password off"
+    );
+}

@@ -19,6 +19,24 @@ use crate::popup::{FleetRow, FleetSummary, PlanetSummary, Popup};
 use crate::statusbar::{Distance, StatusBar};
 use crate::vcr::Vcr;
 
+/// The menu items `InitializeMenu` greys on a condition of their own.
+///
+/// The rest of the bar is alive whenever a game is open, so only these five
+/// need asking about. See [`App::menu_item_enabled`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuItem {
+    /// Turn (`&Generate`, `0x69`).
+    Generate,
+    /// Turn (`&Wait for New`, `0x6a`).
+    WaitForNew,
+    /// Commands (`&Player Relations...`, `0x7de`).
+    PlayerRelations,
+    /// File (`Save &And Submit`, `0xedb`).
+    SaveAndSubmit,
+    /// Commands (`&Change Password...`, `0x10e`).
+    ChangePassword,
+}
+
 /// Which screen the frontend is showing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Screen {
@@ -12503,6 +12521,56 @@ impl App {
 }
 
 impl App {
+    /// Whether the game in hand is a single-player one (`GAME` flag word at
+    /// `+0x10`, bit 2).
+    ///
+    /// `InitializeMenu` (`1020:5560`) greys four menu items on it, because
+    /// each is about a game with other people in it.
+    #[must_use]
+    pub fn single_player(&self) -> bool {
+        self.game.as_ref().is_some_and(|game| game.single_player)
+    }
+
+    /// Whether a menu item is alive, as the `WM_INITMENU` handler decides.
+    ///
+    /// `InitializeMenu` greys five items, each on its own condition rather
+    /// than on one blanket "is a game open":
+    ///
+    /// | item | greyed when |
+    /// |------|-------------|
+    /// | `&Generate` (`0x69`) | no game |
+    /// | `&Wait for New` (`0x6a`) | no game, or single-player |
+    /// | `&Player Relations...` (`0x7de`) | no game, or single-player |
+    /// | `Save &And Submit` (`0xedb`) | no game, or single-player |
+    /// | `&Change Password...` (`0x10e`) | no game, or single-player **with no password set** |
+    ///
+    /// Change Password is the interesting one: a single-player game can
+    /// still take the password **off**, so the item stays alive while
+    /// `lSaltCur` is non-zero.
+    #[must_use]
+    pub fn menu_item_enabled(&self, item: MenuItem) -> bool {
+        let playing = self.game.is_some() && self.setup.is_none();
+        if !playing {
+            return false;
+        }
+        let alone = self.single_player();
+        match item {
+            MenuItem::Generate => true,
+            MenuItem::WaitForNew | MenuItem::PlayerRelations | MenuItem::SaveAndSubmit => !alone,
+            MenuItem::ChangePassword => !alone || self.current_password_salt() != 0,
+        }
+    }
+
+    /// The salt of the password on the player whose turn this is
+    /// (`lSaltCur`); `0` when there is none.
+    #[must_use]
+    pub fn current_password_salt(&self) -> u32 {
+        self.game
+            .as_ref()
+            .and_then(|game| game.players.get(self.local_player()))
+            .map_or(0, |player| player.password)
+    }
+
     /// Whether a screen is one of the original's four **reports**.
     ///
     /// `SortReportCache` (`1108:589c`) knows four: planets, your fleets,

@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use stars_ui::{App, Screen};
+use stars_ui::{App, MenuItem, Screen};
 
 /// The eframe application.
 pub struct StarsApp {
@@ -670,6 +670,21 @@ impl eframe::App for StarsApp {
             self.app.find_open = true;
         }
 
+        // File's own three: `&New...\tCtrl+N`, `&Open...\tCtrl+O` and
+        // `&Save\tCtrl+S`. The fourth, Ctrl+A for Save And Submit, has
+        // nothing behind it here.
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::N)) {
+            self.app.setup = Some(stars_core::newgame::NewGame::default());
+        }
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O)) {
+            self.pick_file();
+        }
+        if self.app.game.is_some()
+            && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S))
+        {
+            self.save(false);
+        }
+
         // View (Race) is F8 in the original.
         if self.app.game.is_some()
             && self.app.setup.is_none()
@@ -832,17 +847,39 @@ impl eframe::App for StarsApp {
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
-                    if ui.button("New game…").clicked() {
+                    // Resource `0x6d4`, in its order: New, Custom Race
+                    // Wizard, Open, Close, Save, Save And Submit, a rule,
+                    // Print Map, a rule, Exit. The three with nothing behind
+                    // them are left out and listed in `menus.md`; what this
+                    // project adds of its own comes after the originals.
+                    if ui
+                        .add(egui::Button::new("New…").shortcut_text("Ctrl+N"))
+                        .clicked()
+                    {
                         ui.close_menu();
                         self.app.setup = Some(stars_core::newgame::NewGame::default());
                     }
-                    if ui.button("Open…").clicked() {
+                    if ui
+                        .button("Custom Race Wizard…")
+                        .on_hover_text(
+                            "Design a race and write it out as a .r file, which a \
+                             new game can then start a player from.",
+                        )
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.app.open_race_wizard();
+                    }
+                    if ui
+                        .add(egui::Button::new("Open…").shortcut_text("Ctrl+O"))
+                        .clicked()
+                    {
                         ui.close_menu();
                         self.pick_file();
                     }
                     let open = self.app.game.is_some();
                     if ui
-                        .add_enabled(open, egui::Button::new("Save"))
+                        .add_enabled(open, egui::Button::new("Save").shortcut_text("Ctrl+S"))
                         .on_hover_text(
                             "A game opened from a file is written back by replacing only \
                              what you changed. A new game is written out whole: a .xy, a \
@@ -871,18 +908,6 @@ impl eframe::App for StarsApp {
                         self.save_universe();
                     }
                     ui.separator();
-                    if ui
-                        .button("Custom Race Wizard…")
-                        .on_hover_text(
-                            "Design a race and write it out as a .r file, which a \
-                             new game can then start a player from.",
-                        )
-                        .clicked()
-                    {
-                        ui.close_menu();
-                        self.app.open_race_wizard();
-                    }
-                    ui.separator();
                     // The game's own pictures are read out of a copy of the
                     // original executable. They are never required — every
                     // screen draws without them — so this only ever says where
@@ -909,7 +934,7 @@ impl eframe::App for StarsApp {
                         }
                     }
                     ui.separator();
-                    if ui.button("Quit").clicked() {
+                    if ui.button("Exit").clicked() {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 });
@@ -943,13 +968,15 @@ impl eframe::App for StarsApp {
                         self.app.find_open = true;
                     }
 
+                    // Both submenus carry a check mark on the current
+                    // choice, which `InitializeMenu` sets by **position** —
+                    // `CheckMenuItem(zoom, iScanZoom + 4, MF_BYPOSITION)`
+                    // and the same for `iWindowLayout`.
                     ui.menu_button("Zoom", |ui| {
                         for (step, percent) in stars_ui::App::ZOOM_PERCENT.iter().enumerate() {
                             let zoom = i8::try_from(step).unwrap_or(4) - 4;
-                            if ui
-                                .selectable_label(self.app.scan_zoom == zoom, format!("{percent}%"))
-                                .clicked()
-                            {
+                            let mark = if self.app.scan_zoom == zoom { "\u{2713} " } else { "    " };
+                            if ui.button(format!("{mark}{percent}%")).clicked() {
                                 self.app.scan_zoom = zoom;
                                 ui.close_menu();
                             }
@@ -958,13 +985,12 @@ impl eframe::App for StarsApp {
 
                     ui.menu_button("Window Layout", |ui| {
                         for layout in stars_ui::WindowLayout::ALL {
-                            if ui
-                                .selectable_label(
-                                    self.app.window_layout == layout,
-                                    layout.name(),
-                                )
-                                .clicked()
-                            {
+                            let mark = if self.app.window_layout == layout {
+                                "\u{2713} "
+                            } else {
+                                "    "
+                            };
+                            if ui.button(format!("{mark}{}", layout.name())).clicked() {
                                 self.app.window_layout = layout;
                                 ui.close_menu();
                             }
@@ -1010,8 +1036,14 @@ impl eframe::App for StarsApp {
                 let playing = self.app.game.is_some() && self.app.setup.is_none();
 
                 ui.menu_button("Turn", |ui| {
+                    // `InitializeMenu` greys each of these on its own
+                    // condition; Wait for New is dead in a single-player
+                    // game because there is nobody to wait for.
                     if ui
-                        .add_enabled(playing, egui::Button::new("Wait for New"))
+                        .add_enabled(
+                            self.app.menu_item_enabled(MenuItem::WaitForNew),
+                            egui::Button::new("Wait for New"),
+                        )
                         .on_hover_text(
                             "Watch for the other players' turns and generate the \
                              year. The original makes this a mode of its own, \
@@ -1024,7 +1056,7 @@ impl eframe::App for StarsApp {
                     }
                     if ui
                         .add_enabled(
-                            playing,
+                            self.app.menu_item_enabled(MenuItem::Generate),
                             egui::Button::new("Generate").shortcut_text("F9"),
                         )
                         .on_hover_text(
@@ -1072,7 +1104,7 @@ impl eframe::App for StarsApp {
                     }
                     if ui
                         .add_enabled(
-                            playing,
+                            self.app.menu_item_enabled(MenuItem::PlayerRelations),
                             egui::Button::new("Player Relations…").shortcut_text("F7"),
                         )
                         .clicked()
@@ -1081,8 +1113,13 @@ impl eframe::App for StarsApp {
                         self.app.open_relations();
                     }
                     ui.separator();
+                    // Alive in a single-player game only while there is a
+                    // password to take off again.
                     if ui
-                        .add_enabled(playing, egui::Button::new("Change Password…"))
+                        .add_enabled(
+                            self.app.menu_item_enabled(MenuItem::ChangePassword),
+                            egui::Button::new("Change Password…"),
+                        )
                         .clicked()
                     {
                         ui.close_menu();
