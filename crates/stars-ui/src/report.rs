@@ -1552,6 +1552,21 @@ pub enum Click {
     Vcr,
 }
 
+/// Whether clicking a battle's row opens the recording, or only moves the
+/// selection to where it happened.
+///
+/// `ExecuteReportClick` changes the scanner's selection to the battle's
+/// point and returns; only a click that finds it **already** there falls
+/// through to `BattleVCR`. And that call is guarded by `hwndVCRDlg == 0`,
+/// so a recording already playing is not swapped for another — the window
+/// has to be closed first.
+///
+/// A battle in deep space has no planet to select, so it opens at once.
+#[must_use]
+pub fn battle_opens(planet: Option<i16>, selected: Option<i16>, vcr_open: bool) -> bool {
+    planet.is_none_or(|id| selected == Some(id)) && !vcr_open
+}
+
 /// How near the right edge of the name column a click has to be to land on
 /// the starbase bars rather than the name: `pt.x > rgbdx[0] * 2 - 8`.
 pub const BAR_STRIP: f32 = 8.0;

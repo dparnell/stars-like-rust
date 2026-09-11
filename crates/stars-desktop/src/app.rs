@@ -778,6 +778,22 @@ impl eframe::App for StarsApp {
             && self.app.setup.is_none()
             && ctx.input(|i| i.key_pressed(egui::Key::F10))
         {
+            // `BattleVCR` (`hwndVCRDlg`) is a window over the Battle Summary
+            // Report, not a screen. Closing it is what lets another recording be
+            // opened — the original will not swap one for another either.
+            if self.app.vcr.is_some() {
+                let mut open = true;
+                egui::Window::new(stars_ui::dialog::BATTLE_VCR.caption)
+                    .open(&mut open)
+                    .resizable(true)
+                    .default_width(420.0)
+                    .show(ctx, |ui| stars_ui::views::battles::view(&mut self.app, ui));
+                if !open {
+                    self.app.vcr = None;
+                    self.app.playing = false;
+                }
+            }
+
             if self.app.score_sheet.is_some() {
                 self.app.close_score_sheet();
             } else {

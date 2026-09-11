@@ -56,7 +56,7 @@ pub fn central(app: &mut App, ui: &mut egui::Ui) -> Option<newgame::Action> {
         Screen::Planets => report::view(app, ui, crate::report::Report::Planets),
         Screen::Fleets => report::view(app, ui, crate::report::Report::Fleets),
         Screen::EnemyFleets => report::view(app, ui, crate::report::Report::EnemyFleets),
-        Screen::Battles => battles::view(app, ui),
+        Screen::Battles => report::view(app, ui, crate::report::Report::Battles),
         Screen::Players => players::view(app, ui),
     }
     None

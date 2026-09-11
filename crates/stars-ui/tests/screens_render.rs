@@ -35,6 +35,11 @@ fn draw(app: &mut App, screen: Screen) {
         egui::CentralPanel::default().show(ctx, |ui| {
             stars_ui::views::central(app, ui);
         });
+        // The VCR is a window over the Battle Summary Report, as it is in
+        // the shell, not one of the screens.
+        if app.vcr.is_some() {
+            egui::Window::new("Battle VCR").show(ctx, |ui| stars_ui::views::battles::view(app, ui));
+        }
     });
 }
 

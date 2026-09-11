@@ -1,8 +1,8 @@
 # The report windows
 
 Status: **in progress** — the columns, the sort, the grid, the per-column
-click routing and the three tutorial pages that watch the sort are done;
-four of the seven click pop-ups are not.
+click routing, all four tables and the three tutorial pages that watch the
+sort are done; four of the seven click pop-ups are not.
 
 Four windows share one piece of code: **Planets**, **Fleets**, **Others'
 Fleets** and **Battles**, listed together on the Report menu, all four
@@ -226,7 +226,7 @@ planet selected.
 | Fleets | Fuel, Cargo | opens the cargo transfer dialog |
 | Fleets | Composition | the fleet pop-up |
 | Others' Fleets | any | selects it and scrolls the map to it |
-| Battles | any | opens the VCR |
+| Battles | any | moves the selection to where the battle was; a **second** click opens the VCR |
 
 Two guards. A planets report **refuses the whole click**, selection
 included, while the production queue is up — `MessageBeep` and nothing else
@@ -301,8 +301,16 @@ both of which need that player's ship designs. The original has the same
 problem and solves it with a table of designs the player has seen; this
 project does not keep one yet.
 
-Not done yet: four of the seven click pop-ups (above), and the Battles
-report, which still shows this project's VCR screen rather than the table.
+The Battles report is the fourth table, and the VCR is what it was always
+meant to be: a window of its own (`hwndVCRDlg`) that opens over the report,
+not a screen. Two details of `ExecuteReportClick` come with it. A row moves
+the selection to where the battle happened and **returns** — only a click
+that finds the selection already there falls through to `BattleVCR` — and
+that call is guarded by `hwndVCRDlg == 0`, so a recording already playing
+is never swapped for another; the window has to be closed first. A battle
+in deep space has no planet to select, so it opens at once.
+
+Not done yet: four of the seven click pop-ups (above).
 
 ## What the tutorial asks of it
 

@@ -693,3 +693,105 @@ fn the_mineral_popup_says_what_is_known() {
         assert_eq!(summary.home_note, None);
     }
 }
+
+/// A battle with no planet — one in deep space — and one at a planet, so
+/// the two-step click can be told apart.
+fn a_battle(id: u16, planet: u16) -> stars_formats::battle::BattleRecord {
+    stars_formats::battle::BattleRecord {
+        id,
+        players: 2,
+        player_mask: 0b11,
+        planet,
+        position: (100, 200),
+        tokens: Vec::new(),
+        actions: Vec::new(),
+        declared_len: 0,
+    }
+}
+
+/// The Battles report lists the recordings the file carries, and its
+/// Location column names the planet or the point.
+#[test]
+fn the_battles_report_lists_the_recordings() {
+    use stars_ui::report::Cell;
+
+    let mut app = a_game();
+    let home = app
+        .game
+        .as_ref()
+        .expect("a game")
+        .planets
+        .iter()
+        .find(|p| p.homeworld && p.owner == Some(0))
+        .expect("a home world")
+        .id;
+    let named = u16::try_from(home).expect("a planet id");
+    app.battles = vec![a_battle(1, named), a_battle(2, u16::MAX)];
+
+    let game = app.game.as_ref().expect("a game");
+    let data = Data {
+        game,
+        player: 0,
+        battles: &app.battles,
+    };
+    assert_eq!(data.rows(Report::Battles), vec![0, 1]);
+
+    let Cell::Left(here) = data.cell(Report::Battles, 0, 0).cell else {
+        panic!("the location is text");
+    };
+    assert!(!here.is_empty() && here != "--", "{here}");
+    let Cell::Left(there) = data.cell(Report::Battles, 1, 0).cell else {
+        panic!("the location is text");
+    };
+    assert_eq!(there, "Space: (100, 200)", "deep space gives the point");
+
+    // With no tokens in the recording, the SB column is blank and every
+    // count is nothing.
+    let Cell::Centre(sb) = data.cell(Report::Battles, 0, 1).cell else {
+        panic!("SB is one centred letter");
+    };
+    assert_eq!(sb, " ", "nobody had a base there");
+    let Cell::Right(sides) = data.cell(Report::Battles, 0, 2).cell else {
+        panic!("Sides is a figure");
+    };
+    assert_eq!(sides, "2");
+}
+
+/// A battle at a planet takes two clicks: the first moves the selection to
+/// where it happened, the second opens the recording. One in deep space has
+/// nothing to select, so it opens at once.
+#[test]
+fn a_battle_row_selects_before_it_plays() {
+    use stars_ui::report::battle_opens;
+
+    let mut app = a_game();
+    let home = app
+        .game
+        .as_ref()
+        .expect("a game")
+        .planets
+        .iter()
+        .find(|p| p.homeworld && p.owner == Some(0))
+        .expect("a home world")
+        .id;
+    app.battles = vec![a_battle(1, u16::try_from(home).expect("a planet id"))];
+    app.selection.planet = None;
+    app.vcr = None;
+
+    // Nothing selected: the click moves the selection and stops.
+    assert!(!battle_opens(Some(home), None, false));
+    // Selected there already: it plays.
+    assert!(battle_opens(Some(home), Some(home), false));
+    // Somewhere else selected: back to step one.
+    assert!(!battle_opens(Some(home), Some(home + 1), false));
+    // Deep space has nothing to select, so it plays at once.
+    assert!(battle_opens(None, None, false));
+    // And a recording already up is never swapped for another.
+    assert!(!battle_opens(None, None, true));
+    assert!(!battle_opens(Some(home), Some(home), true));
+
+    app.select_object(stars_ui::app::ScanObject::Planet(home));
+    assert!(app.vcr.is_none(), "selecting a planet plays nothing");
+    app.open_battle(0);
+    assert!(app.vcr.is_some());
+}

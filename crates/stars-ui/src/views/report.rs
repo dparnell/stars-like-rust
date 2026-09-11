@@ -470,14 +470,26 @@ fn paint_cell(
 enum RowId {
     Planet(i16),
     Fleet(usize),
-    Battle(usize),
+    Battle {
+        /// Which recording.
+        index: usize,
+        /// The planet it happened at, or `None` for deep space.
+        planet: Option<i16>,
+    },
 }
 
 fn row_id(data: &Data<'_>, report: Report, row: usize) -> RowId {
     match report {
         Report::Planets => RowId::Planet(data.game.planets.get(row).map_or(-1, |p| p.id)),
         Report::Fleets | Report::EnemyFleets => RowId::Fleet(row),
-        Report::Battles => RowId::Battle(row),
+        Report::Battles => RowId::Battle {
+            index: row,
+            planet: data
+                .battles
+                .get(row)
+                .filter(|b| b.planet != u16::MAX)
+                .and_then(|b| i16::try_from(b.planet).ok()),
+        },
     }
 }
 
@@ -486,10 +498,11 @@ impl RowId {
         match self {
             RowId::Planet(id) => app.selection.planet == Some(id),
             RowId::Fleet(index) => app.selection.fleet == Some(index),
-            RowId::Battle(index) => app
-                .vcr
-                .as_ref()
-                .is_some_and(|v| app.battles.get(index).is_some_and(|b| b.id == v.id)),
+            // `DrawReportItem` colours the Location cell when the battle's
+            // point is the one the scanner has.
+            RowId::Battle { planet, .. } => {
+                planet.is_some_and(|id| app.selection.planet == Some(id))
+            }
         }
     }
 
@@ -501,7 +514,20 @@ impl RowId {
             // selection a click on the map makes, so the panes follow.
             RowId::Planet(id) => app.select_object(crate::app::ScanObject::Planet(id)),
             RowId::Fleet(index) => app.select_object(crate::app::ScanObject::Fleet(index)),
-            RowId::Battle(index) => app.open_battle(index),
+            // `ExecuteReportClick` moves the scanner to where the battle
+            // was and returns; only a click that finds it already there
+            // opens the recording. A battle in deep space has no planet to
+            // select, so it opens at once.
+            RowId::Battle { index, planet } => {
+                let opens =
+                    crate::report::battle_opens(planet, app.selection.planet, app.vcr.is_some());
+                if let Some(id) = planet {
+                    app.select_object(crate::app::ScanObject::Planet(id));
+                }
+                if opens {
+                    app.open_battle(index);
+                }
+            }
         }
     }
 }
