@@ -991,3 +991,81 @@ fn the_starbase_popup_carries_the_design() {
     app.designer_peek = None;
     assert_eq!(app.designer_subject(), None);
 }
+
+/// The horizontal scrollbar's range is how many columns will not fit, and
+/// the walk that turns a bar position back into a first column skips the
+/// hidden ones for nothing.
+#[test]
+fn the_horizontal_scroll_counts_columns_not_pixels() {
+    use stars_ui::report::{first_field_at, scroll_columns, ScrollBy, COLUMN_PAGE};
+
+    let mut state = ReportState::new();
+    // Fifteen columns of a hundred pixels; the first never scrolls.
+    let widths = [100.0_f32; 15];
+
+    // Room for everything: no bar at all.
+    let all = scroll_columns(&state, &widths, 1_400.0);
+    assert_eq!(all.max, 0);
+    assert_eq!(all.position, 0);
+
+    // Room for six of the fourteen that scroll: eight do not fit.
+    let tight = scroll_columns(&state, &widths, 600.0);
+    assert_eq!(tight.max, 8);
+    assert_eq!(tight.position, 0, "still showing the first of them");
+
+    // Scrolled on by three, the position follows.
+    state.first_field = 4;
+    let moved = scroll_columns(&state, &widths, 600.0);
+    assert_eq!(moved.position, 3);
+
+    // And the position maps back to the same column.
+    assert_eq!(first_field_at(&state, widths.len(), 3), 4);
+    assert_eq!(first_field_at(&state, widths.len(), 0), 1);
+
+    // A hidden column costs nothing to step over.
+    state.visible &= !(1 << 2);
+    assert_eq!(
+        first_field_at(&state, widths.len(), 1),
+        3,
+        "column 2 is hidden, so one step lands on 3"
+    );
+
+    // The five fixed moves, clamped at both ends.
+    assert_eq!(ScrollBy::Line(true).apply(0, 8, COLUMN_PAGE), 1);
+    assert_eq!(ScrollBy::Line(false).apply(0, 8, COLUMN_PAGE), 0);
+    assert_eq!(ScrollBy::Page(true).apply(0, 8, COLUMN_PAGE), 3);
+    assert_eq!(ScrollBy::Page(true).apply(7, 8, COLUMN_PAGE), 8);
+    assert_eq!(ScrollBy::End(true).apply(0, 8, COLUMN_PAGE), 8);
+    assert_eq!(ScrollBy::End(false).apply(8, 8, COLUMN_PAGE), 0);
+    assert_eq!(ScrollBy::To(5).apply(0, 8, COLUMN_PAGE), 5);
+    assert_eq!(ScrollBy::To(99).apply(0, 8, COLUMN_PAGE), 8);
+}
+
+/// `SetHScrollBar` tests the visibility bit of the column **above** the one
+/// it is measuring. With everything shown that cannot be told apart;
+/// hiding one column takes the one to its left out of the measurement.
+/// Reproduced deliberately — see `docs/ui/reports.md`.
+#[test]
+fn hiding_a_column_mismeasures_the_one_to_its_left() {
+    use stars_ui::report::scroll_columns;
+
+    let widths = [100.0_f32; 15];
+    let shown = ReportState::new();
+    let room = 600.0;
+    assert_eq!(scroll_columns(&shown, &widths, room).max, 8);
+
+    // Hide column 14, the last. The loop reads bit 15 for it — which is
+    // still set — so it is measured anyway, and column 13 is the one left
+    // out instead.
+    let mut hidden = ReportState::new();
+    hidden.visible &= !(1 << 14);
+    assert_eq!(
+        scroll_columns(&hidden, &widths, room).max,
+        7,
+        "one column's width came out of the sum, but not the hidden one's"
+    );
+    assert!(
+        !hidden.drawn(Report::Planets).contains(&14),
+        "column 14 really is hidden; only the measurement is confused"
+    );
+}

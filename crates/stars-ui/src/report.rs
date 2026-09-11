@@ -1659,3 +1659,115 @@ impl Data<'_> {
         }
     }
 }
+
+/// How far the horizontal scrollbar can go, and where it is now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Scroll {
+    /// The scrollbar's maximum — `cColScroll`, which is how many columns do
+    /// not fit. Zero means everything fits and the bar is hidden.
+    pub max: usize,
+    /// Where the bar sits, which is how many visible columns have been
+    /// scrolled off to the left of [`ReportState::first_field`].
+    pub position: usize,
+}
+
+/// How many columns the horizontal scrollbar steps for a page —
+/// `WM_HSCROLL`'s `SB_PAGELEFT` and `SB_PAGERIGHT` move by three.
+pub const COLUMN_PAGE: usize = 3;
+
+/// `SetHScrollBar` (`1108:7b6c`): work out the horizontal scrollbar's range
+/// from the room left over once the name column and the vertical scrollbar
+/// have taken theirs.
+///
+/// The walk runs from the **last** column back to column 1, subtracting each
+/// visible column's width; every column that takes the remaining room below
+/// zero is one the bar has to be able to reach.
+///
+/// `widths` is indexed by column, in pixels, and `room` is what is left of
+/// the client width after the name column and the vertical scrollbar.
+///
+/// # The off-by-one, reproduced
+///
+/// The loop tests the visibility bit of column `n + 1` while measuring
+/// column `n`: `grbit` starts at `1 << cFields` — one past the last column —
+/// and is shifted right once per turn, but the width subtracted is the
+/// column below. With every column shown it makes no difference, because
+/// `grbitVisible` starts with all sixteen bits set and the phantom bit is
+/// set too. Hide one and the column to its **left** is the one left out of
+/// the measurement. This reproduces it; see `docs/ui/reports.md`.
+#[must_use]
+pub fn scroll_columns(state: &ReportState, widths: &[f32], room: f32) -> Scroll {
+    let fields = widths.len();
+    let mut scroll = Scroll::default();
+    let mut room = room;
+    for column in (1..fields).rev() {
+        // The bit of the column **above** this one, as the original tests it.
+        if !state.shows(column + 1) {
+            continue;
+        }
+        if column < state.first_field {
+            scroll.position += 1;
+        }
+        room -= widths[column];
+        if room < 0.0 {
+            scroll.max += 1;
+        }
+    }
+    // Nothing to scroll, or scrolled past the end: back to the first column.
+    // The original sets `cFieldFirst = 1` in both cases too.
+    if scroll.max == 0 || scroll.max < scroll.position {
+        scroll.position = 0;
+    }
+    scroll
+}
+
+/// Which column the grid starts at for a given scrollbar position.
+///
+/// `WM_HSCROLL` walks up from column 1, stepping over the hidden ones for
+/// nothing and spending one of `position` on each visible one.
+#[must_use]
+pub fn first_field_at(state: &ReportState, fields: usize, position: usize) -> usize {
+    let mut column = 1;
+    let mut left = position;
+    while column < fields && (!state.shows(column) || left > 0) {
+        if state.shows(column) {
+            left -= 1;
+        }
+        column += 1;
+    }
+    column
+}
+
+/// Where a scrollbar lands after one of `WM_HSCROLL`'s messages.
+///
+/// The five that move by a fixed amount are a line either way, a page either
+/// way, and the two ends; `SB_TOP` is zero and `SB_BOTTOM` is 2000, which is
+/// past any range the report can have and clamps to the end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollBy {
+    /// One column, or one row.
+    Line(bool),
+    /// A page: three columns, or the visible rows less one.
+    Page(bool),
+    /// Straight to an end.
+    End(bool),
+    /// Where the thumb was dropped.
+    To(usize),
+}
+
+impl ScrollBy {
+    /// Apply it, clamped to `0..=max`.
+    #[must_use]
+    pub fn apply(self, from: usize, max: usize, page: usize) -> usize {
+        let moved = match self {
+            ScrollBy::Line(true) => from.saturating_add(1),
+            ScrollBy::Line(false) => from.saturating_sub(1),
+            ScrollBy::Page(true) => from.saturating_add(page),
+            ScrollBy::Page(false) => from.saturating_sub(page),
+            ScrollBy::End(true) => usize::MAX,
+            ScrollBy::End(false) => 0,
+            ScrollBy::To(where_) => where_,
+        };
+        moved.min(max)
+    }
+}

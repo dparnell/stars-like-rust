@@ -136,11 +136,13 @@ pub fn view(app: &mut App, ui: &mut egui::Ui, report: Report) {
     let digit = of("8");
 
     let columns = report.columns();
-    let drawn = app.reports.state(report).drawn(report);
-    let widths: Vec<f32> = drawn
-        .iter()
-        .map(|&c| column_width(report, c, of(columns[c].name), digit, &of))
+    // Every column's width, whether it is shown or not: the horizontal
+    // scrollbar's range is worked out over all of them.
+    let all_widths: Vec<f32> = (0..columns.len())
+        .map(|c| column_width(report, c, of(columns[c].name), digit, &of))
         .collect();
+    let drawn = app.reports.state(report).drawn(report);
+    let widths: Vec<f32> = drawn.iter().map(|&c| all_widths[c]).collect();
 
     // The rows, in the order the sort leaves them.
     let battles = app.battles.clone();
@@ -179,107 +181,139 @@ pub fn view(app: &mut App, ui: &mut egui::Ui, report: Report) {
     );
     ui.add_space(2.0);
 
-    let total: f32 = widths.iter().sum::<f32>() + 4.0;
     let mut clicked_header: Option<(usize, Pos2)> = None;
     // The row, the column, how far into the cell, how wide it is, and where.
     let mut clicked_row: Option<(usize, usize, f32, f32, Pos2)> = None;
 
-    egui::ScrollArea::both()
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            let height = row_height * (rows.len() + 1) as f32 + 4.0;
-            let (response, painter) = ui.allocate_painter(
-                Vec2::new(total.max(ui.available_width()), height),
-                Sense::click(),
-            );
-            let origin = response.rect.min;
-            painter.rect_filled(response.rect, 0.0, face());
+    // `ReportDlg`'s `WM_SIZE`: the rows that fit are what is left of the
+    // client once the header and the horizontal scrollbar have taken
+    // `0x24` between them.
+    let client = ui.available_rect_before_wrap();
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a row count, from a height"
+    )]
+    let fits = ((client.height() - 36.0) / row_height).floor().max(0.0) as usize;
+    let rows_vis = fits.min(rows.len());
+    let state = *app.reports.state(report);
+    let first_row = state.first_row.min(rows.len().saturating_sub(rows_vis));
 
-            // The header row.
+    {
+        let (response, painter) = ui.allocate_painter(client.size(), Sense::click());
+        let origin = response.rect.min;
+        painter.rect_filled(response.rect, 0.0, face());
+
+        // The header row.
+        let mut x = origin.x + 2.0;
+        let top = origin.y + 2.0;
+        for (index, &c) in drawn.iter().enumerate() {
+            let w = widths[index];
+            let cell = Rect::from_min_size(Pos2::new(x, top), Vec2::new(w - 1.0, row_height));
+            raised(&painter, cell);
+            if c == 0 {
+                painter.text(
+                    Pos2::new(cell.left() + 3.0, cell.top() + 2.0),
+                    Align2::LEFT_TOP,
+                    columns[c].name,
+                    font.clone(),
+                    Color32::BLACK,
+                );
+            } else {
+                painter.text(
+                    Pos2::new(cell.center().x, cell.top() + 2.0),
+                    Align2::CENTER_TOP,
+                    columns[c].name,
+                    font.clone(),
+                    Color32::BLACK,
+                );
+            }
+            x += w;
+        }
+
+        // The rows that fit, from the one the scrollbar has scrolled to.
+        for (seen, cells) in cells
+            .iter()
+            .enumerate()
+            .skip(first_row)
+            .take(rows_vis)
+            .enumerate()
+            .map(|(seen, (_, cells))| (seen, cells))
+        {
+            let row = first_row + seen;
+            let y = top + row_height * (seen + 1) as f32;
             let mut x = origin.x + 2.0;
-            let top = origin.y + 2.0;
-            for (index, &c) in drawn.iter().enumerate() {
+            for (index, (cell, tint)) in cells.iter().enumerate() {
                 let w = widths[index];
-                let cell = Rect::from_min_size(Pos2::new(x, top), Vec2::new(w - 1.0, row_height));
-                raised(&painter, cell);
-                if c == 0 {
-                    painter.text(
-                        Pos2::new(cell.left() + 3.0, cell.top() + 2.0),
-                        Align2::LEFT_TOP,
-                        columns[c].name,
-                        font.clone(),
-                        Color32::BLACK,
-                    );
-                } else {
-                    painter.text(
-                        Pos2::new(cell.center().x, cell.top() + 2.0),
-                        Align2::CENTER_TOP,
-                        columns[c].name,
-                        font.clone(),
-                        Color32::BLACK,
-                    );
-                }
+                let frame = Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, row_height));
+                // `PATBLT` with the shadow brush: a line down the left and
+                // one along the top of every cell.
+                painter.rect_filled(
+                    Rect::from_min_size(frame.min, Vec2::new(1.0, row_height)),
+                    0.0,
+                    shadow(),
+                );
+                painter.rect_filled(
+                    Rect::from_min_size(frame.min, Vec2::new(w, 1.0)),
+                    0.0,
+                    shadow(),
+                );
+                let inner = Rect::from_min_max(
+                    Pos2::new(frame.left() + 2.0, frame.top() + 2.0),
+                    Pos2::new(frame.right() - 3.0, frame.bottom() - 1.0),
+                );
+                let selected = ids.get(row).is_some_and(|id| id.is_selected(app));
+                paint_cell(&painter, &font, inner, cell, *tint, selected);
                 x += w;
             }
+        }
 
-            // The rows.
-            for (row, cells) in cells.iter().enumerate() {
-                let y = top + row_height * (row + 1) as f32;
-                let mut x = origin.x + 2.0;
-                for (index, (cell, tint)) in cells.iter().enumerate() {
-                    let w = widths[index];
-                    let frame = Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, row_height));
-                    // `PATBLT` with the shadow brush: a line down the left and
-                    // one along the top of every cell.
-                    painter.rect_filled(
-                        Rect::from_min_size(frame.min, Vec2::new(1.0, row_height)),
-                        0.0,
-                        shadow(),
-                    );
-                    painter.rect_filled(
-                        Rect::from_min_size(frame.min, Vec2::new(w, 1.0)),
-                        0.0,
-                        shadow(),
-                    );
-                    let inner = Rect::from_min_max(
-                        Pos2::new(frame.left() + 2.0, frame.top() + 2.0),
-                        Pos2::new(frame.right() - 3.0, frame.bottom() - 1.0),
-                    );
-                    let selected = ids.get(row).is_some_and(|id| id.is_selected(app));
-                    paint_cell(&painter, &font, inner, cell, *tint, selected);
-                    x += w;
-                }
-            }
-
-            // Where a click landed: the header row, or a row of the grid.
-            if response.clicked() || response.secondary_clicked() {
-                if let Some(pos) = response.interact_pointer_pos() {
-                    let mut left = origin.x + 2.0;
-                    let mut hit = None;
-                    for (index, &c) in drawn.iter().enumerate() {
-                        if pos.x < left + widths[index] {
-                            hit = Some((c, pos.x - left, widths[index]));
-                            break;
-                        }
-                        left += widths[index];
+        // Where a click landed: the header row, or a row of the grid.
+        if response.clicked() || response.secondary_clicked() {
+            if let Some(pos) = response.interact_pointer_pos() {
+                let mut left = origin.x + 2.0;
+                let mut hit = None;
+                for (index, &c) in drawn.iter().enumerate() {
+                    if pos.x < left + widths[index] {
+                        hit = Some((c, pos.x - left, widths[index]));
+                        break;
                     }
-                    if let Some((column, into, width)) = hit {
-                        #[expect(
-                            clippy::cast_possible_truncation,
-                            reason = "a row number, from a pixel offset"
-                        )]
-                        let row = ((pos.y - top) / row_height).floor() as i64 - 1;
-                        if row < 0 {
-                            clicked_header = Some((column, pos));
-                        } else if let Ok(row) = usize::try_from(row) {
-                            if row < rows.len() {
-                                clicked_row = Some((row, column, into, width, pos));
-                            }
+                    left += widths[index];
+                }
+                if let Some((column, into, width)) = hit {
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "a row number, from a pixel offset"
+                    )]
+                    let seen = ((pos.y - top) / row_height).floor() as i64 - 1;
+                    if seen < 0 {
+                        clicked_header = Some((column, pos));
+                    } else if let Ok(seen) = usize::try_from(seen) {
+                        let row = first_row + seen;
+                        if seen < rows_vis && row < rows.len() {
+                            clicked_row = Some((row, column, into, width, pos));
                         }
                     }
                 }
             }
-        });
+        }
+    }
+
+    scrollbars(
+        app,
+        ui,
+        report,
+        client,
+        Geometry {
+            line,
+            row_height,
+            rows: rows.len(),
+            rows_vis,
+            first_row,
+            name_width: all_widths[0] + 2.0,
+            widths: &all_widths,
+        },
+    );
 
     if let Some((column, pos)) = clicked_header {
         app.report_menu = Some((report, column, pos));
@@ -299,6 +333,217 @@ pub fn view(app: &mut App, ui: &mut egui::Ui, report: Report) {
     }
 
     menu(app, ui, report);
+}
+
+/// `GetSystemMetrics(SM_CXVSCROLL)` and `SM_CYHSCROLL`, which Windows 3.1
+/// gives as sixteen pixels at the usual resolution. The original asks the
+/// system for both and places the two bars against the answer.
+const SCROLLBAR: f32 = 16.0;
+
+/// What the grid's shape works out to, for placing the two bars.
+struct Geometry<'a> {
+    /// `dyArial8`.
+    line: f32,
+    /// `dyArial8 + 4`.
+    row_height: f32,
+    /// How many rows the report holds.
+    rows: usize,
+    /// How many of them fit.
+    rows_vis: usize,
+    /// Which one is at the top.
+    first_row: usize,
+    /// `rgbdx[0] * 2 + 2`: the name column, which never scrolls.
+    name_width: f32,
+    /// Every column's width, shown or not.
+    widths: &'a [f32],
+}
+
+/// The two scrollbars, placed where `ReportDlg` and `SetHScrollBar` put
+/// them: the vertical one down the right beside the rows, the horizontal
+/// one under them and starting past the name column, so that the column
+/// that never scrolls has no bar under it either.
+fn scrollbars(app: &mut App, ui: &mut egui::Ui, report: Report, client: Rect, at: Geometry<'_>) {
+    let state = *app.reports.state(report);
+    let rows_area = at.row_height * at.rows_vis as f32;
+
+    // Down the right: one row a line, a screenful less one a page.
+    let reach = at.rows.saturating_sub(at.rows_vis);
+    if reach > 0 {
+        let rect = Rect::from_min_size(
+            Pos2::new(client.right() - SCROLLBAR, client.top() + at.line + 6.0),
+            Vec2::new(SCROLLBAR, rows_area + 1.0),
+        );
+        let page = at.rows_vis.saturating_sub(1).max(1);
+        if let Some(by) = scrollbar(ui, rect, at.first_row, reach, page, false) {
+            app.reports.state_mut(report).first_row = by.apply(at.first_row, reach, page);
+        }
+    } else if app.reports.state(report).first_row != 0 {
+        app.reports.state_mut(report).first_row = 0;
+    }
+
+    // Underneath: one column a line, three a page.
+    let room = client.width() - at.name_width - SCROLLBAR;
+    let scroll = crate::report::scroll_columns(&state, at.widths, room);
+    if scroll.max == 0 {
+        if state.first_field != 1 {
+            app.reports.state_mut(report).first_field = 1;
+        }
+        return;
+    }
+    let rect = Rect::from_min_size(
+        Pos2::new(
+            client.left() + at.name_width,
+            client.top() + at.line + rows_area + 7.0,
+        ),
+        Vec2::new(room.max(SCROLLBAR * 3.0), SCROLLBAR),
+    );
+    if let Some(by) = scrollbar(
+        ui,
+        rect,
+        scroll.position,
+        scroll.max,
+        crate::report::COLUMN_PAGE,
+        true,
+    ) {
+        let moved = by.apply(scroll.position, scroll.max, crate::report::COLUMN_PAGE);
+        app.reports.state_mut(report).first_field =
+            crate::report::first_field_at(&state, at.widths.len(), moved);
+    }
+}
+
+/// One Windows 3.1 scrollbar: an arrow at each end, a thumb between them,
+/// and a trough that pages when it is clicked.
+///
+/// Returns what the player asked for, if anything. `horizontal` only says
+/// which way round to draw it.
+fn scrollbar(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    position: usize,
+    max: usize,
+    page: usize,
+    horizontal: bool,
+) -> Option<crate::report::ScrollBy> {
+    use crate::report::ScrollBy;
+
+    let painter = ui.painter_at(rect);
+    // The trough is the one part not in button face: `COLOR_SCROLLBAR` is a
+    // half-tone of face and white, which at this size reads as a light grey.
+    painter.rect_filled(rect, 0.0, Color32::from_rgb(0xe0, 0xe0, 0xe0));
+
+    let along = if horizontal {
+        rect.width()
+    } else {
+        rect.height()
+    };
+    let button = SCROLLBAR.min(along / 2.0);
+    let slice = |from: f32, size: f32| {
+        if horizontal {
+            Rect::from_min_size(
+                Pos2::new(rect.left() + from, rect.top()),
+                Vec2::new(size, rect.height()),
+            )
+        } else {
+            Rect::from_min_size(
+                Pos2::new(rect.left(), rect.top() + from),
+                Vec2::new(rect.width(), size),
+            )
+        }
+    };
+    let less = slice(0.0, button);
+    let more = slice(along - button, button);
+    let trough = along - button * 2.0;
+
+    // The thumb takes the share of the trough that a page is of the whole.
+    #[allow(clippy::cast_precision_loss)]
+    let span = (max + page) as f32;
+    #[allow(clippy::cast_precision_loss)]
+    let thumb_size = (trough * page as f32 / span).clamp(SCROLLBAR / 2.0, trough.max(1.0));
+    #[allow(clippy::cast_precision_loss)]
+    let thumb_at = button + (trough - thumb_size) * position as f32 / max.max(1) as f32;
+    let thumb = slice(thumb_at, thumb_size);
+
+    for (face_rect, arrow) in [(less, false), (more, true)] {
+        painter.rect_filled(face_rect, 0.0, face());
+        raised(&painter, face_rect);
+        arrowhead(&painter, face_rect, horizontal, arrow);
+    }
+    painter.rect_filled(thumb, 0.0, face());
+    raised(&painter, thumb);
+
+    let response = ui.interact(
+        rect,
+        ui.id().with(("report scrollbar", horizontal)),
+        Sense::click_and_drag(),
+    );
+    let pointer = response.interact_pointer_pos()?;
+    let hit = if horizontal {
+        pointer.x - rect.left()
+    } else {
+        pointer.y - rect.top()
+    };
+
+    if response.dragged() || response.is_pointer_button_down_on() {
+        // Dragging anywhere but the two arrows tracks the thumb.
+        if hit > button && hit < along - button {
+            let travel = (trough - thumb_size).max(1.0);
+            let from = (hit - button - thumb_size / 2.0).clamp(0.0, travel);
+            #[allow(
+                clippy::cast_precision_loss,
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss
+            )]
+            let to = (from * max as f32 / travel).round() as usize;
+            return Some(ScrollBy::To(to));
+        }
+    }
+    if !response.clicked() {
+        return None;
+    }
+    if hit < button {
+        Some(ScrollBy::Line(false))
+    } else if hit > along - button {
+        Some(ScrollBy::Line(true))
+    } else if hit < thumb_at {
+        Some(ScrollBy::Page(false))
+    } else if hit > thumb_at + thumb_size {
+        Some(ScrollBy::Page(true))
+    } else {
+        None
+    }
+}
+
+/// The little black triangle on a scrollbar's arrow button.
+fn arrowhead(painter: &egui::Painter, rect: Rect, horizontal: bool, forward: bool) {
+    let middle = rect.center();
+    let reach = rect.width().min(rect.height()) / 4.0;
+    let points = match (horizontal, forward) {
+        (true, true) => [
+            Pos2::new(middle.x - reach / 2.0, middle.y - reach),
+            Pos2::new(middle.x - reach / 2.0, middle.y + reach),
+            Pos2::new(middle.x + reach, middle.y),
+        ],
+        (true, false) => [
+            Pos2::new(middle.x + reach / 2.0, middle.y - reach),
+            Pos2::new(middle.x + reach / 2.0, middle.y + reach),
+            Pos2::new(middle.x - reach, middle.y),
+        ],
+        (false, true) => [
+            Pos2::new(middle.x - reach, middle.y - reach / 2.0),
+            Pos2::new(middle.x + reach, middle.y - reach / 2.0),
+            Pos2::new(middle.x, middle.y + reach),
+        ],
+        (false, false) => [
+            Pos2::new(middle.x - reach, middle.y + reach / 2.0),
+            Pos2::new(middle.x + reach, middle.y + reach / 2.0),
+            Pos2::new(middle.x, middle.y - reach),
+        ],
+    };
+    painter.add(egui::Shape::convex_polygon(
+        points.to_vec(),
+        Color32::BLACK,
+        egui::Stroke::NONE,
+    ));
 }
 
 /// Do what a click asked for.

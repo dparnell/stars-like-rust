@@ -204,6 +204,42 @@ where the original uses `qsort`: two rows that even the tie-break cannot
 separate keep the order the galaxy gives them, rather than whatever the
 quicksort's partitioning happened to leave.
 
+## Scrolling
+
+Neither bar scrolls by pixels. The vertical one counts **rows** and the
+horizontal one counts **columns**, and column 0 is outside both: it never
+scrolls away, and the horizontal bar does not even start until past it.
+
+`ReportDlg`'s `WM_SIZE` says how many rows fit —
+`(client height - 0x24) / (dyArial8 + 4)` — and `WM_VSCROLL` moves by one
+row a line and by `cRowsVis - 1` a page. `WM_HSCROLL` moves by one column
+a line and by **three** a page, and turns its position back into a first
+column by walking up from column 1, stepping over hidden columns for
+nothing and spending one step on each visible one.
+
+`SetHScrollBar` (`1108:7b6c`) works out the range. It walks from the last
+column **back** to column 1, taking each visible column's width off the
+room left once the name column and the vertical scrollbar have had theirs;
+every column that takes the remainder below zero is one more the bar has to
+reach. With nothing left over the bar is hidden and `cFieldFirst` goes back
+to 1.
+
+Both bars are placed against the grid rather than the window: the vertical
+one runs beside the rows only, from `dyArial8 + 6` down, and the horizontal
+one sits under the last row, starting at the name column's right edge and
+stopping short of the vertical one.
+
+### A second off-by-one, reproduced
+
+That walk reads the visibility bit of the column **above** the one it is
+measuring. `grbit` starts at `1 << cFields` — one past the last column —
+and shifts right once a turn, while the width subtracted is the column
+below it. With every column shown this cannot be told apart, because
+`grbitVisible` starts with all sixteen bits set and the phantom bit is set
+too. Hide one column and the column to its **left** is the one left out of
+the measurement, so the bar's range comes out one short. Reproduced, with
+a test that says which column is wrong and why.
+
 ## Clicking a row
 
 `ExecuteReportClick` selects the object the row is about — the same
@@ -311,15 +347,8 @@ shadow lines `PATBLT` draws; widths follow `DxReportColHdr`'s rules against
 the font actually in use. Clicking a header opens the column menu with both
 buttons, as the original does; clicking a row selects what it is about.
 
-Two differences worth stating.
-
-The **horizontal scroll** is by pixels here, through egui's scroll area,
-where the original scrolls a whole column at a time with a scrollbar whose
-range is a column count and whose position it stores in `cFieldFirst`. The
-field is still in the model and still decides what `drawn()` returns, so the
-column-at-a-time behaviour is available; the view does not drive it.
-
-Two columns **cannot be computed from a player's own file** and read as
+One difference worth stating: two columns **cannot be computed from a
+player's own file** and read as
 empty: another player's Composition, and the Others' Fleets class counts,
 both of which need that player's ship designs. The original has the same
 problem and solves it with a table of designs the player has seen; this
