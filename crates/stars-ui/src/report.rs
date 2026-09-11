@@ -1499,3 +1499,148 @@ impl Data<'_> {
         }
     }
 }
+
+/// Which pop-up a cell raises. These are the original's `GlobalPD.grPopup`
+/// kinds, and each is the same pop-up the matching figure in a pane raises.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PopupKind {
+    /// `grPopupShdef`: the planet's starbase design, drawn as the designer
+    /// draws it.
+    Starbase,
+    /// `grPopupPlanet`: what the population is doing.
+    Population,
+    /// `grPopupPlanetIndustry`: mines, or factories.
+    Industry {
+        /// `true` for the Fact column, `false` for Mine — the original
+        /// passes `icol == 7`.
+        factories: bool,
+    },
+    /// `grPopupComponent` for the best defence this race can build.
+    Defense,
+    /// `grPopupMineral` for one of the three, chosen by which third of the
+    /// cell was clicked.
+    Mineral(usize),
+    /// `grPopupResources`.
+    Resources,
+    /// `grPopupFleet`: what the fleet is carrying.
+    Fleet,
+}
+
+/// What clicking a cell does, over and above selecting what its row is about.
+///
+/// `ExecuteReportClick` (`1108:7cd6`) selects first and then, for about half
+/// the columns, does what clicking that same figure in a pane would do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Click {
+    /// The click is refused — the original beeps. A planets report will not
+    /// act while the production dialog is up.
+    Refused,
+    /// Select the row's object, and nothing more.
+    Select,
+    /// Select it and raise a pop-up.
+    Popup(PopupKind),
+    /// Select the planet and open its production queue (`ChangeProduction`).
+    Production,
+    /// Select the fleet and take hold of its first real waypoint
+    /// (`SetScanWp(1)`), which is what the Destination, ETA and Task columns
+    /// do when the fleet is going anywhere.
+    Waypoint,
+    /// Select the fleet and open the cargo transfer dialog
+    /// (`TransferStuff`), against the planet it orbits or against space.
+    Transfer,
+    /// Open the battle recording.
+    Vcr,
+}
+
+/// How near the right edge of the name column a click has to be to land on
+/// the starbase bars rather than the name: `pt.x > rgbdx[0] * 2 - 8`.
+pub const BAR_STRIP: f32 = 8.0;
+
+impl Data<'_> {
+    /// What clicking a cell asks for.
+    ///
+    /// `x` is how far into the cell the click landed and `width` how wide the
+    /// cell is; both matter, because the name column's right edge is the
+    /// starbase's and a mineral column is three figures in one cell.
+    #[must_use]
+    pub fn click(
+        &self,
+        report: Report,
+        row: usize,
+        column: usize,
+        x: f32,
+        width: f32,
+        production_open: bool,
+    ) -> Click {
+        match report {
+            Report::Planets => self.planet_click(row, column, x, width, production_open),
+            Report::Fleets => self.fleet_click(row, column),
+            // Nothing beyond the selection, which also scrolls the map to it.
+            Report::EnemyFleets => Click::Select,
+            Report::Battles => Click::Vcr,
+        }
+    }
+
+    fn planet_click(
+        &self,
+        row: usize,
+        column: usize,
+        x: f32,
+        width: f32,
+        production_open: bool,
+    ) -> Click {
+        // `if (hwndProdDlg != 0) MessageBeep()`: the whole click, selection
+        // included, is refused while the queue is up.
+        if production_open {
+            return Click::Refused;
+        }
+        let Some(planet) = self.game.planets.get(row) else {
+            return Click::Select;
+        };
+        match column {
+            // The name column raises the starbase only for a click in the
+            // strip the bars are drawn in; the rest of it is just the name.
+            0 if planet.starbase && x > width - BAR_STRIP => Click::Popup(PopupKind::Starbase),
+            1 if planet.starbase => Click::Popup(PopupKind::Starbase),
+            2 | 4 => Click::Popup(PopupKind::Population),
+            5 => Click::Production,
+            6 | 7 => Click::Popup(PopupKind::Industry {
+                factories: column == 7,
+            }),
+            8 if planet.defenses > 0 => Click::Popup(PopupKind::Defense),
+            9..=11 => Click::Popup(PopupKind::Mineral(Self::third(x, width))),
+            12 => Click::Popup(PopupKind::Resources),
+            _ => Click::Select,
+        }
+    }
+
+    /// Which of the three figures in a mineral cell was clicked.
+    ///
+    /// `for (i = 1; i < 4 && i * dx / 3 <= x; i++)`, then `i - 1`.
+    fn third(x: f32, width: f32) -> usize {
+        if width <= 0.0 {
+            return 0;
+        }
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "clamped to 0..=2 immediately"
+        )]
+        let third = (x * 3.0 / width).floor().clamp(0.0, 2.0) as usize;
+        third
+    }
+
+    fn fleet_click(&self, row: usize, column: usize) -> Click {
+        let Some(fleet) = self.game.fleets.get(row) else {
+            return Click::Select;
+        };
+        match column {
+            // `if (!FDestIsWP0(lpfl)) SetScanWp(1)`: a fleet going nowhere
+            // has nothing to take hold of.
+            3..=5 if fleet.waypoints.len() > 1 => Click::Waypoint,
+            6 | 7 => Click::Transfer,
+            8 => Click::Popup(PopupKind::Fleet),
+            _ => Click::Select,
+        }
+    }
+}

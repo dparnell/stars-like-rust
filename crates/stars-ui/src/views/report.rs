@@ -13,7 +13,7 @@
 
 use egui::{Align2, Color32, Pos2, Rect, Sense, Vec2};
 
-use crate::report::{Bar, Cell, ColumnMenu, Data, Entry, Report, Tint};
+use crate::report::{Bar, Cell, Click, ColumnMenu, Data, Entry, PopupKind, Report, Tint};
 use crate::views::mineral_colour;
 use crate::App;
 
@@ -181,7 +181,8 @@ pub fn view(app: &mut App, ui: &mut egui::Ui, report: Report) {
 
     let total: f32 = widths.iter().sum::<f32>() + 4.0;
     let mut clicked_header: Option<(usize, Pos2)> = None;
-    let mut clicked_row: Option<usize> = None;
+    // The row, the column, how far into the cell, how wide it is, and where.
+    let mut clicked_row: Option<(usize, usize, f32, f32, Pos2)> = None;
 
     egui::ScrollArea::both()
         .auto_shrink([false, false])
@@ -253,22 +254,26 @@ pub fn view(app: &mut App, ui: &mut egui::Ui, report: Report) {
             // Where a click landed: the header row, or a row of the grid.
             if response.clicked() || response.secondary_clicked() {
                 if let Some(pos) = response.interact_pointer_pos() {
-                    let mut x = origin.x + 2.0;
+                    let mut left = origin.x + 2.0;
                     let mut hit = None;
                     for (index, &c) in drawn.iter().enumerate() {
-                        x += widths[index];
-                        if pos.x < x {
-                            hit = Some(c);
+                        if pos.x < left + widths[index] {
+                            hit = Some((c, pos.x - left, widths[index]));
                             break;
                         }
+                        left += widths[index];
                     }
-                    if let Some(column) = hit {
+                    if let Some((column, into, width)) = hit {
+                        #[expect(
+                            clippy::cast_possible_truncation,
+                            reason = "a row number, from a pixel offset"
+                        )]
                         let row = ((pos.y - top) / row_height).floor() as i64 - 1;
                         if row < 0 {
                             clicked_header = Some((column, pos));
                         } else if let Ok(row) = usize::try_from(row) {
                             if row < rows.len() {
-                                clicked_row = Some(row);
+                                clicked_row = Some((row, column, into, width, pos));
                             }
                         }
                     }
@@ -279,13 +284,71 @@ pub fn view(app: &mut App, ui: &mut egui::Ui, report: Report) {
     if let Some((column, pos)) = clicked_header {
         app.report_menu = Some((report, column, pos));
     }
-    if let Some(row) = clicked_row {
-        if let Some(id) = ids.get(row) {
-            id.select(app);
-        }
+    if let Some((row, column, into, width, pos)) = clicked_row {
+        let production_open = app.production.is_some();
+        let action = {
+            let game = app.game.as_ref().expect("a game");
+            let data = Data {
+                game,
+                player,
+                battles: &battles,
+            };
+            data.click(report, rows[row], column, into, width, production_open)
+        };
+        act(app, action, ids.get(row).copied(), pos);
     }
 
     menu(app, ui, report);
+}
+
+/// Do what a click asked for.
+///
+/// `ExecuteReportClick` selects the row's object first and then acts, and
+/// the two are not alternatives: opening the production queue also leaves
+/// the planet selected.
+fn act(app: &mut App, action: Click, id: Option<RowId>, pos: Pos2) {
+    if action == Click::Refused {
+        return;
+    }
+    if let Some(id) = id {
+        id.select(app);
+    }
+    match action {
+        Click::Refused | Click::Select | Click::Vcr => {}
+        Click::Production => app.open_production(),
+        // `SetScanWp(1)`: take hold of the first waypoint the fleet is
+        // actually going to.
+        Click::Waypoint => app.selection.waypoint = Some(1),
+        // `TransferStuff` opens a dialog this project does not have; the
+        // fleet is selected, which is as far as it goes.
+        Click::Transfer => {}
+        Click::Popup(kind) => {
+            if let Some(popup) = popup_for(app, kind, id) {
+                app.popup = Some((popup, (pos.x, pos.y)));
+            }
+        }
+    }
+}
+
+/// The pop-up a column raises, where this project has one to raise.
+fn popup_for(app: &App, kind: PopupKind, id: Option<RowId>) -> Option<crate::popup::Popup> {
+    match kind {
+        PopupKind::Fleet => match id {
+            Some(RowId::Fleet(index)) => Some(app.fleet_popup(index)),
+            _ => None,
+        },
+        PopupKind::Defense => app
+            .best_defense_part()
+            .map(|(category, item)| crate::popup::Popup::Component((category, item))),
+        // `grPopupShdef`, `grPopupPlanet`, `grPopupPlanetIndustry`,
+        // `grPopupMineral` and `grPopupResources` are not modelled yet. See
+        // `docs/ui/reports.md`.
+        PopupKind::Starbase
+        | PopupKind::Population
+        | PopupKind::Industry { .. }
+        | PopupKind::Mineral(_)
+        | PopupKind::Resources => None,
+    }
 }
 
 /// `_Draw3dFrame` with `fErase = 0`: one raised ring, no fill.
@@ -432,8 +495,10 @@ impl RowId {
     /// about, whichever column was clicked.
     fn select(self, app: &mut App) {
         match self {
-            RowId::Planet(id) => app.selection.planet = Some(id),
-            RowId::Fleet(index) => app.selection.fleet = Some(index),
+            // `SelectAdjPlanet(0, id)` and `SelectAdjFleet(0, id)`: the same
+            // selection a click on the map makes, so the panes follow.
+            RowId::Planet(id) => app.select_object(crate::app::ScanObject::Planet(id)),
+            RowId::Fleet(index) => app.select_object(crate::app::ScanObject::Fleet(index)),
             RowId::Battle(index) => app.open_battle(index),
         }
     }

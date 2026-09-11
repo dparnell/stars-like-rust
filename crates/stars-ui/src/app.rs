@@ -2847,7 +2847,7 @@ impl App {
     /// `grPopupFleet`: one row per design the fleet holds any of, in **design
     /// slot** order, since the original walks slots 0 to 15 and skips the
     /// empty ones.
-    fn fleet_popup(&self, index: usize) -> Popup {
+    pub(crate) fn fleet_popup(&self, index: usize) -> Popup {
         let mut rows = Vec::new();
         if let Some(game) = self.game.as_ref() {
             if let Some(fleet) = game.fleets.get(index) {
@@ -7498,8 +7498,31 @@ impl App {
         self.browser = None;
     }
 
-    /// Who is browsing, for the costs and the requirements.
+    /// The best planetary defence this race can build.
+    ///
+    /// `FGetBestDefensePart` walks the planetary table from item 9 — SDI,
+    /// then Missile Battery, Laser Battery, Planetary Shield and Neutron
+    /// Shield — while each is available, and keeps the last one that was.
+    /// `None` when not even an SDI can be built.
     #[must_use]
+    pub fn best_defense_part(&self) -> Option<(u16, usize)> {
+        /// The first of the five defences in the planetary table.
+        const FIRST_DEFENSE: usize = 9;
+        /// How many there are.
+        const DEFENSES: usize = 5;
+        let who = self.browser_builder()?;
+        let category = stars_core::components::slot::PLANETARY;
+        let mut best = None;
+        for item in FIRST_DEFENSE..FIRST_DEFENSE + DEFENSES {
+            if !stars_core::parts::availability(&who, category, item).is_available() {
+                break;
+            }
+            best = Some((category, item));
+        }
+        best
+    }
+
+    /// Who is browsing, for the costs and the requirements.
     fn browser_builder(&self) -> Option<stars_core::parts::Builder<'_>> {
         let game = self.game.as_ref()?;
         let player = game.players.get(self.local_player())?;

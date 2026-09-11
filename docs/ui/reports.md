@@ -1,8 +1,8 @@
 # The report windows
 
-Status: **in progress** — the columns, the sort, the grid and the three
-tutorial pages that watch the sort are done; the per-column click behaviour
-is not.
+Status: **in progress** — the columns, the sort, the grid, the per-column
+click routing and the three tutorial pages that watch the sort are done;
+five of the seven click pop-ups are not.
 
 Four windows share one piece of code: **Planets**, **Fleets**, **Others'
 Fleets** and **Battles**, listed together on the Report menu, all four
@@ -206,13 +206,51 @@ quicksort's partitioning happened to leave.
 
 ## Clicking a row
 
-`ExecuteReportClick` selects the object the row is about — and then, for
-some columns, does what clicking that figure in a pane does. Clicking a
-planet's Mine or Fact opens the industry popup, its Minerals or Mining Rate
-or Min Conc the mineral popup for **whichever third of the cell** was
-clicked, its Production the production dialog, a fleet's Destination or ETA
-or Task the waypoint, a fleet's Fuel or Cargo the transfer dialog. A row of
-the Battles report opens the VCR.
+`ExecuteReportClick` selects the object the row is about — the same
+selection a click on the map makes, so the panes follow — and then, for
+about half the columns, does what clicking that same figure in a pane does.
+The two are not alternatives: opening the production queue also leaves the
+planet selected.
+
+| report | column | what else |
+|--------|--------|-----------|
+| Planets | Planet Name | the starbase pop-up, but only for a click in the eight pixels at the right where the bars are drawn |
+| Planets | Starbase | the starbase pop-up |
+| Planets | Population, Value | the population pop-up |
+| Planets | Production | opens the production queue (`ChangeProduction`) |
+| Planets | Mine, Fact | the industry pop-up, mines or factories |
+| Planets | Defense | the component pop-up for the best defence the race can build |
+| Planets | Minerals, Mining Rate, Min Conc | the mineral pop-up, for **whichever third of the cell** was clicked |
+| Planets | Resources | the resources pop-up |
+| Fleets | Destination, ETA, Task | takes hold of waypoint 1 — but only when the fleet is going somewhere (`FDestIsWP0`) |
+| Fleets | Fuel, Cargo | opens the cargo transfer dialog |
+| Fleets | Composition | the fleet pop-up |
+| Others' Fleets | any | selects it and scrolls the map to it |
+| Battles | any | opens the VCR |
+
+Two guards. A planets report **refuses the whole click**, selection
+included, while the production queue is up — `MessageBeep` and nothing else
+— and a fleets report does the same while a transfer dialog is up.
+
+Which third of a mineral cell was clicked is worked out as
+`for (i = 1; i < 4 && i * dx / 3 <= x; i++)`, then `i - 1`: thirds of the
+column's width, left to right, ironium first.
+
+### What this project does with it
+
+All of the routing, and the actions it has: the selection, the production
+queue, waypoint 1, the VCR. Two of the seven pop-ups are raised — the fleet
+summary, and the component panel for the best defence, which this project
+already draws for the Technology Browser.
+
+The other five — `grPopupShdef` (a design, drawn as the designer draws it),
+`grPopupPlanet`, `grPopupPlanetIndustry`, `grPopupMineral` and
+`grPopupResources` — are not modelled yet, so those columns select and
+raise nothing. The click model names them all the same, so adding one is a
+matter of building the panel.
+
+There is no cargo transfer dialog here: cargo moves through the fleet
+pane's tiles, so Fuel and Cargo select the fleet and stop there.
 
 ## What this project has
 
@@ -244,9 +282,8 @@ both of which need that player's ship designs. The original has the same
 problem and solves it with a table of designs the player has seen; this
 project does not keep one yet.
 
-Not done yet: the per-column click behaviour above — clicking a planet's
-Mine opens the industry popup, and so on — and the Battles report, which
-still shows this project's VCR screen rather than the table.
+Not done yet: five of the seven click pop-ups (above), and the Battles
+report, which still shows this project's VCR screen rather than the table.
 
 ## What the tutorial asks of it
 

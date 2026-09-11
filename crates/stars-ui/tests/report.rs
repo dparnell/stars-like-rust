@@ -448,3 +448,205 @@ fn a_fleets_row_reads_as_the_original_writes_it() {
     };
     assert!(!location.is_empty());
 }
+
+/// Clicking a planet's row does what clicking the same figure in the pane
+/// does — `ExecuteReportClick`, column by column.
+#[test]
+fn a_planets_columns_raise_what_the_panes_raise() {
+    use stars_ui::report::{Click, PopupKind, BAR_STRIP};
+
+    let app = a_game();
+    let game = app.game.as_ref().expect("a game");
+    let data = Data {
+        game,
+        player: 0,
+        battles: &[],
+    };
+    let home = data
+        .rows(Report::Planets)
+        .into_iter()
+        .find(|&r| game.planets[r].homeworld)
+        .expect("a home world");
+    let at = |column: usize, x: f32| data.click(Report::Planets, home, column, x, 100.0, false);
+
+    // The name column is the name, except in the strip the starbase bars are
+    // drawn in.
+    assert_eq!(at(0, 10.0), Click::Select);
+    assert_eq!(
+        at(0, 100.0 - BAR_STRIP + 1.0),
+        Click::Popup(PopupKind::Starbase),
+        "the bars at the right edge are the starbase"
+    );
+    assert_eq!(at(1, 10.0), Click::Popup(PopupKind::Starbase));
+    assert_eq!(at(2, 10.0), Click::Popup(PopupKind::Population));
+    assert_eq!(at(3, 10.0), Click::Select, "Cap raises nothing");
+    assert_eq!(at(4, 10.0), Click::Popup(PopupKind::Population));
+    assert_eq!(at(5, 10.0), Click::Production);
+    assert_eq!(
+        at(6, 10.0),
+        Click::Popup(PopupKind::Industry { factories: false })
+    );
+    assert_eq!(
+        at(7, 10.0),
+        Click::Popup(PopupKind::Industry { factories: true })
+    );
+    assert_eq!(at(12, 10.0), Click::Popup(PopupKind::Resources));
+    assert_eq!(at(13, 10.0), Click::Select);
+}
+
+/// A mineral cell holds three figures, and which one was clicked decides
+/// which mineral the pop-up is about.
+#[test]
+fn a_mineral_cell_is_three_figures_in_one() {
+    use stars_ui::report::{Click, PopupKind};
+
+    let app = a_game();
+    let game = app.game.as_ref().expect("a game");
+    let data = Data {
+        game,
+        player: 0,
+        battles: &[],
+    };
+    let row = data.rows(Report::Planets)[0];
+    for column in [9, 10, 11] {
+        for (x, want) in [(1.0, 0), (35.0, 1), (70.0, 2), (89.0, 2)] {
+            assert_eq!(
+                data.click(Report::Planets, row, column, x, 90.0, false),
+                Click::Popup(PopupKind::Mineral(want)),
+                "column {column} at {x}"
+            );
+        }
+    }
+}
+
+/// While the production queue is up the report will not act at all — the
+/// original beeps rather than selecting.
+#[test]
+fn the_planets_report_is_deaf_while_the_queue_is_open() {
+    use stars_ui::report::Click;
+
+    let app = a_game();
+    let game = app.game.as_ref().expect("a game");
+    let data = Data {
+        game,
+        player: 0,
+        battles: &[],
+    };
+    let row = data.rows(Report::Planets)[0];
+    assert_eq!(
+        data.click(Report::Planets, row, 2, 10.0, 100.0, true),
+        Click::Refused
+    );
+    assert_eq!(
+        data.click(Report::Planets, row, 0, 10.0, 100.0, true),
+        Click::Refused,
+        "not even the selection"
+    );
+}
+
+/// A fleet's Destination, ETA and Task take hold of its first waypoint — but
+/// only when it has one to hold.
+#[test]
+fn a_fleets_orders_columns_take_hold_of_the_waypoint() {
+    use stars_ui::report::{Click, PopupKind};
+
+    let mut app = a_game();
+    let row = {
+        let game = app.game.as_ref().expect("a game");
+        let data = Data {
+            game,
+            player: 0,
+            battles: &[],
+        };
+        *data.rows(Report::Fleets).first().expect("a fleet")
+    };
+
+    {
+        let game = app.game.as_ref().expect("a game");
+        let data = Data {
+            game,
+            player: 0,
+            battles: &[],
+        };
+        // A new fleet sits on waypoint 0 and is going nowhere.
+        assert_eq!(game.fleets[row].waypoints.len(), 1);
+        for column in [3, 4, 5] {
+            assert_eq!(
+                data.click(Report::Fleets, row, column, 5.0, 50.0, false),
+                Click::Select,
+                "column {column} with nowhere to go"
+            );
+        }
+        assert_eq!(
+            data.click(Report::Fleets, row, 6, 5.0, 50.0, false),
+            Click::Transfer
+        );
+        assert_eq!(
+            data.click(Report::Fleets, row, 7, 5.0, 50.0, false),
+            Click::Transfer
+        );
+        assert_eq!(
+            data.click(Report::Fleets, row, 8, 5.0, 50.0, false),
+            Click::Popup(PopupKind::Fleet)
+        );
+        assert_eq!(
+            data.click(Report::Fleets, row, 11, 5.0, 50.0, false),
+            Click::Select
+        );
+    }
+
+    // Give it somewhere to go and the three columns wake up.
+    let there = app.game.as_ref().expect("a game").fleets[row].waypoints[0].clone();
+    if let Some(game) = app.game.as_mut() {
+        game.fleets[row].waypoints.push(there);
+    }
+    let game = app.game.as_ref().expect("a game");
+    let data = Data {
+        game,
+        player: 0,
+        battles: &[],
+    };
+    for column in [3, 4, 5] {
+        assert_eq!(
+            data.click(Report::Fleets, row, column, 5.0, 50.0, false),
+            Click::Waypoint,
+            "column {column} with an order"
+        );
+    }
+}
+
+/// A row of the Battles report opens the recording, whichever column was
+/// clicked.
+#[test]
+fn a_battle_row_opens_the_recording() {
+    use stars_ui::report::Click;
+
+    let app = a_game();
+    let game = app.game.as_ref().expect("a game");
+    let data = Data {
+        game,
+        player: 0,
+        battles: &[],
+    };
+    for column in [0, 3, 14] {
+        assert_eq!(
+            data.click(Report::Battles, 0, column, 5.0, 50.0, false),
+            Click::Vcr
+        );
+    }
+    // Everybody else's fleets only select, which is what puts them on the map.
+    assert_eq!(
+        data.click(Report::EnemyFleets, 0, 5, 5.0, 50.0, false),
+        Click::Select
+    );
+}
+
+/// The Defense column raises the best defence the race can build, which for
+/// a starting race is the SDI.
+#[test]
+fn the_defense_column_names_the_best_defence() {
+    let app = a_game();
+    let (category, item) = app.best_defense_part().expect("a race can build an SDI");
+    assert_eq!(category, stars_core::components::slot::PLANETARY);
+    assert_eq!(item, 9, "SDI, with nothing better researched yet");
+}
