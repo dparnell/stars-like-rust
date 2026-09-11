@@ -569,8 +569,9 @@ impl eframe::App for StarsApp {
             if ctx.input(|i| i.key_pressed(egui::Key::F9)) {
                 self.app.generate_turn();
             }
-            // F3 opens a report and Esc closes it. All four Report entries
-            // carry F3, so the key opens whichever was last up.
+            // F3 walks round the four reports and back to the map, and Esc
+            // closes whichever is up. The four menu items only *show* F3;
+            // the key itself has an id of its own. See `App::open_report`.
             if ctx.input(|i| i.key_pressed(egui::Key::F3)) {
                 self.app.open_report();
             }
@@ -1105,27 +1106,35 @@ impl eframe::App for StarsApp {
                 });
 
                 ui.menu_button("Report", |ui| {
-                    // The original's four report windows are this project's
-                    // screens, so they are listed here under the menu that
-                    // opens them.
-                    for screen in Screen::ALL {
+                    // The four report windows, in the resource's order and
+                    // with its separators: one between Others' Fleets and
+                    // Battles, one after Battles. Every item shows F3 after
+                    // its caption, which is text and not four accelerators —
+                    // see `App::open_report`. The one that is open carries a
+                    // check mark, which `ReportDlg`'s WM_DESTROY takes off
+                    // again.
+                    let reports = [
+                        (Screen::Planets, "Planets…"),
+                        (Screen::Fleets, "Fleets…"),
+                        (Screen::EnemyFleets, "Others' Fleets…"),
+                        (Screen::Battles, "Battles…"),
+                    ];
+                    for (screen, caption) in reports {
+                        if screen == Screen::Battles {
+                            ui.separator();
+                        }
+                        let open = self.app.screen == screen;
+                        let mark = if open { "\u{2713} " } else { "    " };
                         if ui
                             .add_enabled(
                                 playing,
-                                egui::SelectableLabel::new(
-                                    self.app.screen == screen,
-                                    screen.title(),
-                                ),
+                                egui::Button::new(format!("{mark}{caption}"))
+                                    .shortcut_text("F3"),
                             )
-                            .on_hover_text(if App::is_report(screen) {
-                                "F3 opens whichever report was last up; Esc closes it."
-                            } else {
-                                "The map."
-                            })
                             .clicked()
                         {
                             ui.close_menu();
-                            self.app.show_screen(screen);
+                            self.app.choose_report(screen);
                         }
                     }
                     ui.separator();
@@ -1138,6 +1147,20 @@ impl eframe::App for StarsApp {
                     {
                         ui.close_menu();
                         self.app.open_score_sheet();
+                    }
+                    // This project's own, like Production… under Commands:
+                    // the original has no such screen, and nothing else here
+                    // would reach it.
+                    ui.separator();
+                    let open = self.app.screen == Screen::Players;
+                    let mark = if open { "\u{2713} " } else { "    " };
+                    if ui
+                        .add_enabled(playing, egui::Button::new(format!("{mark}Players")))
+                        .on_hover_text("This project's own summary screen. Esc closes it.")
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.app.show_screen(Screen::Players);
                     }
                 });
 

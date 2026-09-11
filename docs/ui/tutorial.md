@@ -259,8 +259,10 @@ fleets, everybody else's fleets, and battles — and each keeps `icolSort`,
 `iSubsort` and `fAscending` of its own.
 
 Two things fall out of it. The first is why all four Report entries carry
-F3: it is **one** key that opens whichever report was last up, not four
-accelerators for the same key. That is reproduced.
+F3: the text after the tab is drawn rather than bound, and the key has an id
+of its own (`0x8fe`) that `CommandHandler` turns into whichever report comes
+next — nothing, planets, your fleets, everybody else's, battles, nothing
+again. That is reproduced; see `menus.md`.
 
 The second is not, and is worth writing down before anyone builds the tables:
 when you sort by a new column the routine does not simply forget the old one.

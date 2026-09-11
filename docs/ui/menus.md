@@ -64,8 +64,28 @@ from the planet tile's Change button and from the `q` key.
 | | — |
 | | `&Dump to Text File` ▸ `0x055` `&Universe Definition`, `0x054` `&Planet Information`, `0x053` `&Fleet Information` |
 
-**Four items share F3.** The key does not open a particular report; it opens
-whichever was last up, which is why all four carry it.
+**All four show F3, and none of them is the F3 accelerator.** The text after
+the tab is drawn, not bound. The key has an id of its own — `0x8fe`, which
+appears on no menu — and `CommandHandler` (`1020:448f`) turns it into one of
+the four by asking what is open:
+
+```c
+if (hwndReportDlg == 0)            wParam = 0x8fd;  /* Planets */
+else if (vprptCur == &vrptPlanet)  wParam = 0x8ff;  /* Fleets */
+else if (vprptCur == &vrptFleet)   wParam = 0x900;  /* Others' Fleets */
+else                               wParam = 0x901;  /* Battles */
+```
+
+and the open path then **closes** Battles rather than reopening it
+(`1020:4727`). So F3 walks round: nothing, planets, your fleets, everybody
+else's, battles, nothing again. Esc closes whichever is up.
+
+Two more things the handler does. The item of the report that is open
+carries a **check mark** — `CheckMenuItem(..., MF_CHECKED)` on the way in,
+and `ReportDlg`'s `WM_DESTROY` takes it off again. And **Battles is the only
+one of the four that toggles**: choosing any other while it is already open
+closes and reopens it, but choosing Battles while Battles is up just closes
+it, which is the same test the F3 cycle leans on.
 
 ## `&Help`
 
@@ -88,13 +108,19 @@ from the Help menu."*
 All six menus, in the original's order, with the original's items and
 accelerators where there is something behind them. The four report windows are
 this project's **screens**, so they are listed under Report, which is the menu
-that opens them.
+that opens them — with the resource's captions, its separators, and a check
+mark on the one that is open.
 
 Not there, because there is nothing behind them yet: `Close`,
 `Save And Submit`, `Print Map`, the whole `Dump to Text File` submenu,
 `Introduction`, `Player's Guide` and `About Stars!`. `Wait for New` opens this
 project's host mode, which is the nearest thing it has.
 
-One item is this project's own and marked so in the code: `Production…` under
-Commands, a third way to a dialog the original reaches two other ways, both of
-which also work here.
+Two items are this project's own and marked so in the code. `Production…`
+under Commands is a third way to a dialog the original reaches two other
+ways, both of which also work here. `Players` at the foot of the Report menu
+is a summary screen the original has no equivalent of; it is kept out of the
+F3 cycle, which is the original's four and only those, though Esc leaves it
+the same way.
+
+The map is on no menu, in the original or here: Esc is the way back to it.

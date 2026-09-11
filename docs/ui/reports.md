@@ -6,7 +6,8 @@ tutorial pages that watch the sort are done.
 
 Four windows share one piece of code: **Planets**, **Fleets**, **Others'
 Fleets** and **Battles**, listed together on the Report menu, all four
-carrying F3. They are the same window with a different `irpt`, and all of it
+showing F3 — which is one key that walks round them rather than four
+accelerators for one command; see `menus.md`. They are the same window with a different `irpt`, and all of it
 lives in segment `0x1108`:
 
 | routine | address | what it does |

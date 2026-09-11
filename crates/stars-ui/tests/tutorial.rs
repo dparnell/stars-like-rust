@@ -544,34 +544,66 @@ fn an_unnamed_slot_is_called_custom() {
 /// F3 opens a report and Esc closes it — "Hit F3 to open the Planet Summary
 /// Report", "Hit the Esc key to close the Planet Summary Report".
 ///
-/// All four Report entries carry F3, which is one key that opens whichever
-/// report was last up, not four accelerators for one key.
+/// All four Report entries show F3 after their caption, but that is text:
+/// the accelerator is one key with an id of its own, `0x8fe`, which is on
+/// no menu, and the command handler turns it into whichever report comes
+/// next in the cycle.
 #[test]
-fn f3_opens_the_last_report_and_escape_closes_it() {
+fn f3_walks_round_the_reports_and_escape_closes_one() {
     use stars_ui::Screen;
 
     let mut app = a_game();
     assert_eq!(app.screen, Screen::Galaxy);
 
-    // With none up yet, F3 opens the planets.
-    app.open_report();
-    assert_eq!(app.screen, Screen::Planets);
-    // Again while one is open changes nothing.
-    app.open_report();
-    assert_eq!(app.screen, Screen::Planets);
+    // Nothing, planets, your fleets, everybody else's, battles, nothing.
+    for expected in [
+        Screen::Planets,
+        Screen::Fleets,
+        Screen::EnemyFleets,
+        Screen::Battles,
+        Screen::Galaxy,
+        Screen::Planets,
+    ] {
+        app.open_report();
+        assert_eq!(app.screen, expected);
+    }
 
+    // Esc closes whichever is up, and does nothing on the map.
     assert!(app.close_report());
     assert_eq!(app.screen, Screen::Galaxy);
     assert!(!app.close_report(), "nothing to close on the map");
 
-    // It comes back to the one last up.
-    app.show_screen(Screen::Fleets);
-    assert!(app.close_report());
+    // The Players screen is this project's own, so F3 treats it as nothing
+    // being open — but Esc still leaves it.
+    app.show_screen(Screen::Players);
+    assert!(!App::is_report(Screen::Players));
     app.open_report();
-    assert_eq!(app.screen, Screen::Fleets);
+    assert_eq!(app.screen, Screen::Planets);
+    app.show_screen(Screen::Players);
+    assert!(app.close_report());
+    assert_eq!(app.screen, Screen::Galaxy);
 
     assert!(App::is_report(Screen::Battles));
     assert!(!App::is_report(Screen::Galaxy));
+}
+
+/// The Report menu opens what it names — except Battles, which is the one
+/// item of the four that closes itself when it is already up.
+#[test]
+fn the_battles_item_is_the_one_that_toggles() {
+    use stars_ui::Screen;
+
+    let mut app = a_game();
+    app.choose_report(Screen::Planets);
+    assert_eq!(app.screen, Screen::Planets);
+    // Asking again for the one already open reopens it rather than closing.
+    app.choose_report(Screen::Planets);
+    assert_eq!(app.screen, Screen::Planets);
+
+    app.choose_report(Screen::Battles);
+    assert_eq!(app.screen, Screen::Battles);
+    app.choose_report(Screen::Battles);
+    assert_eq!(app.screen, Screen::Galaxy, "Battles closes itself");
 }
 
 /// A page whose escape hatch is satisfied is done without any of its rungs.

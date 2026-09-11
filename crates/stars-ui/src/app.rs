@@ -426,9 +426,6 @@ pub struct App {
     /// A waypoint whose drag ended on one of its neighbours, waiting for the
     /// player to confirm that it should go.
     pub waypoint_delete: Option<usize>,
-    /// Which report **F3** comes back to: the one last open, and the planets
-    /// until one has been.
-    pub last_report: Screen,
     /// A design the **pop-up** is showing, which is not the designer being
     /// open on it.
     ///
@@ -12506,15 +12503,18 @@ impl App {
 }
 
 impl App {
-    /// Whether a screen is one of the original's four **reports** rather than
-    /// the map.
+    /// Whether a screen is one of the original's four **reports**.
     ///
     /// `SortReportCache` (`1108:589c`) knows four: planets, your fleets,
-    /// everybody else's fleets, and battles. This project's Players screen is
-    /// its own, and counts as a report for the purpose of F3 and Esc.
+    /// everybody else's fleets, and battles. This project's Players screen
+    /// is its own and is **not** one of them, so F3 does not deal it into
+    /// the cycle — though Esc closes it like anything else.
     #[must_use]
     pub fn is_report(screen: Screen) -> bool {
-        screen != Screen::Galaxy
+        matches!(
+            screen,
+            Screen::Planets | Screen::Fleets | Screen::EnemyFleets | Screen::Battles
+        )
     }
 
     /// Which report window is up, which is the original's `vprptCur`.
@@ -12533,42 +12533,63 @@ impl App {
         }
     }
 
-    /// Open a report, as **F3** does.
+    /// **F3**, which walks round the four reports and back to the map.
     ///
-    /// All four of the Report menu's entries carry F3 — `&Planets...\tF3`,
-    /// `&Fleets...\tF3`, `&Others' Fleets...\tF3`, `&Battles...\tF3` — which
-    /// is not four accelerators for one key but one: the key opens whichever
-    /// report was last up. With none up yet it opens the planets.
+    /// All four Report entries show `F3` after their caption, but that text
+    /// is only text: the accelerator is one key with an id of its own,
+    /// `0x8fe`, which is on no menu. `CommandHandler` (`1020:448f`) turns it
+    /// into one of the four by asking what is open —
+    ///
+    /// ```c
+    /// if (hwndReportDlg == 0)            wParam = 0x8fd;  /* Planets */
+    /// else if (vprptCur == &vrptPlanet)  wParam = 0x8ff;  /* Fleets */
+    /// else if (vprptCur == &vrptFleet)   wParam = 0x900;  /* Others' */
+    /// else                               wParam = 0x901;  /* Battles */
+    /// ```
+    ///
+    /// — and the open path then closes Battles rather than reopening it
+    /// (`1020:4727`). So the key **cycles**: nothing, planets, your fleets,
+    /// everybody else's, battles, nothing again.
     pub fn open_report(&mut self) {
-        if Self::is_report(self.screen) {
-            return;
-        }
-        self.screen = if Self::is_report(self.last_report) {
-            self.last_report
-        } else {
-            Screen::Planets
+        self.screen = match self.screen {
+            Screen::Planets => Screen::Fleets,
+            Screen::Fleets => Screen::EnemyFleets,
+            Screen::EnemyFleets => Screen::Battles,
+            Screen::Battles => Screen::Galaxy,
+            // Nothing open — the map, or this project's own Players screen.
+            Screen::Galaxy | Screen::Players => Screen::Planets,
         };
     }
 
-    /// Close the report and go back to the map, as **Esc** does — "Hit the
-    /// Esc key to close the Planet Summary Report."
+    /// Pick a report from the Report menu.
     ///
-    /// Returns whether one was open to close.
+    /// Asking for a report while one is open closes that one first, and
+    /// **Battles asked for while Battles is open just closes it**: the one
+    /// item of the four that toggles (`1020:4727` tests `wParam == 0x901`
+    /// against `vprptCur == &vrptBattle` and skips the reopen).
+    pub fn choose_report(&mut self, screen: Screen) {
+        self.screen = if screen == Screen::Battles && self.screen == Screen::Battles {
+            Screen::Galaxy
+        } else {
+            screen
+        };
+    }
+
+    /// Close whatever screen is up and go back to the map, as **Esc** does —
+    /// "Hit the Esc key to close the Planet Summary Report."
+    ///
+    /// Returns whether there was something to close. The Players screen is
+    /// not one of the original's reports but Esc leaves it the same way.
     pub fn close_report(&mut self) -> bool {
-        if !Self::is_report(self.screen) {
+        if self.screen == Screen::Galaxy {
             return false;
         }
-        self.last_report = self.screen;
         self.screen = Screen::Galaxy;
         true
     }
 
-    /// Go to a screen, remembering it if it is a report so F3 can come back
-    /// to it.
+    /// Go to a screen.
     pub fn show_screen(&mut self, screen: Screen) {
-        if Self::is_report(screen) {
-            self.last_report = screen;
-        }
         self.screen = screen;
     }
 }
