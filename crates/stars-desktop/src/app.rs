@@ -1569,8 +1569,13 @@ pub fn run(open: Option<PathBuf>) -> eframe::Result<()> {
     eframe::run_native(
         "Stars!",
         options,
-        Box::new(|cc| {
+        Box::new(move |cc| {
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
+            // `[Fonts]`, which the original reads and never writes.
+            install_font(
+                &cc.egui_ctx,
+                &stars_ui::settings::Fonts::read_ini(&read_ini()),
+            );
             Ok(Box::new(StarsApp::new(open)))
         }),
     )
@@ -1610,6 +1615,68 @@ fn write_ini(ini: &stars_ui::settings::Ini) {
         let _ = std::fs::create_dir_all(parent);
     }
     let _ = std::fs::write(path, ini.to_string());
+}
+
+/// Find the file a `[Fonts]` name refers to, if it is somewhere fonts
+/// usually live.
+///
+/// The original hands the name to `CreateFontIndirect` and lets Windows
+/// match it. egui has no font matcher: it wants the bytes. So a name is
+/// honoured when it names a file that can be found — an outright path, or
+/// `<name>.ttf` (with and without its spaces) in the usual directories —
+/// and otherwise the built-in face stands, which is what a Windows box
+/// without Arial installed would have done too.
+fn find_font(name: &str) -> Option<Vec<u8>> {
+    let direct = Path::new(name);
+    if direct.is_absolute() && direct.is_file() {
+        return std::fs::read(direct).ok();
+    }
+    let bare = name.replace(' ', "");
+    let mut roots: Vec<PathBuf> = vec![
+        PathBuf::from("/System/Library/Fonts"),
+        PathBuf::from("/Library/Fonts"),
+        PathBuf::from("/usr/share/fonts"),
+        PathBuf::from("/usr/local/share/fonts"),
+        PathBuf::from("C:\\Windows\\Fonts"),
+    ];
+    if let Some(home) = std::env::var_os("HOME") {
+        roots.push(PathBuf::from(&home).join("Library/Fonts"));
+        roots.push(PathBuf::from(&home).join(".fonts"));
+        roots.push(PathBuf::from(home).join(".local/share/fonts"));
+    }
+    for root in roots {
+        for stem in [name, bare.as_str()] {
+            for extension in ["ttf", "ttc", "otf", "TTF"] {
+                let path = root.join(format!("{stem}.{extension}"));
+                if path.is_file() {
+                    return std::fs::read(path).ok();
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Install the `[Fonts]` regular face, when its file can be found.
+///
+/// Only the first of the four: this project draws no bold or italic
+/// proportional text — egui's bundled set has no such face, which
+/// `crate::popup` already notes — so the other three are read, kept and
+/// reported, and nothing yet asks for them.
+fn install_font(ctx: &egui::Context, fonts: &stars_ui::settings::Fonts) {
+    let Some(bytes) = find_font(fonts.regular()) else {
+        return;
+    };
+    let mut set = egui::FontDefinitions::default();
+    set.font_data.insert(
+        "stars-ini".to_string(),
+        egui::FontData::from_owned(bytes).into(),
+    );
+    set.families
+        .entry(egui::FontFamily::Proportional)
+        .or_default()
+        .insert(0, "stars-ini".to_string());
+    ctx.set_fonts(set);
 }
 
 /// Turn a game name into something safe to suggest as a file name.

@@ -250,9 +250,32 @@ gates are the interesting part:
   (`[Files] Turn`), so a newer year starts at the first message. The stored
   number is one-based, which is how `0` means nothing was stored.
 
+The **four typefaces** come from `[Fonts]`, under `Arial`, `ArialBold`,
+`ArialItalic` and `ArialBoldItalic`. `FCreateFonts` (`1000:0a90`) fills any
+empty slot from its built-in names — `Arial`, `Arial Bold`, `Arial Italic`,
+`Arial Bold Italic` — and then makes nine fonts out of the four: 6, 7 and
+8 point from the first, 8 point from all four, 10 point from the first two,
+and one more from the **bold** face with `lfEscapement` `0xc4e`, which is
+315° and is the angle the filtered-message watermark is written at. The
+four `dyArial*` line heights every dialog is laid out against are measured
+off those.
+
+The section is **read and never written**. `WriteIniSettings` has no
+`[Fonts]` in it at all, so it is a hand-edited preference: nothing the
+player does in the game changes it, and nothing this project writes does
+either. A name has to be more than four characters and fewer than
+thirty-two, or the slot keeps its default.
+
+This project honours the **first** of the four when the name turns out to
+be a file it can find — an outright path, or `<name>.ttf` in the usual
+font directories — because egui wants a font's bytes where Windows wanted
+only its name. The other three are read and kept but nothing asks for them
+yet: no bold or italic proportional text is drawn anywhere, which
+`crate::popup` already notes.
+
 What the original restores and this one still does not: the four report
-windows' positions (they have no windows here), the mineral scale (a
-constant here), and the font names. All of it is the same mechanism, so each is a
+windows' positions (they have no windows here), and the mineral scale (a
+constant here). That is the whole of `stars.ini` bar those two. All of it is the same mechanism, so each is a
 key away.
 
 A `stars.ini` sitting **beside a save** still wins over the settings file

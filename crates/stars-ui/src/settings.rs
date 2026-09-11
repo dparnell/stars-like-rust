@@ -859,3 +859,86 @@ impl crate::App {
 /// The `[Files]` section, which the turn shares with the recently-opened
 /// list rather than living beside the selection it is compared against.
 pub const FILES: &str = "Files";
+
+/// `idsFonts` (`0xc4`): the four typefaces the game draws with.
+pub const FONTS: &str = "Fonts";
+
+/// The keys, `idsArial` (`0xc5`) and the three after it.
+pub const FONT_KEYS: [&str; 4] = ["Arial", "ArialBold", "ArialItalic", "ArialBoldItalic"];
+
+/// What `FCreateFonts` (`1000:0a90`) fills an empty slot with — the strings
+/// at `idsArial2` (`0x537`) and the three after it.
+pub const FONT_DEFAULTS: [&str; 4] = ["Arial", "Arial Bold", "Arial Italic", "Arial Bold Italic"];
+
+/// The four typefaces, and what is made from them.
+///
+/// `FCreateFonts` builds nine fonts out of these four names:
+///
+/// | handle | point size | face |
+/// |--------|-----------|------|
+/// | `rghfontArial6[0]` | 6 | the first |
+/// | `rghfontArial7[0]` | 7 | the first |
+/// | `rghfontArial8[0..3]` | 8 | all four |
+/// | `rghfontArial8[4]` | 8 | the **second**, with `lfEscapement` `0xc4e` — 315°, the angle the filtered-message watermark is written at |
+/// | `rghfontArial10[0..1]` | 10 | the first two |
+///
+/// and then measures `dyArial6`, `dyArial7`, `dyArial8` and `dyArial10` off
+/// them as `tmHeight + tmExternalLeading`, which is where every layout in
+/// this project's dialogs gets its line height.
+///
+/// # Read, never written
+///
+/// `WriteIniSettings` has no `[Fonts]` in it. The section is a **hand-edited
+/// preference**: the game reads it at startup and never puts it back, so
+/// nothing the player does in the game can change it, and nothing this
+/// project writes should either.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fonts {
+    /// The four names, in key order: regular, bold, italic, bold italic.
+    pub names: [String; 4],
+}
+
+impl Default for Fonts {
+    fn default() -> Fonts {
+        Fonts {
+            names: FONT_DEFAULTS.map(str::to_string),
+        }
+    }
+}
+
+impl Fonts {
+    /// The shortest name `ReadIniSettings` will take: it wants **more than
+    /// four** characters.
+    pub const SHORTEST: usize = 5;
+    /// And fewer than thirty-two, which is the buffer each name sits in.
+    pub const LONGEST: usize = 31;
+
+    /// Read the section. A name of the wrong length leaves that slot at its
+    /// built-in default, and so does a missing key.
+    #[must_use]
+    pub fn read_ini(ini: &Ini) -> Fonts {
+        let mut fonts = Fonts::default();
+        for (slot, key) in FONT_KEYS.iter().enumerate() {
+            if let Some(name) = ini.get(FONTS, key) {
+                let length = name.chars().count();
+                if length >= Self::SHORTEST && length <= Self::LONGEST {
+                    fonts.names[slot] = name.to_string();
+                }
+            }
+        }
+        fonts
+    }
+
+    /// The face the eight- and ten-point regular text is drawn in, which is
+    /// every figure and label this project puts on screen.
+    #[must_use]
+    pub fn regular(&self) -> &str {
+        &self.names[0]
+    }
+
+    /// The bold face, which also supplies the watermark's rotated font.
+    #[must_use]
+    pub fn bold(&self) -> &str {
+        &self.names[1]
+    }
+}

@@ -602,3 +602,81 @@ fn the_message_comes_back_only_in_the_same_year() {
     app.read_selection_ini(&ini);
     assert_eq!(app.message_index, 2);
 }
+
+/// The four typefaces, their keys, and the lengths the reader insists on.
+#[test]
+fn the_font_names_default_to_arial_and_its_three_faces() {
+    use stars_ui::settings::{Fonts, FONTS, FONT_DEFAULTS, FONT_KEYS};
+
+    assert_eq!(
+        FONT_KEYS,
+        ["Arial", "ArialBold", "ArialItalic", "ArialBoldItalic"]
+    );
+    assert_eq!(
+        FONT_DEFAULTS,
+        ["Arial", "Arial Bold", "Arial Italic", "Arial Bold Italic"]
+    );
+
+    // Nothing in the file: the four built-in names.
+    let shipped = Fonts::read_ini(&Ini::parse(""));
+    assert_eq!(shipped, Fonts::default());
+    assert_eq!(shipped.regular(), "Arial");
+    assert_eq!(shipped.bold(), "Arial Bold");
+
+    // A name of a sensible length replaces one.
+    let mut ini = Ini::parse("");
+    ini.set(FONTS, "Arial", "Helvetica");
+    ini.set(FONTS, "ArialBold", "Helvetica Bold");
+    let read = Fonts::read_ini(&ini);
+    assert_eq!(read.regular(), "Helvetica");
+    assert_eq!(read.bold(), "Helvetica Bold");
+    assert_eq!(read.names[2], "Arial Italic", "the rest keep their default");
+
+    // Four characters is too short — the test is **more than** four — and
+    // thirty-two is too long for the buffer.
+    ini.set(FONTS, "Arial", "Chic");
+    assert_eq!(
+        Fonts::read_ini(&ini).regular(),
+        "Arial",
+        "four is too short"
+    );
+    ini.set(FONTS, "Arial", "Chica");
+    assert_eq!(Fonts::read_ini(&ini).regular(), "Chica", "five will do");
+    ini.set(FONTS, "Arial", &"x".repeat(Fonts::LONGEST));
+    assert_eq!(Fonts::read_ini(&ini).regular().len(), Fonts::LONGEST);
+    ini.set(FONTS, "Arial", &"x".repeat(Fonts::LONGEST + 1));
+    assert_eq!(
+        Fonts::read_ini(&ini).regular(),
+        "Arial",
+        "thirty-two does not fit the buffer"
+    );
+}
+
+/// `[Fonts]` is read and never written, so a section a player edited by
+/// hand is still there after a round trip — but only because the `Ini`
+/// carries through what it is not asked about.
+#[test]
+fn the_fonts_section_is_never_written_back() {
+    use stars_ui::settings::{Fonts, FONTS};
+    use stars_ui::App;
+
+    let text = "[Fonts]\nArial=Helvetica\nArialBold=Helvetica Bold\n";
+    let mut ini = Ini::parse(text);
+    assert_eq!(Fonts::read_ini(&ini).regular(), "Helvetica");
+
+    // Everything this project does write, written.
+    let app = App::new();
+    app.write_scanner_ini(&mut ini);
+    app.write_zip_ini(&mut ini);
+    stars_ui::report::Reports::default().write_ini(&mut ini);
+
+    let written = ini.to_string();
+    assert!(written.contains("Arial=Helvetica\n"), "{written}");
+    assert!(written.contains("ArialBold=Helvetica Bold\n"), "{written}");
+    assert_eq!(
+        Fonts::read_ini(&Ini::parse(&written)).regular(),
+        "Helvetica"
+    );
+    // And nothing added a key of its own to the section.
+    assert_eq!(ini.get(FONTS, "ArialItalic"), None);
+}
