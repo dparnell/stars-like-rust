@@ -57,6 +57,9 @@ impl StarsApp {
                 opened = Some(path);
             }
         }
+        // The selection and the message pane, which only come back for the
+        // same game, the same player and — for the message — the same year.
+        app.read_selection_ini(&ini);
         let mut this = Self {
             app,
             written: Vec::new(),
@@ -88,6 +91,7 @@ impl StarsApp {
         self.app.reports.write_ini(&mut ini);
         self.app.write_scanner_ini(&mut ini);
         self.app.write_zip_ini(&mut ini);
+        self.app.write_selection_ini(&mut ini);
         if let Some((left, top, width, height)) = self.restored {
             stars_ui::settings::set_frame_window(
                 &mut ini,
@@ -146,6 +150,7 @@ impl StarsApp {
         } else {
             self.read_templates(path);
             self.note_opened(path);
+            self.app.read_selection_ini(&read_ini());
             self.find_art(Some(path));
         }
     }
@@ -497,6 +502,7 @@ impl StarsApp {
             } else {
                 self.read_templates(&path);
                 self.note_opened(&path);
+                self.app.read_selection_ini(&read_ini());
                 // A game opened from its own directory may have the original
                 // sitting beside it, which is the likeliest place of all.
                 self.find_art(Some(&path));

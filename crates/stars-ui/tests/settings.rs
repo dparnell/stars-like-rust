@@ -450,3 +450,155 @@ fn no_frame_rectangle_means_maximised_and_wherever() {
     ini.set(WINDOWS, "Main", "R0100008012000800");
     assert!(!frame_starts_maximised(frame_window(&ini)));
 }
+
+/// `Selection` is three fields in a row: the kind, the player as a letter
+/// from `B`, and the id.
+#[test]
+fn the_selection_is_a_kind_a_player_and_an_id() {
+    use stars_ui::settings::{LastSelection, SelectedKind};
+
+    let planet = LastSelection::parse("PB13").expect("a selection");
+    assert_eq!(planet.kind, SelectedKind::Planet);
+    assert_eq!(planet.player, 0, "B is player zero");
+    assert_eq!(planet.id, 13);
+    assert_eq!(planet.format(), "PB13");
+
+    assert_eq!(
+        LastSelection::parse("SD7").map(|s| (s.kind, s.player, s.id)),
+        Some((SelectedKind::Fleet, 2, 7)),
+        "S is a ship"
+    );
+    assert_eq!(
+        LastSelection::parse("EQ0").map(|s| s.player),
+        Some(15),
+        "Q is the sixteenth player"
+    );
+    assert_eq!(
+        LastSelection::parse("NB0").map(|s| s.kind),
+        Some(SelectedKind::None)
+    );
+
+    // Under three characters is no selection, and so is a player letter
+    // outside B–Q.
+    assert!(LastSelection::parse("PB").is_none());
+    assert!(
+        LastSelection::parse("PA3").is_none(),
+        "A is before the first"
+    );
+    assert!(LastSelection::parse("PR3").is_none(), "R is past the last");
+    assert!(
+        LastSelection::parse("PBx").is_none(),
+        "the id has to be a number"
+    );
+}
+
+/// Nothing comes back unless the player and the game id both match.
+#[test]
+fn a_selection_belongs_to_one_game_and_one_player() {
+    use stars_ui::settings::{selection_applies, LastSelection, SelectedKind};
+
+    let last = LastSelection {
+        kind: SelectedKind::Planet,
+        player: 1,
+        id: 13,
+    };
+    assert!(selection_applies(last, 1, 0x8cef_49, 0x8cef_49));
+    assert!(
+        !selection_applies(last, 0, 0x8cef_49, 0x8cef_49),
+        "another player's selection is not yours"
+    );
+    assert!(
+        !selection_applies(last, 1, 0x8cef_49, 0x1234),
+        "and not another game's"
+    );
+}
+
+/// A fleet that has gone, or a planet that is no longer yours, falls back
+/// to the home world — and a stored `E` is read as a planet id, because
+/// `RestoreSelection` tests only for the other two.
+#[test]
+fn a_selection_that_no_longer_exists_falls_back() {
+    use stars_ui::settings::{restore_selection, LastSelection, Restore, SelectedKind};
+
+    let at = |kind| LastSelection {
+        kind,
+        player: 0,
+        id: 9,
+    };
+    assert_eq!(
+        restore_selection(at(SelectedKind::Fleet), true, false),
+        Restore::Fleet(9)
+    );
+    assert_eq!(
+        restore_selection(at(SelectedKind::Fleet), false, true),
+        Restore::HomeWorld,
+        "the fleet has gone"
+    );
+    assert_eq!(
+        restore_selection(at(SelectedKind::Planet), false, true),
+        Restore::Planet(9)
+    );
+    assert_eq!(
+        restore_selection(at(SelectedKind::Planet), false, false),
+        Restore::HomeWorld,
+        "taken from you, or never yours"
+    );
+    assert_eq!(
+        restore_selection(at(SelectedKind::Other), false, true),
+        Restore::Planet(9),
+        "a space object is read as a planet id"
+    );
+    assert_eq!(
+        restore_selection(at(SelectedKind::None), true, true),
+        Restore::HomeWorld
+    );
+}
+
+/// The message comes back only within the same year, and the stored number
+/// is one-based so that nothing stored reads as `0`.
+#[test]
+fn the_message_comes_back_only_in_the_same_year() {
+    use stars_core::newgame::{NewGame, NewPlayer, Size};
+    use stars_core::{opponents, Race};
+    use stars_ui::settings::{FILES, MESSAGE, TURN};
+    use stars_ui::App;
+
+    let mut app = App::new();
+    app.new_game(&NewGame {
+        name: "settings".to_string(),
+        size: Size::Small,
+        players: vec![
+            NewPlayer::human(Race::humanoid()),
+            opponents::opponent(1, 1).expect("an opponent").as_player(),
+        ],
+        ..NewGame::default()
+    })
+    .expect("creates the game");
+    app.message_index = 4;
+
+    let mut ini = Ini::parse("");
+    app.write_selection_ini(&mut ini);
+    assert_eq!(ini.get(WINDOWS, MESSAGE), Some("5"), "one-based");
+    assert_eq!(ini.get(FILES, TURN), Some("0"));
+
+    app.message_index = 0;
+    app.read_selection_ini(&ini);
+    assert_eq!(app.message_index, 4, "the same year brings it back");
+
+    // A later year does not.
+    if let Some(game) = app.game.as_mut() {
+        game.turn = 3;
+    }
+    app.message_index = 0;
+    app.read_selection_ini(&ini);
+    assert_eq!(app.message_index, 0, "a new year starts at the first");
+
+    // And nothing stored is nothing restored.
+    if let Some(game) = app.game.as_mut() {
+        game.turn = 0;
+    }
+    ini.set(WINDOWS, MESSAGE, "0");
+    app.message_index = 2;
+    app.read_selection_ini(&ini);
+    assert_eq!(app.message_index, 2);
+}

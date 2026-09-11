@@ -228,9 +228,31 @@ out is the **restored** rectangle, not whatever a maximised window happens
 to fill, which is what `GetWindowPlacement` hands the original for nothing
 and this has to keep note of frame by frame.
 
+The **last selection and message** come back as well, under three more
+`[Windows]` keys and one in `[Files]`.
+
+`Selection` is `%c%c%d`: a letter for the kind — `N` nothing, `P` a planet,
+`S` a ship, `E` a space object — then the player as a letter counting from
+**`B`**, then the id. Fewer than three characters, or a player letter
+outside `B`–`Q`, throws the whole thing away.
+
+`RestoreSelection` (`1020:2708`) then decides what to do with it, and the
+gates are the interesting part:
+
+* nothing is restored at all unless **the player and the game id both
+  match** — `GameID`, stored as lowercase hex;
+* a fleet that has gone falls back to the **home world**, and so does a
+  planet that has gone *or is no longer yours*;
+* if even that is no use, it goes looking for something;
+* a stored `E` is neither of the two kinds the routine tests for, so it
+  falls through to the block at the end and is read as a **planet** id;
+* and the message comes back only when the **turn matches too**
+  (`[Files] Turn`), so a newer year starts at the first message. The stored
+  number is one-based, which is how `0` means nothing was stored.
+
 What the original restores and this one still does not: the four report
 windows' positions (they have no windows here), the mineral scale (a
-constant here), the last selection and message, and the font names. All of it is the same mechanism, so each is a
+constant here), and the font names. All of it is the same mechanism, so each is a
 key away.
 
 A `stars.ini` sitting **beside a save** still wins over the settings file

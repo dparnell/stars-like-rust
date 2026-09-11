@@ -649,3 +649,213 @@ pub fn frame_starts_maximised(rect: WindowRect) -> bool {
 pub fn set_frame_window(ini: &mut Ini, rect: WindowRect) {
     ini.set(WINDOWS, MAIN_WINDOW, &rect.format());
 }
+
+/// `idsSelection` (`0x98`): what was selected when the game was last left.
+pub const SELECTION: &str = "Selection";
+/// `idsMessage` (`0xcb`): which message the pane was showing, **one-based**.
+pub const MESSAGE: &str = "Message";
+/// `idsGameid` (`0xac`): the game's id, in lowercase hex (`%lx`).
+pub const GAME_ID: &str = "GameID";
+/// `idsTurn` (`0x9c`), which lives in `[Files]` rather than `[Windows]`.
+pub const TURN: &str = "Turn";
+
+/// What kind of thing was selected — the letter `Selection` starts with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectedKind {
+    /// `N`: nothing.
+    None,
+    /// `P`: a planet.
+    Planet,
+    /// `S`: a fleet. The letter is for "ship".
+    Fleet,
+    /// `E`: one of the space objects.
+    ///
+    /// `RestoreSelection` tests only for a planet and for a fleet, so a
+    /// stored `E` falls through both and is treated as a **planet** id by
+    /// the block at the end.
+    Other,
+}
+
+/// `[Windows] Selection`, as `%c%c%d`: the kind, the player, and the id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LastSelection {
+    /// The first letter.
+    pub kind: SelectedKind,
+    /// The second, which is `'B' + idPlayer` — so player 0 is `B` and the
+    /// range `B`–`Q` is the sixteen players. A letter outside it throws the
+    /// whole selection away.
+    pub player: usize,
+    /// The object's id, in decimal.
+    pub id: i16,
+}
+
+impl LastSelection {
+    /// The letter a player is written as.
+    pub const FIRST_PLAYER: u8 = b'B';
+
+    /// Read one. Fewer than three characters is no selection, and so is a
+    /// player letter outside `B`–`Q`.
+    #[must_use]
+    pub fn parse(value: &str) -> Option<LastSelection> {
+        let bytes = value.as_bytes();
+        if bytes.len() < 3 {
+            return None;
+        }
+        let kind = match bytes[0] {
+            b'P' => SelectedKind::Planet,
+            b'S' => SelectedKind::Fleet,
+            b'E' => SelectedKind::Other,
+            // `N`, and anything else, is nothing at all.
+            _ => SelectedKind::None,
+        };
+        if !(Self::FIRST_PLAYER..=b'Q').contains(&bytes[1]) {
+            return None;
+        }
+        Some(LastSelection {
+            kind,
+            player: usize::from(bytes[1] - Self::FIRST_PLAYER),
+            id: value[2..].parse().ok()?,
+        })
+    }
+
+    /// Write one.
+    #[must_use]
+    pub fn format(&self) -> String {
+        let kind = match self.kind {
+            SelectedKind::None => 'N',
+            SelectedKind::Planet => 'P',
+            SelectedKind::Fleet => 'S',
+            SelectedKind::Other => 'E',
+        };
+        #[expect(clippy::cast_possible_truncation, reason = "sixteen players")]
+        let player = char::from(Self::FIRST_PLAYER + self.player as u8);
+        format!("{kind}{player}{}", self.id)
+    }
+}
+
+/// What `RestoreSelection` (`1020:2708`) decides to do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Restore {
+    /// Select this fleet, by its id.
+    Fleet(i16),
+    /// Select this planet, by its id.
+    Planet(i16),
+    /// The stored selection is no use: fall back to the home world, and to
+    /// finding something if that is no use either.
+    HomeWorld,
+}
+
+/// Whether the stored selection belongs to the game being opened.
+///
+/// `RestoreSelection` restores nothing unless **the player and the game id
+/// both match**; anything else starts you on your home world.
+#[must_use]
+pub fn selection_applies(last: LastSelection, player: usize, game_id: u32, stored_id: u32) -> bool {
+    last.player == player && game_id == stored_id
+}
+
+/// What to select, given a stored selection that belongs to this game.
+///
+/// A fleet that has gone falls back to the home world, and so does a planet
+/// that has gone **or is no longer yours**. A stored `E` is neither of the
+/// two the routine tests for, so it lands in the block at the end, which
+/// reads the id as a planet's.
+#[must_use]
+pub fn restore_selection(last: LastSelection, fleet_exists: bool, planet_is_ours: bool) -> Restore {
+    match last.kind {
+        SelectedKind::Fleet if fleet_exists => Restore::Fleet(last.id),
+        SelectedKind::Planet | SelectedKind::Other if planet_is_ours => Restore::Planet(last.id),
+        _ => Restore::HomeWorld,
+    }
+}
+
+impl crate::App {
+    /// Put the selection and the message pane back where they were left.
+    ///
+    /// `RestoreSelection` gates the lot on the **player and the game id**
+    /// matching, and the message on the **turn** matching as well — a newer
+    /// year starts at the first message rather than at the one you had
+    /// open. The stored message number is one-based, so `0` means nothing
+    /// was stored.
+    ///
+    /// Call it after the game is loaded; with none loaded it does nothing.
+    pub fn read_selection_ini(&mut self, ini: &Ini) {
+        let Some(game) = self.game.as_ref() else {
+            return;
+        };
+        let (game_id, turn) = (game.seed, game.turn);
+        let me = self.local_player();
+        let Some(last) = ini.get(WINDOWS, SELECTION).and_then(LastSelection::parse) else {
+            return;
+        };
+        let stored_id =
+            u32::from_str_radix(ini.get(WINDOWS, GAME_ID).unwrap_or("0"), 16).unwrap_or(0);
+        if !selection_applies(last, me, game_id, stored_id) {
+            return;
+        }
+
+        let fleet = game.fleets.iter().position(|f| {
+            i16::try_from(f.id).is_ok_and(|id| id == last.id) && f.owner as usize == me
+        });
+        let planet_is_ours = game
+            .planets
+            .iter()
+            .any(|p| p.id == last.id && p.owner == i16::try_from(me).ok());
+        match restore_selection(last, fleet.is_some(), planet_is_ours) {
+            Restore::Fleet(_) => {
+                if let Some(index) = fleet {
+                    self.select_object(crate::app::ScanObject::Fleet(index));
+                }
+            }
+            Restore::Planet(id) => self.select_object(crate::app::ScanObject::Planet(id)),
+            // The home world, which is where a new game starts anyway.
+            Restore::HomeWorld => {}
+        }
+
+        // The message only comes back within the same year.
+        if i64::from(turn) == ini.int(FILES, TURN, -1) {
+            let stored = ini.int(WINDOWS, MESSAGE, 0);
+            if stored > 0 {
+                self.message_index = i32::try_from(stored - 1).unwrap_or(0);
+            }
+        }
+    }
+
+    /// Write them out.
+    pub fn write_selection_ini(&self, ini: &mut Ini) {
+        let Some(game) = self.game.as_ref() else {
+            return;
+        };
+        let me = self.local_player();
+        let (kind, id) = if self.selection.on_fleet {
+            let id = self
+                .selection
+                .fleet
+                .and_then(|index| game.fleets.get(index))
+                .and_then(|f| i16::try_from(f.id).ok());
+            (SelectedKind::Fleet, id)
+        } else {
+            (SelectedKind::Planet, self.selection.planet)
+        };
+        let last = match id {
+            Some(id) => LastSelection {
+                kind,
+                player: me,
+                id,
+            },
+            None => LastSelection {
+                kind: SelectedKind::None,
+                player: me,
+                id: 0,
+            },
+        };
+        ini.set(WINDOWS, SELECTION, &last.format());
+        ini.set(WINDOWS, GAME_ID, &format!("{:x}", game.seed));
+        ini.set(WINDOWS, MESSAGE, &(self.message_index + 1).to_string());
+        ini.set(FILES, TURN, &game.turn.to_string());
+    }
+}
+
+/// The `[Files]` section, which the turn shares with the recently-opened
+/// list rather than living beside the selection it is compared against.
+pub const FILES: &str = "Files";
