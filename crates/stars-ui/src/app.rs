@@ -12128,6 +12128,33 @@ impl App {
     /// | `0x0800` | `Enemy Ship Class Filter` |
     /// | `0x1000` | `Ship Counts Overlay` |
     /// | `0x2000` | `Player Colors`, which is the View menu's own |
+    /// Put the scanner back the way a `grbitScan` says.
+    ///
+    /// The inverse of [`Self::grbit_scan`], for restoring the scanner from
+    /// `stars.ini`. A view the game does not have reads as the plain one.
+    pub fn set_grbit_scan(&mut self, bits: u16) {
+        self.scan_view = match bits & 0x000f {
+            1 => ScanView::SurfaceMineral,
+            2 => ScanView::MineralConcentration,
+            3 => ScanView::PlanetValue,
+            4 => ScanView::Population,
+            5 => ScanView::NoPlayerInfo,
+            _ => ScanView::Normal,
+        };
+        self.add_waypoints = bits & 0x0010 != 0;
+        self.scan_overlays = ScanOverlays {
+            scanner_coverage: bits & 0x0020 != 0,
+            minefields: bits & 0x0040 != 0,
+            fleet_paths: bits & 0x0080 != 0,
+            idle_fleets: bits & 0x0100 != 0,
+            ship_design_filter: bits & 0x0200 != 0,
+            names: bits & 0x0400 != 0,
+            enemy_class_filter: bits & 0x0800 != 0,
+            ship_counts: bits & 0x1000 != 0,
+            player_colours: bits & 0x2000 != 0,
+        };
+    }
+
     #[must_use]
     pub fn grbit_scan(&self) -> u16 {
         let mut bits = u16::from(self.scan_view as u8) & 0x000f;

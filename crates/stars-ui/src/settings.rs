@@ -308,3 +308,130 @@ pub fn to_text(ini: &Ini) -> String {
     let _ = write!(out, "{ini}");
     out
 }
+
+/// The scanner's own keys, all of them in `[Windows]` — `ReadIniSettings`
+/// keeps that section current from the window rectangles all the way down to
+/// the mineral scale, and only switches to `[Files]` afterwards.
+pub mod scanner {
+    /// `grbitScan`: the view in the low nibble and ten overlay bits above it.
+    pub const MODE: &str = "ScanModeV25";
+    /// `grbitScanShip`: which of your designs the Ship Design filter counts.
+    pub const SHIP_FILTER: &str = "ScanFilterV25";
+    /// `grbitScanEShip`: which classes the Enemy Ship Class filter counts.
+    pub const CLASS_FILTER: &str = "ScanEFilterV25";
+    /// `grbitScanMines`: whose minefields the overlay draws.
+    pub const MINE_FILTER: &str = "ScanMines";
+    /// `vpctRadarView`: what the coverage overlay pretends a scanner is worth.
+    pub const RADAR: &str = "ScanRadar";
+    /// `iScanZoom`, stored as **one character** — the digit `zoom + 5`.
+    pub const ZOOM: &str = "ScanZoom";
+    /// Whether the toolbar shows.
+    pub const TOOLBAR: &str = "Toolbar";
+    /// `iWindowLayout`.
+    pub const LAYOUT: &str = "Layout";
+
+    /// What `grbitScan` is when the file says nothing: planet names and ship
+    /// counts on, everything else off.
+    pub const MODE_DEFAULT: i64 = 0xe0;
+    /// The minefield filter starts **full**, unlike the two ship filters.
+    pub const MINE_DEFAULT: i64 = 0xf;
+    /// The coverage overlay starts at full strength.
+    pub const RADAR_DEFAULT: i64 = 100;
+    /// What `iScanZoom` is added to on the way out, and taken off on the way
+    /// in, so that the value is a single printable digit.
+    pub const ZOOM_BIAS: i64 = 5;
+}
+
+impl crate::App {
+    /// Restore the scanner from a `stars.ini`.
+    ///
+    /// Two details of `ReadIniSettings` are worth keeping. The zoom is
+    /// stored as one character — the digit `iScanZoom + 5` — and a stored
+    /// `0` is **rejected**, not read as `-5`: the test is
+    /// `if (v != 0 && v < 10)`. And `grbitScan` is sanity-checked on the way
+    /// in: if `(v & 0xc00f) > 5` — a view the game does not have, or either
+    /// of the two top bits — both it **and the ship filter** are thrown away
+    /// and start again at nothing.
+    pub fn read_scanner_ini(&mut self, ini: &Ini) {
+        use scanner as key;
+
+        let zoom = ini.int(WINDOWS, key::ZOOM, 4);
+        if zoom != 0 && zoom < 10 {
+            self.scan_zoom = i8::try_from(zoom - key::ZOOM_BIAS).unwrap_or(0);
+        }
+        let mut mode = ini.int(WINDOWS, key::MODE, scanner::MODE_DEFAULT);
+        let mut ships = ini.int(WINDOWS, key::SHIP_FILTER, 0);
+        if mode & 0xc00f > 5 {
+            mode = 0;
+            ships = 0;
+        }
+        #[expect(
+            clippy::cast_sign_loss,
+            clippy::cast_possible_truncation,
+            reason = "a mask"
+        )]
+        self.set_grbit_scan(mode as u16);
+        #[expect(
+            clippy::cast_sign_loss,
+            clippy::cast_possible_truncation,
+            reason = "a mask"
+        )]
+        {
+            self.scan_design_filter = ships as u16;
+            self.scan_class_filter = ini.int(WINDOWS, key::CLASS_FILTER, 0) as u8;
+            self.scan_minefield_filter =
+                (ini.int(WINDOWS, key::MINE_FILTER, scanner::MINE_DEFAULT) & 0xf) as u8;
+            self.scan_coverage_pct = ini
+                .int(WINDOWS, key::RADAR, scanner::RADAR_DEFAULT)
+                .clamp(0, 100) as u8;
+        }
+        self.toolbar_hidden = ini.int(WINDOWS, key::TOOLBAR, 1) == 0;
+        self.window_layout = match ini.int(WINDOWS, key::LAYOUT, 1) {
+            0 => crate::WindowLayout::Large,
+            1 => crate::WindowLayout::Medium,
+            _ => crate::WindowLayout::Small,
+        };
+    }
+
+    /// Write it back.
+    ///
+    /// `WriteIniSettings` writes the five scanner keys only when a dirty bit
+    /// is set and the rest every time; here the file is written whole, which
+    /// comes to the same thing.
+    pub fn write_scanner_ini(&self, ini: &mut Ini) {
+        use scanner as key;
+
+        ini.set(
+            WINDOWS,
+            key::ZOOM,
+            &(i64::from(self.scan_zoom) + key::ZOOM_BIAS).to_string(),
+        );
+        ini.set(WINDOWS, key::MODE, &self.grbit_scan().to_string());
+        ini.set(
+            WINDOWS,
+            key::SHIP_FILTER,
+            &self.scan_design_filter.to_string(),
+        );
+        ini.set(
+            WINDOWS,
+            key::CLASS_FILTER,
+            &self.scan_class_filter.to_string(),
+        );
+        ini.set(
+            WINDOWS,
+            key::MINE_FILTER,
+            &(self.scan_minefield_filter & 0xf).to_string(),
+        );
+        ini.set(WINDOWS, key::RADAR, &self.scan_coverage_pct.to_string());
+        ini.set(
+            WINDOWS,
+            key::TOOLBAR,
+            if self.toolbar_hidden { "0" } else { "1" },
+        );
+        ini.set(
+            WINDOWS,
+            key::LAYOUT,
+            &(self.window_layout as u8).to_string(),
+        );
+    }
+}

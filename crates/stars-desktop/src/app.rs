@@ -33,6 +33,9 @@ impl StarsApp {
         // `[Misc]`. The window rectangles beside them belong to windows
         // this project does not have; `Ini` carries them through untouched.
         app.reports.read_ini(&ini);
+        // The scanner's view, overlays, filters, zoom, the toolbar and the
+        // window layout, all of which live in `[Windows]`.
+        app.read_scanner_ini(&ini);
         // `ReadIniSettings` copies `[Files] File1` into `szBase` and sets the
         // startup-file bit, so a launch with nothing to go on reopens the
         // game last played.
@@ -66,12 +69,13 @@ impl StarsApp {
         }
     }
 
-    /// Write the settings file: the recently-opened list, and each report's
-    /// columns and sort.
+    /// Write the settings file: the recently-opened list, each report's
+    /// columns and sort, and the scanner.
     fn write_settings(&self) {
         let mut ini = read_ini();
         self.recent.write_ini(&mut ini);
         self.app.reports.write_ini(&mut ini);
+        self.app.write_scanner_ini(&mut ini);
         write_ini(&ini);
     }
 

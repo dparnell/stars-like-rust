@@ -208,11 +208,16 @@ file is read and written **whole**, so everything in it this project has no
 use for is carried through rather than thrown away, which means a
 `stars.ini` the original wrote survives the round trip.
 
+The scanner comes back too — its view and overlays, both ship filters, the
+minefield filter, the coverage percentage, the zoom, the toolbar and the
+window layout, all of them in `[Windows]` and written up in `scanner.md`.
+
 What the original restores and this one still does not: the four report
-windows' positions (they have no windows here), the scanner's zoom, filters
-and view mode, the window layout, the toolbar, the four zip orders and five
-production templates, the default password, and the font names. All of it is
-the same mechanism, so each is a key away.
+windows' positions (they have no windows here), the frame window's own
+rectangle, the mineral scale (a constant here), the four zip orders and
+five production templates, the default password, the last selection and
+message, and the font names. All of it is the same mechanism, so each is a
+key away.
 
 Two items are this project's own and marked so in the code. `Production…`
 under Commands is a third way to a dialog the original reaches two other

@@ -1203,6 +1203,49 @@ else's fleet is prefixed with their race name.
 
 Everything the scanner does is now reproduced or recorded above.
 
+## What survives a restart
+
+All of the scanner's own settings live in `[Windows]` of `stars.ini` —
+`ReadIniSettings` (`1000:1db3`) keeps that section current from the window
+rectangles all the way down to the mineral scale, and only moves on to
+`[Files]` afterwards.
+
+| key | holds | default |
+|-----|-------|---------|
+| `ScanModeV25` | `grbitScan`: the view in the low nibble, ten overlay bits above it | `0xe0` |
+| `ScanFilterV25` | `grbitScanShip`, the Ship Design filter | `0` |
+| `ScanEFilterV25` | `grbitScanEShip`, the Enemy Ship Class filter | `0` |
+| `ScanMines` | `grbitScanMines`, whose fields are drawn | `0xf` |
+| `ScanRadar` | `vpctRadarView`, clamped to 100 | `100` |
+| `ScanZoom` | `iScanZoom`, as **one character** | `4` |
+| `Toolbar` | whether the toolbar shows | `1` |
+| `Layout` | `iWindowLayout`, clamped to 0–2 | `1` |
+
+Three of those are worth reading twice.
+
+`0xe0` is **coverage, minefields and fleet paths** — not the planet names
+and ship counts a first guess would put there. The bit order is in
+`App::grbit_scan`.
+
+The **zoom is one character**, the digit `iScanZoom + 5`, so that it is
+always printable; and a stored `0` is **rejected** rather than read as the
+smallest zoom, because the test is `if (v != 0 && v < 10)`. A file written
+with a zoom of `-5` therefore cannot be read back — not that the menu
+offers one.
+
+`grbitScan` is **sanity-checked on the way in**: if `(v & 0xc00f) > 5` — a
+view the game does not have, or either of the top two bits — the mode
+**and the ship filter** are both thrown away and start again at nothing.
+The filter going with it is the surprise; it is one `if`, and it clears
+`grbitScanShip` as well as `grbitScan`.
+
+`grbitScan` also carries the **Add Way Points mode**, bit `0x10`, so that
+survives a restart along with the overlays.
+
+One thing here is not stored because this project has nowhere to put it:
+`MineralScale` (`cMinGrafMax`), which is a constant rather than a setting —
+see `mine-survey-pane.md`.
+
 ## What this project does
 
 `crates/stars-ui/src/views/galaxy.rs`, with the status bar in

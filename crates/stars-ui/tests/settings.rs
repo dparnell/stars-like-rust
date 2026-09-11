@@ -166,3 +166,129 @@ fn a_missing_key_is_its_default() {
     assert_eq!(reports.state(Report::Planets).sort, 0);
     assert!(!reports.state(Report::Planets).ascending, "0 has no bit 8");
 }
+
+/// The scanner's view, overlays, filters, zoom, toolbar and layout go out
+/// and come back.
+#[test]
+fn the_scanner_survives_a_round_trip() {
+    use stars_ui::settings::scanner;
+    use stars_ui::{App, ScanView, WindowLayout};
+
+    let mut app = App::new();
+    app.scan_view = ScanView::PlanetValue;
+    // Set the lot explicitly: the round trip replaces every bit, so a
+    // default left standing would not prove anything.
+    app.scan_overlays = stars_ui::ScanOverlays {
+        names: true,
+        fleet_paths: true,
+        player_colours: true,
+        scanner_coverage: false,
+        minefields: false,
+        ship_counts: false,
+        idle_fleets: false,
+        ship_design_filter: false,
+        enemy_class_filter: false,
+    };
+    app.add_waypoints = true;
+    app.scan_zoom = -2;
+    app.scan_design_filter = 0b1010;
+    app.scan_class_filter = 0b0110_0000;
+    app.scan_minefield_filter = 0b0101;
+    app.scan_coverage_pct = 60;
+    app.toolbar_hidden = true;
+    app.window_layout = WindowLayout::Small;
+
+    let mut ini = Ini::parse("");
+    app.write_scanner_ini(&mut ini);
+    // The zoom is one digit, biased by five so it is always printable.
+    assert_eq!(ini.get(WINDOWS, scanner::ZOOM), Some("3"));
+
+    let mut read = App::new();
+    read.read_scanner_ini(&ini);
+    assert_eq!(read.scan_view, ScanView::PlanetValue);
+    assert!(read.scan_overlays.names);
+    assert!(read.scan_overlays.fleet_paths);
+    assert!(read.scan_overlays.player_colours);
+    assert!(!read.scan_overlays.minefields);
+    assert!(read.add_waypoints, "even the add-waypoints mode is kept");
+    assert_eq!(read.scan_zoom, -2);
+    assert_eq!(read.scan_design_filter, 0b1010);
+    assert_eq!(read.scan_class_filter, 0b0110_0000);
+    assert_eq!(read.scan_minefield_filter, 0b0101);
+    assert_eq!(read.scan_coverage_pct, 60);
+    assert!(read.toolbar_hidden);
+    assert_eq!(read.window_layout, WindowLayout::Small);
+}
+
+/// An empty file gives the scanner its shipped settings: planet names and
+/// ship counts on, every minefield drawn, coverage at full strength.
+#[test]
+fn an_empty_file_gives_the_shipped_scanner() {
+    use stars_ui::{App, ScanView, WindowLayout};
+
+    let mut app = App::new();
+    app.read_scanner_ini(&Ini::parse(""));
+    assert_eq!(app.scan_view, ScanView::Normal);
+    // `0xe0` is coverage, minefields and fleet paths — not the names and
+    // ship counts a first guess would put there.
+    assert!(app.scan_overlays.scanner_coverage);
+    assert!(app.scan_overlays.minefields);
+    assert!(app.scan_overlays.fleet_paths);
+    assert!(!app.scan_overlays.names);
+    assert!(!app.scan_overlays.ship_counts);
+    assert_eq!(app.scan_minefield_filter, 0xf);
+    assert_eq!(app.scan_coverage_pct, 100);
+    assert_eq!(app.scan_zoom, -1, "the default is the digit 4");
+    assert!(!app.toolbar_hidden);
+    assert_eq!(app.window_layout, WindowLayout::Medium);
+}
+
+/// `grbitScan` is sanity-checked on the way in: a view the game does not
+/// have, or either of the top two bits, throws away the mode **and** the
+/// ship filter.
+#[test]
+fn a_nonsense_scan_mode_is_thrown_away_with_the_ship_filter() {
+    use stars_ui::settings::scanner;
+    use stars_ui::{App, ScanView};
+
+    let mut ini = Ini::parse("");
+    // View 6, which does not exist, with some overlays and a filter set.
+    ini.set(WINDOWS, scanner::MODE, "2534");
+    ini.set(WINDOWS, scanner::SHIP_FILTER, "255");
+    let mut app = App::new();
+    app.read_scanner_ini(&ini);
+    assert_eq!(app.scan_view, ScanView::Normal);
+    assert!(!app.scan_overlays.names, "the whole mode went");
+    assert_eq!(app.scan_design_filter, 0, "and the filter with it");
+
+    // A view the game does have is kept, filter and all.
+    ini.set(WINDOWS, scanner::MODE, "1029");
+    ini.set(WINDOWS, scanner::SHIP_FILTER, "255");
+    let mut app = App::new();
+    app.read_scanner_ini(&ini);
+    assert_eq!(app.scan_view, ScanView::NoPlayerInfo, "view 5");
+    assert!(app.scan_overlays.names, "0x400 is the planet names");
+    assert_eq!(app.scan_design_filter, 255);
+}
+
+/// A stored zoom of `0` is rejected rather than read as the smallest one:
+/// the test is `v != 0 && v < 10`.
+#[test]
+fn a_zoom_of_zero_is_no_zoom() {
+    use stars_ui::settings::scanner;
+    use stars_ui::App;
+
+    let mut ini = Ini::parse("");
+    let mut app = App::new();
+    app.scan_zoom = 3;
+    ini.set(WINDOWS, scanner::ZOOM, "0");
+    app.read_scanner_ini(&ini);
+    assert_eq!(app.scan_zoom, 3, "left alone");
+
+    ini.set(WINDOWS, scanner::ZOOM, "9");
+    app.read_scanner_ini(&ini);
+    assert_eq!(app.scan_zoom, 4);
+    ini.set(WINDOWS, scanner::ZOOM, "1");
+    app.read_scanner_ini(&ini);
+    assert_eq!(app.scan_zoom, -4);
+}
