@@ -212,12 +212,21 @@ The scanner comes back too — its view and overlays, both ship filters, the
 minefield filter, the coverage percentage, the zoom, the toolbar and the
 window layout, all of them in `[Windows]` and written up in `scanner.md`.
 
+The four zip orders and the five production templates come back too. They
+share one section, `[ZipOrders]`, with the orders under `ZipOrders1` to
+`ZipOrders4` and the templates under `ZipOrdersP1` to `ZipOrdersP5`, and
+both are nibble-coded into the letters `a` to `p` — see `fleet-pane.md`
+and `production.md`.
+
 What the original restores and this one still does not: the four report
 windows' positions (they have no windows here), the frame window's own
-rectangle, the mineral scale (a constant here), the four zip orders and
-five production templates, the default password, the last selection and
+rectangle, the mineral scale (a constant here), the last selection and
 message, and the font names. All of it is the same mechanism, so each is a
 key away.
+
+A `stars.ini` sitting **beside a save** still wins over the settings file
+for the templates, the orders and the default password: it is the one that
+travels with the game, so a copied game directory brings its own.
 
 Two items are this project's own and marked so in the code. `Production…`
 under Commands is a third way to a dialog the original reaches two other

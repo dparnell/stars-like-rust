@@ -36,6 +36,9 @@ impl StarsApp {
         // The scanner's view, overlays, filters, zoom, the toolbar and the
         // window layout, all of which live in `[Windows]`.
         app.read_scanner_ini(&ini);
+        // The four cargo orders the blue diamond offers and the five
+        // production templates, which share `[ZipOrders]`.
+        app.read_zip_ini(&ini);
         // `ReadIniSettings` copies `[Files] File1` into `szBase` and sets the
         // startup-file bit, so a launch with nothing to go on reopens the
         // game last played.
@@ -70,12 +73,13 @@ impl StarsApp {
     }
 
     /// Write the settings file: the recently-opened list, each report's
-    /// columns and sort, and the scanner.
+    /// columns and sort, the scanner, and the zip orders and templates.
     fn write_settings(&self) {
         let mut ini = read_ini();
         self.recent.write_ini(&mut ini);
         self.app.reports.write_ini(&mut ini);
         self.app.write_scanner_ini(&mut ini);
+        self.app.write_zip_ini(&mut ini);
         write_ini(&ini);
     }
 
@@ -229,16 +233,21 @@ impl StarsApp {
         let Ok(text) = std::fs::read_to_string(&ini) else {
             return;
         };
-        let values = ini_section(&text, stars_formats::TEMPLATE_INI_SECTION);
-        self.app.load_production_templates(&values);
+        // A `stars.ini` sitting beside the save **wins** over the settings
+        // file: it is the one that travels with the game, so a copied game
+        // directory brings its own templates and orders with it.
+        let beside = stars_ui::settings::Ini::parse(&text);
+        self.app.read_zip_ini(&beside);
 
         // `[Misc] DefaultPassword`, which `FCheckPassword` consults before it
         // puts the password prompt up.
-        self.app.default_password = ini_section(&text, stars_formats::DEFAULT_PASSWORD_INI_SECTION)
-            .into_iter()
-            .find(|(key, _)| key.eq_ignore_ascii_case(stars_formats::DEFAULT_PASSWORD_INI_KEY))
-            .map(|(_, value)| value)
-            .unwrap_or_default();
+        self.app.default_password = beside
+            .get(
+                stars_formats::DEFAULT_PASSWORD_INI_SECTION,
+                stars_formats::DEFAULT_PASSWORD_INI_KEY,
+            )
+            .unwrap_or_default()
+            .to_string();
     }
 
     /// Write them back, leaving every other section of the file alone.
@@ -247,11 +256,9 @@ impl StarsApp {
             return;
         };
         let existing = std::fs::read_to_string(&ini).unwrap_or_default();
-        let updated = with_ini_values(
-            &existing,
-            stars_formats::TEMPLATE_INI_SECTION,
-            &self.app.production_templates_ini(),
-        );
+        let mut parsed = stars_ui::settings::Ini::parse(&existing);
+        self.app.write_zip_ini(&mut parsed);
+        let updated = parsed.to_string();
         if updated != existing {
             let _ = std::fs::write(&ini, updated);
         }
@@ -473,80 +480,6 @@ fn read_art(path: &Path) -> Option<Vec<u8>> {
         return None;
     }
     std::fs::read(path).ok()
-}
-
-/// The `key = value` pairs of one section of a Windows profile file.
-fn ini_section(text: &str, section: &str) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    let mut inside = false;
-    for line in text.lines() {
-        let line = line.trim();
-        if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
-            inside = name.eq_ignore_ascii_case(section);
-            continue;
-        }
-        if !inside {
-            continue;
-        }
-        if let Some((key, value)) = line.split_once('=') {
-            out.push((key.trim().to_string(), value.trim().to_string()));
-        }
-    }
-    out
-}
-
-/// Replace some keys in one section, leaving everything else in the file
-/// exactly as it was — the same courtesy the save code extends to a game file.
-fn with_ini_values(text: &str, section: &str, values: &[(String, String)]) -> String {
-    let mut out = String::with_capacity(text.len() + 64);
-    let mut inside = false;
-    let mut seen_section = false;
-    let mut written = false;
-
-    let write_values = |out: &mut String| {
-        for (key, value) in values {
-            out.push_str(key);
-            out.push('=');
-            out.push_str(value);
-            out.push('\n');
-        }
-    };
-
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if let Some(name) = trimmed.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
-            // Leaving the section: put our keys in before the next one starts.
-            if inside && !written {
-                write_values(&mut out);
-                written = true;
-            }
-            inside = name.eq_ignore_ascii_case(section);
-            seen_section |= inside;
-            out.push_str(line);
-            out.push('\n');
-            continue;
-        }
-        // Drop the keys we are replacing; keep the rest of the section.
-        if inside {
-            if let Some((key, _)) = trimmed.split_once('=') {
-                if values.iter().any(|(k, _)| k == key.trim()) {
-                    continue;
-                }
-            }
-        }
-        out.push_str(line);
-        out.push('\n');
-    }
-
-    if !seen_section {
-        out.push('[');
-        out.push_str(section);
-        out.push_str("]\n");
-    }
-    if !written {
-        write_values(&mut out);
-    }
-    out
 }
 
 impl eframe::App for StarsApp {

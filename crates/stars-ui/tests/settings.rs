@@ -292,3 +292,102 @@ fn a_zoom_of_zero_is_no_zoom() {
     app.read_scanner_ini(&ini);
     assert_eq!(app.scan_zoom, -4);
 }
+
+/// A zip order is five four-letter words and then a name, and the word puts
+/// the **action first** and then the quantity from its bottom nibble up.
+#[test]
+fn a_zip_order_writes_the_action_before_the_quantity() {
+    use stars_formats::XferAction;
+    use stars_ui::app::ZipOrder;
+    use stars_ui::settings::{decode_zip, encode_zip};
+
+    let order = ZipOrder {
+        name: "Miner".to_string(),
+        items: [
+            (XferAction::LoadAll, 0),
+            (XferAction::None, 0),
+            (XferAction::None, 0),
+            (XferAction::UnloadExact, 0x123),
+            (XferAction::None, 0),
+        ],
+    };
+    let text = encode_zip(&order);
+    assert_eq!(&text[20..], "Miner");
+    // Load All is action 1, with no quantity: `b` then three `a`s.
+    assert_eq!(&text[0..4], "baaa");
+    // Unload Exactly is action 4, quantity 0x123 — low nibble first.
+    assert_eq!(&text[12..16], "edcb");
+
+    let back = decode_zip(&text).expect("it reads back");
+    assert_eq!(back, order);
+}
+
+/// The lengths `ReadIniSettings` insists on: over twenty characters and
+/// under thirty-three, with the first twenty all in `a`–`p`.
+#[test]
+fn a_zip_order_of_the_wrong_shape_is_no_order() {
+    use stars_ui::settings::decode_zip;
+
+    assert!(decode_zip("").is_none());
+    assert!(
+        decode_zip("aaaaaaaaaaaaaaaaaaa").is_none(),
+        "nineteen is one short of the five words"
+    );
+    assert!(
+        decode_zip("aaaaaaaaaaaaaaaaaaaa").is_some(),
+        "twenty is the five words and no name at all"
+    );
+    assert!(
+        decode_zip("aaaaaaaaaaaaaaaaaaaaX").is_some(),
+        "and a name fits after"
+    );
+    assert!(
+        decode_zip("aaaaaaaaaaaaaaaaaaaaXXXXXXXXXXXXX").is_none(),
+        "thirty-three is one too many"
+    );
+    assert!(
+        decode_zip("aaaaaaaaaaaaaaaaaaqa!").is_none(),
+        "a letter past p is not a nibble"
+    );
+}
+
+/// The four orders and the five templates share `[ZipOrders]` and come back
+/// together — and the first template slot is thrown away on the way in,
+/// because it is the player's own default queue.
+#[test]
+fn the_zip_section_holds_both_and_round_trips() {
+    use stars_formats::XferAction;
+    use stars_ui::app::ZipOrder;
+    use stars_ui::settings::ZIP_ORDERS;
+    use stars_ui::App;
+
+    let mut app = App::new();
+    app.zip_orders[1] = ZipOrder {
+        name: "Fuel".to_string(),
+        items: [
+            (XferAction::None, 0),
+            (XferAction::None, 0),
+            (XferAction::None, 0),
+            (XferAction::None, 0),
+            (XferAction::LoadAll, 0),
+        ],
+    };
+
+    let mut ini = Ini::parse("");
+    app.write_zip_ini(&mut ini);
+    assert!(ini.get(ZIP_ORDERS, "ZipOrders2").is_some());
+    assert!(
+        ini.get(ZIP_ORDERS, "ZipOrders1").is_none(),
+        "an untouched slot writes no key at all"
+    );
+
+    let mut read = App::new();
+    read.read_zip_ini(&ini);
+    assert_eq!(read.zip_orders[1].name, "Fuel");
+    assert_eq!(read.zip_orders[1].items[4].0, XferAction::LoadAll);
+    assert_eq!(read.zip_orders[0], ZipOrder::default());
+
+    // The first template slot always reads back as the default, whatever
+    // the file says, so nothing written there survives.
+    assert_eq!(read.production_templates()[0].name, "<Default>");
+}

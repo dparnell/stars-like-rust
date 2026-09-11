@@ -252,6 +252,36 @@ empties the slot. An unnamed slot is called `Custom n`.
 at `0x526e + i * 0x18`. The production tile has a diamond of its own over
 `vrgZipProd`, which this project already draws.
 
+Neither is in a save. Both live in `[ZipOrders]` of `stars.ini`, the orders
+under `ZipOrders1` to `ZipOrders4` and the templates under `ZipOrdersP1` to
+`ZipOrdersP5`, and both are **nibble-coded into the letters `a` to `p`** —
+four letters a word, so that the whole thing is printable ASCII.
+
+The two codings are not the same, which is worth knowing before writing
+either. A template's four letters are the word's nibbles, plain, from the
+bottom up. A zip order's put the **action first** and then the quantity
+from its bottom nibble up:
+
+```text
+p[0] = bits 12..15   the action
+p[1] = bits  0..3    the quantity, low nibble
+p[2] = bits  4..7
+p[3] = bits  8..11
+```
+
+`ReadIniSettings` takes an order only when the value is at least twenty
+characters and under thirty-three and the first twenty are all in `a`–`p`;
+twenty exactly is five words and no name. A template needs its second
+character to be a count under thirteen, that many words after it, and a
+name under thirteen characters.
+
+One quirk at the end of the template loop: slot 0 is read like the rest and
+then **thrown away** — the routine finishes by forcing its name to
+`<Default>` and marking it valid, because that slot is the player's own
+default queue and lives in the save. The original writes `ZipOrdersP1` all
+the same, so this project writes it too and a file it writes has the same
+shape as one the game wrote.
+
 ## The reports, and their sort
 
 `SortReportCache` (`1108:589c`) knows **four** reports — planets, your

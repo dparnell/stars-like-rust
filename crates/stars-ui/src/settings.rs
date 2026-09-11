@@ -435,3 +435,138 @@ impl crate::App {
         );
     }
 }
+
+/// The section the fleet's zip orders and the production templates share,
+/// `idsZiporders` (`0x93`). The keys are the section's own name with a digit
+/// after it — `ZipOrders1` to `ZipOrders4` for the cargo orders — and with a
+/// `P` before the digit for the templates.
+pub const ZIP_ORDERS: &str = stars_formats::TEMPLATE_INI_SECTION;
+
+/// How many characters a nibble-coded word takes.
+const WORD: usize = 4;
+
+/// The alphabet both codecs use: a nibble is a letter, `a` to `p`.
+fn nibble(letter: u8) -> Option<u16> {
+    (b'a'..=b'p')
+        .contains(&letter)
+        .then(|| u16::from(letter - b'a'))
+}
+
+/// The letter for a nibble.
+fn letter(value: u16) -> char {
+    char::from(b'a' + (value & 0xf) as u8)
+}
+
+/// Write one zip order as `stars.ini` holds it.
+///
+/// Five cargo instructions of four letters each, then the name. Each
+/// instruction is an `ITEMACTION` — `cQuan:12, iAction:4` — written **action
+/// first and then the quantity, nibble by nibble from the bottom**:
+///
+/// ```text
+/// p[0] = bits 12..15   the action
+/// p[1] = bits  0..3    the quantity, low nibble
+/// p[2] = bits  4..7
+/// p[3] = bits  8..11
+/// ```
+///
+/// Which is worth setting beside the production templates in the same
+/// section, where the four letters are the plain little-endian nibbles of
+/// the word and nothing is moved to the front.
+#[must_use]
+pub fn encode_zip(order: &crate::app::ZipOrder) -> String {
+    let mut out = String::with_capacity(5 * WORD + order.name.len());
+    for (action, quantity) in &order.items {
+        let word = (u16::from(action.to_raw()) << 12) | (quantity & 0x0fff);
+        out.push(letter(word >> 12));
+        out.push(letter(word));
+        out.push(letter(word >> 4));
+        out.push(letter(word >> 8));
+    }
+    out.push_str(&order.name);
+    out
+}
+
+/// Read one back, or decide the value is not one.
+///
+/// `ReadIniSettings` takes it only when the whole string is at least
+/// twenty-one characters and under thirty-three, and the first twenty are
+/// all in `a`–`p`. Anything else leaves the slot empty.
+#[must_use]
+pub fn decode_zip(text: &str) -> Option<crate::app::ZipOrder> {
+    let bytes = text.as_bytes();
+    if bytes.len() <= 0x13 || bytes.len() >= 0x21 {
+        return None;
+    }
+    let mut items = [(stars_formats::XferAction::None, 0_u16); 5];
+    for (index, item) in items.iter_mut().enumerate() {
+        let at = index * WORD;
+        let action = nibble(bytes[at])?;
+        let quantity =
+            nibble(bytes[at + 1])? | (nibble(bytes[at + 2])? << 4) | (nibble(bytes[at + 3])? << 8);
+        #[expect(clippy::cast_possible_truncation, reason = "a nibble")]
+        let code = action as u8;
+        *item = (stars_formats::XferAction::from_raw(code), quantity);
+    }
+    Some(crate::app::ZipOrder {
+        name: text[5 * WORD..].to_string(),
+        items,
+    })
+}
+
+impl crate::App {
+    /// Restore the four zip orders and the five production templates.
+    ///
+    /// Both live in `[ZipOrders]`, which is why they are read together. The
+    /// first template slot is read and then **thrown away**: the original
+    /// ends by forcing slot 0's name to `<Default>` and marking it valid,
+    /// because that slot is the player's own default queue and lives in the
+    /// save rather than here.
+    pub fn read_zip_ini(&mut self, ini: &Ini) {
+        for slot in 0..Self::ZIP_ORDERS {
+            let key = format!("{ZIP_ORDERS}{}", slot + 1);
+            self.zip_orders[slot] = ini
+                .get(ZIP_ORDERS, &key)
+                .and_then(decode_zip)
+                .unwrap_or_default();
+        }
+        let templates: Vec<(String, String)> = (0..stars_formats::TEMPLATE_SLOTS)
+            .map(|slot| {
+                let key = stars_formats::ProductionTemplate::ini_key(slot);
+                let value = ini.get(ZIP_ORDERS, &key).unwrap_or_default().to_string();
+                (key, value)
+            })
+            .collect();
+        self.load_production_templates(&templates);
+    }
+
+    /// Write them back.
+    ///
+    /// The first template slot is written as the original writes it, even
+    /// though nothing will read it again — a file this project writes then
+    /// has the same shape as one the game wrote.
+    pub fn write_zip_ini(&self, ini: &mut Ini) {
+        for (slot, order) in self.zip_orders.iter().enumerate() {
+            let key = format!("{ZIP_ORDERS}{}", slot + 1);
+            if order.name.is_empty()
+                && order
+                    .items
+                    .iter()
+                    .all(|(a, q)| *a == stars_formats::XferAction::None && *q == 0)
+            {
+                ini.remove(ZIP_ORDERS, &key);
+            } else {
+                ini.set(ZIP_ORDERS, &key, &encode_zip(order));
+            }
+        }
+        for (slot, template) in self.production_templates().iter().enumerate() {
+            let key = stars_formats::ProductionTemplate::ini_key(slot);
+            let value = template.encode_ini();
+            if value.is_empty() {
+                ini.remove(ZIP_ORDERS, &key);
+            } else {
+                ini.set(ZIP_ORDERS, &key, &value);
+            }
+        }
+    }
+}
