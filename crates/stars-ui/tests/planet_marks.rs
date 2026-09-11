@@ -126,9 +126,11 @@ fn the_starbase_flag_tells_a_fort_from_a_starbase() {
     let mark = app.planet_starbase_mark(&planet).expect("a mark");
     assert!(mark == [0x40, 0x80, 0xff] || mark == [0xff, 0xd0, 0x40]);
 
-    // A design on hull 32 — the Orbital Fort — is the yellow one.
+    // A design on hull 32 — the Orbital Fort — is the yellow one. `isb`
+    // counts within the **starbase** designs, which start at slot 16.
+    let slot = usize::from(stars_core::startup::FIRST_STARBASE_SLOT);
     if let Some(game) = app.game.as_mut() {
-        if let Some(design) = game.designs[0].first_mut() {
+        if let Some(design) = game.designs[0].get_mut(slot) {
             design.hull_id = 32;
         }
     }
@@ -139,7 +141,7 @@ fn the_starbase_flag_tells_a_fort_from_a_starbase() {
         "a fort is yellow"
     );
     if let Some(game) = app.game.as_mut() {
-        if let Some(design) = game.designs[0].first_mut() {
+        if let Some(design) = game.designs[0].get_mut(slot) {
             design.hull_id = 33;
         }
     }
@@ -147,6 +149,18 @@ fn the_starbase_flag_tells_a_fort_from_a_starbase() {
         app.planet_starbase_mark(&planet),
         Some([0x40, 0x80, 0xff]),
         "anything more is blue"
+    );
+
+    // And the ship design of the same number has nothing to do with it.
+    if let Some(game) = app.game.as_mut() {
+        if let Some(design) = game.designs[0].first_mut() {
+            design.hull_id = 32;
+        }
+    }
+    assert_eq!(
+        app.planet_starbase_mark(&planet),
+        Some([0x40, 0x80, 0xff]),
+        "ship slot 0 is not the starbase"
     );
 }
 
