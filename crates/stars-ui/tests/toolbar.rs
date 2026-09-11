@@ -422,3 +422,60 @@ fn every_button_has_the_games_own_tooltip() {
         assert_eq!(*id, 0x16a + u16::try_from(i).expect("an index"));
     }
 }
+
+/// Everything the toolbar owns survives a restart: the view, the six
+/// overlays, the add-waypoints mode, all three filter masks, the coverage
+/// percentage, the zoom and whether the row is showing at all.
+///
+/// `ReadIniSettings` and `WriteIniSettings` keep the lot in `[Windows]`;
+/// the spec used to say they did not, which was true only until they did.
+#[test]
+fn the_whole_toolbar_survives_a_restart() {
+    use stars_ui::settings::Ini;
+    use stars_ui::{App, ScanOverlays, ScanView};
+
+    let mut app = App::new();
+    app.scan_view = ScanView::Population;
+    app.scan_overlays = ScanOverlays {
+        names: true,
+        scanner_coverage: true,
+        minefields: false,
+        fleet_paths: true,
+        ship_counts: true,
+        idle_fleets: false,
+        ship_design_filter: true,
+        enemy_class_filter: false,
+        player_colours: true,
+    };
+    app.add_waypoints = true;
+    app.scan_design_filter = 0b0000_0010_0100_0001;
+    app.scan_class_filter = 0b1000_0101;
+    app.scan_minefield_filter = 0b0011;
+    app.scan_coverage_pct = 40;
+    app.scan_zoom = 2;
+    app.toolbar_hidden = true;
+
+    let mut ini = Ini::parse("");
+    app.write_scanner_ini(&mut ini);
+    let mut back = App::new();
+    back.read_scanner_ini(&ini);
+
+    assert_eq!(back.scan_view, app.scan_view);
+    assert_eq!(back.scan_overlays, app.scan_overlays);
+    assert_eq!(back.add_waypoints, app.add_waypoints);
+    assert_eq!(back.scan_design_filter, app.scan_design_filter);
+    assert_eq!(back.scan_class_filter, app.scan_class_filter);
+    assert_eq!(back.scan_minefield_filter, app.scan_minefield_filter);
+    assert_eq!(back.scan_coverage_pct, app.scan_coverage_pct);
+    assert_eq!(back.scan_zoom, app.scan_zoom);
+    assert_eq!(back.toolbar_hidden, app.toolbar_hidden);
+
+    // And every button reads back latched the way it was left.
+    for button in stars_ui::toolbar::Button::ALL {
+        assert_eq!(
+            back.toolbar_down(button),
+            app.toolbar_down(button),
+            "{button:?}"
+        );
+    }
+}

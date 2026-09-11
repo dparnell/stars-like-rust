@@ -9462,9 +9462,15 @@ impl App {
                 });
             }
             if range.penetrating > 0 {
+                // The same figure as `range.normal / 2`, which is what a
+                // planet's penetrating range always works out to — a
+                // penetrating scanner's stored ability is negative and
+                // halved, and an AR's is set from the normal range the same
+                // way. Written as the range itself so that the two branches
+                // say the same thing.
                 deep.push(CoverageDisc {
                     position,
-                    radius: self.coverage_scaled(range.normal / 2),
+                    radius: self.coverage_scaled(range.penetrating),
                     penetrating: true,
                 });
             }

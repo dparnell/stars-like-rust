@@ -254,14 +254,29 @@ toolbar works either way.
 
 ## What is not
 
-* The filters narrow the **ship counts**; the manual also says they narrow
-  which planets get orbit rings, and this project does not draw orbit rings.
-* None of the three masks is kept in `stars.ini`, nor the view, the overlays or
-  the coverage — the original keeps all of them there between sessions. The
-  defaults above are honoured; the saving is not.
-* **View (Toolbar)** to hide the row: this frontend has no View menu.
-* The scanner-coverage overlay does not yet **vary** with the percentage; the
-  combo is read and kept, and the overlay is still drawn at full strength.
+Nothing, now. This section listed four gaps and every one of them has since
+been closed elsewhere, which is worth recording because three of them were
+closed by work that was not about the toolbar at all:
+
+* the filters narrow the **orbit rings** as well as the ship counts, which
+  is what `MANUAL.PDF` p. 5-13 means — `App::orbit_rings` counts a fleet
+  through `filtered_ship_count`, and `orbit_rings.rs` tests both filters;
+* the view, the overlays, all three masks, the coverage percentage, the
+  zoom and whether the row shows at all are **kept in `stars.ini`**, in
+  `[Windows]` — see `menus.md`, and `the_whole_toolbar_survives_a_restart`
+  in `toolbar.rs`, which puts every button through the round trip;
+* **View (Toolbar)** hides the row, from the View menu the frontend now
+  has;
+* the coverage overlay **does** vary with the percentage —
+  `App::coverage_scaled` is applied to every disc, rounding to nearest the
+  way `MulDiv` does, and `scanner_coverage.rs` asserts the discs shrink
+  rather than only the helper.
+
+A note for anyone reading `scanner_coverage`: a planet's penetrating disc
+is drawn at `range.penetrating`, which always works out to half its normal
+range — a penetrating scanner's stored ability is negative and halved, and
+an Alternate Reality starbase's is set from the normal range the same way.
+The two branches used to say it differently; they say it the same way now.
 
 ## Where Find went
 
