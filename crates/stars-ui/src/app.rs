@@ -11839,6 +11839,19 @@ impl App {
             Check::BattleVcr { open } => self.vcr.is_some() == *open,
             Check::Browser { open } => self.browser.is_some() == *open,
             Check::ResearchDialog { open } => self.research_dialog.is_some() == *open,
+            // `vprptCur`: the arms test the pointer, so any of the four
+            // reports satisfies it.
+            Check::ReportOpen => self.open_report_kind().is_some(),
+            Check::ReportSort {
+                column,
+                ascending,
+                subsort,
+            } => self.open_report_kind().is_some_and(|report| {
+                let state = self.reports.state(report);
+                state.sort == *column
+                    && ascending.is_none_or(|want| state.ascending == want)
+                    && subsort.is_none_or(|want| state.subsort == want)
+            }),
             Check::Template { slot } => self
                 .production_templates()
                 .get(*slot)
@@ -12280,6 +12293,22 @@ impl App {
     #[must_use]
     pub fn is_report(screen: Screen) -> bool {
         screen != Screen::Galaxy
+    }
+
+    /// Which report window is up, which is the original's `vprptCur`.
+    ///
+    /// Derived from the screen rather than stored: the four report windows
+    /// are this project's four report screens, and the Players screen and
+    /// the map are neither.
+    #[must_use]
+    pub fn open_report_kind(&self) -> Option<crate::report::Report> {
+        match self.screen {
+            Screen::Planets => Some(crate::report::Report::Planets),
+            Screen::Fleets => Some(crate::report::Report::Fleets),
+            Screen::EnemyFleets => Some(crate::report::Report::EnemyFleets),
+            Screen::Battles => Some(crate::report::Report::Battles),
+            Screen::Galaxy | Screen::Players => None,
+        }
     }
 
     /// Open a report, as **F3** does.

@@ -185,7 +185,8 @@ name, and where each stands:
 | "click on the **Next** button, or use the **down arrow** key" — messages | | already right |
 | "Hit the **v** key to pinpoint it for you" | `CtrPointScan` | **not done**: this map fits the whole galaxy and has no scroll to recentre |
 | "Hit **F3** to open the Planet Summary Report" / "Hit the **Esc** key to close" it | menu `0x6d4` | **added** |
-| "Open the Planet Summary Report and **sort by Population**" | `SortReportCache` (`1108:589c`) | not done: the reports here are lists, not sortable tables |
+| "Open the Planet Summary Report and **sort by Population**" | `SortReportCache` (`1108:589c`) | **added** — see `reports.md` |
+| "Find the **Min Conc** column, right click and Reverse Sort by Mineral Concentration - Weighted Average" | `ReportColumnPopup` (`1108:74d4`) | **added** |
 | "select **Generate** from the **Turn** menu" | menu `0x6d4` | **added** — the whole menu bar, see `menus.md` |
 | "Choose **Research** on the **Commands** menu" | menu `0x6d4` | **added** |
 | "choose **Tutorial** from the **Help** menu" | `0x9c5` | **added** |
@@ -268,8 +269,22 @@ It copies the current column, subsort and direction into `vicolSortPrev`,
 comparator can break ties with whatever you sorted by last. Sorting by
 population and then by name leaves equally-named planets in population order.
 
-This project's reports are lists rather than column tables, so there is
-nothing to click yet — the tutorial's *"sort by Population"* has no home.
+All of that is done, and written up in `reports.md`: the reports are column
+tables now, the menu is the menu, and the three pages that ask about the
+sort ask it again.
+
+They ask for different things, which is worth recording because it shows how
+much of the arm is emphasis rather than gate. Page 46 — *"Choose Planets...
+from the Report menu"*, then *"Click on the title of the Value column and
+Sort by Value"* — latches as soon as **any** report is open, so the sort
+only chooses which paragraph is emboldened. Page 59's *"sort by
+Population"* latches on `icolSort == 2`, so it really does have to be done.
+Page 55 asks for all three of column, direction and mineral:
+`icolSort == 0xb && !fAscending && iSubsort == 3`.
+
+One caution about page 46's wording. The spec used to say it asks for
+population; it asks for **Value**, which is column 4. The page that asks for
+population is 59.
 
 ## The tutorial's own world
 

@@ -160,6 +160,26 @@ pub enum Check {
     /// and holds its pending percentage while it is up. Page 28 wants it
     /// opened and page 29 wants it closed again, so both senses are used.
     ResearchDialog { open: bool },
+    /// Whether one of the four report windows is open at all (`vprptCur`).
+    ///
+    /// The arms test the pointer, not which report it points at, so any of
+    /// the four satisfies it.
+    ReportOpen,
+    /// How the open report is sorted.
+    ///
+    /// Three pages ask, and each asks for a little more: page 46 only that
+    /// the column is Value, page 59 that it is Population, page 55 that it
+    /// is Min Conc **and** reversed **and** on the weighted average. Fields
+    /// left `None` are not compared, which is how the arms differ. With no
+    /// report open the check fails.
+    ReportSort {
+        /// `icolSort`.
+        column: i16,
+        /// `fAscending`, when the page cares.
+        ascending: Option<bool>,
+        /// `iSubsort`, when the page cares.
+        subsort: Option<i16>,
+    },
     /// Whether the ship designer is open at all.
     ///
     /// `FCheckShipBuilder` answers only while `hwndSlotDlg` is up, so the
@@ -291,6 +311,8 @@ impl Check {
             Check::SavedDesignSlot { .. } => "saved design slot",
             Check::Designer { .. } => "designer open",
             Check::ResearchDialog { .. } => "research dialog",
+            Check::ReportOpen => "report open",
+            Check::ReportSort { .. } => "report sort",
             Check::Template { .. } => "production template",
             Check::Browser { .. } => "technology browser",
             Check::BattleVcr { .. } => "battle VCR",
@@ -2083,11 +2105,18 @@ pub static STEPS: &[Step] = &[
                     colonists: 25,
                 },
             ),
-            // The arm's next branch watches `vprptCur->icolSort` for column
-            // 4 — the report sorted by population. It only chooses the
-            // emphasis, and this project's reports are lists rather than
-            // sortable tables, so it is left out rather than written as a
-            // rung that could never pass. See the report note in the spec.
+            // "Choose Planets... from the Report menu." Opening it is what
+            // the arm latches on; the sort that follows only chooses which
+            // paragraph is emboldened, so it hints rather than gates.
+            ask(0x16b, Check::ReportOpen),
+            hint(
+                0x16c,
+                Check::ReportSort {
+                    column: 4,
+                    ascending: None,
+                    subsort: None,
+                },
+            ),
             ask(
                 0x16f,
                 Check::TransportWaypoint {
@@ -2443,14 +2472,35 @@ pub static STEPS: &[Step] = &[
         turn: 21,
         idt: 432,
         escape: None,
-        stages: &[ask(
-            0x1b0,
-            Check::Messages {
-                message: 9999,
-                kind: None,
-                filter: false,
+        stages: &[
+            ask(
+                0x1b0,
+                Check::Messages {
+                    message: 9999,
+                    kind: None,
+                    filter: false,
+                },
+            ),
+            // "Hit F3 to open the Planet Summary Report." Then: "Find the
+            // Min Conc column, right click and Reverse Sort by Mineral
+            // Concentration - Weighted Average." This one really does gate:
+            // the arm latches only on all three of column, direction and
+            // mineral, so the page is not done until the sort is right.
+            ask(0x1b2, Check::ReportOpen),
+            ask(
+                0x1b3,
+                Check::ReportSort {
+                    column: 0x0b,
+                    ascending: Some(false),
+                    subsort: Some(3),
+                },
+            ),
+            Stage {
+                bold: 0x1b7,
+                check: None,
+                gates: false,
             },
-        )],
+        ],
     },
     // Year 22. Fuel, which none of the check verbs can see.
     Step {
@@ -2613,16 +2663,21 @@ pub static STEPS: &[Step] = &[
                     id: 6,
                 },
             ),
-            // A third report-sort branch — column 2 this time — and, like
-            // the other two, emphasis only.
+            // "Open the Planet Summary Report and sort by Population."
+            // Column 2, and the arm latches on it, so this gates.
             ask(
                 0x1d5,
-                Check::Messages {
-                    message: 2,
-                    kind: None,
-                    filter: false,
+                Check::ReportSort {
+                    column: 2,
+                    ascending: None,
+                    subsort: None,
                 },
             ),
+            Stage {
+                bold: 0x1d7,
+                check: None,
+                gates: false,
+            },
         ],
     },
     Step {

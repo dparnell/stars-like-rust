@@ -1229,3 +1229,115 @@ fn hide_is_not_stop() {
     app.show_tutor();
     assert!(!app.tutor.as_ref().expect("running").hidden);
 }
+
+/// Three pages ask about the report's sort, and each asks for a little more.
+/// They were left out while the reports were lists; they are back.
+#[test]
+fn the_report_sort_pages_ask_what_the_arms_ask() {
+    let page = |idt: usize| {
+        STEPS
+            .iter()
+            .find(|s| s.idt == idt)
+            .unwrap_or_else(|| panic!("a page at {idt}"))
+    };
+
+    // Page 46 latches as soon as the report is open, so the sort only moves
+    // the emphasis.
+    let checks: Vec<&Option<Check>> = page(360).stages.iter().map(|s| &s.check).collect();
+    assert!(checks.contains(&&Some(Check::ReportOpen)));
+    let sort = page(360)
+        .stages
+        .iter()
+        .find(|s| matches!(s.check, Some(Check::ReportSort { .. })))
+        .expect("the Value rung");
+    assert!(!sort.gates, "opening the report is what page 46 waits for");
+    assert_eq!(
+        sort.check,
+        Some(Check::ReportSort {
+            column: 4,
+            ascending: None,
+            subsort: None,
+        })
+    );
+
+    // Page 55 wants the column, the direction and the mineral, and gates on
+    // all three.
+    let sort = page(432)
+        .stages
+        .iter()
+        .find(|s| matches!(s.check, Some(Check::ReportSort { .. })))
+        .expect("the Min Conc rung");
+    assert!(sort.gates);
+    assert_eq!(
+        sort.check,
+        Some(Check::ReportSort {
+            column: 0x0b,
+            ascending: Some(false),
+            subsort: Some(3),
+        })
+    );
+
+    // Page 59 wants Population, and gates.
+    let sort = page(464)
+        .stages
+        .iter()
+        .find(|s| matches!(s.check, Some(Check::ReportSort { .. })))
+        .expect("the Population rung");
+    assert!(sort.gates);
+    assert_eq!(
+        sort.check,
+        Some(Check::ReportSort {
+            column: 2,
+            ascending: None,
+            subsort: None,
+        })
+    );
+}
+
+/// `vprptCur` is the screen, and the sort check reads whichever report that
+/// is.
+#[test]
+fn the_tutor_sees_the_report_and_how_it_is_sorted() {
+    use stars_ui::report::Report;
+    use stars_ui::Screen;
+
+    let mut app = a_game();
+    app.screen = Screen::Galaxy;
+    assert_eq!(app.open_report_kind(), None);
+    assert!(!app.tutor_check(&Check::ReportOpen));
+
+    app.show_screen(Screen::Planets);
+    assert_eq!(app.open_report_kind(), Some(Report::Planets));
+    assert!(app.tutor_check(&Check::ReportOpen));
+
+    // Sorted by the name column to start with, so Population does not match.
+    assert!(!app.tutor_check(&Check::ReportSort {
+        column: 2,
+        ascending: None,
+        subsort: None,
+    }));
+    app.reports.sort_by(Report::Planets, 2, true, 0);
+    assert!(app.tutor_check(&Check::ReportSort {
+        column: 2,
+        ascending: None,
+        subsort: None,
+    }));
+
+    // Min Conc, reversed, on the weighted average: all three or nothing.
+    let strict = Check::ReportSort {
+        column: 0x0b,
+        ascending: Some(false),
+        subsort: Some(3),
+    };
+    app.reports.sort_by(Report::Planets, 0x0b, true, 3);
+    assert!(!app.tutor_check(&strict), "still ascending");
+    app.reports.sort_by(Report::Planets, 0x0b, false, 0);
+    assert!(!app.tutor_check(&strict), "still on ironium alone");
+    app.reports.sort_by(Report::Planets, 0x0b, false, 3);
+    assert!(app.tutor_check(&strict));
+
+    // Closing the report takes the answer away again.
+    app.close_report();
+    assert!(!app.tutor_check(&strict));
+    assert!(!app.tutor_check(&Check::ReportOpen));
+}

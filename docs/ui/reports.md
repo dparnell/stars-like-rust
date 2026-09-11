@@ -1,7 +1,8 @@
 # The report windows
 
-Status: **in progress** — the columns, the sort and the grid are done; the
-per-column click behaviour is not.
+Status: **in progress** — the columns, the sort, the grid and the three
+tutorial pages that watch the sort are done; the per-column click behaviour
+is not.
 
 Four windows share one piece of code: **Planets**, **Fleets**, **Others'
 Fleets** and **Battles**, listed together on the Report menu, all four
@@ -221,11 +222,45 @@ original lays them out, and the comparator with its tie-break. Sorting is
 driven by a key per cell rather than by fifty-four hand-written comparisons,
 which is the same order for every column this project can compute.
 
-Two columns cannot be computed from a player's own file and read as empty:
-another player's **Composition**, and the Others' Fleets class counts, both
-of which need that player's ship designs. The original has the same problem
-and solves it with a table of designs the player has seen; this project does
-not keep one yet.
+`crates/stars-ui/src/views/report.rs` draws it, and the four report screens
+— Planets, Fleets, **Others' Fleets** (new: the original's third report had
+no screen here before) and Battles — are that grid. Header cells are raised
+rings with no fill, centred except the first; rows are separated by the
+shadow lines `PATBLT` draws; widths follow `DxReportColHdr`'s rules against
+the font actually in use. Clicking a header opens the column menu with both
+buttons, as the original does; clicking a row selects what it is about.
 
-Not done yet: the grid itself, the click behaviour above, and the horizontal
-scrollbar.
+Two differences worth stating.
+
+The **horizontal scroll** is by pixels here, through egui's scroll area,
+where the original scrolls a whole column at a time with a scrollbar whose
+range is a column count and whose position it stores in `cFieldFirst`. The
+field is still in the model and still decides what `drawn()` returns, so the
+column-at-a-time behaviour is available; the view does not drive it.
+
+Two columns **cannot be computed from a player's own file** and read as
+empty: another player's Composition, and the Others' Fleets class counts,
+both of which need that player's ship designs. The original has the same
+problem and solves it with a table of designs the player has seen; this
+project does not keep one yet.
+
+Not done yet: the per-column click behaviour above — clicking a planet's
+Mine opens the industry popup, and so on — and the Battles report, which
+still shows this project's VCR screen rather than the table.
+
+## What the tutorial asks of it
+
+Three pages watch the sort, and they watch different amounts of it. The
+arms sit behind two latch bits — bit 9 and bit 10 of the tutor's flag word —
+which are what stops a page asking twice.
+
+| page | text | the arm |
+|------|------|---------|
+| 46 | "Click on the title of the Value column and Sort by Value" | latches as soon as **any** report is open; `icolSort == 4` only chooses the paragraph |
+| 55 | "Reverse Sort by Mineral Concentration - Weighted Average" | latches on `icolSort == 0xb && !fAscending && iSubsort == 3` |
+| 59 | "Open the Planet Summary Report and sort by Population" | latches on `icolSort == 2` |
+
+None of them asks **which** report is open: the arms test `vprptCur` for a
+null and read `icolSort` off whatever it points at. This project derives
+that pointer from the screen, which is the same thing here — the four
+report screens are the four report windows.

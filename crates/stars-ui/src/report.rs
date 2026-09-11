@@ -333,9 +333,6 @@ pub struct Reports {
     battles: ReportState,
     /// The tie-break sort, shared by all four.
     pub previous: Previous,
-    /// Which report's window is up (`vprptCur`), if any. The tutorial asks
-    /// about this directly.
-    pub open: Option<Report>,
 }
 
 impl Reports {
@@ -358,12 +355,6 @@ impl Reports {
             Report::EnemyFleets => &mut self.enemy,
             Report::Battles => &mut self.battles,
         }
-    }
-
-    /// The state of whichever report is open.
-    #[must_use]
-    pub fn current(&self) -> Option<&ReportState> {
-        self.open.map(|r| self.state(r))
     }
 
     /// Take a column, direction and mineral, remembering what the sort was.

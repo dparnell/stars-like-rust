@@ -123,7 +123,6 @@ pub fn view(app: &mut App, ui: &mut egui::Ui, report: Report) {
         ui.label("No game open.");
         return;
     }
-    app.reports.open = Some(report);
 
     let font = egui::TextStyle::Body.resolve(ui.style());
     let line = ui.text_style_height(&egui::TextStyle::Body);
