@@ -241,6 +241,42 @@ too. Hide one column and the column to its **left** is the one left out of
 the measurement, so the bar's range comes out one short. Reproduced, with
 a test that says which column is wrong and why.
 
+## What survives a restart
+
+`ReadIniSettings` (`1000:1db3`) and `WriteIniSettings` (`1020:7a76`) keep
+four things per report in `stars.ini`, two of them in `[Misc]` and one in
+`[Windows]`:
+
+| key | holds |
+|-----|-------|
+| `ReportPlanFld` | `grbitVisible`, the **low word** only |
+| `ReportPlanSort` | `icolSort` in the low byte, `fAscending` in bit 8 |
+| `ReportPlanWin` | the window's rectangle |
+
+and the same three for `ReportFleet…`, `ReportEFleet…` and `ReportBtl…` —
+except that the third report's sort key is spelled **`ReportEFltSort`**,
+not `ReportEFleetSort` as the pattern would have it. Spelling it the
+obvious way loses that report's sort in silence, so it has a test of its
+own.
+
+Two things are **not** kept. `iSubsort` is not written, so a report left
+sorted on germanium comes back sorted on ironium. And `cFieldFirst` is not
+either, so the horizontal scroll starts again at the first column.
+
+A rectangle is seventeen characters — `%c%04d%04d%04d%04d` — one letter for
+the window state (`M`, `R` or `I`) and four fixed four-character fields for
+left, top, right and bottom. A `-` anywhere in a field makes that field
+negative. Anything of a different length, or with an unknown letter or a
+stray character in it, is not a rectangle and the window falls back to its
+built-in place. The report windows are always written with `M`, whatever
+they actually were, and only the frame's letter is ever read back.
+
+This project keeps the columns and the sort. The **rectangles have nowhere
+to go**: the reports here are screens rather than windows, so there is no
+position to restore. They are read and written back untouched, along with
+everything else in the file this project has no use for, so a `stars.ini`
+the original wrote survives a pass through this one.
+
 ## Clicking a row
 
 `ExecuteReportClick` selects the object the row is about — the same

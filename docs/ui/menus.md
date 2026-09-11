@@ -202,15 +202,17 @@ directory, which has no equivalent here, so this writes the same file in the
 same format where each system keeps a program's settings — `%APPDATA%` on
 Windows, `$XDG_CONFIG_HOME` or `~/.config` elsewhere.
 
-That file is the one place the original keeps rather more than this project
-yet does. `ReadIniSettings` also restores, and nothing here stores: the four
-report windows' positions and sizes (`[Windows] ReportPlanWin` and its
-three), **which columns each report shows and what it sorts on**
-(`ReportPlanFld` and `ReportPlanSort`, the latter packing `icolSort` with
-`fAscending` in bit 8 — and not `iSubsort`), the scanner's zoom, filters and
-view mode, the window layout, the toolbar, the four zip orders and five
+Each report's columns and sort come back too — `[Misc] ReportPlanFld` and
+`ReportPlanSort` and their six companions, written up in `reports.md`. The
+file is read and written **whole**, so everything in it this project has no
+use for is carried through rather than thrown away, which means a
+`stars.ini` the original wrote survives the round trip.
+
+What the original restores and this one still does not: the four report
+windows' positions (they have no windows here), the scanner's zoom, filters
+and view mode, the window layout, the toolbar, the four zip orders and five
 production templates, the default password, and the font names. All of it is
-the same mechanism as the list above, so each is a key away.
+the same mechanism, so each is a key away.
 
 Two items are this project's own and marked so in the code. `Production…`
 under Commands is a third way to a dialog the original reaches two other

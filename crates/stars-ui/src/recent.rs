@@ -111,43 +111,24 @@ impl Recent {
     /// — fewer than four characters — is dropped, and the rest are compacted,
     /// so `File1` missing does not hide `File2`.
     #[must_use]
-    pub fn from_ini(text: &str) -> Recent {
-        let mut paths = Vec::new();
-        for slot in 1..=Self::SLOTS {
-            let key = format!("File{slot}");
-            let found = section(text, Self::SECTION)
-                .filter_map(|line| line.split_once('='))
-                .find(|(name, _)| name.trim().eq_ignore_ascii_case(&key))
-                .map(|(_, value)| value.trim().to_string())
-                .filter(|value| value.chars().count() >= Self::SHORTEST);
-            if let Some(path) = found {
-                paths.push(path);
-            }
-        }
+    pub fn read_ini(ini: &crate::settings::Ini) -> Recent {
+        let paths = (1..=Self::SLOTS)
+            .filter_map(|slot| ini.get(Self::SECTION, &format!("File{slot}")))
+            .filter(|value| value.chars().count() >= Self::SHORTEST)
+            .map(str::to_string)
+            .collect();
         Recent { paths }
     }
 
-    /// Write the section back out.
-    #[must_use]
-    pub fn to_ini(&self) -> String {
-        let mut out = format!("[{}]\n", Self::SECTION);
-        for (index, path) in self.paths.iter().enumerate() {
-            out.push_str(&format!("File{}={path}\n", index + 1));
+    /// Write the section back, compacted, taking out any slot that is no
+    /// longer used so a shorter list does not leave the old tail behind.
+    pub fn write_ini(&self, ini: &mut crate::settings::Ini) {
+        for slot in 1..=Self::SLOTS {
+            let key = format!("File{slot}");
+            match self.paths.get(slot - 1) {
+                Some(path) => ini.set(Self::SECTION, &key, path),
+                None => ini.remove(Self::SECTION, &key),
+            }
         }
-        out
     }
-}
-
-/// The lines of one `[Section]` of an ini file.
-fn section<'a>(text: &'a str, want: &str) -> impl Iterator<Item = &'a str> {
-    let mut inside = false;
-    let want = want.to_ascii_lowercase();
-    text.lines().filter_map(move |line| {
-        let line = line.trim();
-        if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
-            inside = name.trim().eq_ignore_ascii_case(&want);
-            return None;
-        }
-        inside.then_some(line)
-    })
 }

@@ -39,6 +39,7 @@ pub mod popup;
 pub mod recent;
 pub mod report;
 pub mod score;
+pub mod settings;
 pub mod statusbar;
 pub mod survey;
 pub mod tiles;

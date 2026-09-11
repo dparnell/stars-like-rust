@@ -27,7 +27,12 @@ impl StarsApp {
         let mut app = App::new();
         // There is somebody here to ask, so a guarded turn asks.
         app.prompt_for_password = true;
-        let recent = read_recent();
+        let ini = read_ini();
+        let recent = stars_ui::recent::Recent::read_ini(&ini);
+        // Which columns each report shows and what it sorts on, from
+        // `[Misc]`. The window rectangles beside them belong to windows
+        // this project does not have; `Ini` carries them through untouched.
+        app.reports.read_ini(&ini);
         // `ReadIniSettings` copies `[Files] File1` into `szBase` and sets the
         // startup-file bit, so a launch with nothing to go on reopens the
         // game last played.
@@ -53,12 +58,21 @@ impl StarsApp {
         this
     }
 
-    /// Put a game at the head of the recently-opened list and write the list
-    /// out again, if anything actually moved.
+    /// Put a game at the head of the recently-opened list and write the
+    /// settings out again, if anything actually moved.
     fn note_opened(&mut self, path: &Path) {
         if self.recent.opened(&path.display().to_string()) {
-            write_recent(&self.recent);
+            self.write_settings();
         }
+    }
+
+    /// Write the settings file: the recently-opened list, and each report's
+    /// columns and sort.
+    fn write_settings(&self) {
+        let mut ini = read_ini();
+        self.recent.write_ini(&mut ini);
+        self.app.reports.write_ini(&mut ini);
+        write_ini(&ini);
     }
 
     /// Open a game by path, from the menu's recently-used list.
@@ -532,6 +546,13 @@ fn with_ini_values(text: &str, section: &str, values: &[(String, String)]) -> St
 }
 
 impl eframe::App for StarsApp {
+    /// `WriteIniSettings` runs on the way out, and so does this: each
+    /// report's columns and sort, and the recently-opened list, go back to
+    /// `stars.ini`.
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.write_settings();
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Playback needs a steady stream of frames; everything else is happy to
         // redraw only on input.
@@ -1552,22 +1573,26 @@ fn ini_path() -> Option<PathBuf> {
     Some(base.join("stars-like-rust").join("stars.ini"))
 }
 
-/// Read the recently-opened list. A missing or unreadable file is simply an
-/// empty list — the original treats a missing key the same way.
-fn read_recent() -> stars_ui::recent::Recent {
+/// Read the settings file. A missing or unreadable one is an empty file —
+/// the original treats every missing key as its default too.
+fn read_ini() -> stars_ui::settings::Ini {
     ini_path()
         .and_then(|path| std::fs::read_to_string(path).ok())
-        .map(|text| stars_ui::recent::Recent::from_ini(&text))
+        .map(|text| stars_ui::settings::Ini::parse(&text))
         .unwrap_or_default()
 }
 
-/// Write it back. Failing costs nothing but the list.
-fn write_recent(recent: &stars_ui::recent::Recent) {
+/// Write it back, whole. Failing costs nothing but the settings.
+///
+/// Everything the file holds that this project has no use for is carried
+/// through by [`stars_ui::settings::Ini`], so a `stars.ini` the original
+/// wrote is not damaged by passing through here.
+fn write_ini(ini: &stars_ui::settings::Ini) {
     let Some(path) = ini_path() else { return };
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let _ = std::fs::write(path, recent.to_ini());
+    let _ = std::fs::write(path, ini.to_string());
 }
 
 /// Turn a game name into something safe to suggest as a file name.

@@ -57,29 +57,37 @@ fn the_captions_are_numbered_from_one() {
     assert_eq!(recent.caption(0).as_deref(), Some("&1 C:\\STARS\\GAME.M1"));
     assert_eq!(recent.caption(1), None);
 }
-
 /// The `[Files]` section round-trips, and reading it compacts the holes the
-/// way `ReadIniSettings` does.
+/// way `ReadIniSettings` does — and anything else in the file survives.
 #[test]
 fn the_files_section_round_trips_and_compacts() {
-    let text = "[Windows]\nMain=1,2,3,4\n\n[Files]\nFile1=first.m1\nFile3=third.m1\nFile4=x\n";
-    let recent = Recent::from_ini(text);
+    use stars_ui::settings::Ini;
+
+    let text =
+        "[Windows]\nMain=M0000000012800960\n\n[Files]\nFile1=first.m1\nFile3=third.m1\nFile4=x\n";
+    let mut ini = Ini::parse(text);
+    let recent = Recent::read_ini(&ini);
     assert_eq!(
         recent.paths(),
         ["first.m1", "third.m1"],
         "File2 missing does not hide File3, and File4 is too short to count"
     );
 
-    let written = recent.to_ini();
-    assert!(written.starts_with("[Files]\n"), "{written}");
+    recent.write_ini(&mut ini);
+    let written = ini.to_string();
     assert!(written.contains("File1=first.m1\n"), "{written}");
     assert!(
         written.contains("File2=third.m1\n"),
-        "compacted on the way out"
+        "compacted on the way out: {written}"
     );
-    assert_eq!(Recent::from_ini(&written), recent);
+    assert!(!written.contains("File3="), "and the old slot is gone");
+    assert!(
+        written.contains("Main=M0000000012800960"),
+        "what this project does not use is carried through: {written}"
+    );
+    assert_eq!(Recent::read_ini(&Ini::parse(&written)), recent);
 
     // No section at all is an empty list, not an error.
-    assert!(Recent::from_ini("[Misc]\nProgress=0\n").is_empty());
-    assert!(Recent::from_ini("").is_empty());
+    assert!(Recent::read_ini(&Ini::parse("[Misc]\nProgress=0\n")).is_empty());
+    assert!(Recent::read_ini(&Ini::parse("")).is_empty());
 }
