@@ -285,35 +285,83 @@ impl Art {
         size: (u32, u32),
         draw_at: egui::Vec2,
     ) -> Option<egui::Image<'_>> {
-        let key = (name.clone(), cell.0, cell.1, mask.0, mask.1, size.0, size.1);
+        self.sprite_masked_between(ctx, name, name, cell, mask, size, draw_at)
+    }
+
+    /// The same, where the mask lives in a **sheet of its own**.
+    ///
+    /// The message pane's decorations are stored that way: the colour strip
+    /// is bitmap 134 and the one-bit `SRCAND` mask bitmap 199, two
+    /// resources with their own packing, so the glyph offsets differ
+    /// between them.
+    #[allow(clippy::too_many_arguments)]
+    pub fn sprite_masked_between(
+        &mut self,
+        ctx: &egui::Context,
+        name: &Name,
+        mask_name: &Name,
+        cell: (u32, u32),
+        mask: (u32, u32),
+        size: (u32, u32),
+        draw_at: egui::Vec2,
+    ) -> Option<egui::Image<'_>> {
+        let key = (
+            name.clone(),
+            cell.0,
+            cell.1,
+            // Two sheets share one cache, so the mask's origin has to carry
+            // which sheet it came from.
+            mask.0 + u32::from(name != mask_name) * 0x1_0000,
+            mask.1,
+            size.0,
+            size.1,
+        );
         if !self.masked.contains_key(&key) {
-            let sheet = self.sheet(name)?;
+            // Both sheets are wanted at once and each borrows `self`, so the
+            // mask's rectangle is lifted out first.
             let (width, height) = (size.0 as usize, size.1 as usize);
+            let stencil: Vec<bool> = {
+                let sheet = self.sheet(mask_name)?;
+                let mut out = Vec::with_capacity(width * height);
+                for row in 0..height {
+                    for column in 0..width {
+                        let x = mask.0 as usize + column;
+                        let y = mask.1 as usize + row;
+                        let (w, h) = (sheet.width as usize, sheet.height as usize);
+                        // White in the mask is background; anything darker
+                        // is the glyph. Off the edge is background too.
+                        let clear = if x >= w || y >= h {
+                            true
+                        } else {
+                            let i = (y * w + x) * 4;
+                            sheet.pixels[i] > 0x7f
+                                && sheet.pixels[i + 1] > 0x7f
+                                && sheet.pixels[i + 2] > 0x7f
+                        };
+                        out.push(clear);
+                    }
+                }
+                out
+            };
+            let sheet = self.sheet(name)?;
             let mut pixels = Vec::with_capacity(width * height * 4);
             for row in 0..height {
                 for column in 0..width {
-                    let at = |x: u32, y: u32| -> Option<[u8; 4]> {
-                        let x = x as usize + column;
-                        let y = y as usize + row;
-                        let (sheet_w, sheet_h) = (sheet.width as usize, sheet.height as usize);
-                        if x >= sheet_w || y >= sheet_h {
-                            return None;
-                        }
-                        let i = (y * sheet_w + x) * 4;
-                        Some([
+                    let x = cell.0 as usize + column;
+                    let y = cell.1 as usize + row;
+                    let (w, h) = (sheet.width as usize, sheet.height as usize);
+                    let colour = if x >= w || y >= h {
+                        [0, 0, 0, 0]
+                    } else {
+                        let i = (y * w + x) * 4;
+                        [
                             sheet.pixels[i],
                             sheet.pixels[i + 1],
                             sheet.pixels[i + 2],
                             sheet.pixels[i + 3],
-                        ])
+                        ]
                     };
-                    let (Some(colour), Some(mask)) = (at(cell.0, cell.1), at(mask.0, mask.1))
-                    else {
-                        return None;
-                    };
-                    // White in the mask is background; anything darker is the
-                    // glyph.
-                    let clear = mask[0] > 0x7f && mask[1] > 0x7f && mask[2] > 0x7f;
+                    let clear = stencil[row * width + column];
                     pixels.extend_from_slice(&[
                         colour[0],
                         colour[1],
@@ -324,11 +372,13 @@ impl Art {
             }
             let image = egui::ColorImage::from_rgba_unmultiplied([width, height], &pixels);
             let handle = ctx.load_texture(
-                format!("stars-masked-{:?}-{}-{}", name, cell.0, cell.1),
+                format!("stars-masked2-{name:?}-{}-{}", cell.0, cell.1),
                 image,
                 egui::TextureOptions::NEAREST,
             );
             self.masked.insert(key.clone(), handle);
+            let handle = self.masked.get(&key)?;
+            return Some(egui::Image::new((handle.id(), draw_at)).fit_to_exact_size(draw_at));
         }
         let handle = self.masked.get(&key)?;
         Some(egui::Image::new((handle.id(), draw_at)).fit_to_exact_size(draw_at))

@@ -21,6 +21,44 @@
 
 use crate::App;
 
+/// One of the title bar's two controls: the game's own little bitmap when
+/// a copy of the game is there to read it from, and a short label when
+/// there is not.
+///
+/// `DecorateMsgTitleBar` (`1030:799c`) blits each as a pair — the one-bit
+/// mask with `SRCAND` and the colour with `SRCPAINT` — out of two strips
+/// packed separately, which is why the glyph carries a row in each.
+fn decoration(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    glyph: crate::message::Glyph,
+    label: &str,
+) -> egui::Response {
+    use stars_formats::resources::Name;
+
+    let Some(mask_y) = glyph.mask_y else {
+        return ui.small_button(label);
+    };
+    let size = egui::vec2(glyph.size.0 as f32, glyph.size.1 as f32);
+    let ctx = ui.ctx().clone();
+    let picture = app.art.as_mut().and_then(|art| {
+        art.sprite_masked_between(
+            &ctx,
+            &Name::Id(crate::message::COLOUR_SHEET),
+            &Name::Id(crate::message::MASK_SHEET),
+            (0, glyph.colour_y),
+            (0, mask_y),
+            glyph.size,
+            size,
+        )
+        .map(|image| image.sense(egui::Sense::click()))
+    });
+    match picture {
+        Some(image) => ui.add(image),
+        None => ui.small_button(label),
+    }
+}
+
 /// Draw the message pane.
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
     keys(app, ui);
@@ -42,7 +80,15 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                     } else {
                         ("filter", "stop showing messages like this one  (+)")
                     };
-                    if ui.small_button(label).on_hover_text(hint).clicked() {
+                    let glyph = if filtered_here {
+                        crate::message::FILTER_ON
+                    } else {
+                        crate::message::FILTER
+                    };
+                    if decoration(app, ui, glyph, label)
+                        .on_hover_text(hint)
+                        .clicked()
+                    {
                         app.toggle_message_filter();
                     }
                 }
@@ -53,8 +99,12 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                         } else {
                             "view filtered"
                         };
-                        if ui
-                            .small_button(label)
+                        let glyph = if app.view_filtered {
+                            crate::message::REVEAL_ON
+                        } else {
+                            crate::message::REVEAL
+                        };
+                        if decoration(app, ui, glyph, label)
                             .on_hover_text("show the messages you have filtered  (-)")
                             .clicked()
                         {

@@ -235,3 +235,44 @@ fn a_battle_message_opens_the_recording() {
     assert!(app.message_goto_follow());
     assert_eq!(app.vcr.as_ref().map(|v| v.id), Some(7));
 }
+
+/// The title bar's decorations come out of two bitmaps the game keeps
+/// separately — the colour strip and the one-bit `SRCAND` mask — and a
+/// glyph's row in one is not its row in the other.
+#[test]
+fn the_decorations_name_two_strips_and_two_rows() {
+    use stars_ui::message::{
+        Glyph, COLOUR_SHEET, FILTER, FILTER_ON, FROM_PLAYER, MASK_SHEET, REVEAL, REVEAL_ON,
+    };
+
+    assert_eq!((COLOUR_SHEET, MASK_SHEET), (134, 199));
+
+    // Every glyph with a mask names a different row in each strip, which is
+    // the thing that would go unnoticed if the two were assumed to match.
+    for glyph in [FILTER, FILTER_ON, REVEAL, REVEAL_ON] {
+        let mask = glyph.mask_y.expect("a masked glyph");
+        assert_ne!(mask, glyph.colour_y, "{glyph:?}");
+    }
+
+    // The filter square changes size as well as row when the kind is
+    // already silenced.
+    assert_eq!(FILTER.size, (15, 14));
+    assert_eq!(FILTER_ON.size, (14, 12));
+    assert_eq!(REVEAL.size, REVEAL_ON.size);
+
+    // And the one from another player is not masked at all: the original
+    // blacks a rectangle and copies over it.
+    assert_eq!(FROM_PLAYER.mask_y, None);
+    assert_eq!(FROM_PLAYER.size, (15, 9));
+
+    // Every glyph fits inside the strips it names — 16 by 66 and 15 by 84.
+    let fits = |g: Glyph| {
+        g.colour_y + g.size.1 <= 66
+            && g.size.0 <= 16
+            && g.mask_y
+                .is_none_or(|y| y + g.size.1 <= 84 && g.size.0 <= 15)
+    };
+    for glyph in [FILTER, FILTER_ON, REVEAL, REVEAL_ON, FROM_PLAYER] {
+        assert!(fits(glyph), "{glyph:?} runs off its strip");
+    }
+}

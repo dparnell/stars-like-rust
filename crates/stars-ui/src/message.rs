@@ -129,3 +129,64 @@ pub fn watermark_scale(size: egui::Vec2, text: egui::Vec2) -> f32 {
     );
     (room.x / wide).min(room.y / tall).max(0.0)
 }
+
+/// The two bitmaps the title bar's decorations come out of.
+///
+/// `FCreateStuff` (`1000:07ba`) loads them by number: the colour strip is
+/// `hbmpMsg`, bitmap **134**, and the one-bit `SRCAND` mask is `hbmpMono`,
+/// bitmap **199**. `DecorateMsgTitleBar` (`1030:799c`) blits the pair the
+/// usual way — the mask with `SRCAND`, the colour with `SRCPAINT` — so the
+/// glyph comes out transparent.
+///
+/// The two strips are packed **separately**: 16 by 66 and 15 by 84, and a
+/// glyph's row in one is not its row in the other.
+pub const COLOUR_SHEET: u16 = 134;
+/// The mask, bitmap 199.
+pub const MASK_SHEET: u16 = 199;
+
+/// One of the title bar's decorations: where it is in each strip, and how
+/// big it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Glyph {
+    /// Its top in the colour strip.
+    pub colour_y: u32,
+    /// Its top in the mask, or `None` for the one the original blits with
+    /// `SRCCOPY` over a black rectangle instead of masking.
+    pub mask_y: Option<u32>,
+    /// Width and height.
+    pub size: (u32, u32),
+}
+
+/// The left square, which silences the kind of message on screen. The
+/// original draws a different glyph — and a different size — depending on
+/// whether this kind is already silenced.
+pub const FILTER: Glyph = Glyph {
+    colour_y: 0,
+    mask_y: Some(0x1c),
+    size: (15, 14),
+};
+/// The same square once the kind is silenced.
+pub const FILTER_ON: Glyph = Glyph {
+    colour_y: 0x0e,
+    mask_y: Some(0x2a),
+    size: (14, 12),
+};
+/// The right square, which reveals what has been silenced.
+pub const REVEAL: Glyph = Glyph {
+    colour_y: 0x29,
+    mask_y: Some(0x45),
+    size: (15, 15),
+};
+/// The same square while the silenced ones are showing.
+pub const REVEAL_ON: Glyph = Glyph {
+    colour_y: 0x1a,
+    mask_y: Some(0x36),
+    size: (15, 15),
+};
+/// The mark on a message from another player, which is blitted straight
+/// over a black rectangle a pixel larger all round rather than masked.
+pub const FROM_PLAYER: Glyph = Glyph {
+    colour_y: 0x38,
+    mask_y: None,
+    size: (15, 9),
+};

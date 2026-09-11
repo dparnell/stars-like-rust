@@ -1,7 +1,7 @@
 # The message pane
 
-Status: **behaviour, hit-testing, Goto and the watermark recovered and
-reimplemented**; the title bar's bitmaps are not.
+Status: **recovered and reimplemented** — behaviour, hit-testing, Goto, the
+watermark, and the title bar's own bitmaps.
 
 The pane along the bottom-left of the main window is where a player reads the
 year's news. It shows **one message at a time** — not a list — and that shapes
@@ -165,8 +165,38 @@ carries — a `-6` message's first parameter is the `THING`'s own id, not an
 index — and a battle at a place opens the **VCR**, which this project now
 has.
 
-Not reproduced: the original's bitmaps (this has short labelled buttons in
-the same places), and writing messages to other players. One Goto target is
+### The title bar's bitmaps
+
+`FCreateStuff` (`1000:07ba`) loads two: the colour strip `hbmpMsg`, bitmap
+**134**, and the one-bit `SRCAND` mask `hbmpMono`, bitmap **199**.
+`DecorateMsgTitleBar` blits each decoration as the usual pair — the mask
+with `SRCAND`, then the colour with `SRCPAINT` — so the glyph comes out
+transparent over whatever the bar is painted in.
+
+The two strips are packed **separately**, 16 by 66 and 15 by 84, and a
+glyph's row in one is not its row in the other:
+
+| decoration | colour row | mask row | size |
+|------------|-----------|----------|------|
+| filter, this kind still shown | 0 | `0x1c` | 15 × 14 |
+| filter, this kind silenced | `0x0e` | `0x2a` | 14 × 12 |
+| reveal, filtered ones hidden | `0x29` | `0x45` | 15 × 15 |
+| reveal, filtered ones showing | `0x1a` | `0x36` | 15 × 15 |
+| from another player | `0x38` | — | 15 × 9 |
+
+Two things there are easy to get wrong. The filter square **changes size**
+as well as row when the kind is already silenced — 15 × 14 becomes
+14 × 12 — and the last one is **not masked at all**: the original blacks a
+17 × 11 rectangle with `PATBLT` and `SRCCOPY`s the glyph into the middle of
+it, so it is a picture on a black ground rather than a shape.
+
+This project draws the two controls from those bitmaps, read at run time
+out of the player's own copy of the game, and falls back to the short
+labels it used to have when there is no copy to read. The third is not
+drawn: nothing here sends a message to another player yet, so there is
+never one to mark.
+
+Not reproduced: writing messages to other players. One Goto target is
 left dead on purpose: the object words `-2`..`-5` and `-7`, and a component
 word, each name one of the game's own windows, and which window each stands
 for is not recovered. The button does nothing rather than guessing at one.
