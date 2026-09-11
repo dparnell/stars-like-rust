@@ -2,7 +2,7 @@
 
 Status: **in progress** — the columns, the sort, the grid, the per-column
 click routing and the three tutorial pages that watch the sort are done;
-five of the seven click pop-ups are not.
+four of the seven click pop-ups are not.
 
 Four windows share one piece of code: **Planets**, **Fleets**, **Others'
 Fleets** and **Battles**, listed together on the Report menu, all four
@@ -239,15 +239,34 @@ column's width, left to right, ironium first.
 ### What this project does with it
 
 All of the routing, and the actions it has: the selection, the production
-queue, waypoint 1, the VCR. Two of the seven pop-ups are raised — the fleet
-summary, and the component panel for the best defence, which this project
-already draws for the Technology Browser.
+queue, waypoint 1, the VCR. Three of the seven pop-ups are raised — the
+fleet summary, the component panel for the best defence (the panel the
+Technology Browser already draws), and the **mineral** pop-up, which the
+three mineral columns want and which `DrawPopup` builds inline rather than
+through a helper:
 
-The other five — `grPopupShdef` (a design, drawn as the designer draws it),
-`grPopupPlanet`, `grPopupPlanetIndustry`, `grPopupMineral` and
-`grPopupResources` — are not modelled yet, so those columns select and
-raise nothing. The click model names them all the same, so adding one is a
-matter of building the panel.
+```
+        Ironium
+   On Surface: 1234kT
+   Mineral Concentration: 45 (30)
+   Mining Rate: 12kT/yr
+```
+
+Each row reads `Unknown` instead of a figure when there is no figure — no
+surface total for a planet nobody has landed on, no concentration for one
+nobody has scanned — and the rate row is left out rather than filled in.
+The note after the concentration is a home world's: `(30)` while it is
+below thirty, because a home world mines as if it were thirty
+(`MANUAL.PDF` p. 6-5), and `(HW)` above.
+
+The remaining four are `grPopupShdef` (a design, drawn as the designer
+draws it), `grPopupPlanet`, `grPopupPlanetIndustry` and
+`grPopupResources`. The last three are **sentences** rather than tables —
+`PtDisplayPlanetPopInfo` and its two siblings stream a dozen string
+fragments together in alternating faces — so reproducing them means writing
+the prose again rather than transcribing it, and they are not done. The
+click model names all seven the same way, so adding one is a matter of
+building the panel.
 
 There is no cargo transfer dialog here: cargo moves through the fleet
 pane's tiles, so Fuel and Cargo select the fleet and stop there.
@@ -282,7 +301,7 @@ both of which need that player's ship designs. The original has the same
 problem and solves it with a table of designs the player has seen; this
 project does not keep one yet.
 
-Not done yet: five of the seven click pop-ups (above), and the Battles
+Not done yet: four of the seven click pop-ups (above), and the Battles
 report, which still shows this project's VCR screen rather than the table.
 
 ## What the tutorial asks of it

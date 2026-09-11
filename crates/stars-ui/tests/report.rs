@@ -650,3 +650,46 @@ fn the_defense_column_names_the_best_defence() {
     assert_eq!(category, stars_core::components::slot::PLANETARY);
     assert_eq!(item, 9, "SDI, with nothing better researched yet");
 }
+
+/// The mineral pop-up the three mineral columns raise: a figure a row, and
+/// `Unknown` where there is no figure.
+#[test]
+fn the_mineral_popup_says_what_is_known() {
+    use stars_ui::popup::{Popup, HOME_FLOOR, HOME_WORLD};
+
+    let app = a_game();
+    let game = app.game.as_ref().expect("a game");
+    let home = game
+        .planets
+        .iter()
+        .find(|p| p.homeworld && p.owner == Some(0))
+        .expect("a home world")
+        .id;
+
+    let Some(Popup::Mineral(summary)) = app.mineral_popup(home, 0) else {
+        panic!("a mineral pop-up");
+    };
+    assert_eq!(summary.mineral, 0);
+    assert!(summary.surface.is_some(), "we live there, so we know");
+    assert!(summary.rate.is_some(), "and we are mining it");
+    assert!(
+        summary.home_note == Some(HOME_FLOOR) || summary.home_note == Some(HOME_WORLD),
+        "a home world says which"
+    );
+
+    // Somewhere we have never been: no surface total and no rate.
+    let far = game
+        .planets
+        .iter()
+        .chain(game.known_planets.iter())
+        .find(|p| !p.detail.is_full())
+        .map(|p| p.id);
+    if let Some(far) = far {
+        let Some(Popup::Mineral(summary)) = app.mineral_popup(far, 2) else {
+            panic!("a mineral pop-up");
+        };
+        assert_eq!(summary.surface, None);
+        assert_eq!(summary.rate, None);
+        assert_eq!(summary.home_note, None);
+    }
+}

@@ -340,13 +340,15 @@ fn popup_for(app: &App, kind: PopupKind, id: Option<RowId>) -> Option<crate::pop
         PopupKind::Defense => app
             .best_defense_part()
             .map(|(category, item)| crate::popup::Popup::Component((category, item))),
-        // `grPopupShdef`, `grPopupPlanet`, `grPopupPlanetIndustry`,
-        // `grPopupMineral` and `grPopupResources` are not modelled yet. See
-        // `docs/ui/reports.md`.
+        PopupKind::Mineral(mineral) => match id {
+            Some(RowId::Planet(planet)) => app.mineral_popup(planet, mineral),
+            _ => None,
+        },
+        // `grPopupShdef`, `grPopupPlanet`, `grPopupPlanetIndustry` and
+        // `grPopupResources` are not modelled yet. See `docs/ui/reports.md`.
         PopupKind::Starbase
         | PopupKind::Population
         | PopupKind::Industry { .. }
-        | PopupKind::Mineral(_)
         | PopupKind::Resources => None,
     }
 }

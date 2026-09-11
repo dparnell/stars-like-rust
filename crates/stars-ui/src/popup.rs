@@ -84,7 +84,46 @@ pub enum Popup {
     /// `grPopupString`: a paragraph, word-wrapped to a width the caller
     /// passes. The research dialog's tech note is one.
     Note(String),
+    /// `grPopupMineral` (12): one mineral's three figures for a planet,
+    /// which the Minerals, Mining Rate and Min Conc columns of the planets
+    /// report raise, and the mineral gauges in the planet pane.
+    ///
+    /// `DrawPopup` draws this one inline rather than through a `PtDisplay`
+    /// helper, which is why it is a table and not a sentence.
+    Mineral(MineralSummary),
 }
+
+/// What the mineral pop-up says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MineralSummary {
+    /// Which of the three, which titles the window.
+    pub mineral: usize,
+    /// kT on the surface, or `None` — the original prints `Unknown` when
+    /// the figure is negative, which is a planet nobody has landed on.
+    pub surface: Option<i64>,
+    /// Concentration, or `None` for unknown.
+    pub concentration: Option<i64>,
+    /// The note the original puts after the concentration on a home world:
+    /// [`HOME_FLOOR`] while it is below thirty, [`HOME_WORLD`] above.
+    pub home_note: Option<&'static str>,
+    /// kT a year, when the rate is known.
+    pub rate: Option<i64>,
+}
+
+/// The mineral pop-up's three labels: `idsSurface` (`0x265`),
+/// `idsMineralConcentration` (`0x264`) and `idsMiningRate` (`0x266`),
+/// trailing spaces and all.
+pub const MINERAL_LABELS: [&str; 3] = ["On Surface: ", "Mineral Concentration: ", "Mining Rate: "];
+
+/// `idsUnknown2` (`0x254`), which stands in for a figure nobody has.
+pub const UNKNOWN: &str = "Unknown";
+
+/// `idsN30` (`0x51f`): a home world below thirty still mines as if it were
+/// thirty (`MANUAL.PDF` p. 6-5).
+pub const HOME_FLOOR: &str = " (30)";
+
+/// `idsHw` (`0x51e`).
+pub const HOME_WORLD: &str = " (HW)";
 
 /// How big the component pop-up is (`Popup`, `10c0:0c7c`).
 ///

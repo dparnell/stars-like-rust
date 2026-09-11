@@ -77,6 +77,18 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             let galley = ui.fonts(|f| f.layout(note.clone(), font.clone(), text, NOTE_WIDTH));
             galley.rect.size() + egui::vec2(margin * 2.0, margin * 2.0)
         }
+        // Three labelled rows under a centred title, with the label column
+        // as wide as the longest label and four pixels of gap.
+        Popup::Mineral(_) => {
+            let labels = popup::MINERAL_LABELS
+                .iter()
+                .map(|label| width(label))
+                .fold(0.0_f32, f32::max);
+            egui::vec2(
+                labels + popup::LABEL_GAP + width("00,000kT/yr"),
+                line * 4.0 + margin * 2.0,
+            )
+        }
         Popup::Fleet(fleet) => {
             let names = fleet
                 .rows
@@ -151,6 +163,45 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 font.clone(),
                 text,
             );
+        }
+        Popup::Mineral(summary) => {
+            let labels = popup::MINERAL_LABELS
+                .iter()
+                .map(|label| width(label))
+                .fold(0.0_f32, f32::max);
+            let column = rect.left() + labels + popup::LABEL_GAP;
+            put(
+                egui::pos2(rect.center().x, rect.top() + margin),
+                egui::Align2::CENTER_TOP,
+                crate::report::MINERAL_NAMES
+                    .get(summary.mineral)
+                    .unwrap_or(&""),
+                text,
+            );
+            let rows = [
+                summary
+                    .surface
+                    .map(|kt| format!("{kt}kT"))
+                    .unwrap_or_else(|| popup::UNKNOWN.to_string()),
+                summary.concentration.map_or_else(
+                    || popup::UNKNOWN.to_string(),
+                    |conc| format!("{conc}{}", summary.home_note.unwrap_or("")),
+                ),
+                // The rate row is drawn only when there is one.
+                summary
+                    .rate
+                    .map(|kt| format!("{kt}kT/yr"))
+                    .unwrap_or_default(),
+            ];
+            for (row, (label, value)) in popup::MINERAL_LABELS.iter().zip(&rows).enumerate() {
+                if value.is_empty() {
+                    continue;
+                }
+                #[allow(clippy::cast_precision_loss)]
+                let y = rect.top() + margin + (row + 1) as f32 * line;
+                put(egui::pos2(column, y), egui::Align2::RIGHT_TOP, label, text);
+                put(egui::pos2(column, y), egui::Align2::LEFT_TOP, value, text);
+            }
         }
     }
 }

@@ -7498,6 +7498,47 @@ impl App {
         self.browser = None;
     }
 
+    /// What the mineral pop-up says about one of a planet's three.
+    ///
+    /// `DrawPopup`'s `grPopupMineral` arm: the mineral's name over three
+    /// rows, each of which reads `Unknown` rather than a figure when the
+    /// figure is not known — a planet nobody has landed on has no surface
+    /// total, and one nobody has scanned has no concentration. The rate is
+    /// left out altogether unless it can be worked out.
+    #[must_use]
+    pub fn mineral_popup(&self, planet: i16, mineral: usize) -> Option<Popup> {
+        /// A home world mines as if its concentration were at least this.
+        const HOME_FLOOR: i64 = 30;
+        let game = self.game.as_ref()?;
+        let found = game
+            .planets
+            .iter()
+            .chain(game.known_planets.iter())
+            .find(|p| p.id == planet)?;
+        let race = game.players.get(self.local_player()).map(|p| &p.race);
+        let concentration = i64::from(*found.min_conc.get(mineral)?);
+        Some(Popup::Mineral(crate::popup::MineralSummary {
+            mineral,
+            surface: found
+                .detail
+                .is_full()
+                .then(|| found.surface_min.get(mineral).map(|m| i64::from(*m)))
+                .flatten(),
+            concentration: (concentration > 0).then_some(concentration),
+            home_note: found.homeworld.then_some(if concentration < HOME_FLOOR {
+                crate::popup::HOME_FLOOR
+            } else {
+                crate::popup::HOME_WORLD
+            }),
+            rate: match (found.detail.is_full(), race) {
+                (true, Some(race)) => stars_core::mining::minerals_mined(found, race, None, None)
+                    .get(mineral)
+                    .map(|m| i64::from(*m)),
+                _ => None,
+            },
+        }))
+    }
+
     /// The best planetary defence this race can build.
     ///
     /// `FGetBestDefensePart` walks the planetary table from item 9 — SDI,
