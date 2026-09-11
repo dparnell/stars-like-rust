@@ -84,6 +84,19 @@ pub enum Popup {
     /// `grPopupString`: a paragraph, word-wrapped to a width the caller
     /// passes. The research dialog's tech note is one.
     Note(String),
+    /// `grPopupPlanetIndustry` (`PtDisplayFactoryMineInfo`, `10c0:31a0`):
+    /// how many mines or factories a planet has, could hold, and can staff.
+    Industry(IndustrySummary),
+    /// `grPopupResources` (`PtDisplayResourceInfo`): what a planet makes in
+    /// a year and where it goes.
+    Resources(ResourceSummary),
+    /// `grPopupShdef` (`10`): a ship or starbase design, drawn with the
+    /// designer's own panel — `DrawSlotDlg` and `DrawBuildSelHull`, the two
+    /// the dialog itself draws — with the design's name over the top.
+    Design(stars_core::design::ShipDesign),
+    /// `grPopupPlanet` (`PtDisplayPlanetPopInfo`): who lives on a planet,
+    /// what it can hold, and what it will do to them.
+    Population(PopulationSummary),
     /// `grPopupMineral` (12): one mineral's three figures for a planet,
     /// which the Minerals, Mining Rate and Min Conc columns of the planets
     /// report raise, and the mineral gauges in the planet pane.
@@ -91,6 +104,209 @@ pub enum Popup {
     /// `DrawPopup` draws this one inline rather than through a `PtDisplay`
     /// helper, which is why it is a table and not a sentence.
     Mineral(MineralSummary),
+}
+
+/// What the industry pop-up says.
+///
+/// The original writes it as one sentence assembled from five fragments
+/// (`idsHave` and the four after it) with the figures dropped in between.
+/// This keeps the figures and says the same thing in its own words, which
+/// is what this project does with the game's prose.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndustrySummary {
+    /// Whose planet it is about.
+    pub planet: String,
+    /// `true` for the Fact column, `false` for Mine.
+    pub factories: bool,
+    /// How many are built.
+    pub built: i64,
+    /// How many the planet could hold (`CMaxMines` / `CMaxFactories`).
+    pub most: i64,
+    /// How many the colonists there can staff.
+    pub operable: i64,
+    /// An Alternate Reality race builds neither, and the panel says so
+    /// instead of giving figures.
+    pub innate: bool,
+}
+
+impl IndustrySummary {
+    /// The heading, `idsSInfo` (`0x552`) — `Mine Info` or `Factory Info`.
+    #[must_use]
+    pub fn heading(&self) -> String {
+        format!("{} Info", if self.factories { "Factory" } else { "Mine" })
+    }
+
+    /// The noun, singular or plural as the count needs — the original picks
+    /// between `Mine`/`Mines` and `Factory`/`Factories` on `!= 1`.
+    #[must_use]
+    pub fn noun(&self, count: i64) -> &'static str {
+        match (self.factories, count == 1) {
+            (true, true) => "factory",
+            (true, false) => "factories",
+            (false, true) => "mine",
+            (false, false) => "mines",
+        }
+    }
+
+    /// What it reads.
+    #[must_use]
+    pub fn text(&self) -> String {
+        if self.innate {
+            return if self.factories {
+                "This race builds no factories.".to_string()
+            } else {
+                "This race builds no mines. Its colonists mine on their own,                  at a tenth of the square root of the population at the                  starbase."
+                    .to_string()
+            };
+        }
+        format!(
+            "{} has {} {}. There is room for {}, and the colonists there can              staff {}.",
+            self.planet,
+            self.built,
+            self.noun(self.built),
+            self.most,
+            self.operable,
+        )
+    }
+}
+
+/// What the resources pop-up says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResourceSummary {
+    /// The planet.
+    pub planet: String,
+    /// Resources a year (`CResourcesAtPlanet`).
+    pub total: i64,
+    /// What goes to research.
+    pub research: i64,
+    /// What is left for the planet. `None` when nothing goes to research:
+    /// the original stops the sentence there rather than saying so twice.
+    pub spare: Option<i64>,
+    /// An Alternate Reality race's resources are the square root of the
+    /// population, and the panel adds a line saying so.
+    pub innate: bool,
+}
+
+impl ResourceSummary {
+    /// The heading, `idsResourceInfo` (`0x233`).
+    #[must_use]
+    pub fn heading(&self) -> &'static str {
+        "Resource Info"
+    }
+
+    /// What it reads.
+    #[must_use]
+    pub fn text(&self) -> String {
+        let mut out = format!("{} makes {} resources a year.", self.planet, self.total);
+        match self.spare {
+            Some(spare) => out.push_str(&format!(
+                " {} of them go to research, leaving {} for the planet.",
+                self.research, spare
+            )),
+            None => out.push_str(" None of them go to research."),
+        }
+        if self.innate {
+            out.push_str(" This race's resources are the square root of its population.");
+        }
+        out
+    }
+}
+
+/// Who lives on a planet, as the population pop-up puts it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Inhabited {
+    /// Ours, with the colonists on it.
+    Ours(i64),
+    /// Somebody else's. The figure is a guess, and `None` when the planet
+    /// has not been looked at closely enough to make one.
+    Enemy(Option<i64>),
+    /// Nobody's.
+    Nobody,
+}
+
+/// What the population pop-up says.
+///
+/// The original builds three sentences out of a dozen fragments in
+/// alternating faces, choosing between them on who owns the planet, whether
+/// it is worth anything, and whether there is room to grow. The choices are
+/// kept; the wording is this project's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PopulationSummary {
+    /// The planet.
+    pub planet: String,
+    /// Who is on it.
+    pub who: Inhabited,
+    /// What it is worth to this race, in **tenths** of a percent, which is
+    /// how the original prints the hostile case (`%d.%d%%`). `None` when
+    /// the planet has not been scanned.
+    pub value: Option<i16>,
+    /// The most this race could ever put there, in colonists.
+    pub capacity: Option<i64>,
+    /// Next year's growth and the total it reaches, in colonists. Only ours
+    /// and only with room to grow.
+    pub growth: Option<(i64, i64)>,
+    /// Another player's defence coverage as a percentage, or `None` for a
+    /// planet with none. Meaningless unless [`Inhabited::Enemy`].
+    pub defenses: Option<i64>,
+}
+
+impl PopulationSummary {
+    /// What it reads.
+    #[must_use]
+    pub fn text(&self) -> String {
+        let mut out = match &self.who {
+            Inhabited::Ours(pop) => format!("You have {pop} colonists on {}.", self.planet),
+            Inhabited::Nobody => format!("{} is uninhabited.", self.planet),
+            Inhabited::Enemy(None) => {
+                format!(
+                    "Somebody else holds {}; how many, nobody knows.",
+                    self.planet
+                )
+            }
+            Inhabited::Enemy(Some(pop)) => {
+                format!(
+                    "Somebody else holds {}, with roughly {pop} colonists.",
+                    self.planet
+                )
+            }
+        };
+        let ours = matches!(self.who, Inhabited::Ours(_));
+        if let Some(value) = self.value {
+            if value < 0 {
+                let hostile = -i32::from(value);
+                out.push_str(&format!(
+                    " It kills about {}.{}% of {} every year.",
+                    hostile / 10,
+                    hostile % 10,
+                    if ours {
+                        "the colonists there"
+                    } else {
+                        "any colonists landed on it"
+                    }
+                ));
+            } else if let Some(capacity) = self.capacity.filter(|c| *c > 0) {
+                out.push_str(&if ours {
+                    format!(" It will hold up to {capacity} of your colonists.")
+                } else {
+                    format!(" Colonised, it would hold up to {capacity} of your colonists.")
+                });
+            }
+        }
+        match (&self.who, self.growth) {
+            (Inhabited::Ours(_), Some((0, _))) => {
+                out.push_str(" It will not grow next year.");
+            }
+            (Inhabited::Ours(_), Some((by, to))) => {
+                out.push_str(&format!(" Next year it grows by {by}, to {to}."));
+            }
+            (Inhabited::Enemy(_), _) => out.push_str(&match self.defenses {
+                Some(pct) => format!(" Its defences cover about {pct}%."),
+                None => " It appears to have no defences.".to_string(),
+            }),
+            _ => {}
+        }
+        out
+    }
 }
 
 /// What the mineral pop-up says.

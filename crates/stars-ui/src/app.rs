@@ -429,6 +429,15 @@ pub struct App {
     /// Which report **F3** comes back to: the one last open, and the planets
     /// until one has been.
     pub last_report: Screen,
+    /// A design the **pop-up** is showing, which is not the designer being
+    /// open on it.
+    ///
+    /// `grPopupShdef` draws the designer's own panel — `DrawSlotDlg` and
+    /// `DrawBuildSelHull`, the same two the dialog draws — over whatever
+    /// raised it, read-only. Setting this makes every `designer_*` accessor
+    /// answer about that design instead, which is how the panel gets drawn
+    /// without opening the dialog.
+    pub designer_peek: Option<ShipDesign>,
     /// The four report windows' state — which column each sorts on, which
     /// columns it shows, and which is open. See [`crate::report`].
     pub reports: crate::report::Reports,
@@ -5513,7 +5522,10 @@ impl App {
     fn designer_builder(&self) -> Option<stars_core::parts::Builder<'_>> {
         let game = self.game.as_ref()?;
         let player = game.players.get(self.local_player())?;
-        let starbase = self.designer.as_ref().is_some_and(|d| d.starbase);
+        let starbase = self.designer_peek.as_ref().map_or_else(
+            || self.designer.as_ref().is_some_and(|d| d.starbase),
+            |design| design.hull_id >= 32,
+        );
         Some(stars_core::parts::Builder::player(player).designing_starbase(starbase))
     }
 
@@ -5653,6 +5665,11 @@ impl App {
     /// dropdown has selected.
     #[must_use]
     pub fn designer_subject(&self) -> Option<ShipDesign> {
+        // A pop-up showing a design wins: it is drawn with the designer's
+        // own panel while the dialog itself is shut.
+        if let Some(peek) = &self.designer_peek {
+            return Some(peek.clone());
+        }
         let designer = self.designer.as_ref()?;
         if let Some(editing) = &designer.editing {
             return Some(editing.design.clone());
@@ -7496,6 +7513,147 @@ impl App {
     /// Close it.
     pub fn close_browser(&mut self) {
         self.browser = None;
+    }
+
+    /// The design a planet's starbase is, for the pop-up that draws it.
+    #[must_use]
+    pub fn starbase_popup(&self, planet: i16) -> Option<Popup> {
+        let game = self.game.as_ref()?;
+        let found = game.planets.iter().find(|p| p.id == planet)?;
+        let design = game
+            .designs
+            .get(self.local_player())?
+            .get(starbase_slot(found.starbase_design?))?;
+        (design.hull_id >= 0).then(|| Popup::Design(design.clone()))
+    }
+
+    /// What the population pop-up says about a planet.
+    ///
+    /// `PtDisplayPlanetPopInfo` chooses between three openings on who owns
+    /// it, then between three middles on whether the planet is hostile, ours
+    /// with room, or worth colonising, and closes either with next year's
+    /// growth or with what defences another player has there.
+    #[must_use]
+    pub fn population_popup(&self, planet: i16) -> Option<Popup> {
+        use crate::popup::{Inhabited, PopulationSummary};
+
+        let game = self.game.as_ref()?;
+        let found = game
+            .planets
+            .iter()
+            .chain(game.known_planets.iter())
+            .find(|p| p.id == planet)?;
+        let me = i16::try_from(self.local_player()).ok();
+        let race = game.players.get(self.local_player()).map(|p| &p.race);
+        let scanned = found.detail != stars_core::planet::Detail::Minimal;
+
+        let who = match found.owner {
+            None => Inhabited::Nobody,
+            owner if owner == me => Inhabited::Ours(i64::from(found.pop) * 100),
+            _ => Inhabited::Enemy(found.detail.is_full().then(|| i64::from(found.pop) * 100)),
+        };
+        let capacity = race
+            .and_then(|race| stars_core::hab::calc_planet_max_pop(found, race))
+            .map(|max| i64::from(max) * 100);
+        let value = scanned
+            .then(|| race.map(|race| stars_core::hab::pct_planet_desirability(found, race)))
+            .flatten();
+        // `ChgPopFromPlanet`, and only when the planet is ours, is worth
+        // something, and has somewhere to grow into.
+        let growth = match (&who, value, capacity, race) {
+            (Inhabited::Ours(pop), Some(value), Some(capacity), Some(race))
+                if value >= 0 && *pop < capacity =>
+            {
+                stars_core::population::chg_pop_from_planet(found, race).map(|change| {
+                    (
+                        i64::from(change.delta) * 100,
+                        pop + i64::from(change.delta) * 100,
+                    )
+                })
+            }
+            _ => None,
+        };
+        let defenses = match (&who, race) {
+            (Inhabited::Enemy(_), Some(race)) if found.defenses > 0 => {
+                let levels = game
+                    .players
+                    .get(self.local_player())
+                    .map_or([0; 6], |p| p.research.levels);
+                let (survive, _) = stars_core::bombing::pct_survive(found, race, levels);
+                #[expect(clippy::cast_possible_truncation, reason = "a percentage")]
+                let pct = ((1.0 - survive) * 100.0).round() as i64;
+                Some(pct)
+            }
+            _ => None,
+        };
+
+        Some(Popup::Population(PopulationSummary {
+            planet: found.name.unwrap_or("").to_string(),
+            who,
+            value,
+            capacity,
+            growth,
+            defenses,
+        }))
+    }
+
+    /// What the industry pop-up says about a planet's mines or factories.
+    ///
+    /// `ExecuteReportClick` fills it from `CMaxMines`/`CMaxFactories` and
+    /// their operable counterparts, which is the same pair the Mine and Fact
+    /// cells colour themselves against.
+    #[must_use]
+    pub fn industry_popup(&self, planet: i16, factories: bool) -> Option<Popup> {
+        let game = self.game.as_ref()?;
+        let found = game.planets.iter().find(|p| p.id == planet)?;
+        let race = &game.players.get(self.local_player())?.race;
+        let (built, most, operable) = if factories {
+            (
+                found.factories,
+                stars_core::resources::max_factories(found, race),
+                stars_core::resources::max_operable_factories(found, race, false),
+            )
+        } else {
+            (
+                found.mines,
+                stars_core::resources::max_mines(found, race),
+                stars_core::resources::max_operable_mines(found, race, false),
+            )
+        };
+        Some(Popup::Industry(crate::popup::IndustrySummary {
+            planet: found.name.unwrap_or("").to_string(),
+            factories,
+            built: i64::from(built),
+            most: i64::from(most),
+            operable: i64::from(operable),
+            innate: race.is_ar(),
+        }))
+    }
+
+    /// What the resources pop-up says about a planet.
+    #[must_use]
+    pub fn resources_popup(&self, planet: i16) -> Option<Popup> {
+        let game = self.game.as_ref()?;
+        let found = game.planets.iter().find(|p| p.id == planet)?;
+        let player = game.players.get(self.local_player())?;
+        let total = i64::from(
+            stars_core::resources::resources_at_planet(
+                found,
+                &player.race,
+                i16::from(player.research.levels[0]),
+            )
+            .unwrap_or(0),
+        );
+        let research = total * i64::from(player.research_pct) / 100;
+        Some(Popup::Resources(crate::popup::ResourceSummary {
+            planet: found.name.unwrap_or("").to_string(),
+            total,
+            research,
+            // The original stops the sentence rather than saying "None …
+            // leaves all of it".
+            spare: (research > 0).then_some(total - research),
+            innate: player.race.is_ar(),
+        }))
     }
 
     /// What the mineral pop-up says about one of a planet's three.

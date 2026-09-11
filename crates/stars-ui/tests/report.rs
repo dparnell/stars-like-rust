@@ -795,3 +795,199 @@ fn a_battle_row_selects_before_it_plays() {
     app.open_battle(0);
     assert!(app.vcr.is_some());
 }
+
+/// The industry pop-up: what is built, what fits, and what can be staffed.
+#[test]
+fn the_industry_popup_counts_three_ways() {
+    use stars_ui::popup::Popup;
+
+    let app = a_game();
+    let home = app
+        .game
+        .as_ref()
+        .expect("a game")
+        .planets
+        .iter()
+        .find(|p| p.homeworld && p.owner == Some(0))
+        .expect("a home world")
+        .id;
+
+    let Some(Popup::Industry(mines)) = app.industry_popup(home, false) else {
+        panic!("a mine pop-up");
+    };
+    assert_eq!(mines.heading(), "Mine Info");
+    assert!(mines.built > 0, "a home world starts with mines");
+    assert!(mines.most >= mines.built, "room for what is there");
+    assert!(!mines.innate, "a Humanoid builds its own");
+    let text = mines.text();
+    assert!(text.contains(&mines.built.to_string()), "{text}");
+    assert!(text.contains(&mines.most.to_string()), "{text}");
+    assert!(text.contains("mines"), "{text}");
+
+    let Some(Popup::Industry(factories)) = app.industry_popup(home, true) else {
+        panic!("a factory pop-up");
+    };
+    assert_eq!(factories.heading(), "Factory Info");
+    assert!(
+        factories.text().contains("factories"),
+        "{}",
+        factories.text()
+    );
+
+    // One of a thing is singular, whichever thing it is.
+    let one = stars_ui::popup::IndustrySummary {
+        planet: "Stove Top".to_string(),
+        factories: true,
+        built: 1,
+        most: 1,
+        operable: 1,
+        innate: false,
+    };
+    assert_eq!(one.noun(1), "factory");
+    assert_eq!(one.noun(2), "factories");
+    assert_eq!(one.noun(0), "factories");
+}
+
+/// The resources pop-up splits the year's resources between research and
+/// the planet — and says nothing about a split when there is none.
+#[test]
+fn the_resources_popup_splits_the_year() {
+    use stars_ui::popup::{Popup, ResourceSummary};
+
+    let app = a_game();
+    let home = app
+        .game
+        .as_ref()
+        .expect("a game")
+        .planets
+        .iter()
+        .find(|p| p.homeworld && p.owner == Some(0))
+        .expect("a home world")
+        .id;
+    let Some(Popup::Resources(summary)) = app.resources_popup(home) else {
+        panic!("a resources pop-up");
+    };
+    assert_eq!(summary.heading(), "Resource Info");
+    assert!(summary.total > 0);
+    if let Some(spare) = summary.spare {
+        assert_eq!(
+            spare + summary.research,
+            summary.total,
+            "it all goes somewhere"
+        );
+    }
+
+    // Nothing to research: the sentence stops, as the original's does.
+    let none = ResourceSummary {
+        planet: "Stove Top".to_string(),
+        total: 100,
+        research: 0,
+        spare: None,
+        innate: false,
+    };
+    let text = none.text();
+    assert!(text.contains("100 resources a year"), "{text}");
+    assert!(!text.contains("leaving"), "{text}");
+}
+
+/// The population pop-up: who is there, what the planet will hold, and what
+/// happens next year.
+#[test]
+fn the_population_popup_says_who_is_there_and_what_follows() {
+    use stars_ui::popup::{Inhabited, PopulationSummary, Popup};
+
+    let app = a_game();
+    let home = app
+        .game
+        .as_ref()
+        .expect("a game")
+        .planets
+        .iter()
+        .find(|p| p.homeworld && p.owner == Some(0))
+        .expect("a home world")
+        .id;
+    let Some(Popup::Population(summary)) = app.population_popup(home) else {
+        panic!("a population pop-up");
+    };
+    assert!(matches!(summary.who, Inhabited::Ours(pop) if pop > 0));
+    assert!(
+        summary.capacity.is_some_and(|c| c > 0),
+        "a home world holds people"
+    );
+    assert!(summary.value.is_some_and(|v| v > 0), "and is worth having");
+    let text = summary.text();
+    assert!(text.contains("colonists on"), "{text}");
+
+    // A hostile world kills rather than holds, and says so in tenths.
+    let hostile = PopulationSummary {
+        planet: "Wallaby".to_string(),
+        who: Inhabited::Ours(2_500),
+        value: Some(-13),
+        capacity: Some(0),
+        growth: None,
+        defenses: None,
+    };
+    let text = hostile.text();
+    assert!(text.contains("1.3%"), "{text}");
+    assert!(text.contains("kills"), "{text}");
+
+    // Nobody's, and worth colonising.
+    let empty = PopulationSummary {
+        planet: "Oxygen".to_string(),
+        who: Inhabited::Nobody,
+        value: Some(40),
+        capacity: Some(12_300),
+        growth: None,
+        defenses: None,
+    };
+    let text = empty.text();
+    assert!(text.contains("uninhabited"), "{text}");
+    assert!(text.contains("12300"), "{text}");
+
+    // Somebody else's, with defences.
+    let theirs = PopulationSummary {
+        planet: "Sea Squared".to_string(),
+        who: Inhabited::Enemy(None),
+        value: None,
+        capacity: None,
+        growth: None,
+        defenses: Some(30),
+    };
+    let text = theirs.text();
+    assert!(text.contains("nobody knows"), "{text}");
+    assert!(text.contains("30%"), "{text}");
+}
+
+/// The starbase pop-up carries the design itself, which is drawn with the
+/// designer's own panel — and asking for it does not open the designer.
+#[test]
+fn the_starbase_popup_carries_the_design() {
+    use stars_ui::popup::Popup;
+
+    let mut app = a_game();
+    let home = app
+        .game
+        .as_ref()
+        .expect("a game")
+        .planets
+        .iter()
+        .find(|p| p.homeworld && p.owner == Some(0))
+        .expect("a home world")
+        .id;
+
+    let Some(Popup::Design(design)) = app.starbase_popup(home) else {
+        panic!("a design pop-up");
+    };
+    assert!(design.hull_id >= 32, "a starbase hull, not a ship's");
+    assert!(!design.name.is_empty());
+    assert!(app.designer.is_none(), "the dialog stays shut");
+
+    // While a design is being peeked at, the designer's accessors answer
+    // about it — that is how the panel is drawn without opening the dialog.
+    assert_eq!(app.designer_subject(), None);
+    app.designer_peek = Some(design.clone());
+    assert_eq!(app.designer_subject().map(|d| d.name), Some(design.name));
+    assert!(!app.designer_schematic().is_empty(), "it has slots to draw");
+    app.designer_peek = None;
+    assert_eq!(app.designer_subject(), None);
+}

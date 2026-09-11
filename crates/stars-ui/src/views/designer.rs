@@ -483,7 +483,32 @@ fn picture(app: &mut App, ui: &mut egui::Ui, editing: bool) {
 }
 
 /// The hull schematic. Returns the slot a drag was dropped on, if any.
-fn schematic(app: &mut App, ui: &mut egui::Ui, editing: bool) -> Option<usize> {
+/// How big the schematic grid is, for a caller that has to size itself
+/// before it draws — the design pop-up, which is the designer's own panel
+/// over whatever raised it.
+pub(crate) fn schematic_size(app: &App) -> egui::Vec2 {
+    let slots = app.designer_schematic();
+    let Some(design) = app.designer_subject() else {
+        return egui::Vec2::ZERO;
+    };
+    let Some(hull) = App::designer_hull(&design) else {
+        return egui::Vec2::ZERO;
+    };
+    let mut cols = 0;
+    let mut rows = 0;
+    for s in &slots {
+        cols = cols.max(s.cell.0 + 2);
+        rows = rows.max(s.cell.1 + 2);
+    }
+    if let Some((_, (right, bottom))) = hull.cargo_cells() {
+        cols = cols.max(right);
+        rows = rows.max(bottom);
+    }
+    #[allow(clippy::cast_precision_loss)]
+    egui::vec2(cols as f32 * CELL, rows as f32 * CELL)
+}
+
+pub(crate) fn schematic(app: &mut App, ui: &mut egui::Ui, editing: bool) -> Option<usize> {
     let slots = app.designer_schematic();
     let design = app.designer_subject()?;
     let hull = App::designer_hull(&design)?;
@@ -676,7 +701,7 @@ fn shorten(text: &str) -> String {
 
 // --- the numbers ---------------------------------------------------------
 
-fn stats(app: &mut App, ui: &mut egui::Ui) {
+pub(crate) fn stats(app: &mut App, ui: &mut egui::Ui) {
     let Some(design) = app.designer_subject() else {
         return;
     };

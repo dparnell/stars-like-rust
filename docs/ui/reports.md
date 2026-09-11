@@ -1,8 +1,8 @@
 # The report windows
 
-Status: **in progress** — the columns, the sort, the grid, the per-column
-click routing, all four tables and the three tutorial pages that watch the
-sort are done; four of the seven click pop-ups are not.
+Status: **verified** — the columns, the sort, the grid, the per-column
+click routing, all seven of its pop-ups, all four tables and the three
+tutorial pages that watch the sort are done.
 
 Four windows share one piece of code: **Planets**, **Fleets**, **Others'
 Fleets** and **Battles**, listed together on the Report menu, all four
@@ -239,11 +239,12 @@ column's width, left to right, ironium first.
 ### What this project does with it
 
 All of the routing, and the actions it has: the selection, the production
-queue, waypoint 1, the VCR. Three of the seven pop-ups are raised — the
-fleet summary, the component panel for the best defence (the panel the
-Technology Browser already draws), and the **mineral** pop-up, which the
-three mineral columns want and which `DrawPopup` builds inline rather than
-through a helper:
+queue, waypoint 1, the VCR. **All seven pop-ups** are raised.
+
+Three come from panels this project already had or could build straight
+out: the fleet summary, the component panel for the best defence (the
+Technology Browser's own), and the **mineral** pop-up, which `DrawPopup`
+builds inline rather than through a helper:
 
 ```
         Ironium
@@ -259,14 +260,37 @@ The note after the concentration is a home world's: `(30)` while it is
 below thirty, because a home world mines as if it were thirty
 (`MANUAL.PDF` p. 6-5), and `(HW)` above.
 
-The remaining four are `grPopupShdef` (a design, drawn as the designer
-draws it), `grPopupPlanet`, `grPopupPlanetIndustry` and
-`grPopupResources`. The last three are **sentences** rather than tables —
-`PtDisplayPlanetPopInfo` and its two siblings stream a dozen string
-fragments together in alternating faces — so reproducing them means writing
-the prose again rather than transcribing it, and they are not done. The
-click model names all seven the same way, so adding one is a matter of
-building the panel.
+Three more are **sentences** rather than tables. `PtDisplayFactoryMineInfo`,
+`PtDisplayResourceInfo` and `PtDisplayPlanetPopInfo` each stream a dozen
+string fragments together in alternating faces, picking between them on
+who owns the planet, whether it is worth anything, and whether there is
+room to grow. The *choices* are the specification and are reproduced; the
+*wording* is this project's own, because the game's prose is the game's.
+So, for instance, where the original writes
+
+> You have 12 mines on Stove Top.  You may build up to 25; however, your
+> colonists are currently capable of operating only 20 of them.
+
+this says the same three figures in its own sentence. Each panel keeps its
+structure as data — `IndustrySummary`, `ResourceSummary`,
+`PopulationSummary` — so what is asserted in tests is the facts, not the
+phrasing. Two details of the originals are easy to miss and are kept: the
+resources sentence **stops early** when nothing is allocated to research,
+rather than saying so twice, and a hostile world's kill rate is printed in
+**tenths** of a percent.
+
+The seventh, `grPopupShdef`, is a design drawn with the designer's own
+panel — `DrawSlotDlg` and `DrawBuildSelHull`, the two the dialog itself
+draws. Rather than a second copy of that drawing, `App::designer_peek`
+holds the design the pop-up is showing and every `designer_*` accessor
+answers about it, so the panel is drawn by the designer's code with the
+dialog shut. The original sizes that window from a formula
+(`dyArial8 * 7 + 0x13a` tall); this sizes it from the schematic the design
+actually needs, with the same seven lines of room under it.
+
+Worth noting how the original sizes the four panel pop-ups: `Popup`
+(`10c0:0c7c`) **runs the drawing routine with `fPrint = 0`** and takes the
+point it returns. Measuring by laying the text out is the same trick.
 
 There is no cargo transfer dialog here: cargo moves through the fleet
 pane's tiles, so Fuel and Cargo select the fleet and stop there.
@@ -310,7 +334,7 @@ that call is guarded by `hwndVCRDlg == 0`, so a recording already playing
 is never swapped for another; the window has to be closed first. A battle
 in deep space has no planet to select, so it opens at once.
 
-Not done yet: four of the seven click pop-ups (above).
+Nothing on this screen is outstanding.
 
 ## What the tutorial asks of it
 

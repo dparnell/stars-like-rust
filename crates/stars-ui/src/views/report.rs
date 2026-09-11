@@ -344,12 +344,22 @@ fn popup_for(app: &App, kind: PopupKind, id: Option<RowId>) -> Option<crate::pop
             Some(RowId::Planet(planet)) => app.mineral_popup(planet, mineral),
             _ => None,
         },
-        // `grPopupShdef`, `grPopupPlanet`, `grPopupPlanetIndustry` and
-        // `grPopupResources` are not modelled yet. See `docs/ui/reports.md`.
-        PopupKind::Starbase
-        | PopupKind::Population
-        | PopupKind::Industry { .. }
-        | PopupKind::Resources => None,
+        PopupKind::Industry { factories } => match id {
+            Some(RowId::Planet(planet)) => app.industry_popup(planet, factories),
+            _ => None,
+        },
+        PopupKind::Resources => match id {
+            Some(RowId::Planet(planet)) => app.resources_popup(planet),
+            _ => None,
+        },
+        PopupKind::Population => match id {
+            Some(RowId::Planet(planet)) => app.population_popup(planet),
+            _ => None,
+        },
+        PopupKind::Starbase => match id {
+            Some(RowId::Planet(planet)) => app.starbase_popup(planet),
+            _ => None,
+        },
     }
 }
 

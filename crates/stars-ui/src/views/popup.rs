@@ -77,6 +77,32 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             let galley = ui.fonts(|f| f.layout(note.clone(), font.clone(), text, NOTE_WIDTH));
             galley.rect.size() + egui::vec2(margin * 2.0, margin * 2.0)
         }
+        // The designer's own panel. The original takes the height from a
+        // formula — `dyArial8 * 7 + 0x13a` — and the width from the slot
+        // dialog's; here it comes from the schematic the design actually
+        // needs, with the same seven lines of room under it.
+        Popup::Design(design) => {
+            app.designer_peek = Some(design.clone());
+            let grid = crate::views::designer::schematic_size(app);
+            app.designer_peek = None;
+            egui::vec2(
+                grid.x.max(240.0) + margin * 2.0,
+                grid.y + line * 8.0 + margin * 2.0,
+            )
+        }
+        // A heading and a paragraph under it, wrapped to the same width the
+        // other panels use.
+        Popup::Industry(_) | Popup::Resources(_) | Popup::Population(_) => {
+            let (heading, body) = heading_and_body(popup);
+            let galley = ui.fonts(|f| f.layout(body, font.clone(), text, NOTE_WIDTH));
+            let width = galley.rect.width().max(width(&heading));
+            // The population panel has no heading, so it gets no room for one.
+            let above = if heading.is_empty() { 0.0 } else { line + 4.0 };
+            egui::vec2(
+                width + margin * 2.0,
+                galley.rect.height() + above + margin * 2.0,
+            )
+        }
         // Three labelled rows under a centred title, with the label column
         // as wide as the longest label and four pixels of gap.
         Popup::Mineral(_) => {
@@ -164,6 +190,36 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 text,
             );
         }
+        Popup::Design(design) => {
+            let inner = rect.shrink(margin);
+            app.designer_peek = Some(design.clone());
+            let mut child = ui.child_ui(inner, egui::Layout::top_down(egui::Align::Min), None);
+            child.set_clip_rect(inner);
+            child.label(egui::RichText::new(&design.name).strong());
+            crate::views::designer::schematic(app, &mut child, false);
+            crate::views::designer::stats(app, &mut child);
+            app.designer_peek = None;
+        }
+        Popup::Industry(_) | Popup::Resources(_) | Popup::Population(_) => {
+            let (heading, body) = heading_and_body(popup);
+            let above = if heading.is_empty() {
+                0.0
+            } else {
+                put(
+                    egui::pos2(rect.center().x, rect.top() + margin),
+                    egui::Align2::CENTER_TOP,
+                    &heading,
+                    text,
+                );
+                line + 4.0
+            };
+            let galley = ui.fonts(|f| f.layout(body, font.clone(), text, NOTE_WIDTH));
+            painter.galley(
+                egui::pos2(rect.left() + margin, rect.top() + margin + above),
+                galley,
+                text,
+            );
+        }
         Popup::Mineral(summary) => {
             let labels = popup::MINERAL_LABELS
                 .iter()
@@ -203,6 +259,21 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 put(egui::pos2(column, y), egui::Align2::LEFT_TOP, value, text);
             }
         }
+    }
+}
+
+/// The heading and the paragraph of the two pop-ups that are a sentence.
+///
+/// The original assembles each out of a dozen string fragments streamed
+/// together; this project states the same figures in its own words rather
+/// than transcribing the game's prose. See `crate::popup`.
+fn heading_and_body(popup: &Popup) -> (String, String) {
+    match popup {
+        Popup::Industry(summary) => (summary.heading(), summary.text()),
+        Popup::Resources(summary) => (summary.heading().to_string(), summary.text()),
+        // The population pop-up has no heading of its own.
+        Popup::Population(summary) => (String::new(), summary.text()),
+        _ => (String::new(), String::new()),
     }
 }
 
