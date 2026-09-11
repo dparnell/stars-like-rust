@@ -18,6 +18,12 @@ pub struct StarsApp {
     written: Vec<String>,
     /// The File menu's tail: the games opened most recently.
     recent: stars_ui::recent::Recent,
+    /// Where the frame window was while it was neither maximised nor
+    /// minimised, which is what `GetWindowPlacement`'s `rcNormalPosition`
+    /// holds and what `SetWindowIniString` stores.
+    restored: Option<(i16, i16, i16, i16)>,
+    /// Which letter that rectangle goes out with.
+    frame_state: stars_ui::settings::WindowState,
 }
 
 impl StarsApp {
@@ -56,6 +62,8 @@ impl StarsApp {
             written: Vec::new(),
             host_since: 0.0,
             recent,
+            restored: None,
+            frame_state: stars_ui::settings::WindowState::Normal,
         };
         if let Some(path) = opened.as_deref() {
             this.note_opened(path);
@@ -80,7 +88,55 @@ impl StarsApp {
         self.app.reports.write_ini(&mut ini);
         self.app.write_scanner_ini(&mut ini);
         self.app.write_zip_ini(&mut ini);
+        if let Some((left, top, width, height)) = self.restored {
+            stars_ui::settings::set_frame_window(
+                &mut ini,
+                stars_ui::settings::WindowRect::frame(
+                    self.frame_state,
+                    (left, top),
+                    (width, height),
+                ),
+            );
+        }
         write_ini(&ini);
+    }
+
+    /// Keep note of where the frame is, so that the settings file gets the
+    /// **restored** rectangle rather than whatever a maximised window
+    /// happens to fill — which is what `GetWindowPlacement` gives the
+    /// original for nothing.
+    fn note_frame(&mut self, ctx: &egui::Context) {
+        let (maximised, minimised, outer) = ctx.input(|i| {
+            let viewport = i.viewport();
+            (
+                viewport.maximized.unwrap_or(false),
+                viewport.minimized.unwrap_or(false),
+                viewport.outer_rect,
+            )
+        });
+        self.frame_state = if maximised {
+            stars_ui::settings::WindowState::Maximised
+        } else if minimised {
+            stars_ui::settings::WindowState::Iconised
+        } else {
+            stars_ui::settings::WindowState::Normal
+        };
+        if maximised || minimised {
+            return;
+        }
+        if let Some(rect) = outer {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "a window's corner, in whole pixels"
+            )]
+            let round = |v: f32| v.round() as i16;
+            self.restored = Some((
+                round(rect.left()),
+                round(rect.top()),
+                round(rect.width()),
+                round(rect.height()),
+            ));
+        }
     }
 
     /// Open a game by path, from the menu's recently-used list.
@@ -491,6 +547,7 @@ impl eframe::App for StarsApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.note_frame(ctx);
         // Playback needs a steady stream of frames; everything else is happy to
         // redraw only on input.
         if self.app.playing {
@@ -1479,11 +1536,28 @@ impl eframe::App for StarsApp {
 /// # Errors
 /// Returns whatever eframe could not do — usually a missing display.
 pub fn run(open: Option<PathBuf>) -> eframe::Result<()> {
+    // `InitInstance` (`1000:0d70`) hands the stored rectangle straight to
+    // `CreateWindow` as x, y, width and height, and asks for a maximised
+    // window when the file said so — or when it said nothing it could read,
+    // which is the only key that defaults that way.
+    let frame = stars_ui::settings::frame_window(&read_ini());
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_min_inner_size([720.0, 480.0])
+        .with_title("Stars!");
+    match frame.size() {
+        Some((width, height)) => {
+            viewport = viewport.with_inner_size([f32::from(width), f32::from(height)]);
+        }
+        None => viewport = viewport.with_inner_size([1200.0, 800.0]),
+    }
+    if let Some((left, top)) = frame.position() {
+        viewport = viewport.with_position([f32::from(left), f32::from(top)]);
+    }
+    if stars_ui::settings::frame_starts_maximised(frame) {
+        viewport = viewport.with_maximized(true);
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1200.0, 800.0])
-            .with_min_inner_size([720.0, 480.0])
-            .with_title("Stars!"),
+        viewport,
         ..Default::default()
     };
     eframe::run_native(

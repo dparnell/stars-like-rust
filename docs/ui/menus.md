@@ -218,10 +218,19 @@ share one section, `[ZipOrders]`, with the orders under `ZipOrders1` to
 both are nibble-coded into the letters `a` to `p` — see `fleet-pane.md`
 and `production.md`.
 
+The frame window's own place comes back as well — `[Windows] Main`, whose
+last two fields are a **width and a height** rather than the far corner the
+report windows store there; see `reports.md`. With no readable value the
+frame comes up maximised, which is the one default `GetIniWinRc` gives only
+to that key, and a window left **minimised** comes back maximised too,
+because `InitInstance` asks for `SW_SHOWMAXIMIZED` on either bit. What goes
+out is the **restored** rectangle, not whatever a maximised window happens
+to fill, which is what `GetWindowPlacement` hands the original for nothing
+and this has to keep note of frame by frame.
+
 What the original restores and this one still does not: the four report
-windows' positions (they have no windows here), the frame window's own
-rectangle, the mineral scale (a constant here), the last selection and
-message, and the font names. All of it is the same mechanism, so each is a
+windows' positions (they have no windows here), the mineral scale (a
+constant here), the last selection and message, and the font names. All of it is the same mechanism, so each is a
 key away.
 
 A `stars.ini` sitting **beside a save** still wins over the settings file

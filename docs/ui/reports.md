@@ -264,12 +264,20 @@ sorted on germanium comes back sorted on ironium. And `cFieldFirst` is not
 either, so the horizontal scroll starts again at the first column.
 
 A rectangle is seventeen characters — `%c%04d%04d%04d%04d` — one letter for
-the window state (`M`, `R` or `I`) and four fixed four-character fields for
-left, top, right and bottom. A `-` anywhere in a field makes that field
-negative. Anything of a different length, or with an unknown letter or a
-stray character in it, is not a rectangle and the window falls back to its
-built-in place. The report windows are always written with `M`, whatever
-they actually were, and only the frame's letter is ever read back.
+the window state (`M`, `R` or `I`) and four fixed four-character fields. A
+`-` anywhere in a field makes that field negative. Anything of a different
+length, or with an unknown letter or a stray character in it, is not a
+rectangle and the window falls back to its built-in place. The report
+windows are always written with `M`, whatever they actually were, and only
+the frame's letter is ever read back.
+
+**The last two fields do not always mean the same thing.** For a report
+window they are a right and a bottom, which `ReadIniSettings` subtracts to
+get `ptSize`. For the frame's own `Main` they are a **width and a height** —
+`GetWindowRc` (`1000:0fd0`) takes `GetWindowPlacement`'s restored rectangle
+and subtracts before writing, and `InitInstance` passes the four straight to
+`CreateWindow` as `x, y, nWidth, nHeight`. One reader, two writers, and
+nothing in the format to tell them apart.
 
 This project keeps the columns and the sort. The **rectangles have nowhere
 to go**: the reports here are screens rather than windows, so there is no

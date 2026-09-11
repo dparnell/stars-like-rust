@@ -391,3 +391,62 @@ fn the_zip_section_holds_both_and_round_trips() {
     // the file says, so nothing written there survives.
     assert_eq!(read.production_templates()[0].name, "<Default>");
 }
+
+/// The frame's rectangle and the report windows' use the same seventeen
+/// characters to mean **different things** in the last two fields: the
+/// frame's are a width and a height, the reports' a right and a bottom.
+#[test]
+fn the_frame_stores_a_size_where_a_report_stores_a_corner() {
+    use stars_ui::settings::{frame_window, set_frame_window, WindowRect};
+
+    let mut ini = Ini::parse("");
+    set_frame_window(
+        &mut ini,
+        WindowRect::frame(WindowState::Normal, (100, 80), (1200, 800)),
+    );
+    assert_eq!(ini.get(WINDOWS, "Main"), Some("R0100008012000800"));
+
+    let read = frame_window(&ini);
+    assert_eq!(read.position(), Some((100, 80)));
+    assert_eq!(read.size(), Some((1200, 800)), "a size, not a far corner");
+
+    // The same four numbers under a report's key are a far corner, and the
+    // report reader subtracts to get the size.
+    ini.set(WINDOWS, "ReportPlanWin", "R0100008012000800");
+    let report =
+        stars_ui::report::ReportState::window_rect(&ini, Report::Planets).expect("a rectangle");
+    assert_eq!(report.rect, (100, 80, 1200, 800), "kept as written");
+}
+
+/// With no `Main` at all the frame comes up maximised, and its place is
+/// left to the system — `-32768` is `CW_USEDEFAULT`, not a mistake.
+#[test]
+fn no_frame_rectangle_means_maximised_and_wherever() {
+    use stars_ui::settings::{frame_starts_maximised, frame_window, WindowRect};
+
+    let empty = frame_window(&Ini::parse(""));
+    assert_eq!(empty.state, WindowState::Maximised);
+    assert_eq!(empty.position(), None);
+    assert_eq!(empty.size(), None);
+    assert_eq!(empty.rect.0, WindowRect::USE_DEFAULT);
+    assert!(frame_starts_maximised(empty));
+
+    // A value that is not a rectangle goes the same way.
+    let mut ini = Ini::parse("");
+    ini.set(WINDOWS, "Main", "nonsense");
+    assert_eq!(frame_window(&ini).state, WindowState::Maximised);
+
+    // And a window left **minimised** comes back maximised: `InitInstance`
+    // asks for `SW_SHOWMAXIMIZED` on either bit.
+    ini.set(WINDOWS, "Main", "I0100008012000800");
+    let iconised = frame_window(&ini);
+    assert_eq!(iconised.state, WindowState::Iconised);
+    assert!(
+        frame_starts_maximised(iconised),
+        "minimised comes back maximised, not minimised"
+    );
+
+    // A normal one does not.
+    ini.set(WINDOWS, "Main", "R0100008012000800");
+    assert!(!frame_starts_maximised(frame_window(&ini)));
+}

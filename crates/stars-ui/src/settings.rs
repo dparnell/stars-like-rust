@@ -142,6 +142,9 @@ impl std::fmt::Display for Ini {
 /// The `[Windows]` section, which holds one rectangle per window.
 pub const WINDOWS: &str = "Windows";
 
+/// `idsMain` (`0x94`): the frame window's own rectangle.
+pub const MAIN_WINDOW: &str = "Main";
+
 /// The `[Misc]` section, where the reports' columns and sort live.
 pub const MISC: &str = "Misc";
 
@@ -160,16 +163,33 @@ pub enum WindowState {
 /// A window's place, as `[Windows]` stores it.
 ///
 /// `GetIniWinRc` (`1000:1020`) takes a value of **exactly seventeen
-/// characters**: the state letter and four fixed four-character fields, in
-/// the order left, top, right, bottom. A field is read digit by digit, and a
-/// `-` anywhere in it makes the whole field negative. Anything else — a
-/// different length, an unknown letter, a stray character — is no rectangle
-/// at all, and the window falls back to its built-in place.
+/// characters**: the state letter and four fixed four-character fields. A
+/// field is read digit by digit, and a `-` anywhere in it makes the whole
+/// field negative. Anything else — a different length, an unknown letter, a
+/// stray character — is no rectangle at all.
+///
+/// # The last two fields mean different things
+///
+/// The reader is the same for every key, but the two writers disagree, so
+/// the fields are kept here as the four raw numbers and it is the caller
+/// who says what the last two are.
+///
+/// * `Main` is written by `SetWindowIniString`, which calls `GetWindowRc`
+///   — and that takes `GetWindowPlacement`'s **restored** rectangle and
+///   then turns it into `left, top, width, height`. `InitInstance` passes
+///   those four straight to `CreateWindow` as `x, y, nWidth, nHeight`.
+/// * The four `Report*Win` keys are written by `WriteIniSettings` as
+///   `ptDlg.x, ptDlg.y, ptDlg.x + ptSize.x, ptDlg.y + ptSize.y` — genuine
+///   right and bottom, which it subtracts again on the way back in.
+///
+/// Read a `Main` as though it were a report window and the window comes out
+/// the size of its own left edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WindowRect {
     /// The letter.
     pub state: WindowState,
-    /// Left, top, right, bottom.
+    /// The four numbers as stored: left, top, and then either width and
+    /// height or right and bottom. See the note above.
     pub rect: (i16, i16, i16, i16),
 }
 
@@ -209,6 +229,35 @@ impl WindowRect {
             state,
             rect: (fields[0], fields[1], fields[2], fields[3]),
         })
+    }
+
+    /// What Windows reads as `CW_USEDEFAULT`, and what `GetIniWinRc` fills
+    /// the left and the width with when there is no usable value: the
+    /// window is then placed and sized by the system rather than by the
+    /// file. It is not an error marker, though it is easy to read as one.
+    pub const USE_DEFAULT: i16 = -0x8000;
+
+    /// Where the window goes, when the file actually said.
+    #[must_use]
+    pub fn position(&self) -> Option<(i16, i16)> {
+        (self.rect.0 != Self::USE_DEFAULT).then_some((self.rect.0, self.rect.1))
+    }
+
+    /// How big it is, reading the last two fields the way `Main` writes
+    /// them — as a width and a height.
+    #[must_use]
+    pub fn size(&self) -> Option<(i16, i16)> {
+        (self.rect.2 != Self::USE_DEFAULT && self.rect.2 > 0 && self.rect.3 > 0)
+            .then_some((self.rect.2, self.rect.3))
+    }
+
+    /// One for the frame: a position and a **size**.
+    #[must_use]
+    pub fn frame(state: WindowState, at: (i16, i16), size: (i16, i16)) -> WindowRect {
+        WindowRect {
+            state,
+            rect: (at.0, at.1, size.0, size.1),
+        }
     }
 
     /// Write one, as `%c%04d%04d%04d%04d`.
@@ -569,4 +618,34 @@ impl crate::App {
             }
         }
     }
+}
+
+/// Where the frame window was left, and how.
+///
+/// With no usable value the frame comes up **maximised**: `GetIniWinRc`
+/// finishes an unreadable value by setting the maximised bit when the key it
+/// was asked for is `Main`, which no other key gets.
+#[must_use]
+pub fn frame_window(ini: &Ini) -> WindowRect {
+    ini.get(WINDOWS, MAIN_WINDOW)
+        .and_then(WindowRect::parse)
+        .unwrap_or(WindowRect {
+            state: WindowState::Maximised,
+            rect: (WindowRect::USE_DEFAULT, 0, WindowRect::USE_DEFAULT, 0),
+        })
+}
+
+/// Whether the frame should come up maximised.
+///
+/// `InitInstance` asks for `SW_SHOWMAXIMIZED` when **either** the maximised
+/// or the iconised bit is set, so a window left minimised comes back
+/// maximised rather than minimised.
+#[must_use]
+pub fn frame_starts_maximised(rect: WindowRect) -> bool {
+    matches!(rect.state, WindowState::Maximised | WindowState::Iconised)
+}
+
+/// Store the frame's place.
+pub fn set_frame_window(ini: &mut Ini, rect: WindowRect) {
+    ini.set(WINDOWS, MAIN_WINDOW, &rect.format());
 }
