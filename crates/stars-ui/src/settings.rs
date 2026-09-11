@@ -294,6 +294,10 @@ pub const ASCENDING_BIT: i64 = 0x100;
 impl Reports {
     /// Restore the four reports' columns and sort from a `stars.ini`.
     ///
+    /// The window rectangles come back too — `ReportPlanWin` and its three,
+    /// whose last two fields are a far corner rather than a size; see
+    /// [`WindowRect`].
+    ///
     /// `ReportPlanFld` and its three are `grbitVisible`'s **low word**, so a
     /// report can never have more than sixteen columns' worth of state; the
     /// most any of them has is fifteen. `ReportPlanSort` and its three pack
@@ -319,6 +323,20 @@ impl Reports {
             // Not stored, so it starts again at the first mineral.
             state.subsort = 0;
         }
+        for report in Report::ALL {
+            let (_, _, win) = report_keys(report);
+            let Some(rect) = ini.get(WINDOWS, win).and_then(WindowRect::parse) else {
+                continue;
+            };
+            // `ReadIniSettings` ignores the one value it cannot use: a left
+            // of `CW_USEDEFAULT` leaves the window where it was going to be.
+            if rect.rect.0 == WindowRect::USE_DEFAULT {
+                continue;
+            }
+            let state = self.state_mut(report);
+            state.pos = (rect.rect.0, rect.rect.1);
+            state.size = (rect.rect.2 - rect.rect.0, rect.rect.3 - rect.rect.1);
+        }
     }
 
     /// Write them back.
@@ -332,6 +350,23 @@ impl Reports {
             ini.set(MISC, fld, &(state.visible & 0xffff).to_string());
             let packed = i64::from(state.sort) | if state.ascending { ASCENDING_BIT } else { 0 };
             ini.set(MISC, sort, &packed.to_string());
+            // `WriteIniSettings` writes the far corner, and always with the
+            // letter `M` whatever the window was doing.
+            let (_, _, win) = report_keys(report);
+            ini.set(
+                WINDOWS,
+                win,
+                &WindowRect {
+                    state: WindowState::Maximised,
+                    rect: (
+                        state.pos.0,
+                        state.pos.1,
+                        state.pos.0 + state.size.0,
+                        state.pos.1 + state.size.1,
+                    ),
+                }
+                .format(),
+            );
         }
     }
 }

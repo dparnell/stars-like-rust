@@ -273,9 +273,9 @@ only its name. The other three are read and kept but nothing asks for them
 yet: no bold or italic proportional text is drawn anywhere, which
 `crate::popup` already notes.
 
-What the original restores and this one still does not: the four report
-windows' positions (they have no windows here), and the mineral scale (a
-constant here). That is the whole of `stars.ini` bar those two. All of it is the same mechanism, so each is a
+That is the whole of `stars.ini` bar one key: `MineralScale`, which is a
+constant in this project rather than a setting — see
+`mine-survey-pane.md`. All of it is the same mechanism, so each is a
 key away.
 
 A `stars.ini` sitting **beside a save** still wins over the settings file

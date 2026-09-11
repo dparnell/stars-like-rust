@@ -117,6 +117,23 @@ fn column_width(
     (((width + 6.0) / 2.0).floor() * 2.0).max(8.0)
 }
 
+/// The caption the window carries, which counts what it is showing.
+#[must_use]
+pub fn window_title(app: &App, report: Report) -> String {
+    let battles = app.battles.len();
+    let player = app.local_player();
+    let rows = app.game.as_ref().map_or(0, |game| {
+        Data {
+            game,
+            player,
+            battles: &app.battles[..battles],
+        }
+        .rows(report)
+        .len()
+    });
+    report.title(rows)
+}
+
 /// Draw one report.
 pub fn view(app: &mut App, ui: &mut egui::Ui, report: Report) {
     if app.game.is_none() {
@@ -173,13 +190,6 @@ pub fn view(app: &mut App, ui: &mut egui::Ui, report: Report) {
             .collect();
         ids = rows.iter().map(|&row| row_id(&data, report, row)).collect();
     }
-
-    ui.label(
-        egui::RichText::new(report.title(rows.len()))
-            .strong()
-            .size(line),
-    );
-    ui.add_space(2.0);
 
     let mut clicked_header: Option<(usize, Pos2)> = None;
     // The row, the column, how far into the cell, how wide it is, and where.

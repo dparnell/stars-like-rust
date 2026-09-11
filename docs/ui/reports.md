@@ -279,11 +279,23 @@ and subtracts before writing, and `InitInstance` passes the four straight to
 `CreateWindow` as `x, y, nWidth, nHeight`. One reader, two writers, and
 nothing in the format to tell them apart.
 
-This project keeps the columns and the sort. The **rectangles have nowhere
-to go**: the reports here are screens rather than windows, so there is no
-position to restore. They are read and written back untouched, along with
-everything else in the file this project has no use for, so a `stars.ini`
-the original wrote survives a pass through this one.
+All four are kept: the columns, the sort, and the rectangle. A report is a
+**window over the map**, which is what it always was — `ReportDlg`
+`CreateWindow`s one, sizes it from `ptSize`, places it with `StickyDlgPos`
+and leaves the scanner drawing behind it. This project drew them as screens
+instead until the rectangles needed somewhere to go.
+
+`StickyDlgPos` (`1040:…`) stores the top-left on the way out and puts the
+window back on the way in, pulling it on-screen again if the screen has
+since got smaller. **`(-1, -1)` means "centre it"** — the one value it
+treats specially, and the one all four `RPT` blocks start at, beside a size
+of 600 by 400. `WM_GETMINMAXINFO` will not let one get smaller than
+300 by 220.
+
+Two details of the writing. The rectangle is stored as a **far corner**,
+not a size — see the note above about `Main`, which is the other way round
+— and it is always written with the letter **`M`** whatever the window was
+actually doing, because only the frame's letter is ever read back.
 
 ## Clicking a row
 

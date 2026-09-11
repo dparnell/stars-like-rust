@@ -35,6 +35,13 @@ fn draw(app: &mut App, screen: Screen) {
         egui::CentralPanel::default().show(ctx, |ui| {
             stars_ui::views::central(app, ui);
         });
+        // A report is a window over the map, as it is in the shell, not
+        // one of the screens.
+        if let Some(report) = app.open_report_kind() {
+            egui::Window::new("report").show(ctx, |ui| {
+                stars_ui::views::report::view(app, ui, report);
+            });
+        }
         // The VCR is a window over the Battle Summary Report, as it is in
         // the shell, not one of the screens.
         if app.vcr.is_some() {

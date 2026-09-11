@@ -259,6 +259,16 @@ pub struct ReportState {
     pub first_field: usize,
     /// The first row shown (`irowFirst`).
     pub first_row: usize,
+    /// Where the window was left (`ptDlg`), or `(-1, -1)` for "centre it".
+    ///
+    /// `StickyDlgPos` (`1040:…`) stores the top-left on the way out and
+    /// puts the window back there on the way in, pulling it back on-screen
+    /// if the screen has since got smaller. `(-1, -1)` is the one value it
+    /// treats specially.
+    pub pos: (i16, i16),
+    /// How big it was left (`ptSize`). The four `RPT` blocks all start at
+    /// 600 by 400.
+    pub size: (i16, i16),
 }
 
 impl ReportState {
@@ -273,7 +283,19 @@ impl ReportState {
             ascending: true,
             first_field: 1,
             first_row: 0,
+            pos: (-1, -1),
+            size: (600, 400),
         }
+    }
+
+    /// The smallest the window goes, from `ReportDlg`'s `WM_GETMINMAXINFO`:
+    /// `300` by `0xdc`.
+    pub const MIN_SIZE: (i16, i16) = (300, 0xdc);
+
+    /// Whether the window has never been placed, and so should be centred.
+    #[must_use]
+    pub fn centred(&self) -> bool {
+        self.pos == (-1, -1)
     }
 
     /// Whether a column is shown.

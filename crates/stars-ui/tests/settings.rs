@@ -126,7 +126,6 @@ Zip1=abcdabcdabcdabcdabcdMine
     let written = ini.to_string();
     for kept in [
         "Main=M0000000012800960",
-        "ReportPlanWin=R0100010006000400",
         "DefaultPassword=hunter2",
         "Backups=3",
         "[Zip Orders]",
@@ -136,16 +135,18 @@ Zip1=abcdabcdabcdabcdabcdMine
     }
     assert!(written.contains("ReportFleetSort=261"), "{written}");
 
-    // And the rectangle is still readable, for whenever there is a window
-    // to give it to.
+    // The planets report's own rectangle is not carried through — it is
+    // read and written back, which loses nothing but the state letter,
+    // since the original always writes `M`.
     let again = Ini::parse(&written);
-    let rect = stars_ui::report::ReportState::window_rect(&again, Report::Planets)
-        .expect("the planets report's rectangle");
-    assert_eq!(rect.rect, (100, 100, 600, 400));
+    let mut back = Reports::default();
+    back.read_ini(&again);
+    assert_eq!(back.state(Report::Planets).pos, (100, 100));
+    assert_eq!(back.state(Report::Planets).size, (500, 300));
     assert_eq!(
-        stars_ui::report::ReportState::window_rect(&again, Report::Battles),
-        None,
-        "no key, no rectangle"
+        stars_ui::report::ReportState::window_rect(&again, Report::Planets).map(|r| r.state),
+        Some(WindowState::Maximised),
+        "written with M whatever it was"
     );
 }
 
@@ -679,4 +680,57 @@ fn the_fonts_section_is_never_written_back() {
     );
     // And nothing added a key of its own to the section.
     assert_eq!(ini.get(FONTS, "ArialItalic"), None);
+}
+
+/// Each report window's place and size go out as a far corner and come
+/// back as a position and a size.
+#[test]
+fn a_report_window_remembers_where_it_was() {
+    use stars_ui::report::ReportState;
+
+    let mut reports = Reports::default();
+    // Every one starts centred and 600 by 400, as the four `RPT` blocks do.
+    for report in Report::ALL {
+        assert!(reports.state(report).centred());
+        assert_eq!(reports.state(report).size, (600, 400));
+    }
+    assert_eq!(ReportState::MIN_SIZE, (300, 0xdc));
+
+    let state = reports.state_mut(Report::Fleets);
+    state.pos = (120, 90);
+    state.size = (640, 480);
+
+    let mut ini = Ini::parse("");
+    reports.write_ini(&mut ini);
+    // Written as a far corner, and always with the letter `M`.
+    assert_eq!(
+        ini.get(WINDOWS, "ReportFleetWin"),
+        Some("M0120009007600570")
+    );
+
+    let mut read = Reports::default();
+    read.read_ini(&ini);
+    assert_eq!(read.state(Report::Fleets).pos, (120, 90));
+    assert_eq!(read.state(Report::Fleets).size, (640, 480));
+    assert!(!read.state(Report::Fleets).centred());
+}
+
+/// A rectangle the reader cannot use leaves the window where it would have
+/// gone anyway, rather than putting it at `-32768`.
+#[test]
+fn an_unusable_report_rectangle_is_ignored() {
+    let mut ini = Ini::parse("");
+    ini.set(WINDOWS, "ReportPlanWin", "M-32768000000000000");
+    let mut reports = Reports::default();
+    reports.read_ini(&ini);
+    assert!(
+        reports.state(Report::Planets).centred(),
+        "CW_USEDEFAULT is not a position"
+    );
+
+    ini.set(WINDOWS, "ReportPlanWin", "rubbish");
+    let mut reports = Reports::default();
+    reports.read_ini(&ini);
+    assert!(reports.state(Report::Planets).centred());
+    assert_eq!(reports.state(Report::Planets).size, (600, 400));
 }
