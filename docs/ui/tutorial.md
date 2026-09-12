@@ -410,7 +410,33 @@ And, from reading the text as a specification: `Prev`, `Next` and `Goto` on
 the fleet pane's tiles, `Goto` on the location tile, and the `n`, `q` and
 `F9` keys.
 
-Still to come: the remaining seventy-four pages; `FCheckLayingWP`,
-`FCheckPatrolWP`, `FCheckBtlPlan` and `FCheckFleetName`, which the pages
-transcribed so far do not reach; the help topic each check sets on failure;
-the fifty-five hooks; `CreateTutorWorld`; and the window.
+### How far it plays
+
+`crates/stars-ui/tests/tutorial_walkthrough.rs` plays the tutorial from its
+pages, through the same calls the panes make, and checks that every task
+turns the page as `AdvanceTutor` would. It gets through **2400 to 2403** —
+pages one to sixteen — which took three corrections to what was here:
+
+* the five opening messages, above;
+* `FCheckCargo`'s figures, which had been transcribed as 25kT for every
+  fleet. Reading the fifteen call sites again: a Santa Maria's hold is 25,
+  a Teamster's is **210**, the two Santa Marias of page 26 are 50 and the
+  three merged Teamsters of page 67 are 630;
+* `FCheckMessages` with `fFilter` tests `bitfMsgFiltered` and nothing else —
+  it does not ask whether a message of that kind is in this year's list —
+  where this project had required one to be present, which would have
+  stalled page 13 for ever in a year with no factory message.
+
+And one to the client: `IWarpBestForWaypoint`'s rule for the warp a new leg
+gets (`scanner.md`), without which the colony ship crawled to 90210 at warp
+6 and page 14 found the planet still unowned.
+
+What stops it going further is the turn engine rather than the tutorial:
+the years that follow read messages the engine does not yet send — a fleet
+arriving, factories built, cargo unloaded, a colony ship dismantled — and
+the colony ship is not broken up on landing, so fleet numbers drift from
+the ones the pages name. Those are Step 4 of the plan.
+
+Still to come here: `FCheckLayingWP`, `FCheckPatrolWP`, `FCheckBtlPlan` and
+`FCheckFleetName`; the help topic each check sets on failure; and the two
+restarts the Panic! dialog offers.

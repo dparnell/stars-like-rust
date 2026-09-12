@@ -925,10 +925,26 @@ hold warp 10 (Interspace-10, the Enigma Pulsar, Trans-Star 10, and the
 Trans-Galactic Mizer and Galaxy scoops). A design with no engine answers 0, and
 the fleet takes the lowest answer aboard.
 
-`IWarpBestForWaypoint` (`1058:7a18`) then works from that. It will push the
-speed *up* when the leg is going somewhere that is not the player's own planet
-and the fuel is comfortable, and it walks it back *down* while the fuel does not
-fit. Last of all comes the rule that decides most legs:
+`IWarpBestForWaypoint` (`1058:7a18`) then works from that, and what it does
+next depends on where the leg is going and what is flying it:
+
+* a **colony ship** — any fleet with a colonisation or orbital construction
+  module aboard (an `hstSpecialMech` slot holding item 0 or 1), or a leg
+  already set to Colonize or Scrap — takes any warp up to 9 that the fuel
+  aboard will cover, whatever is at the other end;
+* a leg to an **unowned planet, or a planet of yours**, starts at warp 9 and
+  comes down until the leg costs no more than **half** the fuel aboard — or
+  any amount at all when it ends at a planet of yours with a starbase whose
+  hull has a dock, since the tank is filled on arrival;
+* a leg into **empty space or to somebody else's planet** stays at cruising
+  speed — or at the previous leg's warp when that is faster, from the second
+  leg on — and goes one warp faster only when the leg would cost under a
+  tenth of the tank and the tank is at least seven tenths full.
+
+That is why two ships with the same Long Hump 6 behave so differently in the
+tutorial: the scout is sent to Prune at warp 5 and takes two years, while the
+colony ship reaches 90210, further away, in one. Last of all comes the rule
+that decides most legs:
 
 ```
 years = ceil(distance / warp²)
@@ -938,8 +954,14 @@ while warp > 2 and ceil(distance / (warp − 1)²) == years:
 
 — **never fly faster than you need to arrive in the same year.** At a hundred
 light years, warp 9 and warp 8 both arrive in two years and warp 7 does not, so
-the answer is warp 8; at ninety-eight it is warp 7. A leg the fleet can take
-through a stargate is warp 11, the pseudo-warp that means "use the gate".
+the answer is warp 8; at ninety-eight it is warp 7. A leg already set to
+Colonize skips this step and keeps its speed. A leg the fleet can take through
+a stargate is warp 11, the pseudo-warp that means "use the gate".
+
+`App::suggested_warp` is all of that but two things: the stargate answer,
+and `LFuelUseToWaypoint`'s habit of summing the fuel of every leg up to the
+one being set (resetting at a planet of yours with a dock) where this takes
+the one leg alone.
 
 ## The measuring tape
 

@@ -3032,28 +3032,140 @@ impl App {
     // giving a fleet its orders by dragging on the map. See
     // `docs/ui/scanner.md`.
 
-    /// The warp the client suggests for a leg of this length.
+    /// The warp the client suggests for a new leg — `IWarpBestForWaypoint`
+    /// (`1058:7a18`).
     ///
-    /// The fleet's cruising speed ([`stars_core::movement::ideal_warp`]),
-    /// slowed as far as it can go without arriving any later
-    /// ([`stars_core::movement::settle_warp`]).
+    /// It starts from the fleet's cruising speed
+    /// ([`stars_core::movement::ideal_warp`]) and then spends fuel on speed
+    /// according to where the leg goes:
+    ///
+    /// * to **empty space or somebody else's planet** it stays at cruising
+    ///   speed, going one warp faster only when the leg would cost under a
+    ///   tenth of the tank and the tank is at least seven tenths full;
+    /// * to an **unowned or own planet** it tries warp 9 and comes down
+    ///   until the leg costs no more than **half** the fuel aboard — or any
+    ///   amount at all when the leg ends at a planet of yours with a
+    ///   starbase that can refuel it;
+    /// * a **colony ship** — any fleet carrying a colonisation or orbital
+    ///   construction module, or a leg already set to Colonize or Scrap —
+    ///   takes any warp the fuel aboard will cover, whatever is at the other
+    ///   end.
+    ///
+    /// Whatever that gives is then slowed as far as it can go without
+    /// arriving any later ([`stars_core::movement::settle_warp`]), which is
+    /// why the tutorial's scout takes two years to Prune while its colony
+    /// ship, with the same engine, reaches 90210 in one. A leg already set
+    /// to Colonize is not slowed at all. Warp 10 and above is cut to 9.
+    ///
+    /// `destination` is the planet the leg lands on, if it lands on one,
+    /// `task` the leg's task, and `previous` the warp of the leg before it —
+    /// a second or later leg into empty space starts from that rather than
+    /// from cruising speed, when it is faster. The original also offers warp
+    /// 11 for a leg a stargate can take, which this does not model yet, and
+    /// it sums the fuel of every leg up to this one where this takes the
+    /// leg alone.
     #[must_use]
-    pub fn suggested_warp(&self, fleet: usize, distance: i32) -> u8 {
+    pub fn suggested_warp(
+        &self,
+        fleet: usize,
+        distance: i32,
+        destination: Option<i16>,
+        task: u8,
+        previous: Option<u8>,
+    ) -> u8 {
+        use stars_core::components::slot;
+        use stars_formats::task;
+
         let Some(game) = self.game.as_ref() else {
             return 5;
         };
         let Some(record) = game.fleets.get(fleet) else {
             return 5;
         };
-        let designs = usize::try_from(record.owner)
-            .ok()
+        let owner = usize::try_from(record.owner).ok();
+        let designs = owner
             .and_then(|owner| game.designs.get(owner))
             .map_or(&[][..], Vec::as_slice);
         let ideal = stars_core::movement::ideal_warp(&record.stacks, designs, false);
         if ideal <= 0 {
             return 0;
         }
-        u8::try_from(stars_core::movement::settle_warp(ideal, distance).clamp(0, 15)).unwrap_or(5)
+        let ife = owner
+            .and_then(|owner| game.players.get(owner))
+            .is_some_and(|p| p.race.has_lrt(stars_core::race::lrt::IFE));
+        let fuel_at =
+            |warp: i16| record.fuel_use(designs, u8::try_from(warp).unwrap_or(0), distance, ife);
+        let aboard = record.cargo.fuel;
+        let capacity = record.fuel_capacity(designs);
+
+        // A colony ship, or a leg that will end the fleet: fuel is no object.
+        let colonising = task == task::COLONIZE
+            || task == task::SCRAP
+            || record.stacks.iter().any(|stack| {
+                stack.count > 0
+                    && designs
+                        .get(usize::from(stack.design))
+                        .is_some_and(|design| {
+                            design.slots.iter().any(|fitted| {
+                                fitted.count > 0
+                                    && fitted.category == slot::SPECIAL_M
+                                    && fitted.item <= 1
+                            })
+                        })
+            });
+
+        let planet = destination.and_then(|id| {
+            game.planets
+                .iter()
+                .chain(game.known_planets.iter())
+                .find(|p| p.id == id)
+        });
+        let mine = planet.is_some_and(|p| p.owner == record.owner.into());
+        // A planet of yours with a base that has a dock will fill the tank
+        // on arrival, so the leg may cost the whole of it.
+        let refuels = mine
+            && planet.is_some_and(|p| {
+                p.starbase
+                    && p.starbase_design
+                        .and_then(|isb| designs.get(starbase_slot(isb)))
+                        .and_then(stars_core::design::ShipDesign::hull)
+                        .is_some_and(|hull| hull.cargo_max != 0)
+            });
+
+        let mut warp = ideal;
+        if ideal < 9 {
+            let foreign = planet.is_some_and(|p| p.owner.is_some() && !mine);
+            if !colonising && (planet.is_none() || foreign) {
+                // Nowhere to refuel: cruise — or keep up the pace of the
+                // leg before, and go one faster when speed is nearly free.
+                if let Some(before) = previous.map(i16::from) {
+                    if before > ideal && before < 11 {
+                        warp = before;
+                    }
+                }
+                let cost = fuel_at(warp);
+                if cost < capacity / 10 && aboard >= capacity * 7 / 10 {
+                    warp += 1;
+                }
+            } else {
+                warp = 9;
+            }
+            // Come down until the leg is affordable: within half the tank,
+            // or the whole of it when the far end refuels or the ship is
+            // not coming back.
+            while warp > ideal {
+                let cost = fuel_at(warp);
+                if cost <= aboard && (refuels || colonising || cost <= aboard / 2) {
+                    break;
+                }
+                warp -= 1;
+            }
+        }
+
+        if task != task::COLONIZE {
+            warp = stars_core::movement::settle_warp(warp, distance);
+        }
+        u8::try_from(warp.clamp(0, 9)).unwrap_or(5)
     }
 
     /// The most waypoints a fleet may hold, the origin among them.
@@ -3131,7 +3243,15 @@ impl App {
         if distance <= 0 {
             return false;
         }
-        let warp = self.suggested_warp(index, distance);
+        let landed = (target_class == stars_core::fleet::grobj::PLANET)
+            .then_some(target)
+            .flatten()
+            .and_then(|id| i16::try_from(id).ok());
+        let previous = (fleet.waypoints.len() > 1)
+            .then(|| fleet.waypoints.last().map(|w| w.warp))
+            .flatten();
+        let warp =
+            self.suggested_warp(index, distance, landed, stars_formats::task::NONE, previous);
 
         let Some(game) = self.game.as_mut() else {
             return false;
@@ -3230,9 +3350,15 @@ impl App {
             return false;
         };
         let from = fleet.waypoints[waypoint - 1].position;
+        let task = fleet.waypoints[waypoint].task;
         #[allow(clippy::cast_possible_truncation)]
         let distance = stars_core::movement::distance(from, at) as i32;
-        let warp = self.suggested_warp(index, distance.max(1));
+        let landed = (target_class == stars_core::fleet::grobj::PLANET)
+            .then_some(target)
+            .flatten()
+            .and_then(|id| i16::try_from(id).ok());
+        let previous = (waypoint > 1).then(|| fleet.waypoints[waypoint - 1].warp);
+        let warp = self.suggested_warp(index, distance.max(1), landed, task, previous);
 
         let Some(game) = self.game.as_mut() else {
             return false;
@@ -12219,13 +12345,13 @@ impl App {
                     // With `fFilter`, the question is whether that kind has
                     // been **filtered out** — "Filter it out by clicking the
                     // blue check mark in the upper left hand corner of the
-                    // Messages pane."
-                    (Some(id), true) => self
-                        .messages()
-                        .iter()
-                        .find(|m| m.id == *id)
-                        .zip(game.players.get(me))
-                        .is_some_and(|(m, p)| m.hidden_by(&p.message_filter)),
+                    // Messages pane." The original tests `bitfMsgFiltered`
+                    // and nothing else: it does not ask whether such a
+                    // message is in this year's list, so neither does this.
+                    (Some(id), true) => game
+                        .players
+                        .get(me)
+                        .is_some_and(|p| p.message_filter.hidden(*id)),
                     // Without it, whether the message in front is one.
                     (Some(id), false) => self
                         .messages()

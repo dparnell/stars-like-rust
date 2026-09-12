@@ -299,14 +299,19 @@ fn the_scanner_check_reads_grbit_scan() {
     }));
 }
 
-/// With no copy of the game there is no tutorial text, and the frontend gets
-/// nothing rather than something invented.
+/// With no copy of the game the tutorial still has words — this project's
+/// own retelling of the page, not the game's — and says so.
 #[test]
-fn without_the_game_there_is_no_text() {
+fn without_the_game_the_page_is_retold() {
     let mut app = a_game();
     app.start_tutor();
     assert!(app.art.is_none());
-    assert_eq!(app.tutor_page(), None);
+    assert_eq!(
+        app.tutor_page(),
+        stars_ui::tutorial_text::page(1),
+        "page one, in this project's words"
+    );
+    assert!(!app.tutor_page_is_original());
 }
 
 // --- What the tutorial's own words demand of the UI ----------------------
@@ -756,20 +761,20 @@ fn the_message_check_asks_about_filtering() {
         kind: Some(stars_core::message::id::BUILT_FACTORIES),
         filter: true,
     };
-    // Nothing filtered yet, and no such message either.
+    // Nothing filtered yet.
     assert!(!app.tutor_check(&asking));
 
     // Filtering that kind is what the page wants — "Filter it out by
-    // clicking the blue check mark in the upper left hand corner".
+    // clicking the blue check mark in the upper left hand corner" — and it
+    // is the whole of what the page wants: `FCheckMessages` tests
+    // `bitfMsgFiltered` and never asks whether such a message is in this
+    // year's list, so the page is done even in a year with none.
+    assert!(!app
+        .messages()
+        .iter()
+        .any(|m| m.id == stars_core::message::id::BUILT_FACTORIES));
     app.filter_message(stars_core::message::id::BUILT_FACTORIES, true);
-    let filtered = app
-        .game
-        .as_ref()
-        .expect("a game")
-        .players
-        .get(app.local_player())
-        .map(|p| p.message_filter);
-    assert!(filtered.is_some());
+    assert!(app.tutor_check(&asking));
 }
 
 /// A queue rung can insist on "contribute only leftover resources to

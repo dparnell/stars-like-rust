@@ -826,7 +826,7 @@ pub static STEPS: &[Step] = &[
                 Check::Cargo {
                     fleet: 3,
                     minerals: [0, 0, 0],
-                    colonists: 25,
+                    colonists: 210,
                 },
             ),
         ],
@@ -1301,7 +1301,7 @@ pub static STEPS: &[Step] = &[
                 Check::Cargo {
                     fleet: 7,
                     minerals: [0, 0, 0],
-                    colonists: 25,
+                    colonists: 50,
                 },
             ),
             hint(0xcd, at_planet(7, 1, 0x08, COLONIZE_TASK)),
@@ -1656,7 +1656,7 @@ pub static STEPS: &[Step] = &[
                 Check::Cargo {
                     fleet: 0x0b,
                     minerals: [0, 0, 0],
-                    colonists: 25,
+                    colonists: 210,
                 },
             ),
             hint(0x115, at_planet(0x0b, 1, 0x05, TRANSPORT_TASK)),
@@ -1894,7 +1894,7 @@ pub static STEPS: &[Step] = &[
                 Check::Cargo {
                     fleet: 0,
                     minerals: [0, 0, 0],
-                    colonists: 0,
+                    colonists: 210,
                 },
             ),
             // The same colonists-unload-all goal page 35 set by hand.
@@ -2102,7 +2102,7 @@ pub static STEPS: &[Step] = &[
                 Check::Cargo {
                     fleet: 6,
                     minerals: [0, 0, 0],
-                    colonists: 25,
+                    colonists: 210,
                 },
             ),
             // "Choose Planets... from the Report menu." Opening it is what
@@ -2277,7 +2277,7 @@ pub static STEPS: &[Step] = &[
                 Check::Cargo {
                     fleet: 0x0b,
                     minerals: [0, 0, 0],
-                    colonists: 25,
+                    colonists: 210,
                 },
             ),
             // "Add a waypoint at Wallaby to Unload All Colonists."
@@ -2318,7 +2318,7 @@ pub static STEPS: &[Step] = &[
                 Check::Cargo {
                     fleet: 1,
                     minerals: [0, 0, 0],
-                    colonists: 25,
+                    colonists: 210,
                 },
             ),
         ],
@@ -2432,7 +2432,7 @@ pub static STEPS: &[Step] = &[
                 Check::Cargo {
                     fleet: 0,
                     minerals: [0, 0, 0],
-                    colonists: 25,
+                    colonists: 210,
                 },
             ),
             ask(
@@ -2645,7 +2645,7 @@ pub static STEPS: &[Step] = &[
         escape: Some(Check::Cargo {
             fleet: 6,
             minerals: [0, 0, 0],
-            colonists: 25,
+            colonists: 210,
         }),
         stages: &[
             hint(
@@ -2690,7 +2690,7 @@ pub static STEPS: &[Step] = &[
                 Check::Cargo {
                     fleet: 6,
                     minerals: [0, 0, 0],
-                    colonists: 25,
+                    colonists: 210,
                 },
             ),
             hint(0x1d9, at_planet(6, 1, 0x11, TRANSPORT_TASK)),
@@ -3062,7 +3062,7 @@ pub static STEPS: &[Step] = &[
                 Check::Cargo {
                     fleet: 0x0c,
                     minerals: [0, 0, 0],
-                    colonists: 25,
+                    colonists: 630,
                 },
             ),
         ],
