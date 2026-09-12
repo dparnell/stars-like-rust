@@ -430,8 +430,8 @@ did not scroll. See `fleet-pane.md` and `scanner.md`.
 
 `crates/stars-ui/tests/tutorial_walkthrough.rs` plays the tutorial from its
 pages, through the same calls the panes make, and checks that every task
-turns the page as `AdvanceTutor` would. It gets through **2400 to 2407** —
-pages one to twenty-five. The first four years took three corrections to
+turns the page as `AdvanceTutor` would. It gets through **2400 to 2408** —
+pages one to twenty-nine. The first four years took three corrections to
 what was here:
 
 * the five opening messages, above;
@@ -459,8 +459,12 @@ its own; new ships as fleets of their own with full tanks; `FuelFleets`;
 the previous leg's task copied onto a new waypoint; and fuel staying
 aboard where there is no starbase to take it.
 
-What stops it going further is page 26's **Split** dialog, which this
-project does not have yet.
+Page 26's **Split** goes through `App::split_fleet` and `split_all`
+directly — the Split dialog itself is not drawn yet — and showed that a
+split-off fleet must take a **copy of every order** the old one had
+(`LpflNewSplit`, `1038:3372`): the page expects the lone Santa Maria to be
+bound for Slime with Colonize already set, not sitting at Wallaby with a
+fresh single waypoint.
 
 Still to come here: `FCheckLayingWP`, `FCheckPatrolWP`, `FCheckBtlPlan` and
 `FCheckFleetName`; the help topic each check sets on failure; and the two

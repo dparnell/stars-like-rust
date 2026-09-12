@@ -669,6 +669,11 @@ fn move_ships(state: &mut GameState, player: usize, transfer: &CargoTransfer) ->
 }
 
 /// Create an empty fleet alongside `beside`, for a split to fill.
+///
+/// `LpflNewSplit` (`1038:3372`): the new fleet stands where the old one
+/// stands, under the same battle plan, and takes a **copy of every order**
+/// the old one had — its whole route, tasks and all — which is why the
+/// tutorial's split-off colony ship is already bound for Slime.
 fn new_fleet(state: &mut GameState, player: usize, id: u16, beside: usize) -> Option<usize> {
     if usize::from(object_owner(id)) != player {
         return None;
@@ -682,18 +687,10 @@ fn new_fleet(state: &mut GameState, player: usize, id: u16, beside: usize) -> Op
         stacks: Vec::new(),
         cargo: crate::fleet::Cargo::default(),
         battle_plan: source.battle_plan,
-        warp: None,
-        waypoints: vec![crate::fleet::Waypoint {
-            position: source.position,
-            target: source.orbiting,
-            target_class: 1,
-            warp: 0,
-            task: 0,
-            transport: None,
-            task_data: Vec::new(),
-        }],
+        warp: source.warp,
+        waypoints: source.waypoints.clone(),
         name: None,
-        repeat_orders: false,
+        repeat_orders: source.repeat_orders,
         direction: None,
     };
     state.fleets.push(fleet);

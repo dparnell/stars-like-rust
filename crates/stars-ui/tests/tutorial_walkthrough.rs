@@ -523,4 +523,78 @@ fn the_first_four_years_play_through_from_the_pages() {
     app.production_ok();
     assert!(app.advance_tutor());
     assert_eq!(page(&app), 26, "2407 is done");
+    app.generate_turn();
+    assert_eq!(app.game.as_ref().expect("a game").turn, 8);
+    assert!(!app.advance_tutor());
+
+    // --- 2408 -------------------------------------------------------------
+    // Nine fleets: the five the game began with (the Santa Maria of 2406
+    // has settled Shaggy Dog and been dismantled), the colony ship built in
+    // 2407, and the three colony ships and two scouts built this year.
+    {
+        let game = app.game.as_ref().expect("a game");
+        let mut ids: Vec<u16> = game
+            .fleets
+            .iter()
+            .filter(|f| f.owner == 0)
+            .map(|f| f.id)
+            .collect();
+        ids.sort_unstable();
+        assert_eq!(ids, vec![0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+    // Page 26: Goto the three new colony ships, Split one off into Fleet
+    // #10, load the two that remain, Colonize at Slime, then Split All.
+    assert!(app.goto_fleet(7));
+    let colony_ships = app.selection.fleet.expect("selected");
+    assert!(
+        app.split_fleet(colony_ships, 2, 1),
+        "one Santa Maria into a fleet of its own"
+    );
+    assert_eq!(app.own_fleets().len(), 10);
+    assert_eq!(app.transfer_cargo(colony_ships, 3, 250), 50, "two holds");
+    shift_click(&mut app, SLIME);
+    assert!(app.set_waypoint_task(task::COLONIZE));
+    assert!(!app.advance_tutor());
+    assert_eq!(
+        app.split_all(colony_ships),
+        1,
+        "the other one goes to a fleet of its own"
+    );
+    assert_eq!(app.own_fleets().len(), 11);
+    assert!(app.advance_tutor());
+    assert_eq!(page(&app), 27);
+
+    // Page 27: the waypoint at Slime dragged to Sea Squared — the colonize
+    // order goes with it — then the new scouts sent to Hiho.
+    let sea_squared = at_planet(&app, SEA_SQUARED);
+    assert!(app.move_waypoint(1, sea_squared.x, sea_squared.y, 20.0));
+    assert!(!app.advance_tutor());
+    assert!(app.goto_fleet(8), "Armed Probe #9");
+    shift_click(&mut app, HIHO);
+    assert!(app.advance_tutor());
+    assert_eq!(page(&app), 28);
+
+    // Page 28: the unloading message filtered, Wallaby in the Summary pane,
+    // then F5.
+    assert!(app.filter_message(stars_core::message::id::HAS_UNLOADED, true));
+    app.select_object(ScanObject::Planet(WALLABY));
+    app.open_research();
+    assert!(app.advance_tutor());
+    assert_eq!(page(&app), 29);
+
+    // Page 29: research up to 30% and Done.
+    app.research_dialog.as_mut().expect("the dialog").percent = 30;
+    app.research_ok();
+    assert!(app.advance_tutor());
+    assert_eq!(page(&app), 30, "2408 is done");
+}
+
+fn at_planet(app: &App, planet: i16) -> stars_core::movement::Point {
+    let game = app.game.as_ref().expect("a game");
+    game.planets
+        .iter()
+        .chain(game.known_planets.iter())
+        .find(|p| p.id == planet)
+        .and_then(|p| p.position)
+        .expect("a placed planet")
 }
