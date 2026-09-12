@@ -1441,7 +1441,7 @@ fn waypoints_are_dragged_onto_the_map() {
     };
     assert_eq!(
         warp,
-        app.suggested_warp(0, 100, None, stars_formats::task::NONE, None),
+        app.suggested_warp(0, 100, None, stars_formats::task::NONE, 1),
         "the leg takes the suggested warp"
     );
 

@@ -685,6 +685,23 @@ fn the_first_four_years_play_through_from_the_pages() {
     app.production_ok();
     assert!(app.advance_tutor());
     assert_eq!(page(&app), 34, "2410 is done");
+    app.generate_turn();
+    assert_eq!(app.game.as_ref().expect("a game").turn, 11);
+    assert!(!app.advance_tutor());
+
+    // --- 2411 -------------------------------------------------------------
+    // Page 34 is as far as this goes for now. Its first task, Armed Probe
+    // #1 on to Hacker, needs the probe to have reached Mozart, and it has
+    // not: it ran dry. The original prices a leg to a planet the player
+    // has **no record of** as deep space (`IWarpBestForWaypoint`'s
+    // `LpplFromId` comes back empty), which is why the tutorial's own
+    // turn-3 file has the probe bound for Hiho at warp 5 where this
+    // project, working from the host's knowledge of every planet, sends it
+    // at warp 7 and empties the tank two years early. That wants the
+    // player's own view of the galaxy — `SetVisPFPlanets` — and the pages
+    // after also want the computer player's turn and a battle at Hiho; see
+    // `docs/ui/tutorial.md`.
+    assert_eq!(page(&app), 34);
 }
 
 fn at_planet(app: &App, planet: i16) -> stars_core::movement::Point {

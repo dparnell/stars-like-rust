@@ -431,7 +431,7 @@ did not scroll. See `fleet-pane.md` and `scanner.md`.
 `crates/stars-ui/tests/tutorial_walkthrough.rs` plays the tutorial from its
 pages, through the same calls the panes make, and checks that every task
 turns the page as `AdvanceTutor` would. It gets through **2400 to 2410** —
-pages one to thirty-three. The first four years took three corrections to
+pages one to thirty-three — and stops on page 34. The first four years took three corrections to
 what was here:
 
 * the five opening messages, above;
@@ -479,6 +479,38 @@ which is the one the Teamster is hauling. That Teamster, in turn, strands
 itself on the way home with 210 kT aboard and a warp chosen while it was
 empty; the original's answer is `MoveFleets`' drop to the fastest free warp
 (`../formulas/movement.md`, *Running dry*), so it creeps on at warp 1.
+
+### Where it stops, and why
+
+Page 34 (2411) is where the client's picture of the game stops matching
+the original's, and three pieces of the engine are wanted before the
+walkthrough can go on:
+
+1. **The player's own view of the galaxy.** Armed Probe #1 should reach
+   Mozart in 2411 with fuel to spare; here it ran dry in 2409. The
+   tutorial's turn-3 file has the probe bound for Hiho at warp 5, and Long
+   Range Scout #2's first leg at warp 6, where this project sends them at 7
+   and 8: `IWarpBestForWaypoint` prices a leg to a planet the client has
+   **no record of** as deep space (`scanner.md`), and this App, hosting the
+   tutorial itself, knows every planet from the start. What the original
+   client knows is what `SetVisPFPlanets` and `SetVisPFFleets`
+   (`1070:abde`, `1070:a74f`) put in its file each year — planets and
+   fleets within its planets' and fleets' scanner ranges, cloaking and
+   penetration allowed for — plus what its history file remembers. None of
+   that is modelled yet: the value view, the summary pane, the scanner's
+   enemy fleets and this warp rule all read the host's truth.
+2. **The computer player's turn.** The red triangle below Hiho on page 34
+   is the Berserkers' scout, which their `DoAiTurn` has flown there; this
+   engine's computer players do not move (`../formulas/ai.md`).
+3. **Battles.** Page 37's Battle VCR needs the fight at Hiho in 2411, and
+   `DoBattles` (`10f0:3a26`, inside `DoOrders`) is not in the turn yet —
+   `../formulas/combat.md` has the board, movement and firing, but not who
+   fights whom.
+
+Two smaller things came out of getting to page 34 all the same: a waypoint
+aimed at a fleet holds the fleet's **full object word**, owner and all,
+which is how page 34 can ask for `0x200`; and a new leg is priced together
+with the legs before it.
 
 Still to come here: `FCheckLayingWP`, `FCheckPatrolWP`, `FCheckBtlPlan` and
 `FCheckFleetName`; the help topic each check sets on failure; and the two

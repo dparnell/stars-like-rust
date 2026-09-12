@@ -941,6 +941,26 @@ next depends on where the leg is going and what is flying it:
   leg on — and goes one warp faster only when the leg would cost under a
   tenth of the tank and the tank is at least seven tenths full.
 
+"Unowned" is what the **client's own record** of the planet says, and the
+client only has a record of a planet it has seen: for one it has not,
+`LpplFromId` comes back empty and the leg is priced like **empty space**.
+The tutorial's own turn-3 file shows the difference. Armed Probe #1, sent
+from Prune to Hiho with 44 mg aboard, is bound there at **warp 5**: warp 7
+would cost 22 mg, exactly half the tank and so allowed for an unowned
+planet, but Hiho is unexplored in 2402, so the probe cruises at 6 and settles
+to 5. Long Range Scout #2's first leg, to the unexplored 90210, is warp 6 by
+the same road. This project does not yet keep the player's own view of the
+galaxy in a game it hosts itself — the App works from the host's knowledge
+of every planet — so it prices both as unowned and sends them faster; see
+`tutorial.md` for what that costs the walkthrough.
+
+The fuel the rule weighs is `LFuelUseToWaypoint`'s (`1050:a9f4`): **every
+leg up to and including the one being set**, the earlier ones at the warps
+they already have. A leg longer than a year is costed year by year and the
+larger of that and the whole-leg figure taken; the running total starts
+again at a planet of yours with a dock, and it is the largest total along
+the way that is compared against the tank.
+
 That is why two ships with the same Long Hump 6 behave so differently in the
 tutorial: the scout is sent to Prune at warp 5 and takes two years, while the
 colony ship reaches 90210, further away, in one. Last of all comes the rule
@@ -958,10 +978,10 @@ the answer is warp 8; at ninety-eight it is warp 7. A leg already set to
 Colonize skips this step and keeps its speed. A leg the fleet can take through
 a stargate is warp 11, the pseudo-warp that means "use the gate".
 
-`App::suggested_warp` is all of that but two things: the stargate answer,
-and `LFuelUseToWaypoint`'s habit of summing the fuel of every leg up to the
-one being set (resetting at a planet of yours with a dock) where this takes
-the one leg alone.
+`App::suggested_warp` is all of that but three things: the stargate answer;
+the year-by-year costing and the reset at a dock, where this sums each
+earlier leg as a whole; and the client's ignorance of unexplored planets,
+above.
 
 ## Scrolling
 

@@ -3114,12 +3114,15 @@ impl App {
     /// to Colonize is not slowed at all. Warp 10 and above is cut to 9.
     ///
     /// `destination` is the planet the leg lands on, if it lands on one,
-    /// `task` the leg's task, and `previous` the warp of the leg before it —
-    /// a second or later leg into empty space starts from that rather than
-    /// from cruising speed, when it is faster. The original also offers warp
-    /// 11 for a leg a stargate can take, which this does not model yet, and
-    /// it sums the fuel of every leg up to this one where this takes the
-    /// leg alone.
+    /// `task` the leg's task, and `order` which leg this is — `1` for the
+    /// first after the fleet's own position. The fuel the rule weighs is
+    /// `LFuelUseToWaypoint`'s: **every leg up to and including this one**,
+    /// the earlier ones at the warps they already have, so a scout's fifth
+    /// stop is priced with the four before it and comes out slower than the
+    /// same leg on a full tank. A second or later leg into empty space also
+    /// starts from the warp of the leg before it rather than from cruising
+    /// speed, when that is faster. The original also offers warp 11 for a
+    /// leg a stargate can take, which this does not model yet.
     #[must_use]
     pub fn suggested_warp(
         &self,
@@ -3127,7 +3130,7 @@ impl App {
         distance: i32,
         destination: Option<i16>,
         task: u8,
-        previous: Option<u8>,
+        order: usize,
     ) -> u8 {
         use stars_core::components::slot;
         use stars_formats::task;
@@ -3149,8 +3152,24 @@ impl App {
         let ife = owner
             .and_then(|owner| game.players.get(owner))
             .is_some_and(|p| p.race.has_lrt(stars_core::race::lrt::IFE));
-        let fuel_at =
-            |warp: i16| record.fuel_use(designs, u8::try_from(warp).unwrap_or(0), distance, ife);
+        // What the legs already ahead of this one cost, at their own warps.
+        let order = order.max(1);
+        let earlier: i32 = (1..order.min(record.waypoints.len()))
+            .map(|i| {
+                let leg = &record.waypoints[i];
+                #[allow(clippy::cast_possible_truncation)]
+                let d =
+                    stars_core::movement::distance(record.waypoints[i - 1].position, leg.position)
+                        as i32;
+                record.fuel_use(designs, leg.warp, d, ife)
+            })
+            .sum();
+        let fuel_at = |warp: i16| {
+            earlier + record.fuel_use(designs, u8::try_from(warp).unwrap_or(0), distance, ife)
+        };
+        let previous = (order > 1)
+            .then(|| record.waypoints.get(order - 1).map(|w| w.warp))
+            .flatten();
         let aboard = record.cargo.fuel;
         let capacity = record.fuel_capacity(designs);
 
@@ -3303,11 +3322,8 @@ impl App {
             .then_some(target)
             .flatten()
             .and_then(|id| i16::try_from(id).ok());
-        let previous = (fleet.waypoints.len() > 1)
-            .then(|| fleet.waypoints.last().map(|w| w.warp))
-            .flatten();
-        let warp =
-            self.suggested_warp(index, distance, landed, stars_formats::task::NONE, previous);
+        let order = fleet.waypoints.len();
+        let warp = self.suggested_warp(index, distance, landed, stars_formats::task::NONE, order);
 
         let Some(game) = self.game.as_mut() else {
             return false;
@@ -3355,14 +3371,19 @@ impl App {
     ///
     /// `FAddWayPoint` stores the object's own id and its `grobj` class in the
     /// waypoint's high nibble (`1058:7504`), and the class matters on its own:
-    /// a bare id cannot say whether it means planet 7 or fleet 7.
+    /// a bare id cannot say whether it means planet 7 or fleet 7. A fleet's
+    /// id is its **full object word** — the owner above the fleet number's
+    /// nine bits — which is how a leg can be aimed at somebody else's ship,
+    /// and what the tutorial's page 34 checks for (`0x200`, player one's
+    /// fleet zero).
     #[must_use]
     pub fn waypoint_target(&self, object: ScanObject) -> (Option<u16>, u8) {
         let game = self.game.as_ref();
         match object {
             ScanObject::Planet(id) => (u16::try_from(id).ok(), stars_core::fleet::grobj::PLANET),
             ScanObject::Fleet(index) => (
-                game.and_then(|game| game.fleets.get(index)).map(|f| f.id),
+                game.and_then(|game| game.fleets.get(index))
+                    .map(|f| (u16::try_from(f.owner.max(0)).unwrap_or(0) << 9) | (f.id & 0x1ff)),
                 stars_core::fleet::grobj::FLEET,
             ),
             ScanObject::Thing(thing) => {
@@ -3427,8 +3448,7 @@ impl App {
             .then_some(target)
             .flatten()
             .and_then(|id| i16::try_from(id).ok());
-        let previous = (waypoint > 1).then(|| fleet.waypoints[waypoint - 1].warp);
-        let warp = self.suggested_warp(index, distance.max(1), landed, task, previous);
+        let warp = self.suggested_warp(index, distance.max(1), landed, task, waypoint);
 
         let Some(game) = self.game.as_mut() else {
             return false;
@@ -4617,11 +4637,15 @@ impl App {
             match class {
                 PLANET_CLASS => return self.planet_name(i16::try_from(id).unwrap_or(-1)),
                 FLEET_CLASS => {
-                    if let Some(index) = self
-                        .game
-                        .as_ref()
-                        .and_then(|game| game.fleets.iter().position(|f| f.id == id))
-                    {
+                    // The full object word: the owner above nine bits of
+                    // fleet number.
+                    let owner = i16::try_from(id >> 9).unwrap_or(-1);
+                    let number = id & 0x1ff;
+                    if let Some(index) = self.game.as_ref().and_then(|game| {
+                        game.fleets
+                            .iter()
+                            .position(|f| f.owner == owner && f.id & 0x1ff == number)
+                    }) {
                         return self.fleet_display_name(index);
                     }
                 }
