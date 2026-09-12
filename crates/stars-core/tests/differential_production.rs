@@ -838,16 +838,31 @@ fn the_queue_stops_where_the_original_stops() {
     generate_turn(&mut state, &mut rng);
 
     let planet = &state.planets[0];
+    // The auto entry keeps its target and banks no progress of its own; the
+    // part-built factory the year ended on sits in front of it as an entry
+    // of its own — `Factory ×1 at n%` ahead of `Factories (Auto Build)`,
+    // which is how every real file with a working auto-build order reads.
+    let auto = planet
+        .queue
+        .iter()
+        .find(|e| e.item == item::AUTO_FACTORY)
+        .expect("the auto entry survives");
     assert_eq!(
-        planet.queue.first().map(|e| (e.item, e.count)),
-        Some((item::AUTO_FACTORY, 100)),
-        "an auto-build target is not a countdown"
+        (auto.count, auto.completion),
+        (100, 0),
+        "a target, not a countdown"
     );
     assert!(
         planet.factories > 10,
         "and it did build some: {}",
         planet.factories
     );
+    if planet.queue.len() == 2 {
+        let leftover = &planet.queue[0];
+        assert_eq!(leftover.item, item::FACTORY);
+        assert_eq!(leftover.count, 1);
+        assert!(leftover.completion > 0, "the part-built one, in front");
+    }
 }
 
 /// The year estimate: when will this be finished?

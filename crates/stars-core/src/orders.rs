@@ -323,6 +323,25 @@ pub fn resolve_colonist_drops(state: &mut GameState, drops: &[ColonistDrop]) -> 
                 // default queue, not an empty one.
                 apply_default_queue(state, index);
                 changed.push(id);
+                // "Your colonists now control …": `DropColonists` sends 10,
+                // or 11 to an Alternate Reality race, with the planet as
+                // both object and parameter.
+                if let Ok(who) = usize::try_from(player) {
+                    let ar = state
+                        .players
+                        .get(who)
+                        .is_some_and(|p| p.race.prt() == Some(crate::race::Prt::Ar));
+                    state.messages.push(crate::message::Message {
+                        player: who,
+                        id: if ar {
+                            crate::message::id::COLONISTS_CONTROL_AR
+                        } else {
+                            crate::message::id::COLONISTS_CONTROL
+                        },
+                        object: id,
+                        params: vec![id],
+                    });
+                }
             }
             crate::ground::Outcome::Taken { player, colonists } => {
                 let planet = &mut state.planets[index];
@@ -518,12 +537,35 @@ pub fn execute_arrival_tasks(state: &mut GameState) -> (Vec<(u16, u8)>, Vec<Colo
                         drops.push(drop);
                     }
                     done.push((state.fleets[index].id, job));
+                    // The colony ship does not survive its colony: the fleet
+                    // is dismantled where it lands and its minerals go down
+                    // with the colonists, which is what the tutorial means by
+                    // "the old fleet #3 was recycled when you colonized
+                    // 90210". The player is told the way a scrapping is told
+                    // — `idmHasDismantledKtMinerals...` with the fleet named
+                    // by `WFromLpfl` and the tonnage — and the fleet number
+                    // comes free for the next ship built.
+                    dismantle_colony_fleet(state, index, planet_id);
+                    scrapped.push(index);
+                    continue;
                 }
             }
             task::TRANSPORT => {
                 if let Some(orders) = transport {
                     let mut moved = false;
+                    // Fuel only changes hands at a starbase: a planet with
+                    // none has no tanks, so a QuikDrop's "unload all" of the
+                    // fifth kind moves nothing there rather than draining
+                    // the fleet into the ground.
+                    let starbase = state
+                        .planets
+                        .iter()
+                        .find(|p| p.id == planet_id)
+                        .is_some_and(|p| p.starbase);
                     for (kind, item) in orders.items.iter().enumerate() {
+                        if kind == FUEL && !starbase {
+                            continue;
+                        }
                         let amount = match item.action {
                             XferAction::LoadAll => i32::MAX,
                             XferAction::LoadExact => i32::from(item.quantity),
@@ -662,6 +704,45 @@ fn scrap_fleet(state: &mut GameState, index: usize) {
     }
     state.fleets[index].stacks.clear();
     state.fleets[index].cargo = crate::fleet::Cargo::default();
+}
+
+/// Break up a fleet that has just planted a colony, and say so.
+///
+/// The minerals go to the planet as a scrapping's do, and the message is the
+/// one the turn-3 tutorial file carries: id `89`, object the planet, then
+/// the fleet's name word, the tonnage as a long, and the planet again.
+fn dismantle_colony_fleet(state: &mut GameState, index: usize, planet: i16) {
+    let recovered = scrap_value(state, index);
+    let total: i32 = recovered.iter().sum();
+    let fleet = &state.fleets[index];
+    let owner = fleet.owner;
+    let id = fleet.id;
+    let designs = usize::try_from(owner)
+        .ok()
+        .and_then(|o| state.designs.get(o))
+        .map_or(&[][..], Vec::as_slice);
+    let name = crate::fleet::primary_design(fleet, designs).map_or(
+        crate::message::fleet_name_word(id, 0, false),
+        |primary| {
+            crate::message::fleet_name_word(
+                id,
+                u8::try_from(primary.design).unwrap_or(0),
+                primary.distinct > 1,
+            )
+        },
+    );
+    scrap_fleet(state, index);
+    if let Ok(player) = usize::try_from(owner) {
+        let mut params = vec![name];
+        params.extend_from_slice(&crate::message::Message::long(total));
+        params.push(planet);
+        state.messages.push(crate::message::Message {
+            player,
+            id: crate::message::id::FLEET_DISMANTLED,
+            object: planet,
+            params,
+        });
+    }
 }
 
 /// Give a fleet to another player.
@@ -1353,14 +1434,24 @@ mod tests {
         let (done, drops) = execute_arrival_tasks(&mut state);
         assert_eq!(done, vec![(3, task::COLONIZE)]);
         assert_eq!(drops.len(), 1);
-        // The task is consumed, which is why a saved game's reached waypoints
-        // all read zero.
-        assert_eq!(state.fleets[0].waypoints[0].task, task::NONE);
-        assert_eq!(state.fleets[0].cargo.colonists, 0);
+        // The colony ship does not outlive its colony: the fleet is
+        // dismantled on landing and the player told so, the way a scrapping
+        // is told.
+        assert!(state.fleets.is_empty(), "the colony fleet was dismantled");
+        assert_eq!(
+            state.messages.iter().map(|m| m.id).collect::<Vec<_>>(),
+            vec![crate::message::id::FLEET_DISMANTLED]
+        );
+        assert_eq!(state.messages[0].object, 1, "about the planet");
+        assert_eq!(state.messages[0].params.len(), 4);
 
         resolve_colonist_drops(&mut state, &drops);
         assert_eq!(state.planets[0].owner, Some(0));
         assert_eq!(state.planets[0].pop, 40);
+        assert_eq!(
+            state.messages.last().map(|m| m.id),
+            Some(crate::message::id::COLONISTS_CONTROL)
+        );
     }
 
     /// Colonising is refused where it would make no sense, and the order is

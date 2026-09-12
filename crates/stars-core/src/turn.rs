@@ -308,6 +308,7 @@ pub fn generate_turn_with_orders(
             .players
             .get(owner_index)
             .map_or([0u8; 6], |p| p.research.levels);
+        let had_queue = !state.planets[index].queue.is_empty();
         let built = run_queue(
             &mut state.planets[index],
             &race,
@@ -319,8 +320,40 @@ pub fn generate_turn_with_orders(
         for (i, slot) in state.planets[index].surface_min.iter_mut().enumerate() {
             *slot = available[i];
         }
+        let id = state.planets[index].id;
+        // What the planet has to say about it: one message per kind of
+        // installation finished, singular or plural, and one when the queue
+        // has been worked through. The turn-3 tutorial file shows the
+        // shape — `54` with `[10, planet]` and `62` with `[planet]`.
+        for (item, count) in &built {
+            let item = item::auto_builds(*item).unwrap_or(*item);
+            let message = match (item, *count) {
+                (item::FACTORY, 1) => Some((crate::message::id::BUILT_FACTORY, vec![id])),
+                (item::FACTORY, n) => {
+                    Some((crate::message::id::BUILT_FACTORIES, vec![n_i16(n), id]))
+                }
+                (item::MINE, 1) => Some((crate::message::id::BUILT_MINE, vec![id])),
+                (item::MINE, n) => Some((crate::message::id::BUILT_MINES, vec![n_i16(n), id])),
+                _ => None,
+            };
+            if let Some((message, params)) = message {
+                state.messages.push(crate::message::Message {
+                    player: owner_index,
+                    id: message,
+                    object: id,
+                    params,
+                });
+            }
+        }
+        if had_queue && state.planets[index].queue.is_empty() {
+            state.messages.push(crate::message::Message {
+                player: owner_index,
+                id: crate::message::id::QUEUE_EMPTY,
+                object: id,
+                params: vec![id],
+            });
+        }
         if !built.is_empty() {
-            let id = state.planets[index].id;
             report.built.push((id, built));
         }
         if !ships_built.is_empty() {
@@ -1916,6 +1949,11 @@ fn move_wormholes(state: &mut GameState, rng: &mut Rng) -> Vec<u16> {
     jumped
 }
 
+/// A count as a message parameter carries it.
+fn n_i16(count: i32) -> i16 {
+    i16::try_from(count).unwrap_or(i16::MAX)
+}
+
 /// The lowest fleet number a player is not already using.
 ///
 /// Fleet numbers are per player and are reused once a fleet is gone, which is
@@ -1981,6 +2019,9 @@ fn run_queue(
     let mut completed: Vec<(u16, i32)> = Vec::new();
     let mut queue = std::mem::take(&mut planet.queue);
     let last = queue.len().saturating_sub(1);
+    // The part-built unit an auto-build entry leaves behind, as a concrete
+    // entry to go in front of it: `(index of the auto entry, entry)`.
+    let mut leftovers: Vec<(usize, crate::production::QueueItem)> = Vec::new();
     // What one unit of alchemy costs, and whether the entry just passed over
     // was auto alchemy — which is what lets the next item ask for some.
     let alchemy_cost = planetary_item_cost(item::ALCHEMY, race, false).map(|c| c.resources);
@@ -2090,17 +2131,42 @@ fn run_queue(
             completed.push((entry.item, outcome.built));
         }
         let entry = &mut queue[index];
-        if !auto {
+        if auto {
+            // An auto-build entry keeps no progress of its own. What was
+            // part-paid this year becomes a **concrete** entry for one of the
+            // item, in front of the auto entry, which is how a real file
+            // shows it — `Factory ×1 at 87%` ahead of `Factories (Auto Build)
+            // 100` — and why the tutorial finds three entries in a queue it
+            // put two things into.
+            if outcome.completion_pct > 0 {
+                let concrete = item::auto_builds(entry.item).unwrap_or(entry.item);
+                leftovers.push((
+                    index,
+                    crate::production::QueueItem {
+                        count: 1,
+                        item: concrete,
+                        ship: false,
+                        completion: outcome.completion_pct,
+                    },
+                ));
+            }
+            entry.completion = 0;
+        } else {
             entry.count = outcome.remaining;
+            entry.completion = outcome.completion_pct;
         }
-        entry.completion = outcome.completion_pct;
         if outcome.status.stops_the_queue() {
             break;
         }
     }
 
     // Drop anything finished; an auto-build entry stays even at zero, because
-    // it becomes buildable again as the planet grows.
+    // it becomes buildable again as the planet grows. The part-built units
+    // go in ahead of the auto entries that started them, last first so the
+    // indices stay good.
+    for (index, leftover) in leftovers.into_iter().rev() {
+        queue.insert(index, leftover);
+    }
     queue.retain(|e| e.count > 0 || e.is_auto());
     planet.queue = queue;
     completed

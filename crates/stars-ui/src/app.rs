@@ -1523,6 +1523,43 @@ impl App {
         let owner = u16::try_from(fleet_record.owner.max(0)).unwrap_or(0);
         let source = (owner << 9) | (fleet_record.id & 0x1ff);
 
+        // The transfer dialog only ever asks for what can actually move —
+        // the replay trusts its figures and a planet asked for more people
+        // than it has would be emptied — so the asking is clamped here to
+        // what the hold has room for and the planet has to give, or, the
+        // other way, to what the hold is carrying.
+        let designs = usize::try_from(fleet_record.owner)
+            .ok()
+            .and_then(|o| game.designs.get(o))
+            .map_or(&[][..], Vec::as_slice);
+        let holds = match kind {
+            stars_core::orders::FUEL => fleet_record.cargo.fuel,
+            stars_core::orders::COLONISTS => fleet_record.cargo.colonists,
+            k => fleet_record.cargo.minerals[k],
+        };
+        let free = if kind == stars_core::orders::FUEL {
+            fleet_record.fuel_capacity(designs) - fleet_record.cargo.fuel
+        } else {
+            fleet_record.cargo_capacity(designs) - fleet_record.cargo.mass()
+        };
+        let stock = game
+            .planets
+            .iter()
+            .find(|p| i16::try_from(planet).is_ok_and(|id| id == p.id))
+            .map_or(0, |p| match kind {
+                stars_core::orders::COLONISTS => p.pop,
+                stars_core::orders::FUEL => i32::MAX,
+                k => p.surface_min[k],
+            });
+        let amount = if amount > 0 {
+            amount.min(free.max(0)).min(stock.max(0))
+        } else {
+            amount.max(-holds)
+        };
+        if amount == 0 {
+            return 0;
+        }
+
         let mut quantities = [0i32; CARGO_KINDS];
         quantities[kind] = amount;
         let record = CargoTransferRecord {
@@ -3259,14 +3296,28 @@ impl App {
         let Some(fleet) = game.fleets.get_mut(index) else {
             return false;
         };
+        // A new leg starts out doing what the leg before it does — "Notice
+        // that the waypoint task has been copied from the previous
+        // waypoint", the tutorial says of a freighter's second stop — task,
+        // cargo table and all.
+        let (task, transport, task_data) = fleet.waypoints.last().map_or(
+            (stars_formats::task::NONE, None, Vec::new()),
+            |previous| {
+                (
+                    previous.task,
+                    previous.transport,
+                    previous.task_data.clone(),
+                )
+            },
+        );
         fleet.waypoints.push(stars_core::fleet::Waypoint {
             position: at,
             target,
             target_class,
             warp,
-            task: stars_formats::task::NONE,
-            transport: None,
-            task_data: Vec::new(),
+            task,
+            transport,
+            task_data,
         });
         let last = fleet.waypoints.len() - 1;
         if fleet.waypoints.len() == 2 {
@@ -6862,12 +6913,21 @@ impl App {
         if planet.owner != i16::try_from(self.local_player()).ok() {
             return;
         }
+        // `InitializeProductionDlg` (`10d0:3430`) opens with the **last
+        // entry that is not an auto-build item** selected, or the top-of-
+        // queue line when there is none — so Add drops a new item in behind
+        // whatever real work is queued and ahead of the standing auto-build
+        // orders.
+        let queue_index = planet
+            .queue
+            .iter()
+            .rposition(|entry| entry.ship || !entry.is_auto());
         self.production = Some(Production {
             planet: planet.id,
             queue: planet.queue.clone(),
             no_research: planet.no_research,
             inventory_index: 0,
-            queue_index: None,
+            queue_index,
         });
     }
 

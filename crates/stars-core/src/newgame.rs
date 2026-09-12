@@ -278,6 +278,16 @@ pub struct NewGame {
     pub unlimited_minerals: bool,
     /// Scores are public (`fVisScores`).
     pub public_scores: bool,
+    /// **Accelerated BBS play** (bit 5 of the flag word), which gives every
+    /// player a head start. `GenerateWorld` (`1078:0136`) does three things
+    /// with it: a mineral concentration under 40 gets five more, the stock
+    /// of surface minerals every homeworld starts with is a quarter larger,
+    /// and each homeworld's people are multiplied by
+    /// `(2 × growth rate + 10) / 10` — four times, for a 15% race. The
+    /// tutorial's world is set up this way, which is why its home planet
+    /// starts with 100,000 colonists and builds twenty factories in two
+    /// years.
+    pub accelerated: bool,
     /// The players, in order.
     pub players: Vec<NewPlayer>,
 }
@@ -295,6 +305,7 @@ impl Default for NewGame {
             slow_tech: false,
             unlimited_minerals: false,
             public_scores: false,
+            accelerated: false,
             players: vec![NewPlayer::human(Race::humanoid())],
         }
     }
@@ -588,6 +599,11 @@ fn describe_planets(
             }
             planet.min_level[j] = 0;
             planet.surface_min[j] = 0;
+            // Accelerated play tops up a thin concentration, before the
+            // impoverishing pass below — which can still overwrite it.
+            if config.accelerated && planet.min_conc[j] < 40 {
+                planet.min_conc[j] += 5;
+            }
         }
 
         // Roughly a third of planets are impoverished in one mineral, and a
@@ -622,6 +638,9 @@ fn describe_planets(
             let mut amount = i32::from(rng.random(conc.saturating_mul(10)) + 10);
             if amount < 200 {
                 amount += 155 + i32::from(rng.random(150));
+            }
+            if config.accelerated {
+                amount += amount / 4;
             }
             first.surface_min[j] = amount;
         }
@@ -850,6 +869,13 @@ fn settle_players(
         // colonists (`GenerateWorld` at `1078:1fbd`).
         if ai_level(config.players[i].control) >= POPULATION_BONUS_LEVEL {
             home.pop += home.pop / 10;
+        }
+        // Accelerated play: `pop * (2 * PctTrueMaxGrowth + 10) / 10`
+        // (`GenerateWorld`, after the computer player's tenth and before the
+        // leftover points are spent).
+        if config.accelerated {
+            let growth = i32::from(crate::population::pct_true_max_growth(&race));
+            home.pop = home.pop * (2 * growth + 10) / 10;
         }
 
         // Alternate Reality lives on its starbase, so its homeworld has no
@@ -1387,21 +1413,14 @@ fn build_universe(
 /// Player 0 is the default race named `Humanoid`; player 1 is a computer
 /// player named `Berserker`.
 ///
-/// # The galaxy will not be the original's
+/// # The galaxy is the original's
 ///
-/// The seed is fixed and reproduced, but this project cannot turn a seed
-/// into the *same* universe — see the note at the top of this module: the
-/// original sorts its scratch array with a 1996 C runtime's `qsort`, whose
-/// permutation of equal x coordinates is unspecified, and every later draw
-/// indexes that array. So the tutorial's world here has the right shape —
-/// tiny, sparse, two players close together, no random events — and
-/// different planets.
-///
-/// That matters for the tutorial's own pages, which name planets and fleets
-/// by id: page 10 sends the miner to planet `0x0c`, which the original calls
-/// Prune. Here planet `0x0c` is some other planet. The pages are transcribed
-/// from the original and are right about the original; they will point at
-/// the wrong worlds until seed-identical generation is solved.
+/// `crates/stars-core/tests/tutorial_seed.rs` generates from these settings
+/// and this seed and matches every planet of `fixtures/games/tutorial/` —
+/// names and coordinates — so the pages' planet ids mean what they say.
+/// Bit 5 is **accelerated BBS play**, and it is what makes the tutorial's
+/// home planets start with 100,000 colonists rather than 25,000; see
+/// [`NewGame::accelerated`].
 #[must_use]
 pub fn tutorial() -> (NewGame, u32) {
     let config = NewGame {
@@ -1417,6 +1436,8 @@ pub fn tutorial() -> (NewGame, u32) {
         unlimited_minerals: false,
         // Bit 6, `fVisScores`.
         public_scores: true,
+        // Bit 5, accelerated BBS play.
+        accelerated: true,
         players: vec![
             NewPlayer {
                 race: Race::humanoid(),

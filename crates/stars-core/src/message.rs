@@ -46,6 +46,18 @@ pub mod id {
     /// `idmHasCompletedAssignedOrders`: a fleet has run out of orders.
     /// `SatisfyOrders`' cancel path.
     pub const ORDERS_COMPLETE: u16 = 0x4e;
+    /// `idmHasCompletedOrdersProductionQueueEmpty`: a planet's queue has
+    /// been worked through and is empty. The turn-3 tutorial file carries
+    /// one with the planet as object and parameter.
+    pub const QUEUE_EMPTY: u16 = 0x3e;
+    /// `idmColonistsControl`: the colonists dropped on an unowned planet
+    /// have taken it (`DropColonists`, `10b8:34e2`, which sends `10`, or
+    /// `11` for an Alternate Reality race). Object and parameter are the
+    /// planet.
+    pub const COLONISTS_CONTROL: u16 = 0x0a;
+    /// `idmColonistsHaveDeployedOrbitalConstructionModuleHa`: the same, for
+    /// an Alternate Reality race, whose colonists live on the starbase.
+    pub const COLONISTS_CONTROL_AR: u16 = 0x0b;
     /// `idmSomeoneHasSweptMinesMineField`: somebody cleared mines from a field
     /// of yours (`SweepForMines`, `10b8:76a4`).
     pub const YOUR_FIELD_SWEPT: u16 = 0xbe;
@@ -359,6 +371,35 @@ impl Message {
                  window tells you where it comes from."
                     .to_string()
             }
+            // One built carries only the planet; several carry the count
+            // first and then the planet.
+            id::BUILT_FACTORY => format!("A factory has been built on planet {}.", self.object),
+            id::BUILT_FACTORIES => format!(
+                "{} factories have been built on planet {}.",
+                self.params.first().copied().unwrap_or(0),
+                self.object
+            ),
+            id::BUILT_MINE => format!("A mine has been built on planet {}.", self.object),
+            id::BUILT_MINES => format!(
+                "{} mines have been built on planet {}.",
+                self.params.first().copied().unwrap_or(0),
+                self.object
+            ),
+            id::QUEUE_EMPTY => format!(
+                "Planet {} has finished everything in its production queue, which is now \
+                 empty.",
+                self.object
+            ),
+            id::FLEET_DISMANTLED => format!(
+                "Fleet {} has been dismantled and its {}kT of minerals put down on planet {}.",
+                i32::from(self.params.first().copied().unwrap_or(0)) & 0x1ff,
+                long(1),
+                self.object
+            ),
+            id::COLONISTS_CONTROL | id::COLONISTS_CONTROL_AR => format!(
+                "Your colonists have settled planet {} and it is yours.",
+                self.object
+            ),
             id::HOME_PLANET => format!(
                 "Planet {} is your home world. Your people have grown restless and are \
                  ready to leave the nest: explore the stars around you, find worlds to \

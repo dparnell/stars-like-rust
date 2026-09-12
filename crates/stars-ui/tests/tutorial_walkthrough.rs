@@ -247,6 +247,34 @@ fn the_first_four_years_play_through_from_the_pages() {
     app.generate_turn();
 
     // --- 2403 -------------------------------------------------------------
+    // The year's news, in the order the original's own turn-3 file has it:
+    // factories built at Stove Top and its queue emptied, the colony ship
+    // broken up on landing, and 90210 taken. Fleet #3 is gone, its number
+    // free for the next ship built.
+    {
+        use stars_core::message::id;
+        let ids: Vec<u16> = app.messages().iter().map(|m| m.id).collect();
+        assert_eq!(
+            ids,
+            vec![
+                id::BUILT_FACTORIES,
+                id::QUEUE_EMPTY,
+                id::FLEET_DISMANTLED,
+                id::COLONISTS_CONTROL
+            ],
+            "{ids:?}"
+        );
+        assert!(
+            !app.game
+                .as_ref()
+                .expect("a game")
+                .fleets
+                .iter()
+                .any(|f| f.owner == 0 && f.id == 2),
+            "the colony ship was dismantled"
+        );
+    }
+
     // Page 13: filter the factory message, then thirty auto-build factories
     // at the top of Stove Top's queue.
     assert!(app.filter_message(stars_core::message::id::BUILT_FACTORIES, true));
@@ -317,4 +345,121 @@ fn the_first_four_years_play_through_from_the_pages() {
     assert_eq!(app.game.as_ref().expect("a game").turn, 4);
     assert!(!app.advance_tutor());
     assert_eq!(page(&app), 17);
+
+    // --- 2404 -------------------------------------------------------------
+    // Page 17: Shaggy Dog in the Summary pane, then Stalwart Defender #5's
+    // waypoint there deleted, Dwarte, and Stove Top double-clicked.
+    app.select_object(ScanObject::Planet(SHAGGY_DOG));
+    assert!(app.goto_fleet(4));
+    // Its first stop is Shaggy Dog, waypoint 1 of the six it was given.
+    assert_eq!(
+        app.game.as_ref().expect("a game").fleets[app.selection.fleet.expect("selected")]
+            .waypoints
+            .len(),
+        6
+    );
+    app.selection.waypoint = Some(1);
+    assert!(app.delete_waypoint(1));
+    assert!(!app.advance_tutor());
+    assert_eq!(bold(&app), Some(5), "now Goto Dwarte");
+    app.select_object(ScanObject::Planet(DWARTE));
+    app.select_object(ScanObject::Planet(STOVE_TOP));
+    assert!(app.advance_tutor());
+    assert_eq!(page(&app), 18);
+
+    // Page 18: a Santa Maria into Stove Top's queue. The queue holds the
+    // factory the auto-build order left part-built and the order itself,
+    // and the dialog opens on the factory — the last real entry — so the
+    // colony ship goes in between: three entries, the ship second, which
+    // is exactly what the page checks for.
+    app.open_production();
+    {
+        let dialog = app.production.as_ref().expect("open");
+        assert_eq!(dialog.queue.len(), 2, "{:?}", dialog.queue);
+        assert_eq!(dialog.queue[0].item, item::FACTORY);
+        assert!(dialog.queue[0].completion > 0, "part-built");
+        assert_eq!(dialog.queue[1].item, item::AUTO_FACTORY);
+        assert_eq!(dialog.queue_index, Some(0), "opens on the last real entry");
+    }
+    let santa_maria_design = app
+        .production_inventory()
+        .iter()
+        .position(|row| row.ship && row.item == 2)
+        .expect("the colony ship design is on offer");
+    app.production.as_mut().expect("open").inventory_index = santa_maria_design;
+    app.production_add(1);
+    app.production_ok();
+    assert!(app.advance_tutor());
+    assert_eq!(page(&app), 19, "2404 is done");
+    app.generate_turn();
+    assert_eq!(app.game.as_ref().expect("a game").turn, 5);
+    assert!(!app.advance_tutor());
+
+    // --- 2405 -------------------------------------------------------------
+    // Page 19: the new Santa Maria is fleet #3 again, filled, then the value
+    // view and a shift-click on Shaggy Dog.
+    assert!(app.goto_fleet(2), "the new colony ship took the old number");
+    let santa_maria = app.selection.fleet.expect("selected");
+    assert_eq!(app.transfer_cargo(santa_maria, 3, 250), 25);
+    assert!(!app.advance_tutor());
+    app.scan_view = stars_ui::ScanView::PlanetValue;
+    shift_click(&mut app, SHAGGY_DOG);
+    assert!(app.advance_tutor());
+    assert_eq!(page(&app), 20);
+
+    // Page 20: Colonize; normal view; Teamster #4 home; 90210; and Armed
+    // Probe #1's waypoint at No Vacancy deleted.
+    assert!(app.set_waypoint_task(task::COLONIZE));
+    app.scan_view = stars_ui::ScanView::Normal;
+    assert!(app.goto_fleet(3));
+    shift_click(&mut app, STOVE_TOP);
+    {
+        // The freighter kept its fuel: QuikDrop's fifth column, fuel, moves
+        // nothing at a planet with no starbase. With the tank still full
+        // and a dock waiting at home, the leg back is flown fast enough to
+        // be there next year, which is what page 21 assumes.
+        let game = app.game.as_ref().expect("a game");
+        let f = &game.fleets[app.selection.fleet.expect("selected")];
+        assert!(f.cargo.fuel > 300, "fuel {}", f.cargo.fuel);
+        let warp = i32::from(f.waypoints[1].warp);
+        assert!(warp * warp >= 58, "warp {warp} gets home in a year");
+    }
+    app.select_object(ScanObject::Planet(PLANET_90210));
+    // The last rung is Armed Probe #1 having other than five orders, which
+    // a probe that has already reached No Vacancy satisfies on its own.
+    if !app.advance_tutor() {
+        assert!(app.goto_fleet(0));
+        app.selection.waypoint = Some(1);
+        assert!(app.delete_waypoint(1));
+        assert!(app.advance_tutor());
+    }
+    assert_eq!(page(&app), 21, "2405 is done");
+    app.generate_turn();
+    assert_eq!(app.game.as_ref().expect("a game").turn, 6);
+    assert!(!app.advance_tutor());
+
+    // --- 2406 -------------------------------------------------------------
+    // Page 21: Teamster #4 to Prune, Transport, QuikLoad, then Stove Top.
+    assert!(app.goto_fleet(3));
+    shift_click(&mut app, PRUNE);
+    assert!(app.set_waypoint_task(task::TRANSPORT));
+    assert!(app.zip_quik(true));
+    assert!(!app.advance_tutor());
+    shift_click(&mut app, STOVE_TOP);
+    assert!(app.advance_tutor());
+    assert_eq!(page(&app), 22);
+
+    // Page 22: QuikDrop at Stove Top, Repeat Orders, then another Santa
+    // Maria in Stove Top's queue.
+    assert!(app.zip_quik(false));
+    let teamster = app.selection.fleet.expect("selected");
+    assert!(app.set_repeat_orders(teamster, true));
+    assert!(!app.advance_tutor());
+    app.select_object(ScanObject::Planet(STOVE_TOP));
+    app.open_production();
+    app.production.as_mut().expect("open").inventory_index = santa_maria_design;
+    app.production_add(1);
+    app.production_ok();
+    assert!(app.advance_tutor());
+    assert_eq!(page(&app), 23, "2406 is done");
 }
