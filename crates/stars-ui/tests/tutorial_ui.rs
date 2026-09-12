@@ -74,6 +74,12 @@ impl Shell {
                     .current_pos(egui::pos2(1700.0, 40.0))
                     .show(ctx, |ui| stars_ui::views::tutorial::view(app, ui));
             }
+            // The Research dialog, where the shell puts it: over the map.
+            if app.research_dialog.is_some() {
+                egui::Window::new("Research")
+                    .current_pos(egui::pos2(900.0, 100.0))
+                    .show(ctx, |ui| stars_ui::views::research::view(app, ui));
+            }
         });
         app.advance_tutor();
     }
@@ -209,7 +215,10 @@ fn year_zero_is_played_through_the_panes() {
     assert_eq!(shell.page(), 5);
 
     // Page 5: round to Armed Probe #1 again, then Weapons in the Research
-    // dialog — a window of the shell's, so it is worked here directly.
+    // dialog and its **Done** button — the button the page names, which
+    // the dialog must therefore have. (F5 is the shell's key, so the dialog
+    // is opened directly; the radio button is a plain egui widget and is
+    // set the same way.)
     shell.press("fleet", "Next");
     shell.press("fleet", "Next");
     assert_eq!(shell.selected_fleet_id(), Some(0));
@@ -220,8 +229,32 @@ fn year_zero_is_played_through_the_panes() {
         .as_mut()
         .expect("the dialog")
         .field = 1;
-    shell.app.research_ok();
-    shell.frame();
+    // A window takes a frame or two to grow to its contents — and then it
+    // must stop: the dialog once grew thirty pixels every frame until Done
+    // had gone off the bottom of the screen.
+    let mut done_at = Vec::new();
+    for _ in 0..6 {
+        shell.frame();
+        done_at.push(
+            shell
+                .app
+                .drawn_button("research", "Done")
+                .expect("Done is drawn")
+                .rect
+                .min
+                .y,
+        );
+    }
+    assert_eq!(done_at[3], done_at[5], "the window settles: {done_at:?}");
+    assert!(
+        shell.app.drawn_button("research", "Help").is_some(),
+        "Help is drawn beside it"
+    );
+    shell.press("research", "Done");
+    assert!(
+        shell.app.research_dialog.is_none(),
+        "Done closes the dialog"
+    );
     assert_eq!(shell.page(), 6, "the year is done");
 
     // Prev walks the other way, and is there too.

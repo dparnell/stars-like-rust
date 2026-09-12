@@ -602,7 +602,7 @@ impl eframe::App for StarsApp {
             && ctx.input(|i| i.key_pressed(egui::Key::F5))
         {
             if self.app.research_dialog.is_some() {
-                self.app.research_cancel();
+                self.app.research_ok();
             } else {
                 self.app.open_research();
             }
@@ -1523,8 +1523,10 @@ impl eframe::App for StarsApp {
                 .resizable(true)
                 .default_width(700.0)
                 .show(ctx, |ui| stars_ui::views::research::view(&mut self.app, ui));
+            // The original's dialog has no Cancel: closing it is Done, and
+            // whatever was set is kept.
             if !open {
-                self.app.research_cancel();
+                self.app.research_ok();
             }
         }
 

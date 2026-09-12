@@ -5,9 +5,12 @@
 //! the left, and what is being researched now with the resource allocation on
 //! the right.
 //!
-//! Nothing is committed until **OK**: the original edits three globals —
+//! Nothing is committed until **Done**: the original edits three globals —
 //! `pctResGlob`, `iResTechNow` and the dropdown — and writes all three at once,
-//! logging a single two-byte `rtLogResearch` order.
+//! logging a single two-byte `rtLogResearch` order. There is no Cancel: the
+//! dialog template (`0x3480ee` in the executable) has just the two buttons,
+//! **Done** (control 2, the one the tutorial's first year tells you to press)
+//! and **Help**.
 //!
 //! See `docs/ui/research.md`.
 
@@ -18,6 +21,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     if app.research_dialog.is_none() {
         return;
     }
+    app.drawn_scope = "research";
 
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
@@ -26,7 +30,11 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             ui.add_space(6.0);
             benefits(app, ui);
         });
-        ui.separator();
+        // Not a separator: a vertical one inside a horizontal layout takes
+        // the window's whole available height, buttons and all, and an
+        // auto-sized window then grows to fit it, thirty pixels a frame,
+        // until it runs off the screen with Done out of sight.
+        ui.add_space(12.0);
         ui.vertical(|ui| {
             ui.set_min_width(360.0);
             currently_researching(app, ui);
@@ -60,16 +68,13 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
 
     ui.separator();
     ui.horizontal(|ui| {
-        if ui.button("OK").clicked() {
+        if crate::views::flow_button(app, ui, "Done", true).clicked() {
             app.research_ok();
         }
-        if ui
-            .button("Cancel")
-            .on_hover_text("Nothing is changed until OK.")
-            .clicked()
-        {
-            app.research_cancel();
-        }
+        // The original's second button opens the help file, which this
+        // project has no reader for yet; it is drawn where it belongs and
+        // left dead rather than dropped.
+        crate::views::flow_button(app, ui, "Help", false);
     });
 }
 

@@ -15,11 +15,13 @@ Two columns: the six fields of study, and what is being researched now.
 |----|---------|
 | `0x431`…`0x436` | the six field radio buttons — `iResTechNow = wParam - 0x431` |
 | `0x43b` | the **Next field to research** dropdown |
-| `2`, `0x76` | OK, Help |
+| `2`, `0x76` | **Done**, Help — the dialog template at `0x3480ee` in the executable captions them `Done` and `&Help` |
 
-There is no Cancel: the dialog edits three globals — `pctResGlob`,
-`iResTechNow` and the dropdown — and control `2` is the one that **commits**
-them. It writes `PLAYER.pctResearch` and both nibbles of `PLAYER.iTechCur`, and
+There is no Cancel, and no OK: the dialog edits three globals — `pctResGlob`,
+`iResTechNow` and the dropdown — and control `2`, **Done**, is the one that
+**commits** them. Closing the dialog any other way is the same button, so
+whatever was set is kept; the tutorial's first year ("select Weapons and
+press Done") depends on the button being called that. It writes `PLAYER.pctResearch` and both nibbles of `PLAYER.iTechCur`, and
 logs a single two-byte `rtLogResearch` order (type 34) carrying
 `iTechCur << 8 | pctResearch` — but only if something actually changed.
 
@@ -99,7 +101,8 @@ dropdown with its nibble encoding, the remaining cost and the `Maxed Out` and
 `Never` cases, the year estimate with Generalized Research's halving, the four
 allocation figures including the projection with its two rules, the benefits
 list ordered and coloured by distance, and the trait notes. Nothing is
-committed until OK, and OK writes nothing when nothing changed.
+committed until Done, and Done writes nothing when nothing changed. The Help
+button is drawn but dead, there being no help reader yet.
 
 ## What is not
 
