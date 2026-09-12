@@ -31,12 +31,40 @@ is already done, so a page you have satisfied in advance is skipped rather
 than shown. Past `0x27f` — the last paragraph of page 80 — it calls
 `TutorError(0x20a)` and `EndTutor`.
 
+`StartTutor` runs the same loop before it shows anything, which is why a
+new game **must open with something to do**: page one asks you to read your
+messages, and `GenerateWorld` (`1078:0136`) gives every player five — four
+playing tips (`idm 0x7f`–`0x82`) and `idmHomePlanetPeopleReadyLeaveNestExplore`
+(`0xa9`) about the home planet — which is what the page means by *"There are
+five messages in the Messages pane"*. Until this project's new games sent
+them, page one was satisfied the moment it opened and the tutorial began on
+page two.
+
+Fifty-five call sites reach `AdvanceTutor` in the original — after a click on
+the map, a change of selection, a message read, a waypoint added. This
+project asks once a frame instead, after the frame's input has been handled,
+which covers every one of those places and costs only reads.
+
 ## The text
 
-Every word of the tutorial is the game's own writing, so **none of it is in
-this repository**. It is read at run time out of the player's copy of
-`stars.exe`, exactly as the artwork is; with no copy of the game there is no
-tutorial text and the frontend says so.
+Every word of the original's tutorial is the game's own writing, so **none of
+it is in this repository**. It is read at run time out of the player's copy of
+`stars.exe`, exactly as the artwork is.
+
+With no copy of the game to read from, the tutorial shows this project's own
+**retelling** of the same eighty pages instead —
+`crates/stars-ui/src/tutorial_text.rs`. It keeps the original's shape exactly:
+eight slots to a page, the same paragraph breaks, the same page endings, and
+each slot saying what the original's slot says — the same planet, fleet, key
+and number — so that the emphasis the step machine points at by slot lands on
+the same instruction whichever text is showing. `tests/tutorial_text.rs`
+checks that shape slot for slot against the original when a copy is to hand,
+and that no slot is the original's words. The game's own words are preferred
+whenever they can be read.
+
+The text used to be the only thing missing, and it made the window say so
+instead of teaching; a player starting the tutorial from a build that had not
+found a copy of the game saw a note about where the words come from.
 
 `CchTutorString` uses the same nibble coding as the main string table — a
 per-string nibble count, a per-block start pointer, and a character table that

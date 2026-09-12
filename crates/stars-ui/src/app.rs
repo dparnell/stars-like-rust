@@ -12583,17 +12583,31 @@ impl App {
         self.tutor = None;
     }
 
-    /// The paragraphs of the page showing, read out of the player's copy of
-    /// the game.
+    /// The paragraphs of the page showing.
     ///
-    /// `None` when the tutorial is not running, or when no copy of the
-    /// original has been found — its words are the game's own and none of
-    /// them are in this program.
+    /// The game's own words when a copy of the original has been found to
+    /// read them from, and otherwise this project's retelling of the same
+    /// page — see [`crate::tutorial_text`] — so the tutorial teaches either
+    /// way. `None` only when the tutorial is not running.
     #[must_use]
     pub fn tutor_page(&self) -> Option<Vec<String>> {
         let tutor = self.tutor.as_ref()?;
-        let art = self.art.as_ref()?;
-        stars_formats::tutorial::page(art.executable(), tutor.page())
+        self.art
+            .as_ref()
+            .and_then(|art| stars_formats::tutorial::page(art.executable(), tutor.page()))
+            .or_else(|| crate::tutorial_text::page(tutor.page()))
+    }
+
+    /// Whether the page showing is in the game's own words rather than this
+    /// project's.
+    #[must_use]
+    pub fn tutor_page_is_original(&self) -> bool {
+        let Some(tutor) = self.tutor.as_ref() else {
+            return false;
+        };
+        self.art.as_ref().is_some_and(|art| {
+            stars_formats::tutorial::page(art.executable(), tutor.page()).is_some()
+        })
     }
 }
 

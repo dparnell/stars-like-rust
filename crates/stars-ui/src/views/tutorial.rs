@@ -25,31 +25,14 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     sunken(ui.painter(), outer);
     ui.painter().rect_filled(area, 0.0, face());
 
-    match app.tutor_page() {
-        Some(paragraphs) => {
-            let bold = app
-                .tutor
-                .as_ref()
-                .and_then(crate::tutorial::Tutor::bold_line);
-            paint(ui, area, line, &paragraphs, bold);
-        }
-        None => {
-            let mut child = ui.child_ui(
-                area.shrink(4.0),
-                egui::Layout::top_down(egui::Align::Min),
-                None,
-            );
-            child.set_clip_rect(area);
-            child.label(
-                egui::RichText::new(
-                    "The tutorial's words are the game's own and are read from a copy of \
-                     the original. File (Use the original's pictures…) is where to point \
-                     this at one.",
-                )
-                .small()
-                .weak(),
-            );
-        }
+    // The game's own words when a copy of the original is to hand, and this
+    // project's retelling of the page when it is not.
+    if let Some(paragraphs) = app.tutor_page() {
+        let bold = app
+            .tutor
+            .as_ref()
+            .and_then(crate::tutorial::Tutor::bold_line);
+        paint(ui, area, line, &paragraphs, bold);
     }
 
     // `Hide`, `Hint` and `Panic!`.
