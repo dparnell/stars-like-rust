@@ -708,11 +708,34 @@ fn scrap_fleet(state: &mut GameState, index: usize) {
 
 /// Break up a fleet that has just planted a colony, and say so.
 ///
-/// The minerals go to the planet as a scrapping's do, and the message is the
-/// one the turn-3 tutorial file carries: id `89`, object the planet, then
-/// the fleet's name word, the tonnage as a long, and the planet again.
+/// **Two thirds** of each mineral in the ships' cost goes down with the
+/// colonists, truncated per mineral, and whatever minerals the hold carried
+/// with it. The tutorial's own turn-3 file is the check: its Santa Maria
+/// costs 27/10/26 and the message says 41kT were put down on 90210, which
+/// is 18 + 6 + 17. The message is id `89`, object the planet, then the
+/// fleet's name word, the tonnage as a long, and the planet again.
 fn dismantle_colony_fleet(state: &mut GameState, index: usize, planet: i16) {
-    let recovered = scrap_value(state, index);
+    let mut recovered = [0i32; MINERALS];
+    {
+        let fleet = &state.fleets[index];
+        let designs = state
+            .designs
+            .get(usize::try_from(fleet.owner).unwrap_or(usize::MAX));
+        for stack in &fleet.stacks {
+            let Some(cost) = designs
+                .and_then(|d| d.get(usize::from(stack.design)))
+                .and_then(crate::design::ShipDesign::cost)
+            else {
+                continue;
+            };
+            for (kind, total) in recovered.iter_mut().enumerate() {
+                *total += stack.count * (cost.minerals[kind] * 2 / 3);
+            }
+        }
+        for (kind, total) in recovered.iter_mut().enumerate() {
+            *total += fleet.cargo.minerals[kind];
+        }
+    }
     let total: i32 = recovered.iter().sum();
     let fleet = &state.fleets[index];
     let owner = fleet.owner;
@@ -731,7 +754,13 @@ fn dismantle_colony_fleet(state: &mut GameState, index: usize, planet: i16) {
             )
         },
     );
-    scrap_fleet(state, index);
+    if let Some(planet) = state.planets.iter_mut().find(|p| p.id == planet) {
+        for (kind, amount) in recovered.iter().enumerate() {
+            planet.surface_min[kind] += amount;
+        }
+    }
+    state.fleets[index].stacks.clear();
+    state.fleets[index].cargo = crate::fleet::Cargo::default();
     if let Ok(player) = usize::try_from(owner) {
         let mut params = vec![name];
         params.extend_from_slice(&crate::message::Message::long(total));

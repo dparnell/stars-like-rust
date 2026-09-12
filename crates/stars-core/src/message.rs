@@ -46,6 +46,13 @@ pub mod id {
     /// `idmHasCompletedAssignedOrders`: a fleet has run out of orders.
     /// `SatisfyOrders`' cancel path.
     pub const ORDERS_COMPLETE: u16 = 0x4e;
+    /// `idmStarbaseHasBuiltNew`: one ship built, with the new fleet as the
+    /// object and `[planet, (player << 5) | design]` as parameters
+    /// (`FBuildObject`, `10b8:19b2`).
+    pub const SHIP_BUILT: u16 = 0x2f;
+    /// `idmStarbaseHasBuiltNewShips`: several, with the count between the
+    /// planet and the design word.
+    pub const SHIPS_BUILT: u16 = 0x30;
     /// `idmHasCompletedOrdersProductionQueueEmpty`: a planet's queue has
     /// been worked through and is empty. The turn-3 tutorial file carries
     /// one with the planet as object and parameter.
@@ -384,6 +391,17 @@ impl Message {
                 "{} mines have been built on planet {}.",
                 self.params.first().copied().unwrap_or(0),
                 self.object
+            ),
+            id::SHIP_BUILT => format!(
+                "Planet {} has built a new ship, fleet {}.",
+                self.params.first().copied().unwrap_or(0),
+                i32::from(self.object) & 0x7fff
+            ),
+            id::SHIPS_BUILT => format!(
+                "Planet {} has built {} new ships, fleet {}.",
+                self.params.first().copied().unwrap_or(0),
+                self.params.get(1).copied().unwrap_or(0),
+                i32::from(self.object) & 0x7fff
             ),
             id::QUEUE_EMPTY => format!(
                 "Planet {} has finished everything in its production queue, which is now \

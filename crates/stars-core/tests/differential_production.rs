@@ -402,6 +402,8 @@ fn a_queued_ship_is_paid_for_and_joins_the_fleet() {
 
     let race = Race::humanoid();
     let mut planet = Planet::unowned(7);
+    // A new fleet needs somewhere to be.
+    planet.position = Some(Point { x: 0, y: 0 });
     planet.owner = Some(0);
     planet.pop = 30_000;
     planet.factories = 50;
@@ -466,9 +468,32 @@ fn a_queued_ship_is_paid_for_and_joins_the_fleet() {
         "ship minerals should have been spent: {before:?} -> {after:?}"
     );
 
-    // And the ships are in the fleet that was in orbit.
-    let ships: i32 = state.fleets[0].stacks.iter().map(|s| s.count).sum();
-    assert_eq!(ships, built, "every ship built should join the fleet");
+    // And the ships are a fleet of their own at the planet, not passengers
+    // in the one that happened to be in orbit — `FBuildObject` calls
+    // `LpflNew` for what it builds — with their tanks full and a fleet
+    // number of their own, which is what lets the tutorial say "Goto your
+    // new Santa Maria".
+    assert!(
+        state.fleets[0].stacks.is_empty(),
+        "the fleet in orbit is left alone"
+    );
+    let new_fleet = state
+        .fleets
+        .iter()
+        .find(|f| !f.stacks.is_empty())
+        .expect("a new fleet");
+    let ships: i32 = new_fleet.stacks.iter().map(|s| s.count).sum();
+    assert_eq!(ships, built, "every ship built is in it");
+    assert_eq!(new_fleet.orbiting, Some(7));
+    assert!(new_fleet.cargo.fuel > 0, "it leaves the yard fuelled");
+    assert!(
+        state
+            .messages
+            .iter()
+            .any(|m| m.id == stars_core::message::id::SHIP_BUILT
+                || m.id == stars_core::message::id::SHIPS_BUILT),
+        "and the planet says so"
+    );
 }
 
 /// The auto-build items are ids 0..=6, not 7 and up.

@@ -430,8 +430,9 @@ did not scroll. See `fleet-pane.md` and `scanner.md`.
 
 `crates/stars-ui/tests/tutorial_walkthrough.rs` plays the tutorial from its
 pages, through the same calls the panes make, and checks that every task
-turns the page as `AdvanceTutor` would. It gets through **2400 to 2403** —
-pages one to sixteen — which took three corrections to what was here:
+turns the page as `AdvanceTutor` would. It gets through **2400 to 2407** —
+pages one to twenty-five. The first four years took three corrections to
+what was here:
 
 * the five opening messages, above;
 * `FCheckCargo`'s figures, which had been transcribed as 25kT for every
@@ -447,11 +448,19 @@ And one to the client: `IWarpBestForWaypoint`'s rule for the warp a new leg
 gets (`scanner.md`), without which the colony ship crawled to 90210 at warp
 6 and page 14 found the planet still unowned.
 
-What stops it going further is the turn engine rather than the tutorial:
-the years that follow read messages the engine does not yet send — a fleet
-arriving, factories built, cargo unloaded, a colony ship dismantled — and
-the colony ship is not broken up on landing, so fleet numbers drift from
-the ones the pages name. Those are Step 4 of the plan.
+The years after that were the turn engine's to catch up on, and each
+needed something the pages take for granted — recorded in the commits
+that added them, and in `../formulas/` where a formula came out of it:
+accelerated BBS play (the tutorial's home worlds start with 100,000
+colonists); the year's messages — factories and mines built, a queue
+worked through, a ship built, a colony ship dismantled where it lands and
+the colony declared; auto-build leaving its part-built unit as an entry of
+its own; new ships as fleets of their own with full tanks; `FuelFleets`;
+the previous leg's task copied onto a new waypoint; and fuel staying
+aboard where there is no starbase to take it.
+
+What stops it going further is page 26's **Split** dialog, which this
+project does not have yet.
 
 Still to come here: `FCheckLayingWP`, `FCheckPatrolWP`, `FCheckBtlPlan` and
 `FCheckFleetName`; the help topic each check sets on failure; and the two

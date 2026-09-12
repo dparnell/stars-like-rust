@@ -327,23 +327,40 @@ pub fn generate_turn_with_orders(
         // shape — `54` with `[10, planet]` and `62` with `[planet]`.
         for (item, count) in &built {
             let item = item::auto_builds(*item).unwrap_or(*item);
-            let message = match (item, *count) {
-                (item::FACTORY, 1) => Some((crate::message::id::BUILT_FACTORY, vec![id])),
-                (item::FACTORY, n) => {
-                    Some((crate::message::id::BUILT_FACTORIES, vec![n_i16(n), id]))
-                }
-                (item::MINE, 1) => Some((crate::message::id::BUILT_MINE, vec![id])),
-                (item::MINE, n) => Some((crate::message::id::BUILT_MINES, vec![n_i16(n), id])),
-                _ => None,
+            let singular = match item {
+                item::FACTORY => crate::message::id::BUILT_FACTORY,
+                item::MINE => crate::message::id::BUILT_MINE,
+                _ => continue,
             };
-            if let Some((message, params)) = message {
-                state.messages.push(crate::message::Message {
-                    player: owner_index,
-                    id: message,
-                    object: id,
-                    params,
-                });
+            // `FRemovePlayerMessage`: a message of the same kind about the
+            // same planet already sent this year — a part-built factory
+            // finished ahead of the auto-build order that started it — is
+            // taken back and its count folded in, so the planet says it
+            // once.
+            let mut total = *count;
+            if let Some(at) = state.messages.iter().position(|m| {
+                m.player == owner_index
+                    && m.object == id
+                    && (m.id == singular || m.id == singular + 1)
+            }) {
+                let earlier = state.messages.remove(at);
+                total += if earlier.id == singular {
+                    1
+                } else {
+                    i32::from(earlier.params.first().copied().unwrap_or(1))
+                };
             }
+            let (message, params) = if total < 2 {
+                (singular, vec![id])
+            } else {
+                (singular + 1, vec![n_i16(total), id])
+            };
+            state.messages.push(crate::message::Message {
+                player: owner_index,
+                id: message,
+                object: id,
+                params,
+            });
         }
         if had_queue && state.planets[index].queue.is_empty() {
             state.messages.push(crate::message::Message {
@@ -360,7 +377,26 @@ pub fn generate_turn_with_orders(
             let id = state.planets[index].id;
             for (slot, count) in ships_built {
                 report.ships_built.push((id, slot, count));
-                add_ships_to_orbiting_fleet(state, owner, id, slot, count);
+                if let Some(fleet) = add_ships_to_orbiting_fleet(state, owner, id, slot, count) {
+                    // "has built a new …" / "has built N new …", about the
+                    // new fleet, with the design word the message names
+                    // the ship by.
+                    let design_word = (owner << 5) | i16::from(slot);
+                    let (message, params) = if count > 1 {
+                        (
+                            crate::message::id::SHIPS_BUILT,
+                            vec![id, n_i16(count), design_word],
+                        )
+                    } else {
+                        (crate::message::id::SHIP_BUILT, vec![id, design_word])
+                    };
+                    state.messages.push(crate::message::Message {
+                        player: owner_index,
+                        id: message,
+                        object: crate::message::fleet_object(fleet),
+                        params,
+                    });
+                }
             }
         }
 
@@ -449,6 +485,10 @@ pub fn generate_turn_with_orders(
     // decays for it; and the wormholes think about moving.
     report.packets_landed.extend(move_packets(state, true));
     report.wormholes_moved = move_wormholes(state, rng);
+
+    // --- FuelFleets: a fleet in orbit of a starbase with a dock — its own
+    // or a friend's — leaves the year with a full tank.
+    fuel_fleets(state);
 
     // --- SweepForMines, which the original runs late, after the second pass
     // of orders: everything armed with beams clears what it is sitting in.
@@ -605,7 +645,7 @@ fn add_ships_to_orbiting_fleet(
     planet: i16,
     design: u8,
     count: i32,
-) {
+) -> Option<u16> {
     let orbiting = u16::try_from(planet).ok();
     let stack = crate::fleet::ShipStack {
         design,
@@ -614,28 +654,24 @@ fn add_ships_to_orbiting_fleet(
         damage_pct: 0,
     };
 
-    if let Some(fleet) = state
-        .fleets
-        .iter_mut()
-        .find(|f| f.owner == owner && f.orbiting == orbiting)
-    {
-        if let Some(existing) = fleet.stacks.iter_mut().find(|s| s.design == design) {
-            existing.count += count;
-        } else {
-            fleet.stacks.push(stack);
-        }
-        return;
-    }
-
-    // No fleet in orbit: start one, if we know where the planet is.
-    let Some(position) = state
+    // What is built this year is a fleet of its own, one per design: the
+    // tutorial's three colony ships come out as one "Santa Maria #8" and its
+    // two scouts as one "Armed Probe #9", and neither joins the freighter
+    // that happens to be in orbit. The new ships leave the yard with their
+    // tanks full, which is what lets the tutorial send a scout off on the
+    // first page — "It has been automatically fueled by your starbase".
+    let position = state
         .planets
         .iter()
         .find(|p| p.id == planet)
-        .and_then(|p| p.position)
-    else {
-        return;
-    };
+        .and_then(|p| p.position)?;
+    let fuel = usize::try_from(owner)
+        .ok()
+        .and_then(|o| state.designs.get(o))
+        .and_then(|designs| designs.get(usize::from(design)))
+        .and_then(crate::design::ShipDesign::fuel_capacity)
+        .unwrap_or(0)
+        * count;
     let id = next_fleet_id(state, owner);
     state.fleets.push(crate::fleet::Fleet {
         name: None,
@@ -646,7 +682,10 @@ fn add_ships_to_orbiting_fleet(
         position,
         orbiting,
         stacks: vec![stack],
-        cargo: crate::fleet::Cargo::default(),
+        cargo: crate::fleet::Cargo {
+            fuel,
+            ..crate::fleet::Cargo::default()
+        },
         battle_plan: 0,
         warp: None,
         waypoints: vec![crate::fleet::Waypoint {
@@ -659,6 +698,7 @@ fn add_ships_to_orbiting_fleet(
             task_data: Vec::new(),
         }],
     });
+    Some(id)
 }
 
 /// The waypoint task ordering a fleet to mine from orbit (`grTaskMine`).
@@ -1947,6 +1987,79 @@ fn move_wormholes(state: &mut GameState, rng: &mut Rng) -> Vec<u16> {
         }
     }
     jumped
+}
+
+/// `FuelFleets` (`10b0:2efa`): fill the tank of every fleet sitting at a
+/// starbase that can fill it.
+///
+/// The planet has to be owned, have a starbase, and be the fleet's own or
+/// belong to a player who regards the fleet's owner as a **friend**; and
+/// the base's hull has to have a dock (`wtCargoMax != 0`), which an Orbital
+/// Fort has not. Fleets elsewhere gain what their fuel transports (two
+/// hundred a year per hull 25 or 26) and Anti-matter Generators make, up to
+/// their capacity.
+fn fuel_fleets(state: &mut GameState) {
+    use crate::components::slot;
+    use crate::relations::{regard, Relation};
+
+    for index in 0..state.fleets.len() {
+        let fleet = &state.fleets[index];
+        let Ok(owner) = usize::try_from(fleet.owner) else {
+            continue;
+        };
+        let designs = state.designs.get(owner).cloned().unwrap_or_default();
+        let capacity = fleet.fuel_capacity(&designs);
+
+        let dock = fleet
+            .orbiting
+            .and_then(|id| i16::try_from(id).ok())
+            .and_then(|id| state.planets.iter().find(|p| p.id == id))
+            .filter(|planet| planet.starbase)
+            .and_then(|planet| planet.owner.map(|host| (planet, host)))
+            .filter(|(_, host)| {
+                *host == fleet.owner
+                    || usize::try_from(*host)
+                        .is_ok_and(|h| regard(state, h, owner) == Relation::Friend)
+            })
+            .is_some_and(|(planet, host)| {
+                let base = planet
+                    .starbase_design
+                    .map(usize::from)
+                    .map(|s| usize::from(crate::startup::FIRST_STARBASE_SLOT) + s)
+                    .and_then(|s| {
+                        usize::try_from(host)
+                            .ok()
+                            .and_then(|h| state.designs.get(h))
+                            .and_then(|d| d.get(s))
+                    });
+                base.and_then(crate::design::ShipDesign::hull)
+                    .is_some_and(|hull| hull.cargo_max != 0)
+            });
+        if dock {
+            state.fleets[index].cargo.fuel = capacity;
+            continue;
+        }
+
+        // What the fleet makes for itself.
+        let mut made = 0;
+        for stack in &fleet.stacks {
+            let Some(design) = designs.get(usize::from(stack.design)) else {
+                continue;
+            };
+            if design.hull_id == 25 || design.hull_id == 26 {
+                made += 200 * stack.count;
+            }
+            for fitted in &design.slots {
+                if fitted.category == slot::SPECIAL_E && fitted.item == 16 {
+                    made += 50 * i32::from(fitted.count) * stack.count;
+                }
+            }
+        }
+        if made > 0 {
+            let fleet = &mut state.fleets[index];
+            fleet.cargo.fuel = (fleet.cargo.fuel + made).min(capacity);
+        }
+    }
 }
 
 /// A count as a message parameter carries it.

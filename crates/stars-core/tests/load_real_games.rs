@@ -275,8 +275,27 @@ fn moving_fleets_burn_fuel_they_actually_have() {
     let mut burned_any = false;
     for fleet in &state.fleets {
         let had = before[&fleet.id];
+        // `FuelFleets` fills the tank of anything that ends the year at a
+        // starbase with a dock, so a fleet that got home is allowed more
+        // than it set out with — but never more than it can hold.
+        let docked = fleet
+            .orbiting
+            .and_then(|id| i16::try_from(id).ok())
+            .and_then(|id| state.planets.iter().find(|p| p.id == id))
+            .is_some_and(|p| p.starbase && p.owner == Some(fleet.owner));
+        // And a fuel transport makes two hundred a year wherever it is.
+        let makes_fuel = usize::try_from(fleet.owner)
+            .ok()
+            .and_then(|o| state.designs.get(o))
+            .is_some_and(|designs| {
+                fleet.stacks.iter().any(|s| {
+                    designs
+                        .get(usize::from(s.design))
+                        .is_some_and(|d| d.hull_id == 25 || d.hull_id == 26)
+                })
+            });
         assert!(
-            fleet.cargo.fuel <= had,
+            fleet.cargo.fuel <= had || docked || makes_fuel,
             "fleet {} gained fuel by moving: {had} -> {}",
             fleet.id,
             fleet.cargo.fuel

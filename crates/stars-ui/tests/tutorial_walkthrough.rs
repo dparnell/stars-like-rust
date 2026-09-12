@@ -462,4 +462,65 @@ fn the_first_four_years_play_through_from_the_pages() {
     app.production_ok();
     assert!(app.advance_tutor());
     assert_eq!(page(&app), 23, "2406 is done");
+    app.generate_turn();
+    assert_eq!(app.game.as_ref().expect("a game").turn, 7);
+    assert!(!app.advance_tutor());
+
+    // --- 2407 -------------------------------------------------------------
+    // Page 23: the new Santa Maria #7, filled; the value view; Colonize at
+    // Red Storm; three more Santa Marias; the normal view.
+    assert!(app.goto_fleet(6), "Santa Maria #7 is fleet 6");
+    let santa_maria = app.selection.fleet.expect("selected");
+    assert_eq!(app.transfer_cargo(santa_maria, 3, 250), 25);
+    app.scan_view = stars_ui::ScanView::PlanetValue;
+    shift_click(&mut app, RED_STORM);
+    assert!(app.set_waypoint_task(task::COLONIZE));
+    assert!(!app.advance_tutor());
+    app.select_object(ScanObject::Planet(STOVE_TOP));
+    app.open_production();
+    app.production.as_mut().expect("open").inventory_index = santa_maria_design;
+    app.production_add(3);
+    app.production_ok();
+    app.scan_view = stars_ui::ScanView::Normal;
+    assert!(app.advance_tutor());
+    assert_eq!(page(&app), 24);
+
+    // Page 24: the mine-building message filtered; 90210's queue — empty
+    // now its first factories and mines are up — gets ten auto-build
+    // factories and ten auto-build mines; then the rest of the messages.
+    assert!(app.filter_message(stars_core::message::id::BUILT_MINES, true));
+    app.select_object(ScanObject::Planet(PLANET_90210));
+    {
+        let planet = app.selected_planet().expect("90210");
+        assert_eq!(planet.factories, 3, "the three factories are built");
+        assert_eq!(planet.mines, 3, "and the three mines");
+        assert!(planet.queue.is_empty(), "{:?}", planet.queue);
+    }
+    app.open_production();
+    queue(&mut app, item::AUTO_FACTORY, 10, 1, None);
+    queue(&mut app, item::AUTO_MINE, 10, 1, Some(0));
+    app.production_ok();
+    assert!(!app.advance_tutor());
+    while app.message_next(false).is_some() {
+        app.show_next_message();
+    }
+    assert!(app.advance_tutor());
+    assert_eq!(page(&app), 25);
+
+    // Page 25: the enemy scout in the Summary pane is a hint; two Armed
+    // Probes at the foot of Stove Top's queue is the task.
+    app.select_object(ScanObject::Planet(STOVE_TOP));
+    app.open_production();
+    let armed_probe_design = app
+        .production_inventory()
+        .iter()
+        .position(|row| row.ship && row.item == 0)
+        .expect("the scout design is on offer");
+    // The dialog opens on the last real entry, the colony ships, so the
+    // scouts go in behind them and ahead of the auto-build order.
+    app.production.as_mut().expect("open").inventory_index = armed_probe_design;
+    app.production_add(2);
+    app.production_ok();
+    assert!(app.advance_tutor());
+    assert_eq!(page(&app), 26, "2407 is done");
 }
