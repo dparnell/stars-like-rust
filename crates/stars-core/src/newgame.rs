@@ -360,9 +360,53 @@ pub fn generate(config: &NewGame, rng: &mut Rng) -> Result<Created, NewGameError
     state.players = state_players;
     state.fleets = fleets;
     state.designs = designs;
+    opening_messages(&mut state, &homes);
 
     let universe = build_universe(config, &positions, &names)?;
     Ok(Created { state, universe })
+}
+
+/// What a new game has to say before anyone has done anything.
+///
+/// `GenerateWorld` (`1078:0136`) sends every player the four playing tips,
+/// `idm 0x7f` to `0x82` with no object, in one loop, and then in the next —
+/// the one that settles each home world — `idmHomePlanetPeopleReadyLeaveNestExplore`
+/// (`0xa9`) with the home planet as both object and parameter. So a player's
+/// first year opens with five messages, which is what the turn-0 fixture's
+/// `Game.m1` carries and what the tutorial's first page asks you to read.
+///
+/// The original's AI player file from the same year carries none of them,
+/// so the writer may well drop them for a computer player; they are queued
+/// for every player here, as the routine queues them, and the writer is
+/// left to decide.
+fn opening_messages(state: &mut GameState, homes: &[usize]) {
+    use crate::message::{id, Message};
+    for player in 0..state.players.len() {
+        for tip in [
+            id::TIP_FILTERING,
+            id::TIP_WAYPOINTS,
+            id::TIP_DESIGNER,
+            id::TIP_POPUPS,
+        ] {
+            state.messages.push(Message {
+                player,
+                id: tip,
+                object: -1,
+                params: Vec::new(),
+            });
+        }
+    }
+    for (player, home) in homes.iter().enumerate() {
+        let Some(id) = state.planets.get(*home).map(|planet| planet.id) else {
+            continue;
+        };
+        state.messages.push(Message {
+            player,
+            id: id::HOME_PLANET,
+            object: id,
+            params: vec![id],
+        });
+    }
 }
 
 /// Stage 1: scatter, thin and (optionally) clump, returning positions sorted by

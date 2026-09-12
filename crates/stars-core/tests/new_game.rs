@@ -252,6 +252,82 @@ fn generated_planets_keep_their_distance() {
     }
 }
 
+/// A new game opens with five messages for each player: the four playing
+/// tips, with no object, and then one about the home planet, whose id is
+/// both the object and the parameter.
+///
+/// `GenerateWorld` (`1078:0136`) sends them in that order, and the turn-0
+/// fixture's `Game.m1` holds exactly those five records.
+#[test]
+fn a_new_game_opens_with_five_messages() {
+    use stars_core::message::id;
+
+    let config = NewGame {
+        size: Size::Small,
+        players: vec![
+            NewPlayer::human(Race::humanoid()),
+            opponents::opponent(1, 1).expect("an opponent").as_player(),
+        ],
+        ..NewGame::default()
+    };
+    let mut rng = Rng::randomize(0xfeed_face);
+    let made = generate(&config, &mut rng).expect("generates");
+    let state = &made.state;
+
+    for player in 0..2 {
+        let mine: Vec<_> = state
+            .messages
+            .iter()
+            .filter(|m| m.player == player)
+            .collect();
+        let ids: Vec<u16> = mine.iter().map(|m| m.id).collect();
+        assert_eq!(
+            ids,
+            vec![
+                id::TIP_FILTERING,
+                id::TIP_WAYPOINTS,
+                id::TIP_DESIGNER,
+                id::TIP_POPUPS,
+                id::HOME_PLANET
+            ],
+            "player {player}"
+        );
+        assert_eq!(
+            ids,
+            vec![127, 128, 129, 130, 169],
+            "as the file numbers them"
+        );
+        for tip in &mine[..4] {
+            assert_eq!(tip.object, -1, "a tip is about nothing in particular");
+            assert!(tip.params.is_empty());
+        }
+        let home = state
+            .planets
+            .iter()
+            .find(|p| p.homeworld && p.owner == Some(i16::try_from(player).expect("a player")))
+            .expect("a home world");
+        assert_eq!(mine[4].object, home.id);
+        assert_eq!(mine[4].params, vec![home.id]);
+        // And each has words of its own, not a bare number.
+        for message in &mine {
+            assert!(
+                !message.summary().starts_with("Message "),
+                "{} has no wording",
+                message.id
+            );
+        }
+    }
+
+    // The fixture agrees: player 0's turn-0 file carries these five.
+    if let Some(bytes) = read("../../fixtures/incoming/turn0/Game.m1") {
+        let file = StarsFile::decode(&bytes).expect("decodes");
+        let records = stars_formats::message::message_records(&file);
+        let ids: Vec<u16> = records.iter().map(|r| r.id).collect();
+        assert_eq!(ids, vec![127, 128, 129, 130, 169]);
+        assert_eq!(records[4].object, records[4].params[0]);
+    }
+}
+
 /// The turn-0 game's homeworlds, field by field.
 #[test]
 fn turn0_homeworlds_are_what_generation_would_produce() {

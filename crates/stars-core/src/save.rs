@@ -35,9 +35,11 @@
 //! waypoints; one they have not carries nothing, which is why no file in the
 //! fixtures has a single such block.
 //!
-//! What a fresh game has none of — messages, battles, scores, the other
-//! players' partially-scanned planets — is simply absent, which is what the
-//! turn-0 fixture's own `.mN` files look like.
+//! What a fresh game has none of — battles, scores, the other players'
+//! partially-scanned planets — is simply absent, which is what the turn-0
+//! fixture's own `.mN` files look like. Messages it does have: the five
+//! `GenerateWorld` sends every player, which the fixture's `Game.m1` carries
+//! and its `Game.m2`, a computer player's, does not.
 //!
 //! ## What is not written
 //!

@@ -165,7 +165,9 @@ impl StarsApp {
     /// the right file with the least surprise — an explicit `STARS_EXE` first,
     /// then beside whatever save was just opened, then the working directory
     /// and a `binary` under it, which is where a checkout of this project keeps
-    /// its own copy.
+    /// its own copy — and then the same two under each directory above this
+    /// program's own, so a build run from `target/debug` inside a checkout
+    /// finds the checkout's copy however it was launched.
     fn find_art(&mut self, beside: Option<&Path>) {
         if self.app.has_art() {
             return;
@@ -189,6 +191,15 @@ impl StarsApp {
         }
         roots.push(PathBuf::from("."));
         roots.push(PathBuf::from("binary"));
+        if let Some(here) = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(Path::to_path_buf))
+        {
+            for above in here.ancestors() {
+                roots.push(above.to_path_buf());
+                roots.push(above.join("binary"));
+            }
+        }
 
         for root in roots {
             let Ok(entries) = std::fs::read_dir(&root) else {
@@ -1515,6 +1526,15 @@ impl eframe::App for StarsApp {
                 self.app.research_cancel();
             }
         }
+
+        // The original calls `AdvanceTutor` from fifty-five places — after a
+        // click on the map, a change of selection, a waypoint added, a
+        // message read — each of which is somewhere the page's task might
+        // just have been done. Asking once a frame, after everything above
+        // has had its say, covers every one of those and costs a handful of
+        // reads: the checks only look at state, and the page only moves when
+        // its task is done.
+        self.app.advance_tutor();
 
         // The tutor window: always on top, as `TutorDlg`'s WM_INITDIALOG
         // puts it, and hidden rather than closed by its own Hide button.

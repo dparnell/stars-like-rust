@@ -59,6 +59,27 @@ pub mod id {
     /// aboard cannot be given away (`10b0:9436`).
     pub const GIFT_HAS_COLONISTS: u16 = 0x149;
 
+    // What a brand-new game says, all from `GenerateWorld` (`1078:0136`):
+    // four playing tips to every player, with no object, and then one about
+    // the home planet. The turn-0 fixture's `Game.m1` holds exactly these
+    // five, in this order, and the tutorial's first page counts them.
+
+    /// `idmTipCanHideUnimportantMessagesClickingCheckmark`: the first of the
+    /// four tips — that a message you do not want to see again can be
+    /// filtered with the check mark.
+    pub const TIP_FILTERING: u16 = 0x7f;
+    /// `idmTipAddWaypointsSelectShipClickDesired`: how to give a fleet a
+    /// waypoint.
+    pub const TIP_WAYPOINTS: u16 = 0x80;
+    /// `idmTipDesignOwnShipsPressF4Select`: that F4 opens the ship designer.
+    pub const TIP_DESIGNER: u16 = 0x81;
+    /// `idmTipPopupHelpAvailableManyDisplayedStatistics`: that many figures
+    /// on the screen explain themselves when clicked.
+    pub const TIP_POPUPS: u16 = 0x82;
+    /// `idmHomePlanetPeopleReadyLeaveNestExplore`: about the home planet,
+    /// whose id is both the object and the one parameter.
+    pub const HOME_PLANET: u16 = 0xa9;
+
     // The Mystery Trader, all from `DoThingInteractions` (`1110:0b3a`) unless
     // noted. See [`crate::wormhole`].
 
@@ -312,6 +333,38 @@ impl Message {
             id::TRADER_TRIED_SHIP => {
                 "The Mystery Trader meant to give a ship and could not.".to_string()
             }
+            // The four playing tips and the home-planet greeting every new
+            // game opens with. This wording is this project's, not the game's.
+            id::TIP_FILTERING => {
+                "Tip: a kind of message you would rather not see again can be switched \
+                 off. Click the check mark at the top left of the Messages pane while \
+                 one is showing and that kind stays out of the way from then on."
+                    .to_string()
+            }
+            id::TIP_WAYPOINTS => {
+                "Tip: to send a fleet somewhere, select it and then hold shift while you \
+                 click its destination on the map. Each shift-click adds another stop \
+                 to the route."
+                    .to_string()
+            }
+            id::TIP_DESIGNER => {
+                "Tip: the ships you start with are only a beginning. Press F4 to open \
+                 the Ship Designer and put together designs of your own as your \
+                 technology improves."
+                    .to_string()
+            }
+            id::TIP_POPUPS => {
+                "Tip: many of the figures on the screen will explain themselves. Click \
+                 on a number in the Command or Selection Summary panes and a small \
+                 window tells you where it comes from."
+                    .to_string()
+            }
+            id::HOME_PLANET => format!(
+                "Planet {} is your home world. Your people have grown restless and are \
+                 ready to leave the nest: explore the stars around you, find worlds to \
+                 settle, and build the ships to take you there.",
+                self.params.first().copied().unwrap_or(self.object)
+            ),
             other => format!("Message {other}."),
         }
     }

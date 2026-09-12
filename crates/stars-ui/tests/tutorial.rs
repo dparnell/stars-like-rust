@@ -103,17 +103,53 @@ fn a_page_belongs_to_its_own_year() {
     );
 }
 
+/// The tutorial opens on page one, because a new game has five messages to
+/// read — and reading them is what turns the page.
+///
+/// The messages are the four playing tips and the home-planet greeting
+/// `GenerateWorld` sends; without them page one was satisfied the moment it
+/// opened and the tutorial began on page two, which is the bug that made
+/// this test.
+#[test]
+fn it_opens_on_page_one_and_reading_the_messages_turns_it() {
+    let mut app = a_game();
+    assert_eq!(app.message_count(), 5, "four tips and the home planet");
+    app.start_tutor();
+    let tutor = app.tutor.as_ref().expect("running");
+    assert!(!tutor.finished);
+    assert_eq!(tutor.page(), 1);
+    assert_eq!(
+        tutor.bold_line(),
+        Some(5),
+        "\"Read all of your messages now.\" is the paragraph in bold"
+    );
+
+    // Four presses of Next reach the fifth message; only then is the page
+    // done.
+    for press in 0..4 {
+        assert!(!app.advance_tutor(), "not yet, after {press} presses");
+        app.show_next_message();
+    }
+    assert!(app.advance_tutor(), "the last message is in front");
+    assert_eq!(app.tutor.as_ref().expect("running").page(), 2);
+}
+
 /// Advancing skips a page whose task is already done rather than showing it.
 #[test]
 fn advancing_skips_what_is_already_done() {
     let mut app = a_game();
-    // With no messages to read, page one is satisfied the moment it opens,
-    // so starting lands past it.
+    // Read everything first, then start: page one is satisfied the moment
+    // it opens, so starting lands past it — `StartTutor` runs the same
+    // skipping loop `AdvanceTutor` does.
+    while app.message_next(false).is_some() {
+        app.show_next_message();
+    }
     app.start_tutor();
     let tutor = app.tutor.as_ref().expect("running");
     assert!(!tutor.finished);
-    assert!(
-        tutor.idt >= 8,
+    assert_eq!(
+        tutor.page(),
+        2,
         "page one was satisfied and skipped, landed on {}",
         tutor.page()
     );
