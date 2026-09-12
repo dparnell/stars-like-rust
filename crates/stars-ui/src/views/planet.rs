@@ -71,7 +71,66 @@ pub(crate) fn tile_body(app: &mut App, ui: &mut egui::Ui, index: usize) {
                 app.open_production();
             }
         }
-        _ => grid(ui, "starbase", &app.planet_starbase_tile().1, false),
+        _ => starbase(app, ui),
+    }
+}
+
+/// The **Starbase** tile: four rows, a rule, the two the mass driver fills,
+/// and then the **Set Dest** button with the warp gauge beside it.
+///
+/// `DrawPlanetStarbase` (`1048:22cc`) puts the button in the left **third**
+/// of that last row and gives the gauge what is left of it, and it draws the
+/// gauge only when there is a driver — the button is always there, with its
+/// disabled style when there is not.
+fn starbase(app: &mut App, ui: &mut egui::Ui) {
+    let rows = app.planet_starbase_tile().1;
+    let Some((driver_rows, above)) = rows.split_at_checked(RULE_AFTER).map(|(a, b)| (b, a)) else {
+        grid(ui, "starbase", &rows, false);
+        return;
+    };
+    grid(ui, "starbase", above, false);
+    ui.separator();
+    grid(ui, "starbase-driver", driver_rows, false);
+
+    let Some(driver) = app.planet_mass_driver() else {
+        return;
+    };
+    let line = ui.text_style_height(&egui::TextStyle::Small);
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    let full = ui.available_width();
+    ui.horizontal(|ui| {
+        let button = egui::Button::new(egui::RichText::new("Set Dest").small())
+            .min_size(egui::vec2(full / 3.0, line))
+            .selected(app.set_packet_dest);
+        if ui.add_enabled(driver.present(), button).clicked() {
+            app.set_packet_dest = !app.set_packet_dest;
+        }
+        if !driver.present() {
+            return;
+        }
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), line), egui::Sense::hover());
+        let gauge = crate::survey::Gauge {
+            segments: vec![(driver.fill, risk_colour(driver.risk))],
+            total: driver.total,
+            label: driver.label.clone(),
+        };
+        crate::views::survey::gauge_bar(ui, ui.painter(), &gauge, rect, &font);
+    });
+}
+
+/// How many rows come before the rule `DrawPlanetStarbase` draws across the
+/// tile: Dock Capacity, Armor, Shields and Damage.
+const RULE_AFTER: usize = 4;
+
+/// The gauge's three brushes, as `FCreateStuff` (`1000:0160`) makes them:
+/// `hbrPurple` `0x7f007f`, `hbrYellow` `0x00ffff` and `hbrRed` `0x0000ff`,
+/// which are COLORREFs and so read blue-green-red.
+fn risk_colour(risk: crate::app::Risk) -> [u8; 3] {
+    match risk {
+        crate::app::Risk::Safe => [0x7f, 0, 0x7f],
+        crate::app::Risk::Risky => [0xff, 0xff, 0],
+        crate::app::Risk::Dangerous => [0xff, 0, 0],
     }
 }
 

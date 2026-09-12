@@ -56,7 +56,10 @@ caught‰ = 1000                              if driver² >= packet²
 
 where both are squared warps, and an **Inner Tech** receiver halves its driver's
 square before the comparison. Two mass drivers on one planet count as one warp
-faster.
+faster — `IWarpMAFromLppl` (`1048:7b10`) reports the pair, and it counts
+**slots** rather than drivers, so two in the same slot are not a pair. See
+[`planet-pane.md`](../ui/planet-pane.md), whose Mass Driver row writes the
+pair as a trailing `+`.
 
 What the planet keeps is everything caught **plus a ninth of the rest**
 (`10b0:20fd`), so even a planet with no driver keeps about 11% of what hits it.

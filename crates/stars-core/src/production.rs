@@ -871,25 +871,58 @@ const MAX_STARBASE_DESIGNS_SHOWN: usize = crate::design::MAX_STARBASE_DESIGNS;
 /// The Genesis Device's index in [`crate::components::PLANETARY`].
 const GENESIS_PART: usize = 14;
 
+/// A planet's **mass driver**: what its starbase flings packets with.
+///
+/// A mass driver is an orbital special fitted to the starbase, and its rating
+/// *is* the warp: `Mass Driver 5` flings at warp 5 and the `Ultra Driver 13`
+/// at warp 13. The stargates share the same table and are the first seven
+/// entries, which is why only the rest count.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MassDriver {
+    /// The warp of the best driver fitted, or `0` when there is none.
+    pub warp: i32,
+    /// Whether a **second** driver of that same warp is fitted in another
+    /// slot.
+    ///
+    /// The planet pane writes a `+` after the warp when it is, and the packet
+    /// rules count a pair as one warp faster — see
+    /// [`docs/formulas/packets.md`](../../../docs/formulas/packets.md).
+    ///
+    /// It is set slot by slot, so **two drivers in one slot are not a pair**:
+    /// `IWarpMAFromLppl` walks the slots and never looks at a slot's count
+    /// beyond checking that it is not empty.
+    pub paired: bool,
+}
+
 /// The warp a planet's mass driver flings at, or `0` when it has none.
 ///
-/// A mass driver is an orbital special fitted to the planet's starbase, and
-/// its rating *is* the warp: `Mass Driver 5` flings at warp 5 and the
-/// `Ultra Driver 13` at warp 13. The stargates share the same table and are
-/// the first seven entries, which is why only the rest count.
-///
-/// Source: `IWarpMAFromLppl`. The turn generator does not use this yet — a
-/// planet catching a packet is still modelled without its own driver, which
-/// `docs/formulas/packets.md` records — but the production inventory needs it
-/// to decide whether to offer packets at all.
+/// [`mass_driver`] with the pair flag dropped.
 #[must_use]
 pub fn mass_driver_warp(planet: &Planet, designs: &[crate::design::ShipDesign]) -> i32 {
+    mass_driver(planet, designs).warp
+}
+
+/// What a planet's starbase can fling packets with.
+///
+/// Source: `IWarpMAFromLppl` (`1048:7b10`). The turn generator does not use
+/// this yet — a planet catching a packet is still modelled without its own
+/// driver, which `docs/formulas/packets.md` records — but the production
+/// inventory needs it to decide whether to offer packets at all, and the
+/// planet pane's Starbase tile reads it for the Mass Driver row.
+///
+/// The original has one gate this cannot express: for **another player's**
+/// planet it reports a driver only when their starbase design is known in
+/// full (`det == 7`), and a design here carries no such detail level.
+#[must_use]
+pub fn mass_driver(planet: &Planet, designs: &[crate::design::ShipDesign]) -> MassDriver {
     use crate::components::{slot, SPECIALS_SB};
     /// Orbital specials below this index are stargates.
     const FIRST_DRIVER: usize = 7;
 
-    if !planet.starbase {
-        return 0;
+    // An unowned planet has no starbase to ask about, whatever else is
+    // recorded against it.
+    if !planet.starbase || planet.owner.is_none() {
+        return MassDriver::default();
     }
     let base = planet
         .starbase_design
@@ -897,16 +930,34 @@ pub fn mass_driver_warp(planet: &Planet, designs: &[crate::design::ShipDesign]) 
         .map(|s| usize::from(crate::startup::FIRST_STARBASE_SLOT) + s)
         .and_then(|s| designs.get(s));
     let Some(base) = base else {
-        return 0;
+        return MassDriver::default();
     };
-    base.slots
-        .iter()
-        .filter(|s| s.count > 0 && s.category & slot::SPECIAL_SB != 0)
-        .filter(|s| usize::from(s.item) >= FIRST_DRIVER)
-        .filter_map(|s| SPECIALS_SB.get(usize::from(s.item)))
-        .map(|driver| i32::from(driver.ability))
-        .max()
-        .unwrap_or(0)
+
+    // Slot by slot, keeping the best: a strictly better driver takes over and
+    // clears the pair flag, an equal one sets it. Which is why three drivers
+    // rated 5, 5 and 7 are not a pair but 5, 7 and 7 are.
+    let mut out = MassDriver::default();
+    for fitted in &base.slots {
+        if fitted.count == 0 || fitted.category & slot::SPECIAL_SB == 0 {
+            continue;
+        }
+        if usize::from(fitted.item) < FIRST_DRIVER {
+            continue;
+        }
+        let Some(driver) = SPECIALS_SB.get(usize::from(fitted.item)) else {
+            continue;
+        };
+        let warp = i32::from(driver.ability);
+        if warp > out.warp {
+            out = MassDriver {
+                warp,
+                paired: false,
+            };
+        } else if warp == out.warp {
+            out.paired = true;
+        }
+    }
+    out
 }
 
 /// What one of a queue item costs this player.

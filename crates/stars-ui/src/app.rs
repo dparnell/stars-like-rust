@@ -432,6 +432,14 @@ pub struct App {
     /// `Add Way Points Mode`: whether clicking the map gives the selected
     /// fleet orders instead of selecting what is under the pointer.
     pub add_waypoints: bool,
+    /// Whether the Starbase tile's **Set Dest** button is down, waiting for a
+    /// click on the map to aim the planet's mass driver.
+    ///
+    /// `ClickInPlanetOrders` (`1048:515c`) latches bit 8 of the frame's flags
+    /// word when the button is tracked, and `ScannerWndProc` (`1058:04bb`)
+    /// clears it again on the click that follows — so it arms one shot, not a
+    /// mode that stays on.
+    pub set_packet_dest: bool,
     /// Which waypoint a drag is moving, while one is under way.
     pub dragging_waypoint: Option<usize>,
     /// Where that waypoint was before the drag picked it up.
@@ -2235,7 +2243,7 @@ impl App {
                 }
             },
         );
-        let rows = vec![
+        let mut rows = vec![
             (
                 "Dock Capacity".to_string(),
                 design.map_or_else(|| "none".to_string(), |_| "Unlimited".to_string()),
@@ -2256,7 +2264,102 @@ impl App {
             ),
             ("Damage".to_string(), "none".to_string()),
         ];
+        // A rule falls here in the original, and under it the two rows the
+        // mass driver fills. They are built from the same numbers
+        // [`Self::planet_mass_driver`] hands the gauge and the button.
+        let driver = self.planet_mass_driver();
+        rows.push((
+            "Mass Driver".to_string(),
+            driver.as_ref().map_or_else(
+                || "none".to_string(),
+                |driver| {
+                    if driver.warp == 0 {
+                        "none".to_string()
+                    } else if driver.paired {
+                        format!("Warp: {}+", driver.warp)
+                    } else {
+                        format!("Warp: {}", driver.warp)
+                    }
+                },
+            ),
+        ));
+        rows.push((
+            "Destination".to_string(),
+            driver
+                .and_then(|driver| driver.destination)
+                .unwrap_or_else(|| "none".to_string()),
+        ));
         (title, rows)
+    }
+
+    /// The **mass driver** the Starbase tile's last two rows describe, with
+    /// the gauge that sits under them.
+    ///
+    /// `DrawPlanetStarbase` (`1048:22cc`) draws, in order: a rule, the
+    /// `Mass Driver` row, the `Destination` row, a **Set Dest** button in the
+    /// left third of the next row, and — only when there is a driver — a
+    /// gauge filling the rest of that row.
+    ///
+    /// The numbers are `DrawMassWarpGauge`'s (`1048:2afa`). The gauge is one
+    /// segment of the raw launch speed against a total of the rating less
+    /// one, which is the same range the drag allows: from warp 5 up to
+    /// **three above** the driver's rating.
+    #[must_use]
+    pub fn planet_mass_driver(&self) -> Option<MassDriverTile> {
+        let planet = self.pane_planet()?;
+        if !planet.starbase {
+            return None;
+        }
+        let designs = self
+            .game
+            .as_ref()
+            .and_then(|g| g.designs.get(self.local_player()))
+            .map_or(&[][..], Vec::as_slice);
+        let driver = stars_core::production::mass_driver(planet, designs);
+        // `(lpplprod >> 10 & 0xf) + 4`, and the gauge floors it at warp 5.
+        let speed = (i32::from(planet.fling_warp) + 4).max(MassDriverTile::SLOWEST);
+        let destination = planet.fling_dest.map(|id| self.planet_name(id));
+        let most = driver.warp + 3;
+        // `iBest + plus` is what the driver does safely; two warps past that
+        // is the yellow band and anything beyond it is red.
+        let safe = driver.warp + i32::from(driver.paired);
+        let risk = if speed <= safe {
+            Risk::Safe
+        } else if speed < safe + 3 {
+            Risk::Risky
+        } else {
+            Risk::Dangerous
+        };
+        Some(MassDriverTile {
+            warp: driver.warp,
+            paired: driver.paired,
+            destination,
+            speed,
+            fill: speed - 4,
+            total: driver.warp - 1,
+            most,
+            label: format!("Warp {speed}"),
+            risk,
+        })
+    }
+
+    /// Aim the selected planet's mass driver, as the click that follows
+    /// **Set Dest** aims it.
+    ///
+    /// `ScannerWndProc` (`1058:0546`): the planet under the pointer becomes
+    /// the destination, **except** the selected planet itself, which clears
+    /// the destination instead — that is how a fling is called off. Either
+    /// way the button comes back up.
+    ///
+    /// Returns whether anything was aimed, which is what tells the caller to
+    /// swallow the click rather than let it select.
+    pub fn aim_mass_driver(&mut self, at: i16) -> bool {
+        self.set_packet_dest = false;
+        let Some(planet) = self.selected_planet_mut() else {
+            return false;
+        };
+        planet.fling_dest = if planet.id == at { None } else { Some(at) };
+        true
     }
 
     /// The **Production** tile: the queue, in build order.
@@ -11925,6 +12028,56 @@ pub struct PaneFleet {
     pub ships: i32,
     /// Whether it is the local player's.
     pub mine: bool,
+}
+
+/// What the Starbase tile's mass driver rows, button and gauge are drawn
+/// from — [`App::planet_mass_driver`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MassDriverTile {
+    /// The warp the best driver fitted is rated for, `0` when there is none.
+    pub warp: i32,
+    /// Whether a second driver of that rating is fitted, which the row marks
+    /// with a `+` and which catches one warp faster.
+    pub paired: bool,
+    /// The planet packets are flung at, when one is set.
+    pub destination: Option<String>,
+    /// The launch speed, as a warp factor.
+    pub speed: i32,
+    /// The gauge's one segment: the speed as the file stores it.
+    pub fill: i32,
+    /// What a full gauge is worth: the rating less one.
+    pub total: i32,
+    /// The fastest the gauge may be dragged to — three above the rating.
+    pub most: i32,
+    /// `Warp %ld`, centred in the bar.
+    pub label: String,
+    /// What the bar's colour says about that speed.
+    pub risk: Risk,
+}
+
+impl MassDriverTile {
+    /// The slowest a packet flies, which is what the gauge floors the speed
+    /// at however little the file holds.
+    pub const SLOWEST: i32 = 5;
+
+    /// Whether there is a driver at all. The gauge is drawn only when there
+    /// is; the **Set Dest** button is drawn either way, greyed when not.
+    #[must_use]
+    pub fn present(&self) -> bool {
+        self.warp > 0
+    }
+}
+
+/// How a launch speed compares with what the driver does safely —
+/// `DrawMassWarpGauge`'s three brushes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Risk {
+    /// At or under the rating: `hbrPurple`.
+    Safe,
+    /// One or two warps over: `hbrYellow`.
+    Risky,
+    /// Three over, which is as far as the gauge goes: `hbrRed`.
+    Dangerous,
 }
 
 /// What the pane's last tile draws its two gauges from.

@@ -721,11 +721,29 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         app.dragging_waypoint_from = None;
     }
 
+    // Aiming the mass driver. `ScannerWndProc` (`1058:04bb`) narrows the hit
+    // test to **planets alone** while the planet pane's Set Dest button is
+    // down, and it takes the same path on a shift-click when the selection is
+    // a planet whose starbase has a driver. Either way the click aims instead
+    // of selecting, and the button comes back up (`1058:059f`).
+    let selected_planet =
+        !app.selection.on_fleet && app.selection.thing.is_none() && app.selection.planet.is_some();
+    let aiming = app.set_packet_dest
+        || (shift_held
+            && selected_planet
+            && app
+                .planet_mass_driver()
+                .is_some_and(|driver| driver.present()));
+    if aiming && response.clicked() {
+        if let Some(id) = clicked.and_then(|(_, _, planet, _)| planet) {
+            app.aim_mass_driver(id);
+        }
+    }
     // Giving orders instead of selecting. `ScannerWndProc` (`1058:0ae1`) takes
     // this branch when a **fleet** is selected and either shift is held or Add
     // Way Points mode is on — the two are the same path, and shift is how you
     // lay a course without leaving select mode.
-    if app.selection.fleet.is_some() && (app.add_waypoints || shift_held) {
+    else if app.selection.fleet.is_some() && (app.add_waypoints || shift_held) {
         if response.clicked() {
             if let Some(p) = response.interact_pointer_pos().filter(|p| on_map(*p)) {
                 let (x, y) = to_galaxy(p);

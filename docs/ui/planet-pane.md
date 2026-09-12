@@ -119,8 +119,71 @@ Titled with the base's design name, or `< no starbase >` when there is none.
 | Armor | `%lddp` |
 | Shields | `%lddp` or `none` |
 | Damage | a percentage, or `none` |
-| Mass Driver | `Warp: %d` or `none`, beside a gauge of the driver's warp against the best available |
-| Destination | the planet packets are flung at, or `none`, beside a **Set Dest** button |
+| — | a rule |
+| Mass Driver | `Warp: %d`, or `none` |
+| Destination | the planet packets are flung at, or `none` |
+
+`DrawPlanetStarbase` (`1048:22cc`) draws Dock Capacity from the **hull's**
+`wtCargoMax` — `0xffff` is `Unlimited` — and the Damage figure in dark red
+(`0x00007f`), rounding the stored figure up to five and then dividing by it,
+so the field counts fifths of a percent.
+
+Under the two driver rows comes a row of its own: a **Set Dest** button
+filling the left third of it, and — only when there is a driver — a gauge
+filling the rest.
+
+### The driver, and the `+`
+
+`IWarpMAFromLppl` (`1048:7b10`) walks the starbase design's slots and keeps
+the best mass driver in them. The drivers are the orbital specials from index
+**7** (`Mass Driver 5`) to index **15** (`Ultra Driver 13`), the seven below
+them being stargates, and a driver's rating *is* its warp.
+
+The routine also reports whether a **second** driver of that same rating is
+fitted, which the row writes as a trailing `+` and which
+[`packets.md`](../formulas/packets.md) counts as one warp faster. It is kept
+slot by slot: a strictly better driver takes over and clears the flag, an
+equal one sets it. So 5, 5 then 7 is not a pair and 5, 7 then 7 is — and two
+drivers **in one slot** are not a pair either, because the routine never
+looks past a slot being occupied.
+
+Three gates come first. The planet must be owned, it must have a starbase,
+and for **another player's** planet their starbase design must be known in
+full (`det == 7`) — otherwise the row reads `none` however much armour the
+tile above it is willing to name.
+
+### The gauge
+
+`DrawMassWarpGauge` (`1048:2afa`) draws the launch speed, which is the
+planet's own four-bit field plus four, floored at warp 5. The bar is one
+segment of the raw field against a total of the **rating less one**, and its
+colour says how hard the launch is being pushed:
+
+| speed | brush |
+|-------|-------|
+| at or under the rating (plus one for a pair) | `hbrPurple`, `0x7f007f` |
+| one or two warps over it | `hbrYellow`, `0x00ffff` |
+| three warps over it | `hbrRed`, `0x0000ff` |
+
+Three over is also as far as the gauge will be dragged: `ClickInShipOrders`
+(`1050:8783`) hands the drag a minimum of 1 and a maximum of the rating less
+one, which is warp 5 to the rating plus three. The label is `Warp %ld`,
+centred on the bar.
+
+### Set Dest
+
+`ClickInPlanetOrders` (`1048:515c`) tracks the button and latches bit 8 of
+the frame's flags word. `ScannerWndProc` (`1058:04bb`) then narrows the next
+click's hit test to **planets alone**, takes the planet it lands on as the
+destination — except the selected planet itself, which clears the destination
+instead — and clears the bit again, so the button arms one click rather than
+turning a mode on. A **shift-click** on the map with a planet selected takes
+the same path without the button, provided the planet has a driver.
+
+The button is drawn with `DrawBtn` style `8`, or `0xc` — its disabled style —
+when there is no driver, and clicking the Mass Driver row itself pops up the
+driver's component card (`grPopupComponent` for orbital special
+`warp + 2`).
 
 ## What is *not* here
 
@@ -146,7 +209,13 @@ clicking its title bar**, with the column reflowing under it exactly as
 `ReflowColumn` reflows it. Minerals On Hand and Status in full, with the
 original's labels, formats and Alternate Reality special cases and the three
 mineral labels in `rgcrMin`'s own colours; the Production tile's queue and its
-empty text; the Starbase tile's title and its first rows; the fleets in orbit.
+empty text; the Starbase tile's title, its rows, its warp gauge with the three
+colours of risk, and the Set Dest button with the click it arms; the fleets in
+orbit.
+
+The Damage row is the one row still short: a percentage needs the starbase's
+accumulated damage, which this project's planet model does not yet carry, so
+it reads `none` always.
 
 ### What the packed word holds
 
@@ -203,7 +272,7 @@ Which tiles move, and by how much:
 
 Not reproduced: the planet **picture** when no copy of the game is found (this
 tile says in words what the picture says at a glance); reordering the tiles or
-moving one between columns; the mass driver and destination rows and their
-gauge and button; the production tile's completion line and Route button; and
+moving one between columns; the production tile's completion line and Route
+button; and
 the editing that the original's list box allows — the production queue is
 edited on the Planets screen instead.

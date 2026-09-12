@@ -1109,7 +1109,20 @@ fn the_planet_pane_reports_a_planet() {
         .expect("a starbase design");
     assert_eq!(title, expected, "the tile names the starbase, not a ship");
     let labels: Vec<&str> = rows.iter().map(|(l, _)| l.as_str()).collect();
-    assert_eq!(labels, vec!["Dock Capacity", "Armor", "Shields", "Damage"]);
+    assert_eq!(
+        labels,
+        vec![
+            "Dock Capacity",
+            "Armor",
+            "Shields",
+            "Damage",
+            "Mass Driver",
+            "Destination"
+        ]
+    );
+    // A new game's starbase has no mass driver, so both of those say `none`.
+    assert_eq!(rows[4].1, "none");
+    assert_eq!(rows[5].1, "none");
 
     // And the title bar is the planet's name.
     assert!(!app.planet_pane_title().is_empty());

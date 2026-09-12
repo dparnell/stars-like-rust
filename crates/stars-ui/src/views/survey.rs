@@ -515,7 +515,10 @@ fn fleet(app: &mut App, ui: &mut egui::Ui) {
 
 /// One gauge: a one-pixel frame, the segments stacked left to right inside it,
 /// the button face for the rest, and the label centred on it when it fits.
-fn gauge_bar(
+///
+/// `LDrawGauge` (`1040:31a2`) draws every gauge in the game, so the planet
+/// pane's mass-driver gauge comes through here too.
+pub(crate) fn gauge_bar(
     ui: &egui::Ui,
     painter: &egui::Painter,
     gauge: &Gauge,
