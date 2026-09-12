@@ -20,32 +20,50 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     // rest of the game turned inside out, which is what makes it a well for
     // text rather than a box round a group.
     let hide = at(0x2);
-    let area = crate::dialog::tutor_text_area(rect, hide.top(), line);
-    let outer = area.expand((line / 2.0).floor());
-    sunken(ui.painter(), outer);
-    ui.painter().rect_filled(area, 0.0, face());
+    let mut area = crate::dialog::tutor_text_area(rect, hide.top(), line);
 
     // The game's own words when a copy of the original is to hand, and this
     // project's retelling of the page when it is not.
-    if let Some(paragraphs) = app.tutor_page() {
-        let bold = app
-            .tutor
-            .as_ref()
-            .and_then(crate::tutorial::Tutor::bold_line);
-        paint(ui, area, line, &paragraphs, bold);
+    let paragraphs = app.tutor_page();
+    let bold = app
+        .tutor
+        .as_ref()
+        .and_then(crate::tutorial::Tutor::bold_line);
+
+    // The original's panel was cut to fit its own Arial 8, and a page that
+    // was written to fill it overruns in any other face. Rather than lose
+    // the end of the page, measure it first and let the panel — and the
+    // buttons under it — come down by the difference.
+    let needed = paragraphs.as_deref().map_or(0.0, |paragraphs| {
+        flow(ui, None, area, line, paragraphs, bold)
+    });
+    let extra = (needed - area.height()).max(0.0).ceil();
+    if extra > 0.0 {
+        ui.allocate_exact_size(egui::vec2(rect.width(), extra), egui::Sense::hover());
+        area.max.y += extra;
+    }
+    let down = egui::vec2(0.0, extra);
+
+    let outer = area.expand((line / 2.0).floor());
+    sunken(ui.painter(), outer);
+    ui.painter().rect_filled(area, 0.0, face());
+    if let Some(paragraphs) = paragraphs.as_deref() {
+        let painter = ui.painter().with_clip_rect(area);
+        flow(ui, Some(&painter), area, line, paragraphs, bold);
     }
 
     // `Hide`, `Hint` and `Panic!`.
-    if crate::views::dialog_button(ui, at(0x2), &caption(0x2), true).clicked() {
+    if crate::views::dialog_button(ui, at(0x2).translate(down), &caption(0x2), true).clicked() {
         app.tutor_notice = app.hide_tutor().map(str::to_string);
     }
     // Hint opens the page's help topic, which this project has no help file
     // for, so it says which topic it would have opened.
     let help = app.tutor.as_ref().map_or(0, |t| t.help);
-    crate::views::dialog_button(ui, at(0x76), &caption(0x76), false).on_disabled_hover_text(
-        format!("Help topic {help:#x}, which this project has no file for."),
-    );
-    if crate::views::dialog_button(ui, at(0x9c7), &caption(0x9c7), true).clicked() {
+    crate::views::dialog_button(ui, at(0x76).translate(down), &caption(0x76), false)
+        .on_disabled_hover_text(format!(
+            "Help topic {help:#x}, which this project has no file for."
+        ));
+    if crate::views::dialog_button(ui, at(0x9c7).translate(down), &caption(0x9c7), true).clicked() {
         app.tutor_panic = true;
     }
 
@@ -67,7 +85,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
-/// Lay the page's paragraphs into the panel.
+/// Lay the page's paragraphs into the panel, and say how tall they came to.
 ///
 /// `DrawTutorText` flows them: a paragraph whose first character is an
 /// **upper-case letter** starts a new one, with half a line of air above it,
@@ -77,16 +95,20 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
 ///
 /// The emphasised paragraph is not drawn bold. The original swaps the text
 /// and background colours for it, so it comes out in **reverse video**.
-fn paint(
-    ui: &mut egui::Ui,
+///
+/// With no painter this only measures, which is how the panel learns how
+/// much room the page wants before it is drawn.
+fn flow(
+    ui: &egui::Ui,
+    painter: Option<&egui::Painter>,
     area: egui::Rect,
     line: f32,
     paragraphs: &[String],
     bold: Option<usize>,
-) {
+) -> f32 {
     let font = egui::FontId::proportional(line * 0.8);
-    let painter = ui.painter().with_clip_rect(area);
     let (mut x, mut y) = (area.left(), area.top());
+    let mut bottom = area.top();
 
     for (index, text) in paragraphs.iter().enumerate() {
         // A one-character paragraph ends the page.
@@ -102,36 +124,40 @@ fn paint(
 
         // Word wrap, continuing from wherever the last paragraph left off.
         for word in text.split_inclusive(' ') {
-            let galley =
-                painter.layout_no_wrap(word.to_string(), font.clone(), egui::Color32::PLACEHOLDER);
-            let width = galley.rect.width();
+            let width = ui.fonts(|fonts| {
+                fonts
+                    .layout_no_wrap(word.to_string(), font.clone(), egui::Color32::PLACEHOLDER)
+                    .rect
+                    .width()
+            });
             if x + width > area.right() && x > area.left() {
                 x = area.left();
                 y += line;
             }
-            if y + line > area.bottom() {
-                return;
-            }
-            let at = egui::pos2(x, y);
-            if inverted {
-                painter.rect_filled(
-                    egui::Rect::from_min_size(at, egui::vec2(width, line)),
-                    0.0,
+            bottom = bottom.max(y + line);
+            if let Some(painter) = painter {
+                let at = egui::pos2(x, y);
+                if inverted {
+                    painter.rect_filled(
+                        egui::Rect::from_min_size(at, egui::vec2(width, line)),
+                        0.0,
+                        text_colour(),
+                    );
+                }
+                painter.galley(
+                    at,
+                    painter.layout_no_wrap(
+                        word.to_string(),
+                        font.clone(),
+                        if inverted { face() } else { text_colour() },
+                    ),
                     text_colour(),
                 );
             }
-            painter.galley(
-                at,
-                painter.layout_no_wrap(
-                    word.to_string(),
-                    font.clone(),
-                    if inverted { face() } else { text_colour() },
-                ),
-                text_colour(),
-            );
             x += width;
         }
     }
+    bottom - area.top()
 }
 
 /// `Something's Really Gone Wrong!` — what **Panic!** opens.
