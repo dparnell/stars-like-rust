@@ -221,8 +221,24 @@ pub fn generate_turn_with_orders(
         // A waypoint is consumed when the fleet reaches it, so the list
         // getting shorter is how this pass knows the fleet arrived.
         let waypoints = state.fleets[index].waypoints.len();
-        if let Some(travelled) = move_fleet(&mut state.fleets[index], &designs, ife) {
+        if let Some((travelled, dry)) = move_fleet(&mut state.fleets[index], &designs, ife) {
             report.moved.push((state.fleets[index].id, travelled));
+            let fleet_id = state.fleets[index].id;
+            match dry {
+                RanDry::No => {}
+                RanDry::Stuck => state.messages.push(crate::message::Message {
+                    player: owner,
+                    id: crate::message::id::OUT_OF_FUEL,
+                    object: crate::message::fleet_object(fleet_id),
+                    params: vec![fleet_id as i16, 0],
+                }),
+                RanDry::SlowedTo(warp) => state.messages.push(crate::message::Message {
+                    player: owner,
+                    id: crate::message::id::OUT_OF_FUEL_SLOWED,
+                    object: crate::message::fleet_object(fleet_id),
+                    params: vec![fleet_id as i16, i16::from(warp)],
+                }),
+            }
             // FTravelThroughMineFields: the leg is flown, and somewhere along
             // it the fleet may find somebody else's mines.
             if let Some(hit) = cross_minefields(state, index, from, travelled, rng) {
@@ -314,6 +330,7 @@ pub fn generate_turn_with_orders(
             &race,
             &designs,
             tech,
+            state.tutorial,
             &mut available,
             &mut ships_built,
         );
@@ -2122,6 +2139,7 @@ fn run_queue(
     race: &crate::Race,
     designs: &[crate::design::ShipDesign],
     tech: [u8; 6],
+    tutorial: bool,
     available: &mut [i32; COST_PARTS],
     ships_built: &mut Vec<(u8, i32)>,
 ) -> Vec<(u16, i32)> {
@@ -2137,7 +2155,7 @@ fn run_queue(
     let mut leftovers: Vec<(usize, crate::production::QueueItem)> = Vec::new();
     // What one unit of alchemy costs, and whether the entry just passed over
     // was auto alchemy — which is what lets the next item ask for some.
-    let alchemy_cost = planetary_item_cost(item::ALCHEMY, race, false).map(|c| c.resources);
+    let alchemy_cost = planetary_item_cost(item::ALCHEMY, race, tutorial).map(|c| c.resources);
     let mut alchemy: Option<i32> = None;
 
     // The index is the point: it says whether the entry is the last in the
@@ -2169,6 +2187,7 @@ fn run_queue(
                 researching: 0,
                 trader_parts: 0,
                 starbase: false,
+                tutorial,
             };
             let Some(cost) = design.true_cost(&who) else {
                 continue;
@@ -2197,7 +2216,7 @@ fn run_queue(
             }
             continue;
         }
-        let Some(cost) = planetary_item_cost(entry.item, race, false) else {
+        let Some(cost) = planetary_item_cost(entry.item, race, tutorial) else {
             continue; // an item this does not cost yet, such as a packet
         };
         let auto = entry.is_auto();
@@ -2285,18 +2304,45 @@ fn run_queue(
     completed
 }
 
+/// What running out of fuel did to a fleet's leg.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RanDry {
+    /// It did not.
+    No,
+    /// The tank is empty and the engines cannot turn for nothing at any
+    /// warp: the fleet is stranded (`idmHasRunFuel`).
+    Stuck,
+    /// The tank is empty, so the leg has been slowed to the fastest warp
+    /// the engines run free at (`idmHasRunFuelFleetsSpeedHasDecreased`).
+    SlowedTo(u8),
+}
+
 /// Move one fleet along its current leg.
 ///
 /// A fleet covers `warp^2` light years a year toward its next waypoint,
 /// stopping exactly on it if that would overshoot. On arrival the waypoint is
 /// consumed, so the following one becomes the next leg.
 ///
-/// Fuel is deducted, and a fleet that cannot afford the whole leg travels only
-/// as far as its fuel allows and arrives empty — which is what the original
-/// does before dropping the fleet's warp.
+/// Fuel: `MoveFleets` first asks whether the tank covers the **whole of the
+/// rest of the leg** (`EstFuelUse` over the remaining distance). If it does,
+/// the year's travel is flown and paid for, and the fuel range is not
+/// consulted at all — a fleet with exactly enough arrives on its last drop.
+/// If it does not, the fleet goes as far as the tank's range allows this
+/// year and the tank is **zeroed**, not debited (`10b0:42c3`). Then, when
+/// that leaves it dry and short of the waypoint, the original looks for the
+/// fastest warp at which the rest of the leg costs nothing — counting up
+/// from 1 until one costs fuel, and taking the one before — and writes that
+/// onto the leg, so a stranded freighter creeps on at warp 1 rather than
+/// sitting still; if even warp 1 costs fuel it stays where it is. Either way
+/// the player is told.
 ///
-/// Returns the distance travelled, or `None` if the fleet had nowhere to go.
-fn move_fleet(fleet: &mut Fleet, designs: &[crate::design::ShipDesign], ife: bool) -> Option<i32> {
+/// Returns the distance travelled and what the fuel did, or `None` if the
+/// fleet had nowhere to go.
+fn move_fleet(
+    fleet: &mut Fleet,
+    designs: &[crate::design::ShipDesign],
+    ife: bool,
+) -> Option<(i32, RanDry)> {
     let (target, warp) = fleet.next_leg()?;
     let from = fleet.position;
     let d = distance(from, target);
@@ -2304,16 +2350,42 @@ fn move_fleet(fleet: &mut Fleet, designs: &[crate::design::ShipDesign], ife: boo
         return None;
     }
 
-    let range = if designs.is_empty() {
-        None
+    let mut dry = RanDry::No;
+    let travel = if designs.is_empty() {
+        travel_this_year(i16::from(warp), d, None)
     } else {
-        Some(fleet.fuel_range(designs, warp, ife))
+        let wanted = travel_this_year(i16::from(warp), d, None);
+        #[allow(clippy::cast_possible_truncation)]
+        let whole_leg = fleet.fuel_use(designs, warp, (d + 0.9999) as i32, ife);
+        if fleet.cargo.fuel >= whole_leg {
+            let burned = fleet.fuel_use(designs, warp, wanted, ife);
+            fleet.cargo.fuel = (fleet.cargo.fuel - burned).max(0);
+            wanted
+        } else {
+            let range = fleet.fuel_range(designs, warp, ife);
+            let travel = wanted.min(range);
+            fleet.cargo.fuel = 0;
+            // Dry, and short of the waypoint: the leg is slowed to what the
+            // fleet can still fly.
+            if f64::from(travel) < d - 0.99999 {
+                #[allow(clippy::cast_possible_truncation)]
+                let left = ((d - f64::from(travel)).ceil() as i32).max(1);
+                let mut probe: u8 = 1;
+                while probe < 10 && fleet.fuel_use(designs, probe, left, ife) == 0 {
+                    probe += 1;
+                }
+                dry = if probe < 2 {
+                    RanDry::Stuck
+                } else {
+                    if let Some(leg) = fleet.waypoints.get_mut(1) {
+                        leg.warp = probe - 1;
+                    }
+                    RanDry::SlowedTo(probe - 1)
+                };
+            }
+            travel
+        }
     };
-    let travel = travel_this_year(i16::from(warp), d, range);
-    if travel > 0 && !designs.is_empty() {
-        let burned = fleet.fuel_use(designs, warp, travel, ife);
-        fleet.cargo.fuel = (fleet.cargo.fuel - burned).max(0);
-    }
     let to = advance(from, target, travel);
     fleet.position = to;
 
@@ -2337,5 +2409,5 @@ fn move_fleet(fleet: &mut Fleet, designs: &[crate::design::ShipDesign], ife: boo
             here.position = to;
         }
     }
-    Some(travel)
+    Some((travel, dry))
 }

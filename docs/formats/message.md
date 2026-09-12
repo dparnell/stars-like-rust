@@ -57,7 +57,9 @@ right routine:
 
 | id | name | sent by |
 |---:|------|---------|
+| `0x27` | `idmHasRunFuel` | `MoveFleets`, a fleet dry and unable to move at any warp; `[fleet, 0]` |
 | `0x4e` | `idmHasCompletedAssignedOrders` | `SatisfyOrders`, when a fleet runs out of orders |
+| `0x8b` | `idmHasRunFuelFleetsSpeedHasDecreased` | `MoveFleets`, a fleet dry and slowed to a free warp; `[fleet, warp]` |
 | `0xbe` | `idmSomeoneHasSweptMinesMineField` | `SweepForMines`, to the field's owner |
 | `0xc2` | `idmHasSweptMinesMineField` | `SweepForMines`, to the sweeping fleet's owner |
 | `0xc3` | `idmHasDispersedMines` | the lay-mines arm at `10b0:999e` |

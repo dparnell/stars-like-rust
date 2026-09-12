@@ -24,6 +24,7 @@ const NO_VACANCY: i16 = 0x03;
 const SLIME: i16 = 0x08;
 const WALLABY: i16 = 0x05;
 const OXYGEN: i16 = 0x02;
+const MOZART: i16 = 0x04;
 const DWARTE: i16 = 0x15;
 const MOBIUS: i16 = 0x13;
 const CASTLE: i16 = 0x14;
@@ -587,6 +588,103 @@ fn the_first_four_years_play_through_from_the_pages() {
     app.research_ok();
     assert!(app.advance_tutor());
     assert_eq!(page(&app), 30, "2408 is done");
+    app.generate_turn();
+    assert_eq!(app.game.as_ref().expect("a game").turn, 9);
+    assert!(!app.advance_tutor());
+
+    // --- 2409 -------------------------------------------------------------
+    // Page 30: the research dialog's next field set to Construction, then
+    // the mining robots' report switched off.
+    app.open_research();
+    app.research_dialog.as_mut().expect("the dialog").next =
+        stars_core::research::NextField::Field(3);
+    app.research_ok();
+    assert!(!app.advance_tutor());
+    assert!(app.filter_message(stars_core::message::id::MINING_ROBOTS_LOADED, true));
+    assert!(app.advance_tutor());
+    assert_eq!(page(&app), 31);
+
+    // Page 31: Santa Maria #10 — the one split off on page 26 before the
+    // Colonize order was set, so still at Stove Top with an empty hold —
+    // filled and sent to settle Oxygen; then Armed Probe #1's next stop
+    // dragged from Oxygen to Mozart.
+    app.select_object(ScanObject::Planet(OXYGEN));
+    assert!(app.goto_fleet(9), "Santa Maria #10");
+    let santa_maria = app.selection.fleet.expect("selected");
+    assert_eq!(
+        app.game.as_ref().expect("a game").fleets[santa_maria].orbiting,
+        Some(STOVE_TOP as u16),
+        "the split-off ship stayed home"
+    );
+    assert_eq!(app.transfer_cargo(santa_maria, 3, 250), 25);
+    shift_click(&mut app, OXYGEN);
+    assert!(app.set_waypoint_task(task::COLONIZE));
+    assert!(!app.advance_tutor());
+    assert!(app.goto_fleet(0));
+    let mozart = at_planet(&app, MOZART);
+    assert!(app.move_waypoint(1, mozart.x, mozart.y, 20.0));
+    assert!(app.advance_tutor());
+    assert_eq!(page(&app), 32, "2409 is done");
+    app.generate_turn();
+    assert_eq!(app.game.as_ref().expect("a game").turn, 10);
+    assert!(!app.advance_tutor());
+
+    // --- 2410 -------------------------------------------------------------
+    // Page 32: the dismantling report switched off; Shaggy Dog's queue set
+    // to three auto factories and three auto mines, leftover only; then
+    // the queue opened again and the default template imported from it.
+    assert!(app.filter_message(stars_core::message::id::FLEET_DISMANTLED, true));
+    assert!(!app.advance_tutor());
+    app.select_object(ScanObject::Planet(SHAGGY_DOG));
+    assert_eq!(
+        app.selected_planet().and_then(|p| p.owner),
+        Some(0),
+        "Shaggy Dog is ours"
+    );
+    app.open_production();
+    queue(&mut app, item::AUTO_FACTORY, 1, 3, None);
+    queue(&mut app, item::AUTO_MINE, 1, 3, Some(0));
+    app.production.as_mut().expect("open").no_research = true;
+    app.production_ok();
+    assert!(!app.advance_tutor(), "the template is not set yet");
+    assert_eq!(
+        bold(&app),
+        Some(6),
+        "\"Open the production queue once more\""
+    );
+    app.open_production();
+    app.production_import_template(0, "");
+    assert!(app.advance_tutor());
+    assert_eq!(page(&app), 33);
+
+    // Page 33: OK on the production dialog; Bloop in the Summary pane; a
+    // Santa Maria and a Teamster into Stove Top's queue, in that order.
+    app.production_ok();
+    app.select_object(ScanObject::Planet(BLOOP));
+    app.select_object(ScanObject::Planet(STOVE_TOP));
+    app.open_production();
+    {
+        // The auto-build order has left a part-built factory in front of
+        // itself — only possible because the tutorial prices a factory at
+        // two of each mineral, so germanium has not run out — and the
+        // dialog opens on it, so the ships go in behind it: slots 1 and 2.
+        let dialog = app.production.as_ref().expect("open");
+        assert_eq!(dialog.queue.len(), 2, "{:?}", dialog.queue);
+        assert_eq!(dialog.queue[0].item, item::FACTORY);
+        assert_eq!(dialog.queue_index, Some(0));
+    }
+    for design in [2, 3] {
+        let row = app
+            .production_inventory()
+            .iter()
+            .position(|row| row.ship && row.item == design)
+            .expect("the design is on offer");
+        app.production.as_mut().expect("open").inventory_index = row;
+        app.production_add(1);
+    }
+    app.production_ok();
+    assert!(app.advance_tutor());
+    assert_eq!(page(&app), 34, "2410 is done");
 }
 
 fn at_planet(app: &App, planet: i16) -> stars_core::movement::Point {

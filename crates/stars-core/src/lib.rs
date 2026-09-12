@@ -308,6 +308,17 @@ pub struct GameState {
     /// Read by the Mystery Trader, which withholds its late-game bonus of
     /// extra ships from a single-player game — see [`crate::wormhole`].
     pub single_player: bool,
+    /// Whether the **tutorial** is running: bit 11 of the client's `gd`
+    /// word, which `StartTutor` sets (`10f8:0748`) and `EndTutor` clears
+    /// (`10f8:0c21`).
+    ///
+    /// It is not a game setting and lives in no file — the tutorial is
+    /// generated on the player's own machine, so the host code sees the
+    /// client's flag. Two things read it: `GetProductionCosts`
+    /// (`10d0:4885`) prices a factory at two of every mineral instead of
+    /// four germanium, and the AI does not shuffle its planets
+    /// (`docs/formulas/ai.md`).
+    pub tutorial: bool,
     /// The salt of the **host's** password; `0` when there is none.
     ///
     /// It guards host mode rather than a turn, and it lives in the host file
@@ -414,6 +425,7 @@ impl GameState {
             designs: Vec::new(),
             slow_tech: false,
             single_player: false,
+            tutorial: false,
             host_password: 0,
             galaxy_planets: 0,
             victory: [0; stars_formats::victory::COUNT],

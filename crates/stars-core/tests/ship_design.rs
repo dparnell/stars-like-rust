@@ -25,6 +25,7 @@ fn builder(race: &Race, levels: [u8; 6]) -> Builder<'_> {
         researching: 0,
         trader_parts: 0,
         starbase: false,
+        tutorial: false,
     }
 }
 

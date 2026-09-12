@@ -274,6 +274,12 @@ pub struct ItemCost {
 ///
 /// Returns `None` for an id this does not cover, which includes ship designs
 /// and the packet and scanner ranges.
+///
+/// `tutorial` is [`crate::GameState::tutorial`]: while the tutorial runs
+/// (`gd` bit 11, tested at `10d0:4885`) a factory costs **two of every
+/// mineral** rather than four germanium alone, which is what lets the
+/// tutorial's home world keep building factories for as long as its pages
+/// assume.
 #[must_use]
 pub fn planetary_item_cost(item: u16, race: &Race, tutorial: bool) -> Option<ItemCost> {
     use crate::race::{lrt, Prt, RaceStat};
@@ -970,12 +976,12 @@ pub fn mass_driver(planet: &Planet, designs: &[crate::design::ShipDesign]) -> Ma
 /// Source: `GetProductionCosts` (`10d0:3f20`). Returns `None` for a ship
 /// design, which is costed by [`crate::design::ShipDesign::true_cost`].
 #[must_use]
-pub fn item_cost(id: u16, who: &crate::parts::Builder<'_>, tutorial: bool) -> Option<ItemCost> {
+pub fn item_cost(id: u16, who: &crate::parts::Builder<'_>) -> Option<ItemCost> {
     use crate::components::slot;
     use crate::race::Prt;
 
     let id = item::auto_builds(id).unwrap_or(id);
-    if let Some(cost) = planetary_item_cost(id, who.race, tutorial) {
+    if let Some(cost) = planetary_item_cost(id, who.race, who.tutorial) {
         return Some(cost);
     }
 
@@ -1220,7 +1226,7 @@ pub fn eta(
                         resources: c.resources,
                     })
             } else {
-                item_cost(entry.item, who, false)
+                item_cost(entry.item, who)
             };
             let Some(cost) = cost else {
                 continue;
@@ -1460,7 +1466,7 @@ pub fn research_from_planet(
                     resources: c.resources,
                 })
         } else {
-            item_cost(entry.item, who, false)
+            item_cost(entry.item, who)
         };
         let Some(cost) = cost else { continue };
         if auto {

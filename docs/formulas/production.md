@@ -88,10 +88,20 @@ without a design:
 | Item | Minerals | Resources |
 |------|----------|-----------|
 | Mine | — | `rsMineBuild` (Humanoid 5) |
-| Factory | 4 germanium, 3 with Cheap Factories | `rsFactBuild` (Humanoid 10) |
+| Factory | 4 germanium, 3 with Cheap Factories — but **2 of every mineral** (1 with the trait) while the tutorial runs | `rsFactBuild` (Humanoid 10) |
 | Defence | the SDI's entry in the planetary table | likewise; Inner Strength pays 3/5 of both |
 | Mineral alchemy | — | 100, or 25 with the trait |
 | Terraform | — | 100, 70 with Total Terraforming, halved again for Claim Adjuster |
+
+The tutorial price is a branch on bit 11 of the client's `gd` word
+(`10d0:4885`), which `StartTutor` sets (`10f8:0748`) and `EndTutor` clears.
+It is not a game setting and is in no file: the tutorial is generated on the
+player's own machine, so the host code sees the client's flag. It matters,
+because the tutorial's home world builds a hundred and fifty factories in its
+first ten years and germanium alone would not stretch to them — with the
+flat price it is ironium that runs short, which is what the pages' Teamster
+shuttle from Prune and the seventy mines of 2411 are about. Carried as
+`GameState::tutorial`.
 
 The **auto-build** form of an item is a separate id — 0..=6, against 7 and up
 for the plain items — and costs the same. See `../formats/production.md` for

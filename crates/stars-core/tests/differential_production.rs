@@ -778,10 +778,10 @@ fn the_inventory_offers_what_the_planet_can_build() {
     }
 
     // Packet costs come from the primary trait.
-    let mixed = item_cost(item::PACKET_MIXED, &who, false).expect("a mixed packet costs something");
+    let mixed = item_cost(item::PACKET_MIXED, &who).expect("a mixed packet costs something");
     assert_eq!(mixed.minerals, [44, 44, 44]);
     assert_eq!(mixed.resources, 10);
-    let iron = item_cost(item::PACKET_IRONIUM, &who, false).expect("an ironium packet");
+    let iron = item_cost(item::PACKET_IRONIUM, &who).expect("an ironium packet");
     assert_eq!(iron.minerals, [110, 0, 0]);
 }
 

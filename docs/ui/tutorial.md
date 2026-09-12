@@ -107,7 +107,7 @@ come from a vocabulary of **fifteen** verbs:
 | `FCheckResearch` (`10f8:6da4`) | 11 | the research settings |
 | `FCheckScanner` (`10f8:685c`) | 5 | the scanner's view and filters |
 | `FCheckBuilderPart` (`10f8:77d8`) | 5 | a part in a design slot |
-| `FCheckTemplate` (`10f8:666e`) | 3 | a production template |
+| `FCheckTemplate` (`10f8:666e`) | 3 | the default template equals one of two canned queues at `10f8:663a` — flag, count and every entry |
 | `FCheckZip` (`10f8:6460`) | 1 | a zip order |
 | `FCheckPlanetRoute` (`10f8:6f86`) | 1 | a planet's route |
 
@@ -430,8 +430,8 @@ did not scroll. See `fleet-pane.md` and `scanner.md`.
 
 `crates/stars-ui/tests/tutorial_walkthrough.rs` plays the tutorial from its
 pages, through the same calls the panes make, and checks that every task
-turns the page as `AdvanceTutor` would. It gets through **2400 to 2408** —
-pages one to twenty-nine. The first four years took three corrections to
+turns the page as `AdvanceTutor` would. It gets through **2400 to 2410** —
+pages one to thirty-three. The first four years took three corrections to
 what was here:
 
 * the five opening messages, above;
@@ -465,6 +465,20 @@ split-off fleet must take a **copy of every order** the old one had
 (`LpflNewSplit`, `1038:3372`): the page expects the lone Santa Maria to be
 bound for Slime with Colonize already set, not sitting at Wallaby with a
 fresh single waypoint.
+
+Pages 32 and 33 are where `FCheckTemplate` gets real. Its table is not in
+the data segment at all but in the tutor's own code segment, `10f8:663a`:
+two `ZIPPRODQ1` records, and the default template must match one **exactly**
+— the no-research flag, the count, then every packed entry word. Page 33
+also caught the economy out: Stove Top's queue is meant to hold a
+part-built factory in front of the auto-build order, and it did not,
+because the home world had spent its last germanium. In the tutorial a
+factory costs **two of every mineral**, not four germanium — `gd` bit 11,
+which `StartTutor` sets — and with that the shortage moves to ironium,
+which is the one the Teamster is hauling. That Teamster, in turn, strands
+itself on the way home with 210 kT aboard and a warp chosen while it was
+empty; the original's answer is `MoveFleets`' drop to the fastest free warp
+(`../formulas/movement.md`, *Running dry*), so it creeps on at warp 1.
 
 Still to come here: `FCheckLayingWP`, `FCheckPatrolWP`, `FCheckBtlPlan` and
 `FCheckFleetName`; the help topic each check sets on failure; and the two

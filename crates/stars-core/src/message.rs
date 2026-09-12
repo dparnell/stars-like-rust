@@ -46,6 +46,14 @@ pub mod id {
     /// `idmHasCompletedAssignedOrders`: a fleet has run out of orders.
     /// `SatisfyOrders`' cancel path.
     pub const ORDERS_COMPLETE: u16 = 0x4e;
+    /// `idmHasRunFuel`: a fleet has emptied its tank short of its waypoint
+    /// and cannot move at any warp (`MoveFleets`, `10b0:42c3`). The fleet is
+    /// the object and the first parameter.
+    pub const OUT_OF_FUEL: u16 = 0x27;
+    /// `idmHasRunFuelFleetsSpeedHasDecreased`: the same, but the engines run
+    /// free at some warp, so the leg has been slowed to it — the second
+    /// parameter.
+    pub const OUT_OF_FUEL_SLOWED: u16 = 0x8b;
     /// `idmStarbaseHasBuiltNew`: one ship built, with the new fleet as the
     /// object and `[planet, (player << 5) | design]` as parameters
     /// (`FBuildObject`, `10b8:19b2`).
@@ -304,6 +312,12 @@ impl Message {
         };
         match self.id {
             id::ORDERS_COMPLETE => format!("Fleet {} has finished its orders.", fleet()),
+            id::OUT_OF_FUEL => format!("Fleet {} has no fuel left and cannot move.", fleet()),
+            id::OUT_OF_FUEL_SLOWED => format!(
+                "Fleet {} has no fuel left and has slowed to warp {}.",
+                fleet(),
+                self.params.get(1).copied().unwrap_or(0)
+            ),
             id::YOUR_FIELD_SWEPT => format!(
                 "Someone swept {} mines from one of your minefields.",
                 long(1)

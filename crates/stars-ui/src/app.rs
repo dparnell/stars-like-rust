@@ -2445,11 +2445,12 @@ impl App {
             return vec![("--- Queue is Empty ---".to_string(), EtaMark::Ordinary)];
         }
         let me = self.local_player();
+        let tutorial = self.game.as_ref().is_some_and(|g| g.tutorial);
         let who = self
             .game
             .as_ref()
             .and_then(|g| g.players.get(me))
-            .map(stars_core::parts::Builder::player);
+            .map(|player| stars_core::parts::Builder::player(player).in_tutorial(tutorial));
         let designs: &[stars_core::design::ShipDesign] = self
             .game
             .as_ref()
@@ -7008,7 +7009,7 @@ impl App {
         let Some(player) = game.players.get(me) else {
             return Vec::new();
         };
-        let who = stars_core::parts::Builder::player(player);
+        let who = stars_core::parts::Builder::player(player).in_tutorial(game.tutorial);
         let designs: &[stars_core::design::ShipDesign] =
             game.designs.get(me).map_or(&[], Vec::as_slice);
         stars_core::production::inventory(planet, &who, designs, &dialog.queue)
@@ -7051,7 +7052,7 @@ impl App {
         let Some(player) = game.players.get(me) else {
             return Vec::new();
         };
-        let who = stars_core::parts::Builder::player(player);
+        let who = stars_core::parts::Builder::player(player).in_tutorial(game.tutorial);
         let designs: &[stars_core::design::ShipDesign] =
             game.designs.get(me).map_or(&[], Vec::as_slice);
 
@@ -7291,7 +7292,7 @@ impl App {
         let me = self.local_player();
         let game = self.game.as_ref()?;
         let player = game.players.get(me)?;
-        let who = stars_core::parts::Builder::player(player);
+        let who = stars_core::parts::Builder::player(player).in_tutorial(game.tutorial);
         let designs: &[stars_core::design::ShipDesign] =
             game.designs.get(me).map_or(&[], Vec::as_slice);
 
@@ -7313,7 +7314,7 @@ impl App {
                     resources: c.resources,
                 })
         } else {
-            stars_core::production::item_cost(item, &who, false)
+            stars_core::production::item_cost(item, &who)
         }?;
         Some([
             cost.minerals[0] * count,
@@ -7355,7 +7356,7 @@ impl App {
         let Some(player) = game.players.get(me) else {
             return Vec::new();
         };
-        let who = stars_core::parts::Builder::player(player);
+        let who = stars_core::parts::Builder::player(player).in_tutorial(game.tutorial);
         let designs: &[stars_core::design::ShipDesign] =
             game.designs.get(me).map_or(&[], Vec::as_slice);
 
@@ -7382,7 +7383,7 @@ impl App {
                     resources: c.resources,
                 })
         } else {
-            stars_core::production::item_cost(item, &who, false)
+            stars_core::production::item_cost(item, &who)
         };
         let Some(cost) = cost else {
             return Vec::new();
@@ -7804,7 +7805,7 @@ impl App {
         let Some(player) = game.players.get(me) else {
             return 0;
         };
-        let who = stars_core::parts::Builder::player(player);
+        let who = stars_core::parts::Builder::player(player).in_tutorial(game.tutorial);
         let designs: &[stars_core::design::ShipDesign] =
             game.designs.get(me).map_or(&[], Vec::as_slice);
         stars_core::production::projected_research_spending(
@@ -8180,7 +8181,7 @@ impl App {
     fn browser_builder(&self) -> Option<stars_core::parts::Builder<'_>> {
         let game = self.game.as_ref()?;
         let player = game.players.get(self.local_player())?;
-        Some(stars_core::parts::Builder::player(player))
+        Some(stars_core::parts::Builder::player(player).in_tutorial(game.tutorial))
     }
 
     /// The category the dropdown is limiting the walk to, or `None` for
@@ -12641,10 +12642,11 @@ impl App {
                     && ascending.is_none_or(|want| state.ascending == want)
                     && subsort.is_none_or(|want| state.subsort == want)
             }),
-            Check::Template { slot } => self
-                .production_templates()
-                .get(*slot)
-                .is_some_and(|t| t.queue.is_some()),
+            Check::Template { template } => game
+                .players
+                .get(self.local_player())
+                .zip(crate::tutorial::template(*template))
+                .is_some_and(|(p, want)| p.default_queue == want),
             Check::QueueLength { planet, count, cmp } => game
                 .planets
                 .iter()
@@ -12829,14 +12831,24 @@ impl App {
     /// `StartTutor` (`10f8:06b4`) zeroes the whole of `tutor` and then runs
     /// the same skipping loop, so a game already past the opening pages opens
     /// on the first page that still has something to do.
+    ///
+    /// `StartTutor` also sets bit 11 of `gd` (`10f8:0748`), which is what
+    /// the host code reads to price factories the tutorial's way — see
+    /// [`stars_core::GameState::tutorial`].
     pub fn start_tutor(&mut self) {
         self.tutor = Some(crate::tutorial::Tutor::default());
+        if let Some(game) = self.game.as_mut() {
+            game.tutorial = true;
+        }
         self.advance_tutor();
     }
 
-    /// Stop it (`EndTutor`, `10f8:0c02`).
+    /// Stop it (`EndTutor`, `10f8:0c02`), which clears the flag again.
     pub fn end_tutor(&mut self) {
         self.tutor = None;
+        if let Some(game) = self.game.as_mut() {
+            game.tutorial = false;
+        }
     }
 
     /// The paragraphs of the page showing.

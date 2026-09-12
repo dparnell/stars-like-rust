@@ -133,13 +133,16 @@ pub enum Check {
         /// One action per cargo, ironium first and fuel last.
         goal: [stars_formats::XferAction; 5],
     },
-    /// Whether a production template slot has been filled in.
+    /// Whether the player's **default** production template holds what the
+    /// page asked for.
     ///
-    /// `FCheckTemplate` (`10f8:666e`) compares `vrgZipProd[0]` against a
-    /// canned template, entry by entry. What the tutorial is really asking
-    /// is that you have pressed **Import** on the `<Customize>` dialog, so
-    /// this asks the simpler question the UI can answer: is the slot filled.
-    Template { slot: usize },
+    /// `FCheckTemplate` (`10f8:666e`) compares `vrgZipProd[0]` — the
+    /// `<Default>` slot, which is the player's own `PLAYER.zpq1` — against
+    /// one of the canned queues in [`TEMPLATES`]: the no-research flag, the
+    /// entry count, then every entry word, all exact. What the tutorial is
+    /// really asking is that you set the queue up and pressed **Import**
+    /// on the `<Customize>` dialog with `<Default>` chosen.
+    Template { template: usize },
     /// Whether the Battle VCR is up (`vrgtok`, its token list).
     BattleVcr { open: bool },
     /// Whether a **zip order** slot has been saved with a given cargo
@@ -1517,7 +1520,7 @@ pub static STEPS: &[Step] = &[
                 },
             ),
             // "Right click on the blue diamond and select Customize."
-            ask(0xfe, Check::Template { slot: 0 }),
+            ask(0xfe, Check::Template { template: 0 }),
         ],
     },
     Step {
@@ -1527,7 +1530,7 @@ pub static STEPS: &[Step] = &[
         stages: &[
             // "Hit the Import button to copy Shaggy Dog's queue into the
             // default template and hit OK."
-            ask(0x100, Check::Template { slot: 0 }),
+            ask(0x100, Check::Template { template: 0 }),
             hint(
                 0x103,
                 Check::Summary {
@@ -2087,7 +2090,7 @@ pub static STEPS: &[Step] = &[
             ),
             // "right click on the blue diamond and select <Customize> and
             // Import then OK both dialogs" — the **second** template slot.
-            ask(0x166, Check::Template { slot: 1 }),
+            ask(0x166, Check::Template { template: 1 }),
         ],
     },
     // Year 15. The Planet Summary Report, sorted.
@@ -3522,6 +3525,48 @@ pub static STEPS: &[Step] = &[
         )],
     },
 ];
+
+/// The queues `FCheckTemplate` compares the default template with, read
+/// from its table at `10f8:663a` — two `ZIPPRODQ1` records, 26 bytes each,
+/// entry words packed item-low, count-high (`PRODQ1`):
+///
+/// | # | bytes | queue |
+/// |---|-------|-------|
+/// | 0 | `01 02 c1 00 c0 00` | no research; Auto Factories 3, Auto Mines 3 |
+/// | 1 | `01 03 84 00 c1 00 c0 00` | no research; Min Terraform 2, Auto Factories 3, Auto Mines 3 |
+///
+/// The first is what page 32 has you build at Shaggy Dog and page 33 import;
+/// the second is page 45's, with the terraforming in front.
+pub const TEMPLATES: [(bool, &[(u8, u16)]); 2] = [
+    (
+        true,
+        &[
+            (stars_core::production::item::AUTO_FACTORY as u8, 3),
+            (stars_core::production::item::AUTO_MINE as u8, 3),
+        ],
+    ),
+    (
+        true,
+        &[
+            (stars_core::production::item::AUTO_MIN_TERRAFORM as u8, 2),
+            (stars_core::production::item::AUTO_FACTORY as u8, 3),
+            (stars_core::production::item::AUTO_MINE as u8, 3),
+        ],
+    ),
+];
+
+/// A [`TEMPLATES`] entry as a [`stars_formats::DefaultQueue`].
+#[must_use]
+pub fn template(index: usize) -> Option<stars_formats::DefaultQueue> {
+    let (no_research, items) = TEMPLATES.get(index)?;
+    Some(stars_formats::DefaultQueue {
+        no_research: *no_research,
+        items: items
+            .iter()
+            .map(|&(item, count)| stars_formats::DefaultQueueItem { item, count })
+            .collect(),
+    })
+}
 
 /// "Unload All Colonists": nothing on the four other holds.
 const UNLOAD_COLONISTS: [stars_formats::XferAction; 5] = [

@@ -65,9 +65,34 @@ then `MoveFleets`, and only afterwards `Produce` (which grows populations and
 mines). Fuel is topped up by `FuelFleets` *after* production, so a fleet that
 runs dry does so against last year's fuel.
 
-When a fleet cannot afford its ordered warp, the original searches downward for
-the fastest warp it *can* fuel, sets the waypoint's warp to that, and messages
-the player; if even warp 1 is unaffordable the fleet stops.
+## Running dry (`MoveFleets`, `10b0:42c3`)
+
+Before a leg is flown the tank is measured against the **whole of the rest of
+the leg** — `EstFuelUse` over the remaining distance:
+
+* **enough**: the year's travel (`warp²`, or the rest of the way) is flown and
+  paid for. The fuel range is not consulted, so a fleet with exactly enough
+  arrives on its last drop;
+* **not enough**: the fleet flies as far as the range allows this year and the
+  tank is **set to zero**, not debited — the rounding in the range is simply
+  forgiven.
+
+Then, if that has left the fleet dry and still short of the waypoint, the leg
+is slowed. The original counts warps up from 1, asking `EstFuelUse` what the
+rest of the leg costs at each, and stops at the **first that costs anything**;
+the one before it — the fastest warp the engines run free at — is written
+onto the waypoint and the player is sent `idmHasRunFuelFleetsSpeedHasDecreased`
+(`0x8b`, parameters `[fleet, warp]`). If warp 1 itself costs fuel there is
+nothing to slow to: the fleet stays put and gets `idmHasRunFuel` (`0x27`). Every
+stock engine is free at warp 1, so a stranded fleet in practice creeps on at
+one light year a year.
+
+Worked example — the tutorial's Teamster: a Medium Freighter on a Long Hump 6,
+130 kT empty, 210 kT of ironium aboard, 306 mg in the tank and 49 ly to go at
+warp 7. The leg costs `340 × 450 × 49 / 2000 / 10 = 375` mg, more than the
+tank, so the fleet covers `306 × 1000 / 7650 = 40` ly, the tank is zeroed, and
+the leg is rewritten to warp 1 (warp 2 would cost `340 × 20 × 9 / 20000 = 3`
+mg). `crates/stars-core/tests/fuel.rs` checks the three cases.
 
 ## Edge cases & clamps
 
@@ -78,7 +103,8 @@ the player; if even warp 1 is unaffordable the fleet stops.
   loss is `(86 - averageRadiation) / 2 * colonists / 100`, minimum 1, and only
   for races whose radiation range is not immune and averages below 85.
 - A fleet that runs out of fuel mid-leg has its fuel zeroed and travels only
-  as far as its range allowed.
+  as far as its range allowed — see *Running dry* above for what happens to
+  its warp.
 
 ## Worked example (becomes a test vector)
 

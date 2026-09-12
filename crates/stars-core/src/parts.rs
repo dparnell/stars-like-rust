@@ -224,6 +224,10 @@ pub struct Builder<'a> {
     /// the designer drops the Tachyon Detector and the Anti-matter Generator
     /// from a starbase's parts list.
     pub starbase: bool,
+    /// Whether the tutorial is running ([`crate::GameState::tutorial`]),
+    /// which is when a factory costs two of every mineral rather than four
+    /// germanium — see [`crate::production::planetary_item_cost`].
+    pub tutorial: bool,
 }
 
 impl<'a> Builder<'a> {
@@ -236,6 +240,7 @@ impl<'a> Builder<'a> {
             researching: player.research.current_field,
             trader_parts: player.trader_parts,
             starbase: false,
+            tutorial: false,
         }
     }
 
@@ -243,6 +248,13 @@ impl<'a> Builder<'a> {
     #[must_use]
     pub fn designing_starbase(mut self, starbase: bool) -> Self {
         self.starbase = starbase;
+        self
+    }
+
+    /// The same builder, in a game where the tutorial is running.
+    #[must_use]
+    pub fn in_tutorial(mut self, tutorial: bool) -> Self {
+        self.tutorial = tutorial;
         self
     }
 }
