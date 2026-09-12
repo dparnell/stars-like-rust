@@ -440,6 +440,24 @@ pub struct App {
     /// clears it again on the click that follows — so it arms one shot, not a
     /// mode that stays on.
     pub set_packet_dest: bool,
+    /// Every button drawn this frame, by its label — see [`DrawnWidget`].
+    ///
+    /// This is the seam a test drives the real interface through: it lays
+    /// out a frame, finds "Next" in here, and presses it where it was drawn.
+    /// It costs a few dozen small records a frame and nothing else.
+    pub drawn: Vec<DrawnWidget>,
+    /// Which pane is drawing, for the records above: the pane's own name,
+    /// set by each pane's `view` as it starts, so that a "Next" in the
+    /// message pane can be told from the one in the fleet tile.
+    pub drawn_scope: &'static str,
+    /// Where the scanner drew the map this frame, so a test can click on a
+    /// planet by its galaxy coordinates — see [`MapFrame`].
+    pub map_frame: Option<MapFrame>,
+    /// The point the scanner is centred on when it is zoomed in past what
+    /// fits the panel — `CtrPointScan` (`1058:0f6e`) sets it whenever the
+    /// selection is moved by something other than a click on the map, and
+    /// the wheel moves it. `None` is the middle of the galaxy.
+    pub scan_center: Option<stars_core::movement::Point>,
     /// Which waypoint a drag is moving, while one is under way.
     pub dragging_waypoint: Option<usize>,
     /// Where that waypoint was before the drag picked it up.
@@ -4835,6 +4853,7 @@ impl App {
                     return true;
                 }
                 self.select_object(ScanObject::Planet(id));
+                self.centre_scan_on_selection();
                 true
             }
             Goto::Fleet(id) => {
@@ -4846,6 +4865,7 @@ impl App {
                     return false;
                 };
                 self.select_object(ScanObject::Fleet(index));
+                self.centre_scan_on_selection();
                 true
             }
             // A space object: the scanner centres on it, which here is the
@@ -4855,6 +4875,7 @@ impl App {
                     return false;
                 };
                 self.select_object(ScanObject::Thing(thing));
+                self.centre_scan_on_selection();
                 true
             }
             // `BattleVCR` at that place — the battle the message is about.
@@ -12220,6 +12241,55 @@ pub struct PaneFleet {
     pub mine: bool,
 }
 
+/// A button as it was drawn this frame: what it said, where, and whether it
+/// could be pressed.
+///
+/// `visible` is whether the whole of it lay inside the clip rectangle it was
+/// drawn under — a button a tile has cut off is drawn, in egui's sense, but
+/// cannot be seen or pressed, which is what a test wants to know.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DrawnWidget {
+    /// Which pane drew it — `"messages"`, `"planet"`, `"fleet"`, `"survey"`,
+    /// `"scanner"` — or `""` for anything outside the panes.
+    pub scope: &'static str,
+    /// The caption.
+    pub label: String,
+    /// Where it was drawn, in screen coordinates.
+    pub rect: egui::Rect,
+    /// Whether it was enabled.
+    pub enabled: bool,
+    /// Whether it lay wholly within its clip rectangle.
+    pub visible: bool,
+}
+
+/// Where the scanner put the map this frame, and how it maps the galaxy onto
+/// it — enough to turn a planet's coordinates into a point to click.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MapFrame {
+    /// The map's own rectangle, without the status bar.
+    pub rect: egui::Rect,
+    /// Where the galaxy's top-left corner falls on screen, which may be off
+    /// the panel when the map is zoomed in.
+    pub origin: egui::Pos2,
+    /// Pixels per light year.
+    pub scale: f32,
+    /// The galaxy's left edge and top edge, in light years.
+    pub min_x: f32,
+    pub max_y: f32,
+}
+
+impl MapFrame {
+    /// Where a galaxy point falls on screen (`LogicalToScan`: the y axis is
+    /// mirrored).
+    #[must_use]
+    pub fn to_screen(&self, x: i16, y: i16) -> egui::Pos2 {
+        egui::pos2(
+            self.origin.x + (f32::from(x) - self.min_x) * self.scale,
+            self.origin.y + (self.max_y - f32::from(y)) * self.scale,
+        )
+    }
+}
+
 /// What the Starbase tile's mass driver rows, button and gauge are drawn
 /// from — [`App::planet_mass_driver`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12800,6 +12870,80 @@ impl App {
 // --- Walking your own fleets ----------------------------------------------
 
 impl App {
+    /// Centre the scanner on the selected object — `CtrPointScan`
+    /// (`1058:0f6e`), which `SelectAdjFleet`, `SelectAdjPlanet` and the
+    /// message pane's Goto all call, so that what was just selected is in
+    /// view however far the map is zoomed in.
+    pub fn centre_scan_on_selection(&mut self) {
+        if let Some(at) = self
+            .selected_object()
+            .and_then(|object| self.object_position(object))
+        {
+            self.scan_center = Some(at);
+        }
+    }
+
+    /// Forget what the last frame drew. The shell calls this at the top of
+    /// every frame, and so does a test that drives the interface.
+    pub fn start_frame(&mut self) {
+        self.drawn.clear();
+        self.drawn_scope = "";
+        self.map_frame = None;
+    }
+
+    /// The button with this label in this pane, as it was drawn this frame.
+    #[must_use]
+    pub fn drawn_button(&self, scope: &str, label: &str) -> Option<&DrawnWidget> {
+        self.drawn
+            .iter()
+            .find(|w| w.scope == scope && w.label == label)
+    }
+
+    /// Step to the planet before or after the one selected, among your own,
+    /// wrapping round — `SelectAdjPlanet` (`1048:44da`) with a non-zero
+    /// `dInc`, which walks `vlprgidPlanet`, the player's own planets in the
+    /// order the file lists them. Returns whether the selection moved.
+    pub fn select_adjacent_planet(&mut self, delta: i32) -> bool {
+        let me = i16::try_from(self.local_player()).unwrap_or(-1);
+        let mine: Vec<i16> = self
+            .game
+            .as_ref()
+            .map(|game| {
+                game.planets
+                    .iter()
+                    .filter(|p| p.owner == Some(me))
+                    .map(|p| p.id)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if mine.is_empty() {
+            return false;
+        }
+        let here = self
+            .selection
+            .planet
+            .and_then(|id| mine.iter().position(|p| *p == id));
+        let count = i32::try_from(mine.len()).unwrap_or(1);
+        let next = match here {
+            Some(index) => {
+                let moved = i32::try_from(index).unwrap_or(0) + delta;
+                if moved >= count {
+                    0
+                } else if moved < 0 {
+                    count - 1
+                } else {
+                    moved
+                }
+            }
+            None => 0,
+        };
+        let id = mine[usize::try_from(next).unwrap_or(0)];
+        let moved = self.selection.planet != Some(id) || self.selection.on_fleet;
+        self.select_object(ScanObject::Planet(id));
+        self.centre_scan_on_selection();
+        moved
+    }
+
     /// Your own fleets, in the order the pane's Prev and Next walk them.
     ///
     /// `SelectAdjFleet` (`1050:3d32`) steps through `vlprgidFleet`, the local
@@ -12855,6 +12999,7 @@ impl App {
             return false;
         }
         self.select_object(ScanObject::Fleet(index));
+        self.centre_scan_on_selection();
         true
     }
 
@@ -12871,6 +13016,7 @@ impl App {
             return false;
         };
         self.select_object(ScanObject::Fleet(index));
+        self.centre_scan_on_selection();
         true
     }
 
@@ -12887,6 +13033,7 @@ impl App {
             return false;
         };
         self.select_object(ScanObject::Planet(id));
+        self.centre_scan_on_selection();
         true
     }
 }

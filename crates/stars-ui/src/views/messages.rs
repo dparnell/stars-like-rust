@@ -61,6 +61,7 @@ fn decoration(
 
 /// Draw the message pane.
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
+    app.drawn_scope = "messages";
     keys(app, ui);
 
     let filtered_here = app
@@ -140,24 +141,20 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         });
 
     // --- Prev, Goto, Next
+    // Recorded under the pane's own scope, so a test can tell the message
+    // pane's Prev and Next from the fleet tile's.
     ui.horizontal(|ui| {
         let has_previous = app.message_previous(false).is_some();
         let has_next = app.message_next(false).is_some();
-        if ui
-            .add_enabled(has_previous, egui::Button::new("Prev"))
-            .clicked()
-        {
+        if crate::views::flow_button(app, ui, "Prev", has_previous).clicked() {
             app.show_previous_message();
         }
         let goto = app.message_goto() != stars_core::message::Goto::None;
         let label = app.message_goto_label();
-        if ui.add_enabled(goto, egui::Button::new(label)).clicked() {
+        if crate::views::flow_button(app, ui, label, goto).clicked() {
             app.message_goto_follow();
         }
-        if ui
-            .add_enabled(has_next, egui::Button::new("Next"))
-            .clicked()
-        {
+        if crate::views::flow_button(app, ui, "Next", has_next).clicked() {
             app.show_next_message();
         }
     });

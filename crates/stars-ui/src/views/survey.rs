@@ -25,6 +25,7 @@ fn colour([r, g, b]: [u8; 3]) -> egui::Color32 {
 
 /// Draw the survey pane.
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
+    app.drawn_scope = "survey";
     ui.label(egui::RichText::new(app.survey_title()).small().strong());
     ui.separator();
 

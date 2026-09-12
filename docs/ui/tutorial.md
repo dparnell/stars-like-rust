@@ -410,6 +410,22 @@ And, from reading the text as a specification: `Prev`, `Next` and `Goto` on
 the fleet pane's tiles, `Goto` on the location tile, and the `n`, `q` and
 `F9` keys.
 
+### Playing it through the panes
+
+`crates/stars-ui/tests/tutorial_ui.rs` plays year zero through the interface
+itself: every frame laid out by egui as the shell lays it out, each step a
+press on a button where the pane drew it or a shift-click on the map where
+the scanner drew the planet. Every pane button records itself as it is drawn
+— caption, pane, rectangle, whether it was enabled and whether it lay wholly
+inside its clip rectangle (`App::drawn`, `views::placed_button` and
+`flow_button`) — and the scanner records where it put the map
+(`App::map_frame`), which is how the test finds "Next" and Prune.
+
+Its first run found two buttons the pages name that could not be pressed:
+the fleet tile's Next, below the tile's foot, and the Fleets in Orbit tile's
+Goto, likewise; and one planet that could not be reached, because the map
+did not scroll. See `fleet-pane.md` and `scanner.md`.
+
 ### How far it plays
 
 `crates/stars-ui/tests/tutorial_walkthrough.rs` plays the tutorial from its

@@ -963,6 +963,19 @@ and `LFuelUseToWaypoint`'s habit of summing the fuel of every leg up to the
 one being set (resetting at a planet of yours with a dock) where this takes
 the one leg alone.
 
+## Scrolling
+
+The original's scanner is a scrolled window: past 100% the map is bigger
+than the panel and `CtrPointScan` (`1058:0f6e`) scrolls it so that a point is
+in view — `SelectAdjFleet`, `SelectAdjPlanet` and the message pane's Goto
+all call it, so whatever they just selected is on screen. This map keeps a
+`scan_center` for the same purpose: the walkers and Gotos set it to what
+they selected, the wheel moves it, and the map is drawn about it, clamped so
+the panel never shows past the galaxy's edge while there is galaxy enough to
+fill it. At 100% the whole galaxy fits and nothing scrolls. Before this the
+map had no scroll at all, and at the zoom the tutorial picks for a wide
+screen half its planets could not be clicked.
+
 ## The measuring tape
 
 A **right-drag** across the map stretches a rubber-band line, drawn in XOR so

@@ -217,6 +217,20 @@ The fleet picture is drawn from the game's own ship sheets when a copy of the
 original has been found — see `../formats/resources.md` — with the owner's race
 emblem over its bottom-left corner, as `DrawFleetBitmap` overlays it.
 
+The first tile is laid out as `DrawPlanShipBitmap` (`1048:3336`) lays it out:
+the picture twelve pixels in and six down (two in the small layout), and the
+buttons — Prev, Next and Rename for a fleet; Prev and Next for a planet — in a
+**column to its right**, each `dyArial8 * 3 / 2` tall and three apart,
+starting two pixels above the picture, and as wide as the tile's inside less
+95. The tile has no words of its own in the original: the picture and the
+buttons are the whole of it. This used to flow the buttons in a row under
+three lines of text, which put them below the tile's foot where they could be
+neither seen nor pressed — the tutorial's page 4 ("press the Next button in
+the tile showing Long Range Scout #2") is what found it.
+
+The Fleets in Orbit tile's three buttons are pinned to its foot for the same
+reason, three abreast.
+
 Which ship stands for the fleet is `IshdefPrimaryFromLpfl` (`1038:3e1c`): the
 design with the most ships, compared strictly so a tie stays with the earlier
 design slot. One twist, and it is narrow — a **fuel transport**, hull 25 or 26,

@@ -131,6 +131,12 @@ pub fn fleets_here_body(app: &mut App, ui: &mut egui::Ui) {
     let chosen = app.pane_fleet_choice();
     let gauges = app.pane_fleet_gauges();
     let mut choose = None;
+    // The tile is six lines and a little: the dropdown, the two gauges and
+    // the buttons have to share it, so the rows sit close and the buttons
+    // are pinned to the foot rather than left to follow the flow.
+    let body = ui.max_rect();
+    let line = ui.text_style_height(&egui::TextStyle::Small);
+    ui.spacing_mut().item_spacing.y = 1.0;
 
     {
         if list.is_empty() {
@@ -228,25 +234,29 @@ pub fn fleets_here_body(app: &mut App, ui: &mut egui::Ui) {
         .and_then(|index| app.game.as_ref()?.fleets.get(index))
         .filter(|f| usize::try_from(f.owner).is_ok_and(|owner| owner == app.local_player()))
         .map(|f| f.id);
-    ui.horizontal(|ui| {
-        if ui
-            .add_enabled(
-                chosen_fleet.is_some(),
-                egui::Button::new(egui::RichText::new("Goto").small()),
-            )
-            .clicked()
-        {
-            if let Some(id) = chosen_fleet {
-                app.goto_fleet(id);
-            }
+    // Across the foot, three abreast, `dyArial8 * 3 / 2` tall as the
+    // pane's buttons all are.
+    let height = (line * 3.0 / 2.0).floor();
+    let gap = 3.0;
+    let width = ((body.width() - 2.0 * gap) / 3.0).floor();
+    let top = body.bottom() - height;
+    let at = |i: f32| {
+        egui::Rect::from_min_size(
+            egui::pos2(body.left() + i * (width + gap), top),
+            egui::vec2(width, height),
+        )
+    };
+    // Xfer and the load-everything button open the transfer dialog, which
+    // this project reaches from the Fleets screen instead.
+    placed_button(app, ui, at(0.0), "Xfer", false)
+        .on_disabled_hover_text("Transfer cargo from the Fleets screen.");
+    if placed_button(app, ui, at(1.0), "Goto", chosen_fleet.is_some()).clicked() {
+        if let Some(id) = chosen_fleet {
+            app.goto_fleet(id);
         }
-        // Xfer and the load-everything button open the transfer dialog, which
-        // this project reaches from the Fleets screen instead.
-        for label in ["Xfer", "Load All"] {
-            ui.add_enabled(false, egui::Button::new(egui::RichText::new(label).small()))
-                .on_disabled_hover_text("Transfer cargo from the Fleets screen.");
-        }
-    });
+    }
+    placed_button(app, ui, at(2.0), "Load All", false)
+        .on_disabled_hover_text("Transfer cargo from the Fleets screen.");
 
     if let Some(key) = choose {
         app.choose_pane_fleet(key);
@@ -464,6 +474,57 @@ pub(crate) fn dialog_frame<'a>(
             .map_or_else(String::new, crate::dialog::Control::label)
     };
     (rect, place, caption)
+}
+
+/// A push button at a fixed place, recorded for the tests that drive the
+/// interface — see [`crate::app::DrawnWidget`].
+///
+/// The record says whether the button lay wholly inside the clip rectangle
+/// it was drawn under, which is how a test tells a button a tile has cut off
+/// from one that can be pressed.
+pub(crate) fn placed_button(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    label: &str,
+    enabled: bool,
+) -> egui::Response {
+    app.drawn.push(crate::app::DrawnWidget {
+        scope: app.drawn_scope,
+        label: label.to_string(),
+        rect,
+        enabled,
+        visible: ui.clip_rect().contains_rect(rect),
+    });
+    ui.put(
+        rect,
+        egui::Button::new(egui::RichText::new(label).small()).sense(if enabled {
+            egui::Sense::click()
+        } else {
+            egui::Sense::hover()
+        }),
+    )
+}
+
+/// A push button in the flow of a layout, recorded the same way.
+pub(crate) fn flow_button(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    label: &str,
+    enabled: bool,
+) -> egui::Response {
+    let response = ui.add_enabled(
+        enabled,
+        egui::Button::new(egui::RichText::new(label).small()),
+    );
+    app.drawn.push(crate::app::DrawnWidget {
+        scope: app.drawn_scope,
+        label: label.to_string(),
+        rect: response.rect,
+        enabled,
+        visible: ui.clip_rect().contains_rect(response.rect),
+    });
+    response
 }
 
 /// One of a template's push buttons, drawn where the template puts it.

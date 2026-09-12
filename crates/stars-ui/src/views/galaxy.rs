@@ -43,6 +43,7 @@ pub const SNAP_PIXELS: f32 = 20.0;
 
 /// Draw the galaxy.
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
+    app.drawn_scope = "scanner";
     let Some((min_x, min_y, max_x, max_y)) = app.extent() else {
         ui.vertical_centered(|ui| {
             ui.add_space(40.0);
@@ -89,11 +90,61 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     #[allow(clippy::cast_precision_loss)]
     let zoom = app.scan_scale(1024) as f32 / 1024.0;
     let scale = fit * zoom;
+
+    // Where the galaxy's top-left corner falls on screen. At 100% the whole
+    // galaxy fits the panel and sits at its margin; zoomed in, more of it
+    // than fits is drawn about `scan_center` — the point the scanner was
+    // last told to centre on (`CtrPointScan`), or the middle of the galaxy —
+    // and the wheel moves it. The corner is clamped so the panel never
+    // shows past the galaxy's edge when there is galaxy enough to fill it.
+    let wheel = if response.hovered() {
+        ui.input(|i| i.smooth_scroll_delta)
+    } else {
+        egui::Vec2::ZERO
+    };
+    if wheel != egui::Vec2::ZERO {
+        let centre = app.scan_center.unwrap_or(stars_core::movement::Point::new(
+            ((min_x + max_x) / 2.0) as i16,
+            ((min_y + max_y) / 2.0) as i16,
+        ));
+        #[allow(clippy::cast_possible_truncation)]
+        let moved = stars_core::movement::Point::new(
+            (f32::from(centre.x) - wheel.x / scale) as i16,
+            (f32::from(centre.y) + wheel.y / scale) as i16,
+        );
+        app.scan_center = Some(moved);
+    }
+    let centre = app
+        .scan_center
+        .map_or(((min_x + max_x) / 2.0, (min_y + max_y) / 2.0), |c| {
+            (f32::from(c.x), f32::from(c.y))
+        });
+    let full = (max_x - min_x) * scale;
+    let tall = (max_y - min_y) * scale;
+    let origin_x = if full + 2.0 * margin <= rect.width() {
+        rect.left() + margin
+    } else {
+        (rect.center().x - (centre.0 - min_x) * scale)
+            .clamp(rect.right() - margin - full, rect.left() + margin)
+    };
+    let origin_y = if tall + 2.0 * margin <= rect.height() {
+        rect.top() + margin
+    } else {
+        (rect.center().y - (max_y - centre.1) * scale)
+            .clamp(rect.bottom() - margin - tall, rect.top() + margin)
+    };
+    app.map_frame = Some(crate::app::MapFrame {
+        rect,
+        origin: egui::pos2(origin_x, origin_y),
+        scale,
+        min_x,
+        max_y,
+    });
     let to_screen = |x: f32, y: f32| -> Pos2 {
         Pos2::new(
-            rect.left() + margin + (x - min_x) * scale,
+            origin_x + (x - min_x) * scale,
             // `dGalInv - y`: the scanner shows the galaxy upside down.
-            rect.top() + margin + (max_y - y) * scale,
+            origin_y + (max_y - y) * scale,
         )
     };
 
@@ -612,9 +663,9 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     {
         let to_galaxy = |p: Pos2| -> (i16, i16) {
             #[allow(clippy::cast_possible_truncation)]
-            let x = (min_x + (p.x - rect.left() - margin) / scale) as i16;
+            let x = (min_x + (p.x - origin_x) / scale) as i16;
             #[allow(clippy::cast_possible_truncation)]
-            let y = (max_y - (p.y - rect.top() - margin) / scale) as i16;
+            let y = (max_y - (p.y - origin_y) / scale) as i16;
             (x, y)
         };
         let wide = ui.input(|i| i.modifiers.shift);
@@ -654,9 +705,9 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     let reach = f64::from(SNAP_PIXELS / scale);
     let to_galaxy = |p: Pos2| -> (i16, i16) {
         #[allow(clippy::cast_possible_truncation)]
-        let x = (min_x + (p.x - rect.left() - margin) / scale) as i16;
+        let x = (min_x + (p.x - origin_x) / scale) as i16;
         #[allow(clippy::cast_possible_truncation)]
-        let y = (max_y - (p.y - rect.top() - margin) / scale) as i16;
+        let y = (max_y - (p.y - origin_y) / scale) as i16;
         (x, y)
     };
 

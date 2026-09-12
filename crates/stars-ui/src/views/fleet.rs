@@ -23,6 +23,7 @@ use crate::App;
 
 /// Draw the fleet pane.
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
+    app.drawn_scope = "fleet";
     let mut open: Vec<bool> = app.open_ship_tiles.to_vec();
     crate::views::tile_pane(
         app,
@@ -55,10 +56,7 @@ fn tile_title(app: &mut App, index: usize) -> String {
 /// What goes inside one tile.
 fn tile_body(app: &mut App, ui: &mut egui::Ui, index: usize) {
     match index {
-        0 => {
-            summary(app, ui);
-            walk_buttons(app, ui);
-        }
+        0 => picture_tile(app, ui),
         1 => {
             location(app, ui);
             // The location tile's Goto goes to the planet the fleet orbits
@@ -90,52 +88,97 @@ fn tile_body(app: &mut App, ui: &mut egui::Ui, index: usize) {
     }
 }
 
-/// The tallest tile: the fleet itself, which the original draws as a picture.
+/// The tallest tile: the fleet itself, as a picture, with Prev, Next and
+/// Rename in a column beside it.
 ///
-/// `DrawFleetBitmap` blits the primary design's ship 64 pixels square with the
-/// owner's race emblem over its bottom-left corner. Without the game's own
-/// pictures the tile is the same words without the ship.
-fn summary(app: &mut App, ui: &mut egui::Ui) {
+/// `DrawPlanShipBitmap` (`1048:3336`) puts the picture twelve pixels in and
+/// six down (two, in the small layout) and blits it 64 square —
+/// `DrawFleetBitmap`, the primary design's ship with the owner's emblem over
+/// its bottom-left corner — and then stands the three buttons
+/// (`rghwndBtn[4..=6]`) in a column to its right: each `dyArial8 * 3 / 2`
+/// tall, three pixels apart, starting two pixels above the picture, and as
+/// wide as the tile's inside less 95. Without the game's own pictures the
+/// tile says in words what the picture would have shown.
+fn picture_tile(app: &mut App, ui: &mut egui::Ui) {
     let Some(fleet) = app.pane_fleet() else {
         ui.label(egui::RichText::new("no fleet selected").weak().small());
         return;
     };
     let ships: i32 = fleet.stacks.iter().map(|s| s.count).sum();
     let owner = fleet.owner;
-    let position = fleet.position;
+    let body = ui.max_rect();
+    let small = app.window_layout == crate::WindowLayout::Small;
+    let line = ui.text_style_height(&egui::TextStyle::Small);
+    // The tile's inside edge is two in from its frame; the body here starts
+    // there, so the twelve becomes ten.
+    let left = body.left() + 10.0;
+    let right = body.right() - 10.0;
+    let top = body.top() + if small { 0.0 } else { 4.0 };
+
     let picture = app.fleet_picture();
     let emblem = app.fleet_emblem(stars_formats::resources::art::EmblemSize::Medium);
-    {
-        if let Some((cell, distinct)) = picture {
-            ui.horizontal_top(|ui| {
-                let corner = ui.cursor().min;
-                if crate::art::draw(app, ui, cell, 64.0) {
-                    if let Some(emblem) = emblem {
-                        let ctx = ui.ctx().clone();
-                        if let Some(art) = app.art.as_mut() {
-                            if let Some(image) = art.sprite(&ctx, emblem, 16.0) {
-                                image.paint_at(
-                                    ui,
-                                    egui::Rect::from_min_size(
-                                        corner + egui::vec2(0.0, 48.0),
-                                        egui::vec2(16.0, 16.0),
-                                    ),
-                                );
-                            }
-                        }
-                    }
-                    // The original marks a mixed fleet beside the picture
-                    // rather than drawing every design in it.
-                    if distinct > 1 {
-                        ui.label(egui::RichText::new(format!("+{}", distinct - 1)).small());
+    let square = egui::Rect::from_min_size(egui::pos2(left, top), egui::vec2(64.0, 64.0));
+    let mut drawn = false;
+    if let Some((cell, distinct)) = picture {
+        let mut child = ui.child_ui(square, egui::Layout::top_down(egui::Align::Min), None);
+        if crate::art::draw(app, &mut child, cell, 64.0) {
+            drawn = true;
+            if let Some(emblem) = emblem {
+                let ctx = ui.ctx().clone();
+                if let Some(art) = app.art.as_mut() {
+                    if let Some(image) = art.sprite(&ctx, emblem, 16.0) {
+                        image.paint_at(
+                            ui,
+                            egui::Rect::from_min_size(
+                                square.min + egui::vec2(0.0, 48.0),
+                                egui::vec2(16.0, 16.0),
+                            ),
+                        );
                     }
                 }
-            });
+            }
+            // The original marks a mixed fleet beside the picture rather
+            // than drawing every design in it.
+            if distinct > 1 {
+                ui.painter().text(
+                    square.right_top() + egui::vec2(2.0, 0.0),
+                    egui::Align2::LEFT_TOP,
+                    format!("+{}", distinct - 1),
+                    egui::TextStyle::Small.resolve(ui.style()),
+                    ui.visuals().text_color(),
+                );
+            }
         }
-        ui.label(egui::RichText::new(format!("player {}", owner + 1)).small());
-        ui.label(egui::RichText::new(format!("{ships} ships")).small());
-        ui.label(egui::RichText::new(format!("({}, {})", position.x, position.y)).small());
     }
+    if !drawn {
+        let mut child = ui.child_ui(
+            egui::Rect::from_min_size(egui::pos2(left, top), egui::vec2(85.0, 64.0)),
+            egui::Layout::top_down(egui::Align::Min),
+            None,
+        );
+        child.label(egui::RichText::new(format!("player {}", owner + 1)).small());
+        child.label(egui::RichText::new(format!("{ships} ships")).small());
+    }
+
+    // The column of buttons.
+    let width = (right - left - 95.0).max(40.0);
+    let height = (line * 3.0 / 2.0 - if small { 2.0 } else { 0.0 }).floor();
+    let gap = if small { 2.0 } else { 3.0 };
+    let mut y = top - if small { 2.0 } else { 4.0 };
+    let mine = !app.own_fleets().is_empty();
+    for (label, delta) in [("Prev", -1), ("Next", 1)] {
+        let rect =
+            egui::Rect::from_min_size(egui::pos2(right - width, y), egui::vec2(width, height));
+        if crate::views::placed_button(app, ui, rect, label, mine).clicked() {
+            app.select_adjacent_fleet(delta);
+        }
+        y += height + gap;
+    }
+    // Rename opens a dialog of its own in the original; the fleet's name is
+    // edited from the Fleets screen here.
+    let rect = egui::Rect::from_min_size(egui::pos2(right - width, y), egui::vec2(width, height));
+    crate::views::placed_button(app, ui, rect, "Rename", false)
+        .on_disabled_hover_text("Rename a fleet from the Fleets screen.");
 }
 
 /// The planet the fleet is at, or deep space.
@@ -379,37 +422,6 @@ fn transport(app: &mut App, ui: &mut egui::Ui) {
             app.set_waypoint_transport(slot, chosen, amount);
         }
     }
-}
-
-/// **Prev**, **Next** and **Rename** across the foot of the fleet's own tile.
-///
-/// `rghwndBtn[4]`, `[5]` and `[6]` in `ShipCommandProc` (`1050:2640`). Prev
-/// and Next are `SelectAdjFleet(-1, 0)` and `SelectAdjFleet(1, 0)`, which walk
-/// **your own** fleets and wrap round; the tutorial leans on them, and on the
-/// `n` key that does the same thing.
-fn walk_buttons(app: &mut App, ui: &mut egui::Ui) {
-    let mine = !app.own_fleets().is_empty();
-    ui.horizontal(|ui| {
-        if ui
-            .add_enabled(mine, egui::Button::new(egui::RichText::new("Prev").small()))
-            .clicked()
-        {
-            app.select_adjacent_fleet(-1);
-        }
-        if ui
-            .add_enabled(mine, egui::Button::new(egui::RichText::new("Next").small()))
-            .clicked()
-        {
-            app.select_adjacent_fleet(1);
-        }
-        // Rename opens a dialog of its own in the original; the fleet's name
-        // is edited from the Fleets screen here.
-        ui.add_enabled(
-            false,
-            egui::Button::new(egui::RichText::new("Rename").small()),
-        )
-        .on_disabled_hover_text("Rename a fleet from the Fleets screen.");
-    });
 }
 
 /// **Split** and **Split All** across the foot of the Fleet Composition tile.

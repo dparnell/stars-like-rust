@@ -26,6 +26,7 @@ use crate::App;
 
 /// Draw the planet pane.
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
+    app.drawn_scope = "planet";
     let open = app.open_tiles;
     let mut open: Vec<bool> = open.to_vec();
     crate::views::tile_pane(
@@ -61,13 +62,8 @@ pub(crate) fn tile_body(app: &mut App, ui: &mut egui::Ui, index: usize) {
         3 => crate::views::fleets_here_body(app, ui),
         4 => {
             production(ui, &app.planet_production_rows());
-            if ui
-                .add_enabled(
-                    app.selected_planet().is_some(),
-                    egui::Button::new(egui::RichText::new("Change").small()),
-                )
-                .clicked()
-            {
+            let ours = app.selected_planet().is_some();
+            if crate::views::flow_button(app, ui, "Change", ours).clicked() {
                 app.open_production();
             }
         }
@@ -226,47 +222,139 @@ fn production(ui: &mut egui::Ui, rows: &[(String, stars_core::production::EtaMar
     }
 }
 
-/// The tallest tile: the planet itself.
+/// The tallest tile: the planet itself, as a picture, with Prev and Next
+/// beside it.
 ///
-/// The original draws the planet as a picture here, sized to the tile. This
-/// says in words what that picture says at a glance — whose it is, and whether
-/// anybody has been.
+/// `DrawPlanShipBitmap` (`1048:3336`) draws it twelve pixels in and six down
+/// (two, in the small layout): a 70-pixel sunken frame — shadow above and
+/// left, highlight below and right, a black line inside — with the 64-pixel
+/// face inside it, picked from the planet's id so a planet keeps the same
+/// face all game. Then two buttons (`rghwndBtn[4]`, `[5]`) in a column to
+/// its right, each `dyArial8 * 3 / 2` tall and three apart, starting two
+/// pixels above the frame, as wide as the tile's inside less 95: **Prev** and
+/// **Next**, which are `SelectAdjPlanet(±1)` and walk the player's own
+/// planets. Without the game's own pictures the frame holds words instead.
 fn summary(app: &mut App, ui: &mut egui::Ui) {
-    // The planet's own face, when the game's pictures have been found. The
-    // original draws it 64 pixels square in a sunken frame at the top of the
-    // pane, and picks it from the planet's id, so a planet keeps the same face
-    // all game.
+    let body = ui.max_rect();
+    let small = app.window_layout == crate::WindowLayout::Small;
+    let line = ui.text_style_height(&egui::TextStyle::Small);
+    let left = body.left() + 10.0;
+    let right = body.right() - 10.0;
+    let top = body.top() + if small { 0.0 } else { 4.0 };
+
+    // The sunken frame, 70 square, and the face 3 pixels inside it.
+    let frame = egui::Rect::from_min_size(egui::pos2(left, top), egui::vec2(70.0, 70.0));
+    {
+        let colour = |[r, g, b]: [u8; 3]| egui::Color32::from_rgb(r, g, b);
+        let painter = ui.painter();
+        let bar = |x: f32, y: f32, w: f32, h: f32, c: egui::Color32| {
+            painter.rect_filled(
+                egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(w, h)),
+                0.0,
+                c,
+            );
+        };
+        bar(
+            frame.left(),
+            frame.top(),
+            70.0,
+            2.0,
+            colour(crate::toolbar::SHADOW),
+        );
+        bar(
+            frame.left(),
+            frame.top(),
+            2.0,
+            70.0,
+            colour(crate::toolbar::SHADOW),
+        );
+        bar(
+            frame.left() + 2.0,
+            frame.bottom() - 2.0,
+            68.0,
+            2.0,
+            colour(crate::toolbar::HILITE),
+        );
+        bar(
+            frame.right() - 2.0,
+            frame.top() + 2.0,
+            2.0,
+            68.0,
+            colour(crate::toolbar::HILITE),
+        );
+        bar(
+            frame.left() + 2.0,
+            frame.top() + 2.0,
+            66.0,
+            1.0,
+            egui::Color32::BLACK,
+        );
+        bar(
+            frame.left() + 2.0,
+            frame.top() + 2.0,
+            1.0,
+            66.0,
+            egui::Color32::BLACK,
+        );
+    }
+    let face = egui::Rect::from_min_size(frame.min + egui::vec2(3.0, 3.0), egui::vec2(64.0, 64.0));
     let picture = app
         .pane_planet()
         .map(|planet| planet.id)
         .and_then(|id| app.planet_picture(id));
+    let mut drawn = false;
     if let Some(cell) = picture {
-        egui::Frame::none()
-            .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
-            .inner_margin(1.0)
-            .show(ui, |ui| {
-                crate::art::draw(app, ui, cell, 64.0);
-            });
+        let mut child = ui.child_ui(face, egui::Layout::top_down(egui::Align::Min), None);
+        drawn = crate::art::draw(app, &mut child, cell, 64.0);
     }
-    let Some(planet) = app.pane_planet() else {
-        ui.label(egui::RichText::new("no planet selected").weak().small());
-        return;
-    };
-    let owner = match planet.owner {
-        Some(owner) => format!("player {}", owner + 1),
-        None => "unowned".to_string(),
-    };
-    let detail = match planet.detail {
-        stars_core::planet::Detail::Full => "yours",
-        stars_core::planet::Detail::Scanned => "scanned",
-        stars_core::planet::Detail::Minimal => "not surveyed",
-    };
-    ui.label(egui::RichText::new(format!("{owner} \u{2014} {detail}")).small());
-    if planet.homeworld {
-        ui.label(egui::RichText::new("homeworld").small());
+    if !drawn {
+        // Without the game's pictures: whose it is, in words, where the
+        // face would be.
+        let mut child = ui.child_ui(face, egui::Layout::top_down(egui::Align::Min), None);
+        child.set_clip_rect(face);
+        match app.pane_planet() {
+            None => {
+                child.label(egui::RichText::new("no planet").weak().small());
+            }
+            Some(planet) => {
+                let owner = match planet.owner {
+                    Some(owner) => format!("player {}", owner + 1),
+                    None => "unowned".to_string(),
+                };
+                child.label(egui::RichText::new(owner).small());
+                let detail = match planet.detail {
+                    stars_core::planet::Detail::Full => "yours",
+                    stars_core::planet::Detail::Scanned => "scanned",
+                    stars_core::planet::Detail::Minimal => "not surveyed",
+                };
+                child.label(egui::RichText::new(detail).small());
+                if planet.homeworld {
+                    child.label(egui::RichText::new("homeworld").small());
+                }
+                if planet.starbase {
+                    child.label(egui::RichText::new("starbase").small());
+                }
+            }
+        }
     }
-    if planet.starbase {
-        ui.label(egui::RichText::new("starbase in orbit").small());
+
+    // Prev and Next, in a column beside the picture.
+    let width = (right - left - 95.0).max(40.0);
+    let height = (line * 3.0 / 2.0 - if small { 2.0 } else { 0.0 }).floor();
+    let gap = if small { 2.0 } else { 3.0 };
+    let mut y = top - if small { 2.0 } else { 4.0 };
+    let me = i16::try_from(app.local_player()).unwrap_or(-1);
+    let mine = app
+        .game
+        .as_ref()
+        .is_some_and(|game| game.planets.iter().any(|p| p.owner == Some(me)));
+    for (label, delta) in [("Prev", -1), ("Next", 1)] {
+        let rect =
+            egui::Rect::from_min_size(egui::pos2(right - width, y), egui::vec2(width, height));
+        if crate::views::placed_button(app, ui, rect, label, mine).clicked() {
+            app.select_adjacent_planet(delta);
+        }
+        y += height + gap;
     }
 }
 /// The frame every tile shares — `FDrawTileNC` (`1048:1086`).

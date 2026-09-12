@@ -567,6 +567,7 @@ impl eframe::App for StarsApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.app.start_frame();
         self.note_frame(ctx);
         // Playback needs a steady stream of frames; everything else is happy to
         // redraw only on input.
