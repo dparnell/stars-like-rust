@@ -203,6 +203,7 @@ pub fn planet_from_record(record: &PlanetRecord) -> Option<Planet> {
             .and_then(|id| i16::try_from(id).ok())
             .map(|id| id - 1),
         fling_warp: record.starbase.map_or(0, |s| s.warp),
+        starbase_damage: record.starbase.map_or(0, |s| s.damage_pct),
     })
 }
 
@@ -234,6 +235,9 @@ pub fn partial_planet_from_record(record: &PlanetRecord) -> Option<Planet> {
         .and_then(|id| i16::try_from(id).ok())
         .map(|id| id - 1);
     planet.fling_warp = record.starbase.map_or(0, |s| s.warp);
+    // A partial starbase record is one byte and carries no damage, so this is
+    // zero for anybody else's base whatever state it is really in.
+    planet.starbase_damage = record.starbase.map_or(0, |s| s.damage_pct);
     planet.homeworld = record.homeworld;
     planet.artifact = record.artifact;
 

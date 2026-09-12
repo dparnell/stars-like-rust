@@ -429,3 +429,20 @@ pub fn damage_text(count: i32, ships_pct: i32, armor_pct: i32) -> Option<String>
     let percent = (packed / 640).max(1);
     Some(format!("{ships}@{percent}%"))
 }
+
+/// A **starbase's** damage as a percentage, or `None` when it is whole.
+///
+/// A base keeps its damage the same way a ship stack does — in 500ths of its
+/// armour — so the percentage is the stored figure over five.
+/// `DrawPlanetStarbase` (`1048:2748`) rounds the figure **up to five** before
+/// dividing, which is the same floor of one percent the fleet popup applies,
+/// written the other way round: a base scratched by two 500ths still reads
+/// `1%`. Real games hold values of two, three and four, so the rounding is
+/// not academic.
+#[must_use]
+pub fn starbase_damage_pct(stored: u16) -> Option<i32> {
+    if stored == 0 {
+        return None;
+    }
+    Some(i32::from(stored.max(5)) / 5)
+}

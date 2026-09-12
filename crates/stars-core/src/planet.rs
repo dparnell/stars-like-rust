@@ -125,6 +125,13 @@ pub struct Planet {
     pub fling_dest: Option<i16>,
     /// The warp that mass driver flings at, `0` when none is set.
     pub fling_warp: u8,
+    /// How badly the starbase is damaged, in **500ths of its armour**
+    /// (`STARBASE.pctDamage`), `0` when it is whole.
+    ///
+    /// The same unit a damaged ship stack carries, and twelve bits wide, so
+    /// a wrecked base holds 500. The planet pane turns it into the
+    /// percentage it shows — see `docs/ui/planet-pane.md`.
+    pub starbase_damage: u16,
     /// Where the planet sits in the universe.
     ///
     /// Planet coordinates live in the `.xy` universe file, not in the per-player
@@ -165,6 +172,7 @@ impl Planet {
             route_dest: None,
             fling_dest: None,
             fling_warp: 0,
+            starbase_damage: 0,
             position: None,
             name: None,
         }

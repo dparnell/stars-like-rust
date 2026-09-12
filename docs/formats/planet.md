@@ -113,12 +113,20 @@ high32: bits 0..11  defenses    (12 bits)
 
 ```
 bits 0..3   design      (0..=15)
-bits 4..15  damage %     (12 bits)
+bits 4..15  damage       (12 bits, 500ths of the base's armour)
 bits 16..25 fling dest   (10 bits, mass-driver target planet, one-based)
 bits 26..29 warp         (4 bits)
 bit 30      fNoHeal
 bit 31      unused
 ```
+
+The damage field is **not** a percentage, despite its width: it counts 500ths
+of the base's armour, the same unit a damaged ship stack carries, so a wrecked
+base holds 500 and the planet pane divides by five to show a percentage
+(`docs/ui/planet-pane.md`). Across this repository's fixtures the field is
+non-zero on 342 of 107,170 starbase records and never exceeds **473**, and
+values of two, three and four all occur — which is why the pane rounds up to
+five before dividing.
 
 The fling destination is stored **one-based** so that zero can mean "no fling
 set", the same convention as the route destination below.

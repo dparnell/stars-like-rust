@@ -88,7 +88,16 @@ fn starbase(app: &mut App, ui: &mut egui::Ui) {
         grid(ui, "starbase", &rows, false);
         return;
     };
-    grid(ui, "starbase", above, false);
+    // `DrawPlanetStarbase` draws the Damage figure in dark red when there is
+    // any, and puts the text colour back afterwards, so it is the one row of
+    // the four with a colour of its own.
+    let damaged = app
+        .pane_planet()
+        .and_then(|planet| crate::popup::starbase_damage_pct(planet.starbase_damage))
+        .is_some();
+    rows_grid(ui, "starbase", above, &|_| None, &|row| {
+        (damaged && row == DAMAGE_ROW).then(|| colour(DAMAGE_TEXT))
+    });
     ui.separator();
     grid(ui, "starbase-driver", driver_rows, false);
 
@@ -123,6 +132,18 @@ fn starbase(app: &mut App, ui: &mut egui::Ui) {
 /// tile: Dock Capacity, Armor, Shields and Damage.
 const RULE_AFTER: usize = 4;
 
+/// Which of those four rows the damage figure is.
+const DAMAGE_ROW: usize = 3;
+
+/// `SetTextColor(0x00007f)` — the dark red a damaged base's figure is drawn
+/// in. A COLORREF, so it reads blue-green-red.
+const DAMAGE_TEXT: [u8; 3] = [0x7f, 0, 0];
+
+/// A `[u8; 3]` as egui sees it.
+fn colour([r, g, b]: [u8; 3]) -> egui::Color32 {
+    egui::Color32::from_rgb(r, g, b)
+}
+
 /// The gauge's three brushes, as `FCreateStuff` (`1000:0160`) makes them:
 /// `hbrPurple` `0x7f007f`, `hbrYellow` `0x00ffff` and `hbrRed` `0x0000ff`,
 /// which are COLORREFs and so read blue-green-red.
@@ -140,6 +161,23 @@ fn risk_colour(risk: crate::app::Risk) -> [u8; 3] {
 /// `minerals` colours the first three labels the way `DrawPlanetMinSum` does —
 /// the same `rgcrMin` blue, dark green and yellow the Selection Summary uses.
 pub(crate) fn grid(ui: &mut egui::Ui, id: &str, rows: &[(String, String)], minerals: bool) {
+    rows_grid(
+        ui,
+        id,
+        rows,
+        &|row| (minerals && row < 3).then(|| colour(crate::survey::MINERAL_TEXT[row])),
+        &|_| None,
+    );
+}
+
+/// The same grid, with a colour for any label and any value that wants one.
+fn rows_grid(
+    ui: &mut egui::Ui,
+    id: &str,
+    rows: &[(String, String)],
+    label_colour: &dyn Fn(usize) -> Option<egui::Color32>,
+    value_colour: &dyn Fn(usize) -> Option<egui::Color32>,
+) {
     if rows.is_empty() {
         ui.label(egui::RichText::new("no data").weak().small());
         return;
@@ -151,13 +189,16 @@ pub(crate) fn grid(ui: &mut egui::Ui, id: &str, rows: &[(String, String)], miner
         .show(ui, |ui| {
             for (row, (label, value)) in rows.iter().enumerate() {
                 let mut text = egui::RichText::new(label).small();
-                if minerals && row < 3 {
-                    let [r, g, b] = crate::survey::MINERAL_TEXT[row];
-                    text = text.color(egui::Color32::from_rgb(r, g, b));
+                if let Some(colour) = label_colour(row) {
+                    text = text.color(colour);
                 }
                 ui.label(text);
+                let mut shown = egui::RichText::new(value).small();
+                if let Some(colour) = value_colour(row) {
+                    shown = shown.color(colour);
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(egui::RichText::new(value).small());
+                    ui.label(shown);
                 });
                 ui.end_row();
             }

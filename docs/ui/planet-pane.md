@@ -118,15 +118,22 @@ Titled with the base's design name, or `< no starbase >` when there is none.
 | Dock Capacity | `%lddp`, `Unlimited`, or `none` |
 | Armor | `%lddp` |
 | Shields | `%lddp` or `none` |
-| Damage | a percentage, or `none` |
+| Damage | a percentage in dark red, or `none` |
 | — | a rule |
 | Mass Driver | `Warp: %d`, or `none` |
 | Destination | the planet packets are flung at, or `none` |
 
 `DrawPlanetStarbase` (`1048:22cc`) draws Dock Capacity from the **hull's**
 `wtCargoMax` — `0xffff` is `Unlimited` — and the Damage figure in dark red
-(`0x00007f`), rounding the stored figure up to five and then dividing by it,
-so the field counts fifths of a percent.
+(`SetTextColor(0x00007f)`, put back straight afterwards, so it is the one row
+of the four with a colour of its own).
+
+The damage figure is held in **500ths of the base's armour**, the unit a
+damaged ship stack uses too, so the percentage is the stored figure over five.
+The routine rounds the figure **up to five** before dividing, which floors the
+reading at one percent: a base scratched by two 500ths still reads `1%`. That
+is not academic — the fixtures hold twos, threes and fours; see
+[`planet.md`](../formats/planet.md).
 
 Under the two driver rows comes a row of its own: a **Set Dest** button
 filling the left third of it, and — only when there is a driver — a gauge
@@ -209,13 +216,9 @@ clicking its title bar**, with the column reflowing under it exactly as
 `ReflowColumn` reflows it. Minerals On Hand and Status in full, with the
 original's labels, formats and Alternate Reality special cases and the three
 mineral labels in `rgcrMin`'s own colours; the Production tile's queue and its
-empty text; the Starbase tile's title, its rows, its warp gauge with the three
-colours of risk, and the Set Dest button with the click it arms; the fleets in
-orbit.
-
-The Damage row is the one row still short: a percentage needs the starbase's
-accumulated damage, which this project's planet model does not yet carry, so
-it reads `none` always.
+empty text; the Starbase tile's title, its rows — the Damage figure in its own
+dark red — its warp gauge with the three colours of risk, and the Set Dest
+button with the click it arms; the fleets in orbit.
 
 ### What the packed word holds
 

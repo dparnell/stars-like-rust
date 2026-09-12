@@ -203,6 +203,46 @@ fn the_rows_read_as_the_original_writes_them() {
     assert!(app.planet_mass_driver().is_none());
 }
 
+/// The Damage row: a percentage out of a figure held in 500ths of the base's
+/// armour, floored at one percent, and `none` when the base is whole.
+#[test]
+fn the_damage_row_is_the_stored_figure_over_five() {
+    use stars_ui::popup::starbase_damage_pct;
+
+    // Whole is `none`, not `0%`.
+    assert_eq!(starbase_damage_pct(0), None);
+    // The stored figure is rounded up to five before the divide, so the
+    // smallest damage there can be still reads one percent. Real games hold
+    // twos, threes and fours.
+    assert_eq!(starbase_damage_pct(1), Some(1));
+    assert_eq!(starbase_damage_pct(2), Some(1));
+    assert_eq!(starbase_damage_pct(4), Some(1));
+    assert_eq!(starbase_damage_pct(5), Some(1));
+    // And thereafter it is simply the fifth.
+    assert_eq!(starbase_damage_pct(9), Some(1), "it truncates");
+    assert_eq!(starbase_damage_pct(10), Some(2));
+    assert_eq!(starbase_damage_pct(250), Some(50));
+    assert_eq!(starbase_damage_pct(500), Some(100));
+    // The largest the fixtures hold is 473, which is 94%.
+    assert_eq!(starbase_damage_pct(473), Some(94));
+
+    // What the row reads, on a real tile.
+    let mut app = a_game();
+    let set = |app: &mut App, damage: u16| {
+        let selected = app.selection.planet;
+        if let Some(game) = app.game.as_mut() {
+            if let Some(planet) = game.planets.iter_mut().find(|p| Some(p.id) == selected) {
+                planet.starbase_damage = damage;
+            }
+        }
+        app.planet_starbase_tile().1[3].1.clone()
+    };
+    assert_eq!(set(&mut app, 0), "none", "a new game's base is whole");
+    assert_eq!(set(&mut app, 3), "1%");
+    assert_eq!(set(&mut app, 138), "27%");
+    assert_eq!(set(&mut app, 500), "100%");
+}
+
 /// The gauge: one segment of the raw speed against the rating less one, and
 /// three colours saying how far over the rating that speed is.
 #[test]

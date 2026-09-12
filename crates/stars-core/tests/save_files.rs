@@ -86,6 +86,13 @@ fn a_generated_game_survives_a_host_file() {
                 "planet {} starbase design",
                 a.id
             );
+            assert_eq!(a.fling_dest, b.fling_dest, "planet {} fling target", a.id);
+            assert_eq!(a.fling_warp, b.fling_warp, "planet {} fling warp", a.id);
+            assert_eq!(
+                a.starbase_damage, b.starbase_damage,
+                "planet {} starbase damage",
+                a.id
+            );
         }
     }
 
@@ -291,6 +298,54 @@ fn read_file(path: &str) -> Option<StarsFile> {
 
 fn read_universe(path: &str) -> Option<Universe> {
     Universe::decode(&std::fs::read(path).ok()?).ok()
+}
+
+/// A damaged starbase keeps its damage, and it keeps it in the twelve bits
+/// the record gives it.
+///
+/// The figure is in 500ths of the base's armour, the same unit a damaged ship
+/// stack carries, so the whole range a real game uses is 0 to 500 — and the
+/// fixtures hold values as small as two. The `.mN` file carries it as well as
+/// the `.hst`, because the planet pane shows it to the player.
+#[test]
+fn a_damaged_starbase_keeps_its_damage() {
+    let mut made = a_game();
+    let with_base = made
+        .state
+        .planets
+        .iter()
+        .position(|p| p.starbase && p.owner == Some(0))
+        .expect("a starbase");
+    let id = made.state.planets[with_base].id;
+
+    for damage in [2u16, 5, 250, 500] {
+        made.state.planets[with_base].starbase_damage = damage;
+        for bytes in [
+            save::host_file(&made.state).expect("writes"),
+            save::player_file(&made.state, 0).expect("writes"),
+        ] {
+            let file = StarsFile::decode(&bytes).expect("decodes");
+            let (after, _) = GameState::from_file(&file);
+            let planet = planets(&after)
+                .into_iter()
+                .find(|p| p.id == id)
+                .expect("the planet");
+            assert_eq!(planet.starbase_damage, damage, "damage of {damage}");
+        }
+    }
+
+    // And zero comes back as whole, not as missing.
+    made.state.planets[with_base].starbase_damage = 0;
+    let file = StarsFile::decode(&save::host_file(&made.state).expect("writes")).expect("decodes");
+    let (after, _) = GameState::from_file(&file);
+    assert_eq!(
+        planets(&after)
+            .into_iter()
+            .find(|p| p.id == id)
+            .expect("the planet")
+            .starbase_damage,
+        0
+    );
 }
 
 /// A fleet's name survives a save, and sits where the game puts it.

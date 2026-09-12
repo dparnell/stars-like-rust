@@ -2262,7 +2262,11 @@ impl App {
                 "Shields".to_string(),
                 design.map_or_else(|| "none".to_string(), |d| format!("{}dp", d.shields(false))),
             ),
-            ("Damage".to_string(), "none".to_string()),
+            (
+                "Damage".to_string(),
+                crate::popup::starbase_damage_pct(planet.starbase_damage)
+                    .map_or_else(|| "none".to_string(), |pct| format!("{pct}%")),
+            ),
         ];
         // A rule falls here in the original, and under it the two rows the
         // mass driver fills. They are built from the same numbers
