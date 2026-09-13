@@ -47,10 +47,28 @@ struct Shell {
     time: f64,
     /// Where the halo was painted this frame, if anywhere.
     halo: Option<egui::Rect>,
+    /// A film of the run, when one is asked for.
+    recorder: Option<Recorder>,
 }
 
 impl Shell {
-    fn new(app: App) -> Self {
+    fn new(mut app: App) -> Self {
+        // `STARS_TUTORIAL_VIDEO=path` films the run: every frame's shapes,
+        // rasterised, as raw RGBA at 1920 by 1080 for ffmpeg to encode.
+        // The game's own pictures and text are used when a copy of the
+        // original is beside the sources, as they would be on the desktop.
+        let recorder = std::env::var("STARS_TUTORIAL_VIDEO")
+            .ok()
+            .map(|path| Recorder::new(&path));
+        if recorder.is_some() {
+            let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../binary");
+            for name in ["stars.2.7j.exe", "stars.exe", "STARS!.EXE"] {
+                if let Ok(bytes) = std::fs::read(root.join(name)) {
+                    let _ = app.load_art(bytes, "the film's copy");
+                    break;
+                }
+            }
+        }
         Shell {
             app,
             ctx: egui::Context::default(),
@@ -58,6 +76,7 @@ impl Shell {
             modifiers: egui::Modifiers::NONE,
             time: 0.0,
             halo: None,
+            recorder,
         }
     }
 
@@ -81,7 +100,8 @@ impl Shell {
         app.start_frame();
         app.screen = Screen::Galaxy;
         let mut halo = None;
-        let _ = self.ctx.run(input, |ctx| {
+        let page_before = app.tutor.as_ref().map(|t| t.page());
+        let output = self.ctx.run(input, |ctx| {
             // The menu bar's game menus, as the desktop draws them: the
             // pages name Generate on the Turn menu and Research on the
             // Commands menu.
@@ -138,6 +158,11 @@ impl Shell {
         });
         self.halo = halo;
         app.advance_tutor();
+        if let Some(recorder) = self.recorder.as_mut() {
+            let page = app.tutor.as_ref().map(|t| t.page());
+            let primitives = self.ctx.tessellate(output.shapes, output.pixels_per_point);
+            recorder.frame(&output.textures_delta, &primitives, page != page_before);
+        }
     }
 
     /// A left click at a point: the pointer arrives, presses on the next
@@ -1453,4 +1478,176 @@ fn the_planet_tile_walks_the_players_planets() {
     shell.press("planet", "Next");
     assert_eq!(shell.app.selection.planet, Some(home));
     assert!(!shell.app.selection.on_fleet, "and the planet is in front");
+}
+
+/// A software rasteriser for egui's output, so a run can be filmed
+/// without a window: each frame's meshes are drawn into an RGBA buffer
+/// and appended raw to a file, which `ffmpeg -f rawvideo` turns into a
+/// video. Vertex colours and textures are egui's premultiplied sRGBA,
+/// blended as its shader blends them; the font atlas is sampled nearest.
+struct Recorder {
+    out: std::io::BufWriter<std::fs::File>,
+    width: usize,
+    height: usize,
+    pixels: Vec<u8>,
+    textures: std::collections::HashMap<egui::TextureId, (usize, usize, Vec<[u8; 4]>)>,
+    frames: usize,
+}
+
+impl Recorder {
+    fn new(path: &str) -> Self {
+        let file = std::fs::File::create(path).expect("the film's file");
+        let (width, height) = (1920, 1080);
+        Recorder {
+            out: std::io::BufWriter::new(file),
+            width,
+            height,
+            pixels: vec![0; width * height * 4],
+            textures: std::collections::HashMap::new(),
+            frames: 0,
+        }
+    }
+
+    /// Take the frame's textures on board — whole or as a patch.
+    fn textures(&mut self, delta: &egui::TexturesDelta) {
+        for (id, image) in &delta.set {
+            let (size, pixels): ([usize; 2], Vec<[u8; 4]>) = match &image.image {
+                egui::ImageData::Color(image) => (
+                    image.size,
+                    image.pixels.iter().map(|c| c.to_array()).collect(),
+                ),
+                egui::ImageData::Font(image) => (
+                    image.size,
+                    image.srgba_pixels(None).map(|c| c.to_array()).collect(),
+                ),
+            };
+            match image.pos {
+                None => {
+                    self.textures.insert(*id, (size[0], size[1], pixels));
+                }
+                Some([x, y]) => {
+                    if let Some((w, _, existing)) = self.textures.get_mut(id) {
+                        for row in 0..size[1] {
+                            for col in 0..size[0] {
+                                let at = (y + row) * *w + (x + col);
+                                if let Some(slot) = existing.get_mut(at) {
+                                    *slot = pixels[row * size[0] + col];
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for id in &delta.free {
+            self.textures.remove(id);
+        }
+    }
+
+    /// Draw one frame and write it out — held for a moment longer when the
+    /// page has just turned, so a viewer can read it.
+    fn frame(
+        &mut self,
+        delta: &egui::TexturesDelta,
+        primitives: &[egui::ClippedPrimitive],
+        page_turned: bool,
+    ) {
+        use std::io::Write;
+        self.textures(delta);
+        // The window's ground, as the desktop paints it.
+        for px in self.pixels.as_chunks_mut::<4>().0 {
+            *px = [0x1b, 0x1b, 0x1b, 0xff];
+        }
+        for primitive in primitives {
+            let egui::epaint::Primitive::Mesh(mesh) = &primitive.primitive else {
+                continue;
+            };
+            let clip = primitive.clip_rect;
+            let texture = self.textures.get(&mesh.texture_id).cloned();
+            for triangle in mesh.indices.as_chunks::<3>().0 {
+                let v = [
+                    &mesh.vertices[triangle[0] as usize],
+                    &mesh.vertices[triangle[1] as usize],
+                    &mesh.vertices[triangle[2] as usize],
+                ];
+                self.triangle(v, clip, texture.as_ref());
+            }
+        }
+        let copies = if page_turned { 24 } else { 1 };
+        for _ in 0..copies {
+            self.out.write_all(&self.pixels).expect("the film's file");
+            self.frames += 1;
+        }
+    }
+
+    /// One triangle, with barycentric colour and texture coordinates.
+    #[allow(clippy::many_single_char_names)]
+    fn triangle(
+        &mut self,
+        v: [&egui::epaint::Vertex; 3],
+        clip: egui::Rect,
+        texture: Option<&(usize, usize, Vec<[u8; 4]>)>,
+    ) {
+        let (x0, y0) = (v[0].pos.x, v[0].pos.y);
+        let (x1, y1) = (v[1].pos.x, v[1].pos.y);
+        let (x2, y2) = (v[2].pos.x, v[2].pos.y);
+        let area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+        if area.abs() < 1e-6 {
+            return;
+        }
+        let left = x0.min(x1).min(x2).max(clip.left()).max(0.0).floor() as usize;
+        let right = (x0.max(x1).max(x2).min(clip.right()).min(self.width as f32)).ceil() as usize;
+        let top = y0.min(y1).min(y2).max(clip.top()).max(0.0).floor() as usize;
+        let bottom = (y0
+            .max(y1)
+            .max(y2)
+            .min(clip.bottom())
+            .min(self.height as f32))
+        .ceil() as usize;
+        if left >= right || top >= bottom {
+            return;
+        }
+        let colour = |vertex: &egui::epaint::Vertex| {
+            let [r, g, b, a] = vertex.color.to_array();
+            [f32::from(r), f32::from(g), f32::from(b), f32::from(a)]
+        };
+        let (c0, c1, c2) = (colour(v[0]), colour(v[1]), colour(v[2]));
+        for y in top..bottom {
+            let py = y as f32 + 0.5;
+            for x in left..right {
+                let px = x as f32 + 0.5;
+                let w0 = ((x1 - px) * (y2 - py) - (x2 - px) * (y1 - py)) / area;
+                let w1 = ((x2 - px) * (y0 - py) - (x0 - px) * (y2 - py)) / area;
+                let w2 = 1.0 - w0 - w1;
+                if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
+                    continue;
+                }
+                let mut c = [0.0_f32; 4];
+                for k in 0..4 {
+                    c[k] = c0[k] * w0 + c1[k] * w1 + c2[k] * w2;
+                }
+                if let Some((tw, th, pixels)) = texture {
+                    let u = v[0].uv.x * w0 + v[1].uv.x * w1 + v[2].uv.x * w2;
+                    let t = v[0].uv.y * w0 + v[1].uv.y * w1 + v[2].uv.y * w2;
+                    let tx = ((u * *tw as f32) as usize).min(tw.saturating_sub(1));
+                    let ty = ((t * *th as f32) as usize).min(th.saturating_sub(1));
+                    let texel = pixels[ty * tw + tx];
+                    for k in 0..4 {
+                        c[k] = c[k] * f32::from(texel[k]) / 255.0;
+                    }
+                }
+                if c[3] <= 0.0 {
+                    continue;
+                }
+                // Premultiplied over: out = src + dst * (1 - src.a).
+                let at = (y * self.width + x) * 4;
+                let keep = 1.0 - c[3] / 255.0;
+                for (channel, src) in self.pixels[at..at + 3].iter_mut().zip(&c) {
+                    let d = f32::from(*channel);
+                    *channel = (src + d * keep).round().clamp(0.0, 255.0) as u8;
+                }
+                self.pixels[at + 3] = 255;
+            }
+        }
+    }
 }

@@ -624,6 +624,24 @@ told the reader they were getting anywhere. A rung can now be **held**
 (`mark`): emboldened while its check holds, gating nothing and asking for
 nothing.
 
+### Filming the run
+
+The same harness can film itself. With `STARS_TUTORIAL_VIDEO=<path>` set,
+every frame's shapes are tessellated and rasterised in software — a
+triangle at a time, vertex colours and textures blended as egui's shader
+blends them — and appended raw to the path; the game's own pictures and
+text are loaded when a copy of the original is under `binary/`. Run it in
+release, since two thousand frames of 1920 by 1080 are drawn on the CPU:
+
+```sh
+STARS_TUTORIAL_VIDEO=/tmp/frames.rgba cargo test --release -p stars-ui --test tutorial_ui year_zero
+ffmpeg -f rawvideo -pix_fmt rgba -s 1920x1080 -r 12 -i /tmp/frames.rgba \
+       -c:v libx264 -crf 23 -pix_fmt yuv420p tutorial.mp4
+```
+
+Each page turn is held for two seconds so it can be read. The raw file is
+large — eight megabytes a frame — and is not kept.
+
 ### The halo
 
 One thing here the original does not have, asked for rather than found: a
