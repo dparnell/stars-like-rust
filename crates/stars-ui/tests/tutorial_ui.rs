@@ -102,6 +102,12 @@ impl Shell {
                     .default_width(700.0)
                     .show(ctx, |ui| stars_ui::views::production::view(app, ui));
             }
+            if app.xfer.is_some() {
+                egui::Window::new("Cargo Transfer")
+                    .current_pos(egui::pos2(900.0, 100.0))
+                    .default_width(stars_ui::dialog::TRANSFER.pixels().x)
+                    .show(ctx, |ui| stars_ui::views::transfer::view(app, ui));
+            }
         });
         app.advance_tutor();
     }
@@ -483,6 +489,43 @@ fn year_zero_is_played_through_the_panes() {
     shell.press("messages", "Goto");
     assert_eq!(shell.app.selection.planet, Some(PLANET_90210));
     assert_eq!(shell.page(), 12);
+
+    // Page 12: right-click Stove Top and pick Santa Maria #3; press Xfer on
+    // the "Orbiting Stove Top" tile; "drag in the Colonists gauge until the
+    // hold carries 25kT of colonists" — the far end of the gauge is the
+    // whole hold, and the colony ship's hold is 25 — then OK; shift-click
+    // 90210; Colonize from the Waypoint Task dropdown.
+    shell.right_click_planet_and_pick(STOVE_TOP, "Santa Maria #3");
+    assert_eq!(shell.selected_fleet_id(), Some(2));
+    shell.press("fleet", "Xfer");
+    assert!(shell.app.xfer.is_some(), "the Cargo Transfer dialog is up");
+    shell.frame();
+    let gauge = shell
+        .app
+        .drawn_button("xfer", "Colonists gauge")
+        .expect("the colonists gauge")
+        .rect;
+    shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
+    assert_eq!(
+        shell.app.xfer.as_ref().expect("still up").aboard[3],
+        25,
+        "a full hold of colonists"
+    );
+    shell.press("xfer", "OK");
+    assert!(shell.app.xfer.is_none(), "OK closes it");
+    {
+        let game = shell.app.game.as_ref().expect("a game");
+        let ship = game
+            .fleets
+            .iter()
+            .find(|f| f.owner == 0 && f.id == 2)
+            .expect("the ship");
+        assert_eq!(ship.cargo.colonists, 25, "and the colonists are aboard");
+    }
+    shell.shift_click_planet(PLANET_90210);
+    shell.press("fleet", "Waypoint Task");
+    shell.press("fleet", "Colonize");
+    assert_eq!(shell.page(), 13, "2402 is done");
 }
 
 /// The planet pane's own tile has Prev and Next as well — `SelectAdjPlanet`

@@ -253,7 +253,9 @@ layout, since the frame has no `fSmallTiles` to set; the mining rate row, the
 *Fuel & Cargo* tile's own gauges (that tile gives the figures as text), and the
 buttons — Battle Plans, Jettison and
 Xfer on tile 4, and the three along the foot of the last tile — whose dialogs
-this project does not have.
+this project does not have. The location tile's own **Xfer** is there, and
+opens the Cargo Transfer dialog (`cargo-transfer.md`); its **Jettison**, for
+a fleet in deep space, is drawn but dead.
 
 One thing this project has to say that the original does not: a fleet id is the
 **player's own numbering**, so two players each have a fleet 1. The dropdown

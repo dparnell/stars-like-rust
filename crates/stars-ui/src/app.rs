@@ -525,6 +525,8 @@ pub struct App {
     pub production: Option<Production>,
     /// The Research dialog, while it is open.
     pub research_dialog: Option<ResearchDialog>,
+    /// The Cargo Transfer dialog, while it is open (`TransferDlg`).
+    pub xfer: Option<XferDialog>,
     /// The Technology Browser, while it is open (`hwndBrowser`). Modeless in
     /// the original, so it sits alongside whatever else is on screen.
     pub browser: Option<Browser>,
@@ -1549,20 +1551,39 @@ impl App {
     /// Returns how much actually moved — a hold has a capacity and a planet has
     /// only what it has.
     pub fn transfer_cargo(&mut self, fleet: usize, kind: usize, amount: i32) -> i32 {
+        if kind >= stars_core::orders::CARGO_KINDS {
+            return 0;
+        }
+        let mut deltas = [0i32; stars_core::orders::CARGO_KINDS];
+        deltas[kind] = amount;
+        self.transfer_cargo_many(fleet, deltas)[kind]
+    }
+
+    /// Move several kinds of cargo between a fleet and the planet it orbits
+    /// at once, as the Cargo Transfer dialog's OK does, logging **one**
+    /// order with a bit per kind moved (`LogMakeValidXfer`, `1048:99f6`).
+    /// Each figure is what the fleet gains. Returns what actually moved of
+    /// each.
+    pub fn transfer_cargo_many(
+        &mut self,
+        fleet: usize,
+        deltas: [i32; stars_core::orders::CARGO_KINDS],
+    ) -> [i32; stars_core::orders::CARGO_KINDS] {
         use stars_core::orders::{apply_cargo_transfer, CARGO_KINDS};
         use stars_formats::{CargoTransfer, CargoTransferRecord, GrobjClass, LogRecord};
 
-        if amount == 0 || kind >= CARGO_KINDS {
-            return 0;
+        let nothing = [0i32; CARGO_KINDS];
+        if deltas.iter().all(|d| *d == 0) {
+            return nothing;
         }
         let Some(game) = self.game.as_mut() else {
-            return 0;
+            return nothing;
         };
         let Some(fleet_record) = game.fleets.get(fleet) else {
-            return 0;
+            return nothing;
         };
         let Some(planet) = fleet_record.orbiting else {
-            return 0;
+            return nothing;
         };
         // The order names a fleet by the word the file packs: the number in the
         // low nine bits and the owner above it.
@@ -1573,61 +1594,87 @@ impl App {
         // the replay trusts its figures and a planet asked for more people
         // than it has would be emptied — so the asking is clamped here to
         // what the hold has room for and the planet has to give, or, the
-        // other way, to what the hold is carrying.
+        // other way, to what the hold is carrying. The holds share one
+        // capacity, so what one kind takes in is room the next has not got.
         let designs = usize::try_from(fleet_record.owner)
             .ok()
             .and_then(|o| game.designs.get(o))
             .map_or(&[][..], Vec::as_slice);
-        let holds = match kind {
-            stars_core::orders::FUEL => fleet_record.cargo.fuel,
-            stars_core::orders::COLONISTS => fleet_record.cargo.colonists,
-            k => fleet_record.cargo.minerals[k],
-        };
-        let free = if kind == stars_core::orders::FUEL {
-            fleet_record.fuel_capacity(designs) - fleet_record.cargo.fuel
-        } else {
-            fleet_record.cargo_capacity(designs) - fleet_record.cargo.mass()
-        };
-        let stock = game
+        let fuel_room = fleet_record.fuel_capacity(designs) - fleet_record.cargo.fuel;
+        let mut hold_room = fleet_record.cargo_capacity(designs) - fleet_record.cargo.mass();
+        let stock: [i32; CARGO_KINDS] = game
             .planets
             .iter()
             .find(|p| i16::try_from(planet).is_ok_and(|id| id == p.id))
-            .map_or(0, |p| match kind {
-                stars_core::orders::COLONISTS => p.pop,
-                stars_core::orders::FUEL => i32::MAX,
-                k => p.surface_min[k],
+            .map_or([0; CARGO_KINDS], |p| {
+                [
+                    p.surface_min[0],
+                    p.surface_min[1],
+                    p.surface_min[2],
+                    p.pop,
+                    i32::MAX,
+                ]
             });
-        let amount = if amount > 0 {
-            amount.min(free.max(0)).min(stock.max(0))
-        } else {
-            amount.max(-holds)
-        };
-        if amount == 0 {
-            return 0;
+        let mut quantities = [0i32; CARGO_KINDS];
+        let mut selector = 0u8;
+        for kind in 0..CARGO_KINDS {
+            let holds = match kind {
+                stars_core::orders::FUEL => fleet_record.cargo.fuel,
+                stars_core::orders::COLONISTS => fleet_record.cargo.colonists,
+                k => fleet_record.cargo.minerals[k],
+            };
+            let amount = deltas[kind];
+            let amount = if amount > 0 {
+                let room = if kind == stars_core::orders::FUEL {
+                    fuel_room
+                } else {
+                    hold_room
+                };
+                amount.min(room.max(0)).min(stock[kind].max(0))
+            } else {
+                amount.max(-holds)
+            };
+            if amount == 0 {
+                continue;
+            }
+            if kind != stars_core::orders::FUEL {
+                hold_room -= amount;
+            }
+            quantities[kind] = amount;
+            selector |= 1 << kind;
+        }
+        if selector == 0 {
+            return nothing;
         }
 
-        let mut quantities = [0i32; CARGO_KINDS];
-        quantities[kind] = amount;
         let record = CargoTransferRecord {
             source,
             destination: planet,
             source_class: Some(GrobjClass::Fleet),
             destination_class: Some(GrobjClass::Planet),
             mode: 0x12,
-            selector: 1 << kind,
+            selector,
             quantities,
         };
-        let moved = apply_cargo_transfer(game, &record)[kind];
-        if moved != 0 {
+        let moved = apply_cargo_transfer(game, &record);
+        let mask: u16 = (0..CARGO_KINDS)
+            .filter(|k| moved[*k] != 0)
+            .map(|k| 1u16 << k)
+            .sum();
+        if mask != 0 {
             // The log's own transfer record: the two objects, their classes,
-            // a bitmask of the cargo kinds moved and one quantity per kind.
+            // a bitmask of the cargo kinds moved and one quantity per kind
+            // moved, in kind order.
             self.orders.push(LogRecord::cargo(&CargoTransfer {
                 id1: source,
                 id2: planet,
                 grobj1: FLEET_CLASS,
                 grobj2: PLANET_CLASS,
-                items_mask: 1 << kind,
-                quantities: vec![moved],
+                items_mask: mask,
+                quantities: (0..CARGO_KINDS)
+                    .filter(|k| moved[*k] != 0)
+                    .map(|k| moved[k])
+                    .collect(),
                 quantity_bytes: Vec::new(),
             }));
             self.dirty = true;
@@ -7692,7 +7739,165 @@ pub struct ResearchDialog {
     pub percent: u8,
 }
 
+/// The **Cargo Transfer** dialog — `TransferDlg` (`1050:5686`), the
+/// **Xfer** button on the fleet pane.
+///
+/// Two sides: the fleet on the left, the planet it orbits on the right,
+/// each a framed square with a title bar and six rows — Fuel, Cargo,
+/// Ironium, Boranium, Germanium, Colonists — with the fleet's rows drawn
+/// as gauges and the planet's as figures (`DrawFleetCargoXferSide`,
+/// `DrawPlanetXferSide`). Between them a column of arrow pairs, one per
+/// movable row: fuel and the four holds (`FSetupXferBtns`).
+///
+/// The dialog works on **copies** of both sides (`pxfer`), so every arrow
+/// press and gauge drag moves cargo at once in the copies and nothing
+/// touches the game until **OK**, when the difference is logged as one
+/// transfer order; **Cancel** drops it all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct XferDialog {
+    /// The fleet on the left, as an index into the game's fleets.
+    pub fleet: usize,
+    /// The planet on the right.
+    pub planet: i16,
+    /// What the fleet carries, as the dialog has it now: ironium, boranium,
+    /// germanium, colonists, fuel — [`stars_core::orders::CARGO_KINDS`]
+    /// order.
+    pub aboard: [i32; stars_core::orders::CARGO_KINDS],
+    /// What the planet has, in the same order; fuel is unlimited at a
+    /// planet with a starbase and absent without.
+    pub stock: [i32; stars_core::orders::CARGO_KINDS],
+    /// What the fleet carried when the dialog opened, to log the difference.
+    pub opened_with: [i32; stars_core::orders::CARGO_KINDS],
+    /// The fleet's tanks and holds.
+    pub fuel_capacity: i32,
+    pub cargo_capacity: i32,
+    /// Whether the planet can take and give fuel: a starbase with a dock.
+    pub fuel_here: bool,
+}
+
+impl XferDialog {
+    /// Everything in the holds.
+    #[must_use]
+    pub fn cargo(&self) -> i32 {
+        self.aboard[..4].iter().sum()
+    }
+}
+
 impl App {
+    /// **Xfer**: open the Cargo Transfer dialog for the fleet in the pane
+    /// and the planet it orbits. Nothing opens for a fleet in deep space,
+    /// or one that is not the player's.
+    pub fn open_xfer(&mut self) -> bool {
+        use stars_core::orders::{COLONISTS, FUEL};
+        let me = self.local_player();
+        let Some(index) = self.survey_subject().fleet_index() else {
+            return false;
+        };
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        let Some(fleet) = game.fleets.get(index) else {
+            return false;
+        };
+        if usize::try_from(fleet.owner).is_ok_and(|o| o != me) {
+            return false;
+        }
+        let Some(planet_id) = fleet.orbiting.and_then(|p| i16::try_from(p).ok()) else {
+            return false;
+        };
+        let Some(planet) = game.planets.iter().find(|p| p.id == planet_id) else {
+            return false;
+        };
+        let designs = game.designs.get(me).map_or(&[][..], Vec::as_slice);
+        let mut aboard = [0i32; stars_core::orders::CARGO_KINDS];
+        aboard[..3].copy_from_slice(&fleet.cargo.minerals);
+        aboard[COLONISTS] = fleet.cargo.colonists;
+        aboard[FUEL] = fleet.cargo.fuel;
+        let fuel_here = planet.owner == Some(fleet.owner) && planet.starbase;
+        let mut stock = [0i32; stars_core::orders::CARGO_KINDS];
+        stock[..3].copy_from_slice(&planet.surface_min);
+        stock[COLONISTS] = planet.pop;
+        stock[FUEL] = if fuel_here { i32::MAX / 2 } else { 0 };
+        self.xfer = Some(XferDialog {
+            fleet: index,
+            planet: planet_id,
+            aboard,
+            stock,
+            opened_with: aboard,
+            fuel_capacity: fleet.fuel_capacity(designs),
+            cargo_capacity: fleet.cargo_capacity(designs),
+            fuel_here,
+        });
+        true
+    }
+
+    /// Move `delta` of one cargo kind **into the fleet** (negative: out of
+    /// it), as an arrow press does — `XferSupply` (`1050:64cc`): what moves
+    /// is what the giver has and the taker has room for. Returns what moved.
+    pub fn xfer_move(&mut self, kind: usize, delta: i32) -> i32 {
+        use stars_core::orders::FUEL;
+        let Some(dialog) = self.xfer.as_mut() else {
+            return 0;
+        };
+        if kind >= stars_core::orders::CARGO_KINDS || delta == 0 {
+            return 0;
+        }
+        if kind == FUEL && !dialog.fuel_here {
+            return 0;
+        }
+        let moved = if delta > 0 {
+            let room = if kind == FUEL {
+                dialog.fuel_capacity - dialog.aboard[FUEL]
+            } else {
+                dialog.cargo_capacity - dialog.cargo()
+            };
+            delta.min(room.max(0)).min(dialog.stock[kind].max(0))
+        } else {
+            -((-delta).min(dialog.aboard[kind].max(0)))
+        };
+        if moved == 0 {
+            return 0;
+        }
+        dialog.aboard[kind] += moved;
+        if !(kind == FUEL && dialog.fuel_here) {
+            dialog.stock[kind] -= moved;
+        }
+        moved
+    }
+
+    /// Set what the fleet carries of one kind, as a drag in its gauge does:
+    /// `FTrackXfer` reads the pointer's place along the gauge as a share of
+    /// the tank or hold and moves the difference.
+    pub fn xfer_set(&mut self, kind: usize, amount: i32) -> i32 {
+        let Some(dialog) = self.xfer.as_ref() else {
+            return 0;
+        };
+        if kind >= stars_core::orders::CARGO_KINDS {
+            return 0;
+        }
+        self.xfer_move(kind, amount - dialog.aboard[kind])
+    }
+
+    /// **OK**: what the dialog moved becomes one transfer order.
+    pub fn xfer_ok(&mut self) {
+        let Some(dialog) = self.xfer.take() else {
+            return;
+        };
+        let mut deltas = [0i32; stars_core::orders::CARGO_KINDS];
+        for (delta, (now, before)) in deltas
+            .iter_mut()
+            .zip(dialog.aboard.iter().zip(dialog.opened_with.iter()))
+        {
+            *delta = now - before;
+        }
+        self.transfer_cargo_many(dialog.fleet, deltas);
+    }
+
+    /// **Cancel**: nothing moved.
+    pub fn xfer_cancel(&mut self) {
+        self.xfer = None;
+    }
+
     /// Open the Research dialog (`ResearchDlg`, F5).
     pub fn open_research(&mut self) {
         let me = self.local_player();

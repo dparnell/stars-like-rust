@@ -29,6 +29,7 @@ pub mod score;
 pub mod statusbar;
 pub mod survey;
 pub mod toolbar;
+pub mod transfer;
 pub mod tutorial;
 
 use crate::{App, Screen};

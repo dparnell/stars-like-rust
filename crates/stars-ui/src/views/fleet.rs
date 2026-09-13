@@ -58,24 +58,49 @@ fn tile_body(app: &mut App, ui: &mut egui::Ui, index: usize) {
     match index {
         0 => picture_tile(app, ui),
         1 => {
-            location(app, ui);
-            // The location tile's Goto goes to the planet the fleet orbits
-            // (`rghwndBtn[3]`, `SelectAdjPlanet(0, sel.fl.idPlanet)`).
-            let orbiting = app
+            // The location tile is its title — the planet, or `In Deep
+            // Space` — and two buttons, `DrawShipPlanet` (`1050:17b6`): three
+            // columns of `(width - 16) / 3`, a line and a half tall, four
+            // under the title bar, with **Goto** in the first (`rghwndBtn[3]`,
+            // `SelectAdjPlanet(0, sel.fl.idPlanet)`) and, in the third
+            // (`rghwndBtn[7]`), **Xfer** at a planet or **Jettison** in deep
+            // space.
+            let (orbiting, mine) = app
                 .survey_subject()
                 .fleet_index()
                 .and_then(|i| app.game.as_ref()?.fleets.get(i))
-                .and_then(|f| f.orbiting)
-                .is_some();
-            if ui
-                .add_enabled(
-                    orbiting,
-                    egui::Button::new(egui::RichText::new("Goto").small()),
+                .map_or((false, false), |f| {
+                    (
+                        f.orbiting.is_some(),
+                        usize::try_from(f.owner).is_ok_and(|o| o == app.local_player()),
+                    )
+                });
+            let line = ui.text_style_height(&egui::TextStyle::Small);
+            // `dyArial8 * 3 >> 1`: whole pixels, as the original's are.
+            let tall = (line * 3.0 / 2.0).floor();
+            // `((right - 4) - (left + 4) - 16) / 3`: three columns between
+            // four-pixel margins, with sixteen for the two gaps.
+            let width = ((ui.available_width() - 24.0) / 3.0).floor().max(1.0);
+            let top = ui.cursor().top() + 4.0;
+            let left = ui.max_rect().left();
+            let column = move |n: f32| {
+                egui::Rect::from_min_size(
+                    egui::pos2(left + 4.0 + n * (width + 8.0), top),
+                    egui::vec2(width, tall),
                 )
-                .clicked()
-            {
+            };
+            if crate::views::placed_button(app, ui, column(0.0), "Goto", orbiting).clicked() {
                 app.goto_orbited_planet();
             }
+            if orbiting {
+                if crate::views::placed_button(app, ui, column(2.0), "Xfer", mine).clicked() {
+                    app.open_xfer();
+                }
+            } else {
+                // Jettison has no dialog here yet.
+                crate::views::placed_button(app, ui, column(2.0), "Jettison", false);
+            }
+            ui.allocate_space(egui::vec2(ui.available_width(), tall + 4.0));
         }
         2 => crate::views::planet::grid(ui, "waypoints", &app.fleet_waypoints_tile(), false),
         3 => waypoint_task(app, ui),
@@ -179,16 +204,6 @@ fn picture_tile(app: &mut App, ui: &mut egui::Ui) {
     let rect = egui::Rect::from_min_size(egui::pos2(right - width, y), egui::vec2(width, height));
     crate::views::placed_button(app, ui, rect, "Rename", false)
         .on_disabled_hover_text("Rename a fleet from the Fleets screen.");
-}
-
-/// The planet the fleet is at, or deep space.
-fn location(app: &App, ui: &mut egui::Ui) {
-    let at_planet = app.pane_fleet().is_some_and(|f| f.orbiting.is_some());
-    ui.label(
-        egui::RichText::new(if at_planet { "in orbit" } else { "under way" })
-            .weak()
-            .small(),
-    );
 }
 
 /// The **Waypoint Task** tile: what the fleet does when it gets there.

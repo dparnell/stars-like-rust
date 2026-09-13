@@ -1,0 +1,303 @@
+//! The Cargo Transfer dialog.
+//!
+//! `TransferDlg` (`1050:5686`), the **Xfer** button: dialog resource
+//! `Cargo Transfer`, 280 by 163 dialog units with OK, Cancel and Help along
+//! its foot (the template at `0x3461d5` in the executable), and everything
+//! above them painted by `DrawXferDlg` (`1050:6908`):
+//!
+//! * the fleet on the left and the planet on the right, each a framed
+//!   square the width of its half (`GetXferLeftRightRcs`), with a title bar
+//!   the height of a line and six rows under it a line and six apart —
+//!   Fuel, Cargo, Ironium, Boranium, Germanium, Colonists — labels
+//!   right-aligned 75 pixels in;
+//! * the fleet's rows are gauges (`DrawFleetGauge`) from 81 pixels in to
+//!   4 from the edge; the planet's are figures in sunken frames, and it
+//!   has no fuel row;
+//! * down the middle a pair of arrows a row, for fuel and the four holds
+//!   but not the cargo total (`FSetupXferBtns`): the left arrow moves cargo
+//!   **into** the fleet, the right arrow out, one at a time, ten with
+//!   Shift, a hundred with Ctrl, a thousand with both (`FTrackXfer`);
+//! * a press or drag in a fleet gauge sets that hold to the pointer's
+//!   share of the tank or hold.
+//!
+//! The arrows, the gauges and the three buttons are recorded as drawn
+//! widgets under the scope `"xfer"` — the gauges by their row's label —
+//! so a test can press what the tutorial's pages name.
+
+use crate::dialog::Control;
+use crate::App;
+
+/// The rows, top to bottom, and which cargo kind each is
+/// (`None` for the cargo total).
+const ROWS: [(&str, Option<usize>); 6] = [
+    ("Fuel", Some(stars_core::orders::FUEL)),
+    ("Cargo", None),
+    ("Ironium", Some(0)),
+    ("Boranium", Some(1)),
+    ("Germanium", Some(2)),
+    ("Colonists", Some(stars_core::orders::COLONISTS)),
+];
+
+/// Draw the dialog's contents.
+pub fn view(app: &mut App, ui: &mut egui::Ui) {
+    if app.xfer.is_none() {
+        return;
+    }
+    app.drawn_scope = "xfer";
+    let template = &crate::dialog::TRANSFER;
+    let (ctrl, shift) = ui.input(|i| (i.modifiers.command, i.modifiers.shift));
+    // `FTrackXfer`: 1, 10 with Shift, 100 with Ctrl, 1000 with both.
+    let step = match (ctrl, shift) {
+        (false, false) => 1,
+        (false, true) => 10,
+        (true, false) => 100,
+        (true, true) => 1000,
+    };
+
+    let want = template.pixels();
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(
+            ui.available_width(),
+            want.y
+                * template.scale(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    ui.available_size(),
+                )),
+        ),
+        egui::Sense::hover(),
+    );
+    let scale = template.scale(rect);
+    let line = ui.text_style_height(&egui::TextStyle::Small).ceil();
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    let painter = ui.painter_at(rect);
+
+    // The two halves, above the button row.
+    let foot = rect.top()
+        + f32::from(template.control(1).map_or(145, |c| c.at.1)) * crate::dialog::DLU_Y * scale;
+    let whole = egui::Rect::from_min_max(rect.min, egui::pos2(rect.right(), foot));
+    let mid = whole.center().x;
+    let margin = 4.0 + line + 3.0;
+    let left = egui::Rect::from_min_max(
+        egui::pos2(whole.left() + margin - (line + 1.0), whole.top() + 4.0),
+        egui::pos2(mid - margin, whole.bottom() - 4.0),
+    );
+    let right = egui::Rect::from_min_max(
+        egui::pos2(mid + margin, whole.top() + 4.0),
+        egui::pos2(whole.right() - margin + line + 1.0, whole.bottom() - 4.0),
+    );
+
+    let Some(dialog) = app.xfer.clone() else {
+        return;
+    };
+    let fleet_name = app.fleet_display_name(dialog.fleet);
+    let planet_name = app.planet_name(dialog.planet);
+
+    // Each side is a square as wide as its half, framed, with a title bar.
+    let row_step = line + 6.0;
+    let side = |ui: &egui::Ui, painter: &egui::Painter, rect: egui::Rect, title: &str| {
+        let square = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), rect.width()));
+        frame_3d(painter, square);
+        let bar = egui::Rect::from_min_size(
+            square.min + egui::vec2(1.0, 1.0),
+            egui::vec2(square.width() - 2.0, line + 2.0),
+        );
+        frame_3d(painter, bar);
+        painter.text(
+            bar.center(),
+            egui::Align2::CENTER_CENTER,
+            title,
+            font.clone(),
+            ui.visuals().text_color(),
+        );
+        // The rows start three under the title bar.
+        bar.bottom() + 3.0
+    };
+    let top_left = side(ui, &painter, left, &fleet_name);
+    let top_right = side(ui, &painter, right, &planet_name);
+
+    let label_x = 75.0;
+    let mut moves: Vec<(usize, i32)> = Vec::new();
+    let mut sets: Vec<(usize, i32)> = Vec::new();
+
+    for (row, (label, kind)) in ROWS.iter().enumerate() {
+        #[allow(clippy::cast_precision_loss)]
+        let dy = row as f32 * row_step;
+
+        // --- the fleet's row: a label and a gauge.
+        let y = top_left + dy;
+        painter.text(
+            egui::pos2(left.left() + 4.0 + label_x, y),
+            egui::Align2::RIGHT_TOP,
+            label,
+            font.clone(),
+            ui.visuals().text_color(),
+        );
+        let gauge_rect = egui::Rect::from_min_max(
+            egui::pos2(left.left() + 4.0 + label_x + 6.0, y),
+            egui::pos2(left.right() - 4.0, y + line),
+        );
+        let (amount, total, colour, unit) = match kind {
+            Some(k) if *k == stars_core::orders::FUEL => (
+                dialog.aboard[*k],
+                dialog.fuel_capacity,
+                crate::survey::CARGO_COLOURS[4],
+                "mg",
+            ),
+            Some(k) => (
+                dialog.aboard[*k],
+                dialog.cargo_capacity,
+                crate::survey::CARGO_COLOURS[*k],
+                "kT",
+            ),
+            None => (
+                dialog.cargo(),
+                dialog.cargo_capacity,
+                crate::survey::CARGO_COLOURS[0],
+                "kT",
+            ),
+        };
+        let gauge = crate::survey::Gauge {
+            segments: if kind.is_none() {
+                let mut all: Vec<(i32, [u8; 3])> = (0..3)
+                    .map(|i| (dialog.aboard[i], crate::survey::CARGO_COLOURS[i]))
+                    .collect();
+                all.push((
+                    dialog.aboard[stars_core::orders::COLONISTS],
+                    crate::survey::CARGO_COLOURS[3],
+                ));
+                all
+            } else {
+                vec![(amount, colour)]
+            },
+            total,
+            label: format!("{amount} of {total}{unit}"),
+        };
+        crate::views::survey::gauge_bar(ui, &painter, &gauge, gauge_rect, &font);
+        // The gauge is a control: a press or drag along it sets the hold.
+        let can_drag = kind.is_some_and(|k| k != stars_core::orders::FUEL || dialog.fuel_here);
+        let response = ui.interact(
+            gauge_rect,
+            ui.id().with(("xfer-gauge", row)),
+            if can_drag {
+                egui::Sense::click_and_drag()
+            } else {
+                egui::Sense::hover()
+            },
+        );
+        crate::views::record(app, ui, &format!("{label} gauge"), &response);
+        if can_drag && (response.clicked() || response.dragged()) {
+            if let (Some(k), Some(at)) = (kind, response.interact_pointer_pos()) {
+                // `FTrackXfer`: the pointer's place along the bar, less the
+                // two pixels of frame, as a share of the capacity.
+                let width = (gauge_rect.width() - 2.0).max(1.0);
+                let share = ((at.x - gauge_rect.left()) / width).clamp(0.0, 1.0);
+                #[allow(clippy::cast_possible_truncation)]
+                let want = (f64::from(share) * f64::from(total)).round() as i32;
+                sets.push((*k, want));
+            }
+        }
+
+        // --- the planet's row: a label and a figure, for the four holds.
+        if row >= 2 {
+            let y = top_right + dy;
+            painter.text(
+                egui::pos2(right.left() + 4.0 + label_x, y),
+                egui::Align2::RIGHT_TOP,
+                label,
+                font.clone(),
+                ui.visuals().text_color(),
+            );
+            let value_rect = egui::Rect::from_min_max(
+                egui::pos2(right.left() + 4.0 + label_x + 4.0, y - 1.0),
+                egui::pos2(right.right() - 4.0, y + line + 1.0),
+            );
+            frame_3d(&painter, value_rect);
+            let figure = kind.map_or(0, |k| dialog.stock[k]);
+            painter.text(
+                egui::pos2(value_rect.right() - 3.0, y),
+                egui::Align2::RIGHT_TOP,
+                format!("{figure} kT"),
+                font.clone(),
+                ui.visuals().text_color(),
+            );
+        }
+
+        // --- the arrows between, for fuel and the four holds.
+        if let Some(k) = kind {
+            let show = *k != stars_core::orders::FUEL || dialog.fuel_here;
+            let size = line + 3.0;
+            let y = top_left + dy - 2.0;
+            let into =
+                egui::Rect::from_min_size(egui::pos2(mid - size + 1.0, y), egui::vec2(size, size));
+            let out_of =
+                egui::Rect::from_min_size(egui::pos2(mid + 3.0, y), egui::vec2(size, size));
+            if show {
+                if crate::views::placed_button(app, ui, into, "<", true).clicked() {
+                    moves.push((*k, step));
+                }
+                if crate::views::placed_button(app, ui, out_of, ">", true).clicked() {
+                    moves.push((*k, -step));
+                }
+            }
+        }
+    }
+
+    for (kind, want) in sets {
+        app.xfer_set(kind, want);
+    }
+    for (kind, delta) in moves {
+        app.xfer_move(kind, delta);
+    }
+
+    // The row along the foot, from the template.
+    let at = |id: u16| -> egui::Rect {
+        let control = template.control(id);
+        let (x, y, w, h) = control.map_or((0, 0, 0, 0), |c| c.at);
+        egui::Rect::from_min_size(
+            rect.min
+                + egui::vec2(
+                    f32::from(x) * crate::dialog::DLU_X * scale,
+                    f32::from(y) * crate::dialog::DLU_Y * scale,
+                ),
+            egui::vec2(
+                f32::from(w) * crate::dialog::DLU_X * scale,
+                f32::from(h) * crate::dialog::DLU_Y * scale,
+            ),
+        )
+    };
+    let caption = |id: u16| -> String {
+        template
+            .control(id)
+            .map_or_else(String::new, Control::label)
+    };
+    if crate::views::placed_button(app, ui, at(0x1), &caption(0x1), true).clicked() {
+        app.xfer_ok();
+    }
+    if crate::views::placed_button(app, ui, at(0x2), &caption(0x2), true).clicked() {
+        app.xfer_cancel();
+    }
+    // Help opens the help file in the original; there is no reader here.
+    crate::views::placed_button(app, ui, at(0x76), &caption(0x76), false);
+}
+
+/// `_Draw3dFrame(hdc, rc, 0)`: one ring, lit along the top and left and
+/// shadowed along the bottom and right.
+fn frame_3d(painter: &egui::Painter, rect: egui::Rect) {
+    let colour = |[r, g, b]: [u8; 3]| egui::Color32::from_rgb(r, g, b);
+    let hilite = colour(crate::toolbar::HILITE);
+    let shadow = colour(crate::toolbar::SHADOW);
+    let fill = |r: egui::Rect, c: egui::Color32| painter.rect_filled(r, 0.0, c);
+    let at = |x: f32, y: f32, w: f32, h: f32| {
+        egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(w, h))
+    };
+    fill(at(rect.left(), rect.top(), rect.width(), 1.0), hilite);
+    fill(at(rect.left(), rect.top(), 1.0, rect.height()), hilite);
+    fill(
+        at(rect.left(), rect.bottom() - 1.0, rect.width(), 1.0),
+        shadow,
+    );
+    fill(
+        at(rect.right() - 1.0, rect.top(), 1.0, rect.height()),
+        shadow,
+    );
+}

@@ -1583,6 +1583,18 @@ impl eframe::App for StarsApp {
             }
         }
 
+        if self.app.xfer.is_some() {
+            let mut open = true;
+            egui::Window::new("Cargo Transfer")
+                .open(&mut open)
+                .resizable(false)
+                .default_width(stars_ui::dialog::TRANSFER.pixels().x)
+                .show(ctx, |ui| stars_ui::views::transfer::view(&mut self.app, ui));
+            if !open {
+                self.app.xfer_cancel();
+            }
+        }
+
         if self.app.production.is_some() {
             let mut open = true;
             egui::Window::new("Production")

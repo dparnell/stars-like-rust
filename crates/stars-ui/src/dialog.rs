@@ -1857,6 +1857,36 @@ pub fn relation_group_caption(frame: egui::Rect, line: f32) -> egui::Pos2 {
 
 // --- The tutorial ---------------------------------------------------------
 
+/// `Cargo Transfer`, the template at `0x3461d5` in the executable: 280 by
+/// 163 dialog units, three buttons along the foot and nothing else — the
+/// two sides and the arrows between them are painted by `DrawXferDlg`
+/// (`1050:6908`). Titled `Ship Transfer` when it serves the **Split**
+/// button instead.
+pub const TRANSFER: Template = Template {
+    caption: "Cargo Transfer",
+    size: (280, 163),
+    controls: &[
+        Control {
+            id: 0x1,
+            class: Class::Button,
+            at: (155, 145, 30, 13),
+            text: "OK",
+        },
+        Control {
+            id: 0x2,
+            class: Class::Button,
+            at: (200, 145, 30, 13),
+            text: "Cancel",
+        },
+        Control {
+            id: 0x76,
+            class: Class::Button,
+            at: (245, 145, 30, 13),
+            text: "&Help",
+        },
+    ],
+};
+
 /// `Stars! Tutor`, dialog resource 2502.
 ///
 /// Three buttons along the foot and nothing else: everything above them is

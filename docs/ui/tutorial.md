@@ -434,7 +434,7 @@ turns the page as `AdvanceTutor` would. `tutorial_ui.rs` plays it through
 the panes themselves — every step a press on a button where a pane drew it,
 a pick from a menu or dropdown where it opened, or a click on the map where
 the scanner drew the planet — and so far gets through **2400 to 2402**,
-pages one to eleven; see *Through the panes* below. It gets through **2400 to 2410** —
+pages one to twelve; see *Through the panes* below. It gets through **2400 to 2410** —
 pages one to thirty-three — and stops on page 34. The first four years took three corrections to
 what was here:
 
@@ -502,7 +502,10 @@ must press what the text names:
   put Prune, Alexander and 90210 in the Summary pane;
 * the tutor window floats over the map's corner, and a planet under it
   cannot be shift-clicked until the window is dragged aside — which the
-  test does, as a player would.
+  test does, as a player would;
+* page 12's **Xfer** button and the Cargo Transfer dialog behind it did not
+  exist (`cargo-transfer.md`), and the location tile had a line of this
+  project's own where the original has only its two buttons.
 
 ### Where it stops, and why
 
