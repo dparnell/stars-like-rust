@@ -120,13 +120,12 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     {
         let where_ = at(0x8b);
         let mut on = app.production.as_ref().is_some_and(|d| d.no_research);
-        if ui
-            .put(
-                where_,
-                egui::Checkbox::new(&mut on, egui::RichText::new(caption(0x8b)).small()),
-            )
-            .changed()
-        {
+        let response = ui.put(
+            where_,
+            egui::Checkbox::new(&mut on, egui::RichText::new(caption(0x8b)).small()),
+        );
+        crate::views::record(app, ui, &caption(0x8b), &response);
+        if response.changed() {
             if let Some(dialog) = app.production.as_mut() {
                 dialog.no_research = on;
             }
@@ -180,6 +179,7 @@ fn list(ui: &mut egui::Ui, rect: egui::Rect, id: &str, body: impl FnOnce(&mut eg
     // scrolling. egui's selectable rows would pad that out to six.
     child.spacing_mut().item_spacing.y = 0.0;
     child.spacing_mut().button_padding.y = 0.0;
+    child.spacing_mut().interact_size.y = child.text_style_height(&egui::TextStyle::Small);
     egui::ScrollArea::vertical()
         .id_source(id)
         .show(&mut child, body);

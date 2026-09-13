@@ -53,10 +53,15 @@ fn decoration(
         )
         .map(|image| image.sense(egui::Sense::click()))
     });
-    match picture {
+    let response = match picture {
         Some(image) => ui.add(image),
         None => ui.small_button(label),
-    }
+    };
+    // Recorded under its plain name — `filter`, `show`, `view filtered`,
+    // `hide filtered` — whether it came out as the game's glyph or as a
+    // button, so a test can press the blue check mark page 13 names.
+    crate::views::record(app, ui, label, &response);
+    response
 }
 
 /// Draw the message pane.

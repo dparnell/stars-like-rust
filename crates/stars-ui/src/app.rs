@@ -527,6 +527,10 @@ pub struct App {
     pub research_dialog: Option<ResearchDialog>,
     /// The Cargo Transfer dialog, while it is open (`TransferDlg`).
     pub xfer: Option<XferDialog>,
+    /// Which cargo the Waypoint Task tile's Transport table is showing —
+    /// the tile's **second dropdown** — as an index into
+    /// [`stars_formats::CARGO_ORDER`]: fuel first, then the four holds.
+    pub transport_cargo_shown: usize,
     /// The Technology Browser, while it is open (`hwndBrowser`). Modeless in
     /// the original, so it sits alongside whatever else is on screen.
     pub browser: Option<Browser>,

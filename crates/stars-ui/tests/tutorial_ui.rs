@@ -40,6 +40,10 @@ struct Shell {
     ctx: egui::Context,
     events: Vec<egui::Event>,
     modifiers: egui::Modifiers,
+    /// The clock, in seconds: a frame is a sixtieth, and every click is a
+    /// second after the last, or egui would take each one for the third of
+    /// a triple.
+    time: f64,
 }
 
 impl Shell {
@@ -49,6 +53,7 @@ impl Shell {
             ctx: egui::Context::default(),
             events: Vec::new(),
             modifiers: egui::Modifiers::NONE,
+            time: 0.0,
         }
     }
 
@@ -57,11 +62,13 @@ impl Shell {
     /// middle and the tutor window over it — and then, as the shell does,
     /// the question of whether the page's task is done.
     fn frame(&mut self) {
+        self.time += 1.0 / 60.0;
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
                 egui::vec2(1920.0, 1080.0),
             )),
+            time: Some(self.time),
             events: std::mem::take(&mut self.events),
             modifiers: self.modifiers,
             ..Default::default()
@@ -116,6 +123,7 @@ impl Shell {
     /// frame and lets go on the one after, which is the shape egui reads as
     /// a click.
     fn click_at(&mut self, at: egui::Pos2) {
+        self.time += 1.0;
         self.events.push(egui::Event::PointerMoved(at));
         self.frame();
         self.events.push(egui::Event::PointerButton {
@@ -279,6 +287,96 @@ impl Shell {
         self.modifiers = egui::Modifiers::SHIFT;
         self.click_at(pos);
         self.modifiers = egui::Modifiers::NONE;
+    }
+
+    /// Roll the wheel over a list until one of its rows is in view — a row
+    /// below the fold of a list box, as the original's own list boxes fold
+    /// after ten rows.
+    fn scroll_to(&mut self, scope: &str, label: &str, over: &str) {
+        for _ in 0..40 {
+            self.frame();
+            let row = self
+                .app
+                .drawn_button(scope, label)
+                .unwrap_or_else(|| panic!("no {label:?} in the {scope} pane"));
+            if row.visible {
+                return;
+            }
+            let down = row.rect.top()
+                > self
+                    .app
+                    .drawn_button(scope, over)
+                    .expect("a row in view to roll over")
+                    .rect
+                    .top();
+            let at = self
+                .app
+                .drawn_button(scope, over)
+                .expect("a row in view")
+                .rect
+                .center();
+            self.events.push(egui::Event::PointerMoved(at));
+            self.events.push(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Line,
+                delta: egui::vec2(0.0, if down { -3.0 } else { 3.0 }),
+                modifiers: self.modifiers,
+            });
+            self.frame();
+        }
+        panic!("{label:?} never came into view in the {scope} pane");
+    }
+
+    /// A right-click on a drawn widget, which raises whatever menu it has.
+    fn right_click(&mut self, scope: &str, label: &str) {
+        self.frame();
+        let at = self
+            .app
+            .drawn_button(scope, label)
+            .unwrap_or_else(|| panic!("no {label:?} in the {scope} pane"))
+            .rect
+            .center();
+        self.events.push(egui::Event::PointerMoved(at));
+        self.frame();
+        for pressed in [true, false] {
+            self.events.push(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: self.modifiers,
+            });
+            self.frame();
+        }
+    }
+
+    /// A double-click on a drawn widget: two clicks, close together.
+    fn double_click(&mut self, scope: &str, label: &str) {
+        self.frame();
+        let at = self
+            .app
+            .drawn_button(scope, label)
+            .unwrap_or_else(|| panic!("no {label:?} in the {scope} pane"))
+            .rect
+            .center();
+        self.double_click_at(at);
+    }
+
+    /// A double-click at a point on the screen.
+    fn double_click_at(&mut self, at: egui::Pos2) {
+        self.time += 1.0;
+        self.events.push(egui::Event::PointerMoved(at));
+        self.frame();
+        for _ in 0..2 {
+            for pressed in [true, false] {
+                self.events.push(egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: self.modifiers,
+                });
+                self.frame();
+            }
+        }
+        self.frame();
     }
 
     /// A click with a modifier held, as shift-Add is.
@@ -526,6 +624,124 @@ fn year_zero_is_played_through_the_panes() {
     shell.press("fleet", "Waypoint Task");
     shell.press("fleet", "Colonize");
     assert_eq!(shell.page(), 13, "2402 is done");
+    shell.generate();
+    assert_eq!(shell.page(), 13);
+
+    // --- 2403 -------------------------------------------------------------
+    // Page 13: the first message — factories built — switched off with the
+    // check mark at the top left of the Messages pane; the next message's
+    // Goto is Stove Top; Change, three shift-Adds of Factories (Auto Build),
+    // OK.
+    shell.press("messages", "filter");
+    shell.press("messages", "Next");
+    shell.press("messages", "Goto");
+    assert_eq!(shell.app.selection.planet, Some(STOVE_TOP));
+    shell.press("planet", "Change");
+    shell.scroll_to("production", "Factories", "Factory");
+    shell.press("production", "Factories");
+    for _ in 0..3 {
+        shell.press_with(egui::Modifiers::SHIFT, "production", "Add ->");
+    }
+    shell.press("production", "OK");
+    assert_eq!(shell.page(), 14);
+
+    // Page 14: the next two messages' Goto is 90210; "press the q key" —
+    // the shell's key for Change Production; Factory and Mine double-
+    // clicked three times each; the leftover box ticked; OK. Then Teamster
+    // #4 from Stove Top's menu, Xfer, the hold filled with colonists, OK.
+    shell.press("messages", "Next");
+    shell.press("messages", "Next");
+    shell.press("messages", "Goto");
+    assert_eq!(shell.app.selection.planet, Some(PLANET_90210));
+    shell.app.open_production();
+    shell.frame();
+    for _ in 0..3 {
+        shell.double_click("production", "Factory");
+    }
+    for _ in 0..3 {
+        shell.double_click("production", "Mine");
+    }
+    shell.press(
+        "production",
+        "Contribute only leftover resources to research",
+    );
+    {
+        let dialog = shell.app.production.as_ref().expect("open");
+        assert_eq!(dialog.queue.len(), 2, "{:?}", dialog.queue);
+        assert_eq!((dialog.queue[0].item, dialog.queue[0].count), (7, 3));
+        assert_eq!((dialog.queue[1].item, dialog.queue[1].count), (8, 3));
+        assert!(dialog.no_research);
+    }
+    shell.press("production", "OK");
+    shell.right_click_planet_and_pick(STOVE_TOP, "Teamster #4");
+    assert_eq!(shell.selected_fleet_id(), Some(3));
+    shell.press("fleet", "Xfer");
+    shell.frame();
+    let gauge = shell
+        .app
+        .drawn_button("xfer", "Colonists gauge")
+        .expect("the colonists gauge")
+        .rect;
+    shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
+    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard[3], 210);
+    shell.press("xfer", "OK");
+    assert_eq!(shell.page(), 15);
+
+    // Page 15: shift-click 90210; Transport; the blue diamond's QuikDrop;
+    // the next message's Goto is Hiho; double-click Armed Probe #1 on the
+    // map.
+    shell.shift_click_planet(PLANET_90210);
+    shell.press("fleet", "Waypoint Task");
+    shell.press("fleet", "Transport");
+    shell.right_click("fleet", "blue diamond");
+    shell.press("fleet", "QuikDrop");
+    shell.press("messages", "Next");
+    shell.press("messages", "Goto");
+    assert_eq!(shell.app.selection.planet, Some(HIHO));
+    // "Double-click on Armed Probe #1" — the blue triangle just right of
+    // Hiho, still on its way.
+    let probe = {
+        let game = shell.app.game.as_ref().expect("a game");
+        game.fleets
+            .iter()
+            .find(|f| f.owner == 0 && f.id == 0)
+            .expect("Armed Probe #1")
+            .position
+    };
+    shell.frame();
+    let map = shell.app.map_frame.expect("the map");
+    let at = map.to_screen(probe.x, probe.y);
+    assert!(map.rect.contains(at), "the probe is on the map");
+    shell.double_click_at(at);
+    assert_eq!(shell.selected_fleet_id(), Some(0), "Armed Probe #1 in hand");
+    assert_eq!(shell.page(), 16);
+
+    // Page 16: "Click Hiho and press the Delete key" — the probe's waypoint
+    // at Hiho comes into the map's hand with a click on it, and Delete is
+    // the shell's key, so the waypoint in hand is dropped directly.
+    let hiho = shell.planet_on_screen(HIHO);
+    shell.click_at(hiho);
+    assert_eq!(
+        shell.app.selection.waypoint,
+        Some(1),
+        "Hiho is the waypoint in hand"
+    );
+    shell.app.delete_current_waypoint();
+    shell.frame();
+    {
+        let game = shell.app.game.as_ref().expect("a game");
+        let probe = game
+            .fleets
+            .iter()
+            .find(|f| f.owner == 0 && f.id == 0)
+            .expect("the probe");
+        assert_eq!(
+            probe.waypoints[1].target,
+            Some(NO_VACANCY as u16),
+            "straight on to No Vacancy"
+        );
+    }
+    assert_eq!(shell.page(), 17, "2403 is done");
 }
 
 /// The planet pane's own tile has Prev and Next as well — `SelectAdjPlanet`

@@ -140,9 +140,12 @@ doubled letter where its neighbours in the same list (` within %d l.y.`,
 typed as an `i`. The table is transcribed rather than corrected.
 
 **Transport's cargo table**, an action and a quantity for each of the five
-kinds. The dropdown lists **fuel first** and then the four hold kinds:
-`UpdateOrdersDDs` maps its index 0 to slot 4 and index *n* to slot *n* − 1,
-while the stored words stay in slot order. Each word is packed
+kinds, shown **one cargo at a time**: a cargo dropdown — the tile's second —
+then an action dropdown for that cargo and a quantity box where the action
+takes one, with the blue diamond beside the cargo row. The cargo dropdown
+lists **fuel first** and then the four hold kinds: `UpdateOrdersDDs` maps its
+index 0 to slot 4 and index *n* to slot *n* − 1, while the stored words stay
+in slot order. Each word is packed
 `quantity:12, action:4`, so no quantity can exceed 4095.
 
 The ten actions are strings `0x6d` to `0x76`, again one per code in order —

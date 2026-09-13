@@ -289,10 +289,7 @@ fn waypoint_task(app: &mut App, ui: &mut egui::Ui) {
         task::LAY_MINES => years(app, ui),
         task::PATROL => patrol(app, ui),
         task::TRANSFER => transfer(app, ui),
-        task::TRANSPORT => {
-            transport(app, ui);
-            zip_diamond(app, ui);
-        }
+        task::TRANSPORT => transport(app, ui),
         _ => {}
     }
 
@@ -413,34 +410,70 @@ fn transfer(app: &mut App, ui: &mut egui::Ui) {
 /// The quantity box is greyed for the four actions that need no figure, and
 /// its unit follows the cargo — kilotons, hundreds of colonists, milligrams —
 /// except that a percentage action overrides all three.
+/// The Transport task's cargo table, three controls deep as the original
+/// draws it (`DrawShipWayPtOrders`, `UpdateOrdersDDs` `1050:93ee`): a
+/// **cargo** dropdown — the tile's second — listing fuel and then the four
+/// holds, an **action** dropdown for the cargo chosen — the third — and a
+/// quantity box beside it when the action wants one. Page 35 of the
+/// tutorial names them so: "make the tile's second dropdown read Colonists
+/// and its third Unload All". The blue diamond sits beside the cargo row.
 fn transport(app: &mut App, ui: &mut egui::Ui) {
-    for slot in stars_formats::CARGO_ORDER {
-        let (action, quantity) = app.waypoint_transport(slot);
-        let fuel = slot == 4;
-        let mut chosen = action;
-        let mut amount = quantity;
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(format!("{}:", stars_formats::cargo_name(slot))).small());
-            egui::ComboBox::from_id_source(("waypoint-xfer", slot))
-                .width(130.0)
-                .selected_text(egui::RichText::new(action.caption(fuel)).small())
-                .show_ui(ui, |ui| {
-                    for option in stars_formats::XferAction::ALL {
-                        ui.selectable_value(
-                            &mut chosen,
-                            option,
-                            egui::RichText::new(option.caption(fuel)).small(),
-                        );
-                    }
-                });
-            if chosen.needs_quantity() {
-                ui.add(egui::DragValue::new(&mut amount).range(0..=0x0fff));
-                ui.label(egui::RichText::new(stars_formats::cargo_unit(slot, chosen)).small());
-            }
-        });
-        if chosen != action || amount != quantity {
-            app.set_waypoint_transport(slot, chosen, amount);
+    let shown = app
+        .transport_cargo_shown
+        .min(stars_formats::CARGO_ORDER.len() - 1);
+    let slot = stars_formats::CARGO_ORDER[shown];
+    let (action, quantity) = app.waypoint_transport(slot);
+    let fuel = slot == 4;
+
+    // The cargo dropdown, and the diamond beside it.
+    let mut pick = shown;
+    ui.horizontal(|ui| {
+        let cargo = egui::ComboBox::from_id_source("waypoint-xfer-cargo")
+            .width(110.0)
+            .selected_text(egui::RichText::new(stars_formats::cargo_name(slot)).small())
+            .show_ui(ui, |ui| {
+                for (index, slot) in stars_formats::CARGO_ORDER.iter().enumerate() {
+                    let response = ui.selectable_value(
+                        &mut pick,
+                        index,
+                        egui::RichText::new(stars_formats::cargo_name(*slot)).small(),
+                    );
+                    crate::views::record(app, ui, stars_formats::cargo_name(*slot), &response);
+                }
+            });
+        crate::views::record(app, ui, "Cargo", &cargo.response);
+        zip_diamond(app, ui);
+    });
+    if pick != shown {
+        app.transport_cargo_shown = pick;
+        return;
+    }
+
+    // The action for it, and the quantity where the action takes one.
+    let mut chosen = action;
+    let mut amount = quantity;
+    ui.horizontal(|ui| {
+        let actions = egui::ComboBox::from_id_source("waypoint-xfer-action")
+            .width(130.0)
+            .selected_text(egui::RichText::new(action.caption(fuel)).small())
+            .show_ui(ui, |ui| {
+                for option in stars_formats::XferAction::ALL {
+                    let response = ui.selectable_value(
+                        &mut chosen,
+                        option,
+                        egui::RichText::new(option.caption(fuel)).small(),
+                    );
+                    crate::views::record(app, ui, option.caption(fuel), &response);
+                }
+            });
+        crate::views::record(app, ui, "Action", &actions.response);
+        if chosen.needs_quantity() {
+            ui.add(egui::DragValue::new(&mut amount).range(0..=0x0fff));
+            ui.label(egui::RichText::new(stars_formats::cargo_unit(slot, chosen)).small());
         }
+    });
+    if chosen != action || amount != quantity {
+        app.set_waypoint_transport(slot, chosen, amount);
     }
 }
 
@@ -518,25 +551,29 @@ fn zip_diamond(app: &mut App, ui: &mut egui::Ui) {
     let response = response.on_hover_text(
         "Right-click for the saved cargo orders, or to define one from this waypoint.",
     );
+    crate::views::record(app, ui, "blue diamond", &response);
 
     let mut chosen: Option<usize> = None;
     // The original raises it on the **right** button; a left click is
-    // offered too, since a menu you cannot find is no menu at all.
+    // offered too, since a menu you cannot find is no menu at all. The
+    // menu's entries are recorded as they are drawn, so a test can pick
+    // QuikDrop the way page 15 says.
+    let labels = app.zip_menu();
     response.context_menu(|ui| {
-        for (index, label) in app.zip_menu().iter().enumerate() {
+        for (index, label) in labels.iter().enumerate() {
             let usable = index < 2
                 || index == App::ZIP_ORDERS + 2
                 || app
                     .zip_orders
                     .get(index - 2)
                     .is_some_and(|slot| !slot.name.is_empty());
-            if ui
-                .add_enabled(
-                    usable,
-                    egui::Button::new(egui::RichText::new(label).small()),
-                )
-                .clicked()
-            {
+            let entry = ui.add_enabled(
+                usable,
+                egui::Button::new(egui::RichText::new(label).small()),
+            );
+            // Recorded against the menu's own clip, not the tile's.
+            crate::views::record(app, ui, label, &entry);
+            if entry.clicked() {
                 chosen = Some(index);
                 ui.close_menu();
             }

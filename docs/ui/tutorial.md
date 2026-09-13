@@ -433,8 +433,8 @@ pages, through the same calls the panes make, and checks that every task
 turns the page as `AdvanceTutor` would. `tutorial_ui.rs` plays it through
 the panes themselves — every step a press on a button where a pane drew it,
 a pick from a menu or dropdown where it opened, or a click on the map where
-the scanner drew the planet — and so far gets through **2400 to 2402**,
-pages one to twelve; see *Through the panes* below. It gets through **2400 to 2410** —
+the scanner drew the planet — and so far gets through **2400 to 2403**,
+pages one to sixteen; see *Through the panes* below. It gets through **2400 to 2410** —
 pages one to thirty-three — and stops on page 34. The first four years took three corrections to
 what was here:
 
@@ -505,7 +505,15 @@ must press what the text names:
   test does, as a player would;
 * page 12's **Xfer** button and the Cargo Transfer dialog behind it did not
   exist (`cargo-transfer.md`), and the location tile had a line of this
-  project's own where the original has only its two buttons.
+  project's own where the original has only its two buttons;
+* the Waypoint Task tile spread the Transport table over five rows where
+  the original has a **cargo** dropdown and an **action** dropdown — "the
+  tile's second dropdown … and its third", page 35 — and the blue diamond
+  beside them, which had been pushed off the tile;
+* a row past the tenth of a list box is below the fold, in the original
+  too, so the harness rolls the wheel to it as a player would; and its
+  clicks are a second apart, or egui takes every one for the third of a
+  triple and no double-click ever registers.
 
 ### Where it stops, and why
 
