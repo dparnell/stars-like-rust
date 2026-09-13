@@ -135,6 +135,9 @@ fn another_player_s_fleet_gets_no_gauges() {
         game.fleets[theirs].position = at;
         (game.fleets[theirs].owner, game.fleets[theirs].id)
     };
+    // Moved by hand, so what the player can see has to be worked out again:
+    // in orbit beside ours, it is within our scanner's penetrating range.
+    app.refresh_view();
     app.selection.fleet = Some(index);
     app.selection.on_fleet = false;
 
