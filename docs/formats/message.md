@@ -58,6 +58,9 @@ right routine:
 | id | name | sent by |
 |---:|------|---------|
 | `0x27` | `idmHasRunFuel` | `MoveFleets`, a fleet dry and unable to move at any warp; `[fleet, 0]` |
+| `0x3e` | `idmHasCompletedOrdersProductionQueueEmpty` | `Produce` (`10b8:0371`), every year a planet with resources has an empty queue — empty to begin with or worked through; `[planet]` |
+| `0x4e` | `idmHasCompletedAssignedOrders` | `KillUsedWaypoints` (`1080:189a`), a fleet at the last of its waypoints with no task there that reports for itself; `[fleet, 0]` |
+| `0xaa`…`0xae`, `0x15d` | `idmHaveFound…` | written by the **client** on reading a planet record flagged first-year (`file.c`): occupied `[planet, owner\|0x30]`, hostile / habitable / terraformable `[figure, planet]`, unknown `[planet, 0]`, Claim Adjuster `[planet, value]` |
 | `0x4e` | `idmHasCompletedAssignedOrders` | `SatisfyOrders`, when a fleet runs out of orders |
 | `0x8b` | `idmHasRunFuelFleetsSpeedHasDecreased` | `MoveFleets`, a fleet dry and slowed to a free warp; `[fleet, warp]` |
 | `0xbe` | `idmSomeoneHasSweptMinesMineField` | `SweepForMines`, to the field's owner |

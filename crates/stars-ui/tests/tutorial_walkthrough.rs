@@ -251,20 +251,26 @@ fn the_first_four_years_play_through_from_the_pages() {
     // The year's news, in the order the original's own turn-3 file has it:
     // factories built at Stove Top and its queue emptied, the colony ship
     // broken up on landing, and 90210 taken. Fleet #3 is gone, its number
-    // free for the next ship built.
+    // free for the next ship built. After the file's four comes one the
+    // file cannot hold, because the client writes it for itself on reading
+    // the turn: Hiho, found this year by the probe's built-in scanner, and
+    // the message page 15 has you Goto.
     {
         use stars_core::message::id;
-        let ids: Vec<u16> = app.messages().iter().map(|m| m.id).collect();
+        let messages = app.messages();
+        let ids: Vec<u16> = messages.iter().map(|m| m.id).collect();
         assert_eq!(
             ids,
             vec![
                 id::BUILT_FACTORIES,
                 id::QUEUE_EMPTY,
                 id::FLEET_DISMANTLED,
-                id::COLONISTS_CONTROL
+                id::COLONISTS_CONTROL,
+                id::FOUND_HOSTILE,
             ],
             "{ids:?}"
         );
+        assert_eq!(messages[4].object, HIHO, "the planet found is Hiho");
         assert!(
             !app.game
                 .as_ref()
@@ -342,6 +348,16 @@ fn the_first_four_years_play_through_from_the_pages() {
         assert!(app.advance_tutor());
     }
     assert_eq!(page(&app), 17, "2403 is done; page 17 waits for 2404");
+    // What the player knows of the galaxy in 2403 is what the tutorial's
+    // own history file, `tutorial.h1`, holds: home, 90210, and the three
+    // planets the scouts reached or came within twenty light years of —
+    // Prune, Alexander and Hiho — and not one of the dozen inside the home
+    // world's Scoper 150, which does not penetrate.
+    assert_eq!(
+        app.known_planets.iter().copied().collect::<Vec<_>>(),
+        vec![HIHO, PRUNE, STOVE_TOP, ALEXANDER, PLANET_90210],
+        "the history file's five"
+    );
     app.generate_turn();
     assert_eq!(app.game.as_ref().expect("a game").turn, 4);
     assert!(!app.advance_tutor());

@@ -15,7 +15,7 @@ use crate::components::{
     hull, slot, Hull, ARMORS, BEAMS, BOMBS, ENGINES, MINE_LAYERS, MINING, SCANNERS, SHIELDS,
     SPECIALS_E, SPECIALS_M, SPECIALS_SB, TERRAFORMING, TORPEDOES,
 };
-use crate::scanning::{combine_ranges, ScannerRange};
+use crate::scanning::ScannerRange;
 
 /// Index of the Croby Sharmor in [`SHIELDS`]; it also provides 65 armour points.
 const SHIELD_CROBY_SHARMOR: usize = 3;
@@ -250,30 +250,93 @@ impl ShipDesign {
             .and_then(|s| ENGINES.get(usize::from(s.item)))
     }
 
-    /// Combined scanner range, normal and penetrating.
+    /// Combined scanner range, normal and penetrating, for a design that
+    /// gets nothing from its race.
     ///
-    /// Multiple scanners combine as the fourth root of the sum of fourth
-    /// powers, and a scanner stored with a negative range also penetrates, at
-    /// half its magnitude — see [`crate::scanning`].
+    /// See [`Self::scanner_range_for`].
     #[must_use]
     pub fn scanner_range(&self) -> ScannerRange {
-        let mut normal = Vec::new();
-        let mut penetrating = Vec::new();
-        for s in self.slots.iter().filter(|s| s.is(slot::SCANNER)) {
-            let Some(part) = SCANNERS.get(usize::from(s.item)) else {
-                continue;
-            };
-            for _ in 0..s.count {
-                normal.push(i32::from(part.range.abs()));
-                if part.range < 0 {
-                    penetrating.push(i32::from(-part.range) / 2);
-                }
+        self.scanner_range_for(None, false)
+    }
+
+    /// Combined scanner range, normal and penetrating — `GetShdefScannerRange`
+    /// (`1038:50d0`).
+    ///
+    /// Every scanner aboard adds the fourth power of its range to the
+    /// normal total, and the fourth root of that is the design's range.
+    /// **Penetration** is not stored with the part: it comes from the
+    /// scanner's ability class — 50 for class 1, 100 for class 2, 200 for
+    /// class 3 (the Ferret, Dolphin and Elephant) — with three named
+    /// exceptions among the class-4 parts: the Chameleon penetrates 45, the
+    /// Robber Baron 120 and the Pick Pocket not at all. Three parts that are
+    /// not scanners scan too: armour item 9 at 80/40, beam item 18 at 150/75
+    /// and shield item 6 at 50/25.
+    ///
+    /// A **Jack of All Trades** race's Scout, Destroyer and Frigate hulls
+    /// carry a scanner of their own, summed in with the rest — pass it as
+    /// `builtin`, normal and penetrating: `20 × Electronics` and
+    /// `10 × Electronics` in an ordinary game, and a fixed **40 and 20** in
+    /// the tutorial (`fTutorial`; the constants at `1120:1cd2` and
+    /// `1120:1cda`). That is how the tutorial's Armed Probe, fitted with
+    /// nothing but a Rhino, reads Hiho from seventeen light years out and
+    /// not from Prune, forty-three away. No Advanced Scanners doubles the
+    /// normal range.
+    #[must_use]
+    pub fn scanner_range_for(&self, builtin: Option<(i32, i32)>, nas: bool) -> ScannerRange {
+        let mut normal: f64 = 0.0;
+        let mut penetrating: f64 = 0.0;
+        let mut any = false;
+        if let Some((wide, deep)) = builtin {
+            if (4..=6).contains(&self.hull_id) {
+                penetrating += f64::from(deep).powi(4);
+                normal += f64::from(wide).powi(4);
+                any = true;
             }
         }
-        ScannerRange {
-            normal: combine_ranges(&normal),
-            penetrating: combine_ranges(&penetrating),
+        for s in &self.slots {
+            if s.count == 0 {
+                continue;
+            }
+            let count = f64::from(s.count);
+            let (range, deep) = if s.is(slot::SCANNER) {
+                let Some(part) = SCANNERS.get(usize::from(s.item)) else {
+                    continue;
+                };
+                any = true;
+                let deep = match (s.item, part.abilities) {
+                    (5, _) => 0,
+                    (6, _) => 45,
+                    (14, _) => 120,
+                    (_, 1) => 50,
+                    (_, 2) => 100,
+                    (_, a) if a >= 3 => 200,
+                    _ => 0,
+                };
+                (i32::from(part.range), deep)
+            } else if s.is(slot::ARMOR) && s.item == 9 {
+                (80, 40)
+            } else if s.is(slot::BEAM) && s.item == 18 {
+                (150, 75)
+            } else if s.is(slot::SHIELD) && s.item == 6 {
+                (50, 25)
+            } else {
+                continue;
+            };
+            normal += count * f64::from(range).powi(4);
+            penetrating += count * f64::from(deep).powi(4);
         }
+        if !any {
+            return ScannerRange::default();
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let mut out = ScannerRange {
+            normal: normal.sqrt().sqrt() as i32,
+            penetrating: penetrating.sqrt().sqrt() as i32,
+        };
+        if nas {
+            out.normal *= 2;
+        }
+        out
     }
 
     /// Resource and mineral cost of one ship.

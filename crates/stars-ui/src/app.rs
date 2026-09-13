@@ -458,6 +458,16 @@ pub struct App {
     /// selection is moved by something other than a click on the map, and
     /// the wheel moves it. `None` is the middle of the galaxy.
     pub scan_center: Option<stars_core::movement::Point>,
+    /// The planets the local player has a record of — everything they have
+    /// **ever** seen, which is what the original's history file (`.hN`)
+    /// accumulates from each year's turn file. A planet not in it is
+    /// unexplored: the client has no record, so its summary is blank and a
+    /// leg to it is priced like deep space. See
+    /// [`stars_core::visibility`] and [`Self::refresh_view`].
+    pub known_planets: std::collections::BTreeSet<i16>,
+    /// What the local player can see **this** year — in particular which
+    /// fleets of other players are on their map.
+    pub in_view: stars_core::visibility::View,
     /// Which waypoint a drag is moving, while one is under way.
     pub dragging_waypoint: Option<usize>,
     /// Where that waypoint was before the drag picked it up.
@@ -796,6 +806,20 @@ impl App {
         self.setup = None;
         self.path = Some(path);
         self.file = Some(file);
+        // A player's file is that player's view: every planet and fleet in
+        // it is one they know of.
+        self.known_planets.clear();
+        self.in_view = stars_core::visibility::View::default();
+        if let Some(game) = self.game.as_ref() {
+            self.known_planets.extend(
+                game.planets
+                    .iter()
+                    .chain(game.known_planets.iter())
+                    .map(|p| p.id),
+            );
+            self.in_view.planets = self.known_planets.clone();
+            self.in_view.fleets = (0..game.fleets.len()).collect();
+        }
         self.dirty = false;
         self.edited.clear();
         self.renamed.clear();
@@ -1150,6 +1174,8 @@ impl App {
         self.playing = false;
         self.file = None;
         self.path = None;
+        self.known_planets.clear();
+        self.refresh_view();
         self.dirty = false;
         self.edited.clear();
         self.renamed.clear();
@@ -1485,7 +1511,9 @@ impl App {
             .filter(|m| m.player == me)
             .map(|m| (m.id, m.summary()))
             .collect();
-        // The log covers one turn; the year has moved on.
+        // The log covers one turn; the year has moved on — and so has what
+        // the player can see.
+        self.refresh_view();
         self.orders.clear();
         self.research_edited = false;
         self.player_edited = false;
@@ -2529,7 +2557,9 @@ impl App {
         game.fleets
             .iter()
             .enumerate()
-            .filter(|(_, fleet)| fleet.position == at && !fleet.stacks.is_empty())
+            .filter(|(index, fleet)| {
+                fleet.position == at && !fleet.stacks.is_empty() && self.fleet_in_view(*index)
+            })
             .filter(|(_, fleet)| Some((fleet.owner, fleet.id)) != skip)
             .map(|(index, fleet)| PaneFleet {
                 index,
@@ -2802,7 +2832,7 @@ impl App {
             }
         }
         for (index, fleet) in game.fleets.iter().enumerate() {
-            if fleet.stacks.is_empty() {
+            if fleet.stacks.is_empty() || !self.fleet_in_view(index) {
                 continue;
             }
             consider(ScanObject::Fleet(index), fleet.position);
@@ -3189,12 +3219,16 @@ impl App {
                         })
             });
 
-        let planet = destination.and_then(|id| {
-            game.planets
-                .iter()
-                .chain(game.known_planets.iter())
-                .find(|p| p.id == id)
-        });
+        // A planet the client has no record of is priced like empty space:
+        // `LpplFromId` has nothing to give `IWarpBestForWaypoint` for it.
+        let planet = destination
+            .filter(|id| self.planet_known(*id))
+            .and_then(|id| {
+                game.planets
+                    .iter()
+                    .chain(game.known_planets.iter())
+                    .find(|p| p.id == id)
+            });
         let mine = planet.is_some_and(|p| p.owner == record.owner.into());
         // A planet of yours with a base that has a dock will fill the tank
         // on arrival, so the leg may cost the whole of it.
@@ -9423,7 +9457,7 @@ impl App {
         }
         let planets = out.len();
         for (index, fleet) in game.fleets.iter().enumerate() {
-            if fleet.position != at || fleet.stacks.is_empty() {
+            if fleet.position != at || fleet.stacks.is_empty() || !self.fleet_in_view(index) {
                 continue;
             }
             let object = ScanObject::Fleet(index);
@@ -9558,7 +9592,112 @@ impl App {
     /// fleet itself.)
     #[must_use]
     pub fn fleet_scan_visible(&self, index: usize, fleet: &stars_core::fleet::Fleet) -> bool {
-        self.selection.fleet == Some(index) || self.filtered_ship_count(fleet) > 0
+        self.fleet_in_view(index)
+            && (self.selection.fleet == Some(index) || self.filtered_ship_count(fleet) > 0)
+    }
+
+    // --- What the player can see ------------------------------------------
+
+    /// Work out what the local player can see this year, and add it to what
+    /// they have seen before.
+    ///
+    /// The original's host decides this when it writes each player's file
+    /// (`SetVisPFPlanets`, `SetVisPFFleets`), and the client remembers the
+    /// planets in its history file. A game hosted here has no files to pass
+    /// through, so the same two passes run on the host's state directly —
+    /// see [`stars_core::visibility::view`].
+    pub fn refresh_view(&mut self) {
+        let me = self.local_player();
+        let Some(game) = self.game.as_ref() else {
+            self.in_view = stars_core::visibility::View::default();
+            return;
+        };
+        self.in_view = stars_core::visibility::view(game, me);
+        // The planets seen for the first time this year, in id order —
+        // which is how the client meets them, reading its turn file — each
+        // get the "you have found a planet" message the client writes for
+        // itself (`file.c`, on a record flagged first-year).
+        let new: Vec<i16> = self
+            .in_view
+            .planets
+            .iter()
+            .copied()
+            .filter(|id| !self.known_planets.contains(id))
+            .collect();
+        self.known_planets.extend(new.iter().copied());
+        let found: Vec<stars_core::message::Message> = new
+            .into_iter()
+            .filter_map(|id| self.found_planet_message(id))
+            .collect();
+        if let Some(game) = self.game.as_mut() {
+            game.messages.extend(found);
+        }
+    }
+
+    /// The message the client sends itself about a planet it has just
+    /// learned of, or `None` for one of the player's own.
+    fn found_planet_message(&self, id: i16) -> Option<stars_core::message::Message> {
+        use stars_core::message::id as idm;
+        let me = self.local_player();
+        let game = self.game.as_ref()?;
+        let planet = game
+            .planets
+            .iter()
+            .chain(game.known_planets.iter())
+            .find(|p| p.id == id)?;
+        let player = game.players.get(me)?;
+        let race = &player.race;
+        let mine = usize::try_from(planet.owner.unwrap_or(-1)).is_ok_and(|o| o == me);
+        if mine {
+            return None;
+        }
+        let message = |kind: u16, params: Vec<i16>| stars_core::message::Message {
+            player: me,
+            id: kind,
+            object: id,
+            params,
+        };
+        if let Some(owner) = planet.owner {
+            return Some(message(idm::FOUND_OCCUPIED, vec![id, owner | 0x30]));
+        }
+        if planet.detail < stars_core::planet::Detail::Scanned {
+            return Some(message(idm::FOUND_UNKNOWN, vec![id, 0]));
+        }
+        let optimum = || {
+            let reach = stars_core::terraform::optimal_env(planet, race, player.research.levels);
+            stars_core::ai::colonise::pct_planet_opt_value(planet, race, reach)
+        };
+        if race.prt() == Some(stars_core::race::Prt::Ca) {
+            return Some(message(idm::FOUND_CLAIM_ADJUSTER, vec![id, optimum()]));
+        }
+        let growth = stars_core::population::pct_true_max_growth(race);
+        let value = stars_core::hab::pct_planet_desirability(planet, race);
+        let (kind, figure) = if value > 0 {
+            (idm::FOUND_HABITABLE, value * growth)
+        } else {
+            let best = optimum();
+            if best > 0 {
+                (idm::FOUND_TERRAFORMABLE, best * growth)
+            } else {
+                (idm::FOUND_HOSTILE, value * 10)
+            }
+        };
+        Some(message(kind, vec![figure.abs(), id]))
+    }
+
+    /// Whether the local player has a record of a planet: their own, or one
+    /// they have seen. An unexplored planet is a name and a position and
+    /// nothing else.
+    #[must_use]
+    pub fn planet_known(&self, planet: i16) -> bool {
+        self.known_planets.contains(&planet)
+    }
+
+    /// Whether a fleet is on the local player's map this year: their own,
+    /// or another player's within scanner range.
+    #[must_use]
+    pub fn fleet_in_view(&self, index: usize) -> bool {
+        self.in_view.fleets.contains(&index)
     }
 
     /// The polylines the **Ship Paths** overlay draws, one per fleet, in
@@ -10029,7 +10168,7 @@ impl App {
         let player = self.game.as_ref()?.players.get(me)?;
         let race = &player.race;
         let adjuster = race.prt() == Some(stars_core::race::Prt::Ca);
-        let known = planet.detail >= stars_core::planet::Detail::Scanned;
+        let known = self.planet_known(planet.id);
         // What the planet would be worth terraformed, which is what
         // `PctPlanetOptValue` measures: the environment moved as far toward the
         // race's ideal as this player's technology reaches.

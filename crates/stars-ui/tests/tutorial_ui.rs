@@ -15,8 +15,23 @@ use stars_ui::{App, Screen};
 
 // The worlds the pages send you to, pinned by `tutorial_seed.rs`.
 const PRUNE: i16 = 0x0c;
+const STOVE_TOP: i16 = 0x0d;
 const ALEXANDER: i16 = 0x0f;
 const PLANET_90210: i16 = 0x10;
+const HIHO: i16 = 0x09;
+const NO_VACANCY: i16 = 0x03;
+const SLIME: i16 = 0x08;
+const WALLABY: i16 = 0x05;
+const OXYGEN: i16 = 0x02;
+const DWARTE: i16 = 0x15;
+const MOBIUS: i16 = 0x13;
+const CASTLE: i16 = 0x14;
+const MOHOLDI: i16 = 0x07;
+const SHAGGY_DOG: i16 = 0x0e;
+const SEA_SQUARED: i16 = 0x11;
+const RED_STORM: i16 = 0x12;
+const BLOOP: i16 = 0x17;
+const KALAMAZOO: i16 = 0x16;
 
 /// A headless shell: the app, an egui context, and the input for the next
 /// frame.
@@ -71,7 +86,7 @@ impl Shell {
             // corner the map does not use.
             if app.tutor.as_ref().is_some_and(|t| !t.hidden) {
                 egui::Window::new("Stars! Tutor")
-                    .current_pos(egui::pos2(1700.0, 40.0))
+                    .default_pos(egui::pos2(1700.0, 40.0))
                     .show(ctx, |ui| stars_ui::views::tutorial::view(app, ui));
             }
             // The Research and Production dialogs, where the shell puts
@@ -142,8 +157,8 @@ impl Shell {
         self.click_at(button.rect.center());
     }
 
-    /// Shift-click a planet on the map, which is how a waypoint is laid.
-    fn shift_click_planet(&mut self, planet: i16) {
+    /// Where a planet is on the screen this frame.
+    fn planet_on_screen(&mut self, planet: i16) -> egui::Pos2 {
         self.frame();
         let at = {
             let game = self.app.game.as_ref().expect("a game");
@@ -155,8 +170,106 @@ impl Shell {
                 .expect("a placed planet")
         };
         let map = self.app.map_frame.expect("the scanner drew the map");
-        let pos = map.to_screen(at.x, at.y);
+        let mut pos = map.to_screen(at.x, at.y);
+        if !map.rect.contains(pos) {
+            // Off the edge of the map: the wheel would bring it into view,
+            // and this is where the wheel would leave it.
+            self.app.scan_center = Some(at);
+            self.frame();
+            let map = self.app.map_frame.expect("the scanner drew the map");
+            pos = map.to_screen(at.x, at.y);
+        }
         assert!(map.rect.contains(pos), "{planet:#x} is on the map");
+        // Under the tutor window? Then drag the window to whichever corner
+        // of the map is furthest away, as a player would.
+        if let Some(window) = self.tutor_window() {
+            if window.expand(8.0).contains(pos) {
+                let corners = [
+                    map.rect.left_top(),
+                    map.rect.right_top() - egui::vec2(window.width(), 0.0),
+                    map.rect.left_bottom() - egui::vec2(0.0, window.height()),
+                    map.rect.right_bottom() - window.size(),
+                ];
+                let far = corners
+                    .into_iter()
+                    .max_by(|a, b| {
+                        a.distance(pos)
+                            .partial_cmp(&b.distance(pos))
+                            .expect("finite")
+                    })
+                    .expect("four corners");
+                self.drag(
+                    window.min + egui::vec2(20.0, 8.0),
+                    far + egui::vec2(20.0, 8.0),
+                );
+                self.frame();
+                let window = self.tutor_window().expect("still up");
+                assert!(!window.contains(pos), "the window moved off {planet:#x}");
+            }
+        }
+        pos
+    }
+
+    /// Where the tutor window is this frame.
+    fn tutor_window(&self) -> Option<egui::Rect> {
+        self.ctx
+            .memory(|m| m.area_rect(egui::Id::new("Stars! Tutor")))
+    }
+
+    /// A left-drag from one point to another.
+    fn drag(&mut self, from: egui::Pos2, to: egui::Pos2) {
+        self.events.push(egui::Event::PointerMoved(from));
+        self.frame();
+        self.events.push(egui::Event::PointerButton {
+            pos: from,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: self.modifiers,
+        });
+        self.frame();
+        // In steps, so egui sees a drag rather than a jump.
+        for step in 1..=4 {
+            let t = step as f32 / 4.0;
+            self.events
+                .push(egui::Event::PointerMoved(from + (to - from) * t));
+            self.frame();
+        }
+        self.events.push(egui::Event::PointerButton {
+            pos: to,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: self.modifiers,
+        });
+        self.frame();
+    }
+
+    /// A right-click on a planet, which raises the menu of what is there,
+    /// then a click on one of its entries.
+    fn right_click_planet_and_pick(&mut self, planet: i16, entry: &str) {
+        let pos = self.planet_on_screen(planet);
+        self.events.push(egui::Event::PointerMoved(pos));
+        self.frame();
+        self.events.push(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Secondary,
+            pressed: true,
+            modifiers: self.modifiers,
+        });
+        self.frame();
+        self.events.push(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Secondary,
+            pressed: false,
+            modifiers: self.modifiers,
+        });
+        self.frame();
+        assert!(self.app.scan_menu_at.is_some(), "the menu is up");
+        self.press("scanner", entry);
+    }
+
+    /// Shift-click a planet on the map, which is how a waypoint is laid.
+    fn shift_click_planet(&mut self, planet: i16) {
+        let pos = self.planet_on_screen(planet);
         self.modifiers = egui::Modifiers::SHIFT;
         self.click_at(pos);
         self.modifiers = egui::Modifiers::NONE;
@@ -308,6 +421,68 @@ fn year_zero_is_played_through_the_panes() {
     shell.press("production", "OK");
     assert!(shell.app.production.is_none(), "OK closes the dialog");
     assert_eq!(shell.page(), 7, "2401 is done");
+    shell.generate();
+    assert_eq!(shell.page(), 7);
+
+    // --- 2402 -------------------------------------------------------------
+    // Page 7: "Start with your first message and press Goto": Armed Probe
+    // #1, arrived at Prune; five stops for it; then the next message's Goto
+    // is Long Range Scout #2.
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(0), "Armed Probe #1");
+    for planet in [HIHO, NO_VACANCY, SLIME, WALLABY, OXYGEN] {
+        shell.shift_click_planet(planet);
+    }
+    shell.press("messages", "Next");
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(1), "Long Range Scout #2");
+    assert_eq!(shell.page(), 8);
+
+    // Page 8: four stops, then the next message's Goto: Stalwart Defender.
+    for planet in [DWARTE, MOBIUS, CASTLE, MOHOLDI] {
+        shell.shift_click_planet(planet);
+    }
+    shell.press("messages", "Next");
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(4), "Stalwart Defender #5");
+    assert_eq!(shell.page(), 9);
+
+    // Page 9: five stops; "read the next two messages and press Goto so
+    // that the Summary pane shows Prune". The fourth message is the
+    // factories built at Stove Top; the fifth is the client's own "you have
+    // found a planet" for Prune, the first of three this year, and its Goto
+    // is the planet.
+    for planet in [SHAGGY_DOG, SEA_SQUARED, RED_STORM, BLOOP, KALAMAZOO] {
+        shell.shift_click_planet(planet);
+    }
+    shell.press("messages", "Next");
+    shell.press("messages", "Next");
+    shell.press("messages", "Goto");
+    assert_eq!(
+        shell.app.selection.planet,
+        Some(PRUNE),
+        "Prune in the Summary pane"
+    );
+    assert_eq!(shell.page(), 10);
+
+    // Page 10: right-click Stove Top and pick Cotton Picker #6; shift-click
+    // Prune; then the Waypoint Task dropdown, set to Remote Mining.
+    shell.right_click_planet_and_pick(STOVE_TOP, "Cotton Picker #6");
+    assert_eq!(shell.selected_fleet_id(), Some(5));
+    shell.shift_click_planet(PRUNE);
+    shell.press("fleet", "Waypoint Task");
+    shell.press("fleet", "Remote Mining");
+    assert_eq!(shell.page(), 11);
+
+    // Page 11: the next message's Goto is Alexander, found by Stalwart
+    // Defender #5; the one after is 90210, found by Long Range Scout #2.
+    shell.press("messages", "Next");
+    shell.press("messages", "Goto");
+    assert_eq!(shell.app.selection.planet, Some(ALEXANDER));
+    shell.press("messages", "Next");
+    shell.press("messages", "Goto");
+    assert_eq!(shell.app.selection.planet, Some(PLANET_90210));
+    assert_eq!(shell.page(), 12);
 }
 
 /// The planet pane's own tile has Prev and Next as well — `SelectAdjPlanet`

@@ -853,13 +853,12 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                         if item.first_of_group {
                             ui.separator();
                         }
-                        if ui
-                            .selectable_label(
-                                item.checked,
-                                egui::RichText::new(&item.label).small(),
-                            )
-                            .clicked()
-                        {
+                        let response = ui.selectable_label(
+                            item.checked,
+                            egui::RichText::new(&item.label).small(),
+                        );
+                        crate::views::record(app, ui, &item.label, &response);
+                        if response.clicked() {
                             chosen = Some(item.object);
                         }
                     }

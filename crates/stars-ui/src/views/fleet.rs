@@ -247,18 +247,23 @@ fn waypoint_task(app: &mut App, ui: &mut egui::Ui) {
         );
     }
     let mut chosen = current;
-    egui::ComboBox::from_id_source("waypoint-task")
+    // The dropdown and, while it is open, its choices are recorded like the
+    // buttons, under the caption each shows, so a test can open it and pick
+    // a task the way the tutorial's pages say to.
+    let dropdown = egui::ComboBox::from_id_source("waypoint-task")
         .width(ui.available_width() - 8.0)
         .selected_text(egui::RichText::new(task::caption(current)).small())
         .show_ui(ui, |ui| {
             for id in task::ALL {
-                ui.selectable_value(
+                let response = ui.selectable_value(
                     &mut chosen,
                     id,
                     egui::RichText::new(task::caption(id)).small(),
                 );
+                crate::views::record(app, ui, task::caption(id), &response);
             }
         });
+    crate::views::record(app, ui, "Waypoint Task", &dropdown.response);
     if chosen != current {
         app.set_waypoint_task(chosen);
         return;

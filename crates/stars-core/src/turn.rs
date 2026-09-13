@@ -350,7 +350,6 @@ pub fn generate_turn_with_orders(
             .players
             .get(owner_index)
             .map_or([0u8; 6], |p| p.research.levels);
-        let had_queue = !state.planets[index].queue.is_empty();
         let built = run_queue(
             &mut state.planets[index],
             &race,
@@ -405,7 +404,11 @@ pub fn generate_turn_with_orders(
                 params,
             });
         }
-        if had_queue && state.planets[index].queue.is_empty() {
+        // `Produce` (`10b8:0371`): a planet with resources whose queue is
+        // empty — empty to begin with, or worked through — says so, every
+        // year. It is the message the tutorial's second year opens on, and
+        // the one its page 13 teaches you to switch off.
+        if state.planets[index].queue.is_empty() && budget.total > 0 {
             state.messages.push(crate::message::Message {
                 player: owner_index,
                 id: crate::message::id::QUEUE_EMPTY,

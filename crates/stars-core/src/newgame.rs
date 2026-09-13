@@ -288,6 +288,11 @@ pub struct NewGame {
     /// starts with 100,000 colonists and builds twenty factories in two
     /// years.
     pub accelerated: bool,
+    /// The game is **the tutorial** (`fTutorial`, bit 3 of the flag word).
+    /// The one thing the engine reads it for: a Jack of All Trades' built-in
+    /// scanner is a fixed 40/20 rather than scaled by Electronics
+    /// (`GetShdefScannerRange`, `1038:50d0`).
+    pub tutorial_game: bool,
     /// The players, in order.
     pub players: Vec<NewPlayer>,
 }
@@ -306,6 +311,7 @@ impl Default for NewGame {
             unlimited_minerals: false,
             public_scores: false,
             accelerated: false,
+            tutorial_game: false,
             players: vec![NewPlayer::human(Race::humanoid())],
         }
     }
@@ -367,6 +373,7 @@ pub fn generate(config: &NewGame, rng: &mut Rng) -> Result<Created, NewGameError
 
     let mut state = GameState::new(config.id);
     state.slow_tech = config.slow_tech;
+    state.tutorial_game = config.tutorial_game;
     state.planets = planets;
     state.players = state_players;
     state.fleets = fleets;
@@ -1355,6 +1362,12 @@ fn build_universe(
     if config.clumping {
         flags |= game_flag::CLUMPING;
     }
+    if config.accelerated {
+        flags |= game_flag::BBS_PLAY;
+    }
+    if config.tutorial_game {
+        flags |= game_flag::TUTORIAL;
+    }
     if config
         .players
         .iter()
@@ -1438,6 +1451,7 @@ pub fn tutorial() -> (NewGame, u32) {
         public_scores: true,
         // Bit 5, accelerated BBS play.
         accelerated: true,
+        tutorial_game: true,
         players: vec![
             NewPlayer {
                 race: Race::humanoid(),

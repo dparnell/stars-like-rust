@@ -86,6 +86,7 @@ pub mod startup;
 pub mod terraform;
 pub mod turn;
 pub mod victory;
+pub mod visibility;
 pub mod wormhole;
 
 // `battle::distance` is board geometry and `movement::distance` is interstellar,
@@ -308,6 +309,14 @@ pub struct GameState {
     /// Read by the Mystery Trader, which withholds its late-game bonus of
     /// extra ships from a single-player game — see [`crate::wormhole`].
     pub single_player: bool,
+    /// Whether this game **is the tutorial**: `fTutorial`, bit 3 of the
+    /// game's flag word in the `.xy`. Distinct from [`Self::tutorial`], the
+    /// client's "the tutor is running" flag. The engine reads it in one
+    /// place: a Jack of All Trades' built-in scanner is a fixed 40 light
+    /// years normal and 20 penetrating in the tutorial, where in any other
+    /// game it scales with Electronics (`GetShdefScannerRange`,
+    /// `1038:50d0`).
+    pub tutorial_game: bool,
     /// Whether the **tutorial** is running: bit 11 of the client's `gd`
     /// word, which `StartTutor` sets (`10f8:0748`) and `EndTutor` clears
     /// (`10f8:0c21`).
@@ -389,6 +398,7 @@ impl GameState {
         // A `.hst` or `.mN` carries none of them.
         if let Ok(info) = universe.game() {
             self.slow_tech = info.flags & stars_formats::game_flag::SLOW_TECH != 0;
+            self.tutorial_game = info.flags & stars_formats::game_flag::TUTORIAL != 0;
             self.single_player = info.flags & stars_formats::game_flag::SINGLE_PLAYER != 0;
             self.galaxy_planets = info.planets;
             self.victory = info.victory_bytes();
@@ -426,6 +436,7 @@ impl GameState {
             slow_tech: false,
             single_player: false,
             tutorial: false,
+            tutorial_game: false,
             host_password: 0,
             galaxy_planets: 0,
             victory: [0; stars_formats::victory::COUNT],

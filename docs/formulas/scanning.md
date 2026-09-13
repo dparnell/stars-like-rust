@@ -50,6 +50,42 @@ The `1412/1000` factor in the Alternate Reality branch is the fourth root of 4
 fourth-power law — doubling a range means quadrupling its fourth power, so
 scaling a combined range by `2^(1/2)` is the consistent way to express it.
 
+## What a scanner reveals (`SetVisPFPlanets` `1070:abde`, `SetVisPFFleets` `1070:a100`)
+
+The host writes each player's turn file from two passes, one over the
+player's planets and one over their fleets, and between them they are the
+fog of war. Transcribed as `stars_core::visibility`, and checked in
+`crates/stars-core/tests/visibility.rs`:
+
+* a **fleet** of another player is seen within a scanner's **normal** range,
+  but a fleet **in orbit** only within its **penetrating** range (cloaking
+  shrinks both; not modelled yet);
+* a **planet** is learned only within **penetrating** range — the loop over
+  planets sits inside `if (penetrating > 0)` in both passes — or by a fleet
+  of the player's standing at it. The Scoper 150, which does not penetrate,
+  reveals no planet at all;
+* what has once been learned stays learned: the client keeps the planet in
+  its history file. The **client** also writes itself a "you have found a
+  planet" message for every record flagged first-year it reads
+  (`file.c`; ids `0xaa`…`0xae` and `0x15d`, by whether the planet is
+  occupied, habitable, terraformable, hostile or known only from afar).
+
+A ship's penetrating range is not stored with the scanner part
+(`GetShdefScannerRange`, `1038:50d0`): it comes from the part's ability
+class — 50, 100 and 200 for classes 1, 2 and 3 (Ferret, Dolphin, Elephant)
+— with the Chameleon at 45, the Robber Baron at 120 and the Pick Pocket at
+none. A **Jack of All Trades** race's Scout, Destroyer and Frigate hulls
+carry a scanner of their own, `20 × Electronics` normal and
+`10 × Electronics` penetrating, summed with the fitted ones by fourth powers
+— and in the **tutorial** (`fTutorial`) a fixed 40 and 20 instead, the
+doubles at `1120:1cd2` and `1120:1cda`.
+
+The tutorial's files pin all of this: its Armed Probe (a Rhino, no
+penetration of its own, plus the built-in 20) learns Hiho at seventeen light
+years in 2403 and not at forty-three the year before, none of the scouts
+learn their first planets from twenty-odd light years out in 2401, and
+`tutorial.h1` in 2403 knows exactly home, 90210, Prune, Alexander and Hiho.
+
 ## Edge cases & clamps
 
 - No Advanced Scanners doubles conventional ranges and removes penetration

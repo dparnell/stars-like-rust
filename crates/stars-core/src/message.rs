@@ -109,6 +109,31 @@ pub mod id {
     /// `idmHomePlanetPeopleReadyLeaveNestExplore`: about the home planet,
     /// whose id is both the object and the one parameter.
     pub const HOME_PLANET: u16 = 0xa9;
+    /// `idmHaveFoundPlanetOccupiedSomeoneElseCurrently`: a planet seen for
+    /// the first time turns out to be somebody's. The **client** sends the
+    /// six "found a planet" messages to itself as it reads a planet record
+    /// flagged first-year from its turn file (`file.c`), so they follow the
+    /// host's messages, one per new planet in id order. Object and first
+    /// parameter are the planet; the second is `owner | 0x30`.
+    pub const FOUND_OCCUPIED: u16 = 0xaa;
+    /// `idmHaveFoundNewPlanetWhichUnfortunatelyHabitable`: a new planet the
+    /// race cannot live on. Parameters `[deaths, planet]`, the first being
+    /// ten times the (negative) value, as a percentage lost a year.
+    pub const FOUND_HOSTILE: u16 = 0xab;
+    /// `idmHaveFoundNewHabitablePlanetColonistsWill`: a new planet the race
+    /// can live on. Parameters `[growth, planet]`, the first the value times
+    /// the race's true maximum growth.
+    pub const FOUND_HABITABLE: u16 = 0xac;
+    /// `idmHaveFoundNewPlanetDontKnowIf`: a new planet known only from a
+    /// distance, at minimal detail.
+    pub const FOUND_UNKNOWN: u16 = 0xad;
+    /// `idmHaveFoundNewPlanetWhichHaveAbility`: a new planet the race could
+    /// terraform into range. Parameters `[growth, planet]`, the growth
+    /// figured from the terraformed value.
+    pub const FOUND_TERRAFORMABLE: u16 = 0xae;
+    /// `idmHaveInfoNewPlanetIfColonizeCan`: a Claim Adjuster's version of
+    /// the same, `[planet, value]`.
+    pub const FOUND_CLAIM_ADJUSTER: u16 = 0x15d;
 
     // The Mystery Trader, all from `DoThingInteractions` (`1110:0b3a`) unless
     // noted. See [`crate::wormhole`].
@@ -434,6 +459,39 @@ impl Message {
             id::COLONISTS_CONTROL | id::COLONISTS_CONTROL_AR => format!(
                 "Your colonists have settled planet {} and it is yours.",
                 self.object
+            ),
+            id::FOUND_OCCUPIED => format!(
+                "You have come across planet {}, and it is somebody else's.",
+                self.params.first().copied().unwrap_or(self.object)
+            ),
+            id::FOUND_HOSTILE => format!(
+                "You have found planet {}, and it is no place for your people: \
+                 {}% of any colonists there would die each year.",
+                self.params.get(1).copied().unwrap_or(self.object),
+                f64::from(self.params.first().copied().unwrap_or(0)) / 10.0
+            ),
+            id::FOUND_HABITABLE => format!(
+                "You have found planet {}, and your people could live there, \
+                 growing by up to {}% a year.",
+                self.params.get(1).copied().unwrap_or(self.object),
+                self.params.first().copied().unwrap_or(0)
+            ),
+            id::FOUND_UNKNOWN => format!(
+                "You have found planet {}, but only from afar: whether your people \
+                 could live there will stay a mystery until a fleet with better \
+                 scanners visits.",
+                self.params.first().copied().unwrap_or(self.object)
+            ),
+            id::FOUND_TERRAFORMABLE => format!(
+                "You have found planet {}, which terraforming could make liveable: \
+                 your people could then grow there by up to {}% a year.",
+                self.params.get(1).copied().unwrap_or(self.object),
+                self.params.first().copied().unwrap_or(0)
+            ),
+            id::FOUND_CLAIM_ADJUSTER => format!(
+                "You have the measure of planet {}: settled, it could be brought to {}%.",
+                self.params.first().copied().unwrap_or(self.object),
+                self.params.get(1).copied().unwrap_or(0)
             ),
             id::HOME_PLANET => format!(
                 "Planet {} is your home world. Your people have grown restless and are \

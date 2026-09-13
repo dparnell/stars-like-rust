@@ -430,7 +430,11 @@ did not scroll. See `fleet-pane.md` and `scanner.md`.
 
 `crates/stars-ui/tests/tutorial_walkthrough.rs` plays the tutorial from its
 pages, through the same calls the panes make, and checks that every task
-turns the page as `AdvanceTutor` would. It gets through **2400 to 2410** —
+turns the page as `AdvanceTutor` would. `tutorial_ui.rs` plays it through
+the panes themselves — every step a press on a button where a pane drew it,
+a pick from a menu or dropdown where it opened, or a click on the map where
+the scanner drew the planet — and so far gets through **2400 to 2402**,
+pages one to eleven; see *Through the panes* below. It gets through **2400 to 2410** —
 pages one to thirty-three — and stops on page 34. The first four years took three corrections to
 what was here:
 
@@ -480,25 +484,37 @@ itself on the way home with 210 kT aboard and a warp chosen while it was
 empty; the original's answer is `MoveFleets`' drop to the fastest free warp
 (`../formulas/movement.md`, *Running dry*), so it creeps on at warp 1.
 
+### Through the panes
+
+`tutorial_ui.rs` found what the App-level walkthrough could not, because it
+must press what the text names:
+
+* the Research dialog had **OK** and **Cancel** where the original has
+  **Done** and **Help**, and its window grew every frame until the buttons
+  were off the screen (`research.md`);
+* the Production dialog's list boxes padded their rows to six, so
+  **Factory**, the seventh row, was below the fold — the original's 84
+  dialog units are ten rows of text;
+* every year from 2402 opens on a message's **Goto**, so the year's news
+  must be there to press: a fleet's arrival (`0x4e`), the empty queue
+  (`0x3e`, every year it is empty), and the client's own "found a planet"
+  messages, one per planet first seen, whose Gotos are how pages 9 to 11
+  put Prune, Alexander and 90210 in the Summary pane;
+* the tutor window floats over the map's corner, and a planet under it
+  cannot be shift-clicked until the window is dragged aside — which the
+  test does, as a player would.
+
 ### Where it stops, and why
 
 Page 34 (2411) is where the client's picture of the game stops matching
 the original's, and three pieces of the engine are wanted before the
 walkthrough can go on:
 
-1. **The player's own view of the galaxy.** Armed Probe #1 should reach
-   Mozart in 2411 with fuel to spare; here it ran dry in 2409. The
-   tutorial's turn-3 file has the probe bound for Hiho at warp 5, and Long
-   Range Scout #2's first leg at warp 6, where this project sends them at 7
-   and 8: `IWarpBestForWaypoint` prices a leg to a planet the client has
-   **no record of** as deep space (`scanner.md`), and this App, hosting the
-   tutorial itself, knows every planet from the start. What the original
-   client knows is what `SetVisPFPlanets` and `SetVisPFFleets`
-   (`1070:abde`, `1070:a74f`) put in its file each year — planets and
-   fleets within its planets' and fleets' scanner ranges, cloaking and
-   penetration allowed for — plus what its history file remembers. None of
-   that is modelled yet: the value view, the summary pane, the scanner's
-   enemy fleets and this warp rule all read the host's truth.
+1. ~~**The player's own view of the galaxy.**~~ Done: `App::known_planets`
+   and `App::in_view`, from `stars_core::visibility` (`../formulas/scanning.md`),
+   refreshed each year. The scouts now fly at the warps the tutorial's
+   turn-3 file records, the probe reaches Mozart, and the client's own
+   "found a planet" messages arrive in 2402 as pages 9 to 11 expect.
 2. **The computer player's turn.** The red triangle below Hiho on page 34
    is the Berserkers' scout, which their `DoAiTurn` has flown there; this
    engine's computer players do not move (`../formulas/ai.md`).

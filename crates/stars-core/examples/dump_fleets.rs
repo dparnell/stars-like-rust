@@ -5,6 +5,18 @@ use stars_formats::StarsFile;
 fn main() {
     let path = std::env::args().nth(1).expect("a save file");
     let file = StarsFile::decode(&std::fs::read(&path).expect("read")).expect("decode");
+    for block in file.segment_blocks(file.latest_segment()) {
+        if (13..=15).contains(&block.type_id) {
+            if let Some(record) = stars_formats::PlanetRecord::decode(&block.data, block.type_id) {
+                println!(
+                    "block type {} planet id {} owner {:?}",
+                    block.type_id, record.id, record.owner
+                );
+            } else {
+                println!("block type {} len {}", block.type_id, block.data.len());
+            }
+        }
+    }
     let (state, _) = GameState::from_file(&file);
     println!("turn {}", state.turn);
     for f in &state.fleets {
@@ -28,8 +40,17 @@ fn main() {
     }
     for p in &state.planets {
         println!(
-            "planet {} owner {:?} min {:?} f {} m {} pop {} queue {:?}",
-            p.id, p.owner, p.surface_min, p.factories, p.mines, p.pop, p.queue
+            "planet {} owner {:?} min {:?} f {} m {} pop {} scanner {:?} queue {:?}",
+            p.id, p.owner, p.surface_min, p.factories, p.mines, p.pop, p.scanner, p.queue
         );
+    }
+    for p in &state.known_planets {
+        println!(
+            "known planet {} owner {:?} detail {:?} env {:?}",
+            p.id, p.owner, p.detail, p.env
+        );
+    }
+    for (i, pl) in state.players.iter().enumerate() {
+        println!("player {i} levels {:?}", pl.research.levels);
     }
 }
