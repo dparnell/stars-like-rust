@@ -94,6 +94,40 @@ tank, so the fleet covers `306 × 1000 / 7650 = 40` ly, the tank is zeroed, and
 the leg is rewritten to warp 1 (warp 2 would cost `340 × 20 × 9 / 20000 = 3`
 mg). `crates/stars-core/tests/fuel.rs` checks the three cases.
 
+## Arriving, and Repeat Orders (`KillUsedWaypoints`, `1080:189a`)
+
+When a fleet stands on its next waypoint, `KillUsedWaypoints` copies that
+waypoint over the one it left and drops it with `DeleteWpFar(lpfl, 1,
+fRepOrders)` (`1050:9e28`). With **Repeat Orders** on, the drop puts the
+waypoint back at the **end** of the route instead — task and all, so the
+route circles: `[A, B, A]` arriving at `B` becomes `[B, A, B]`. Three
+things stop the recycling: a route of one leg (`cord == 2`, nothing to go
+round), the last waypoint already standing where the reached one does,
+and a Merge with a fleet (`1080:1bfb`). The engine does the same in
+`move_fleet`; it is how the tutorial's Teamster keeps going back to Prune.
+
+A fleet that reaches the last of its orders is told so (`0x4e`), unless
+the waypoint carries a task that reports for itself.
+
+## Ships that change fleets take their share (`FleetTransferCargoBalance`, `1050:ae7d`)
+
+Every ship transfer — a split, a merge, Split All, a stargate jump, a
+minefield's toll, `FRunLogRecord` replaying a ships record — ends with the
+two fleets' cargo and fuel shared out by capacity. Each side gives up the
+share of what it carries that the ships it **lost** made of its capacity:
+
+```
+fuel_out   = fuel  × lost_tank ÷ tank
+cargo_out  = cargo × lost_hold ÷ hold        (the four kinds together)
+```
+
+with the cargo spread over the kinds in proportion to what is aboard and
+any rounding shortfall made up a unit at a time from the first kind that
+still has some. A side that gained ships gives nothing. So a split hands
+the new fleet exactly its ships' share, and a merge pulls everything into
+the survivor. `stars_core::fleet::balance_cargo`; the damage-percentage
+rebalancing the same routine does is not modelled.
+
 ## Edge cases & clamps
 
 - A fleet with a chase order (`grobj == 2`) re-runs the movement loop up to

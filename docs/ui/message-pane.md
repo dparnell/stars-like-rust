@@ -118,7 +118,12 @@ across the text, corner to corner (`DiaganolTextOut`).
 | word | goes to |
 |------|---------|
 | `-1` | nothing; the button is dead |
-| `-2`, `-3`, `-4`, `-5`, `-7` | one of the game's own windows: a report, the score sheet, the serial-number box |
+| `-2` | the Research dialog (mode 3, posts `&Research...` `0x7e`) |
+| `-3` | the Ship Design dialog (mode 5, `0x7d`) |
+| `-4` | the Score sheet (mode 8, `0x5f`) |
+| `-5` | the serial-number box (mode 9, dialog `0x56`) |
+| `-7` | the Battles report (mode `0xb`, `0x901`, unless it is already up) |
+| `0x4800` | Player Relations (mode 7, `0x7de`) |
 | `-6` | a `THING`, whose id is the first parameter — the scanner centres on it |
 | `0xc000` set | a component, in the part browser |
 | `0x4000` clear, negative | a fleet, id in the low 15 bits — and *nothing* if that fleet no longer exists |
@@ -196,7 +201,7 @@ labels it used to have when there is no copy to read. The third is not
 drawn: nothing here sends a message to another player yet, so there is
 never one to mark.
 
-Not reproduced: writing messages to other players. One Goto target is
-left dead on purpose: the object words `-2`..`-5` and `-7`, and a component
-word, each name one of the game's own windows, and which window each stands
-for is not recovered. The button does nothing rather than guessing at one.
+Not reproduced: writing messages to other players. The window Gotos above
+are `MessageWndProc`'s Goto arm (`1030:6d8d`, a `switch` on `mdMsgObj`);
+each opens the same window here, except the serial-number box, which this
+project has no use for, so that button alone stays dead.

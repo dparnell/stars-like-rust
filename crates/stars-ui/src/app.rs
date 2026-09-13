@@ -13011,6 +13011,10 @@ impl App {
     #[allow(clippy::too_many_lines)]
     #[must_use]
     pub fn tutor_check(&self, check: &crate::tutorial::Check) -> bool {
+        // `FLEET.id` as the original holds it: the owner above the number.
+        let fleet_word = |f: &stars_core::fleet::Fleet| -> i16 {
+            (f.owner << 9) | i16::try_from(f.id & 0x1ff).unwrap_or(0)
+        };
         use crate::tutorial::{grobj, Check, ANY};
 
         let Some(game) = self.game.as_ref() else {
@@ -13028,13 +13032,16 @@ impl App {
         match check {
             Check::Selection { class, id } => match *class {
                 grobj::PLANET => self.selection.planet == Some(*id) && !self.selection.on_fleet,
+                // A fleet's id in the original carries its owner in the
+                // high bits (`0x200` is player 1's first fleet), which is
+                // how page 25 names the Berserker scout.
                 grobj::FLEET => {
                     self.selection.on_fleet
                         && self
                             .selection
                             .fleet
                             .and_then(|index| game.fleets.get(index))
-                            .is_some_and(|f| i16::try_from(f.id).is_ok_and(|got| got == *id))
+                            .is_some_and(|f| fleet_word(f) == *id)
                 }
                 _ => false,
             },
@@ -13047,7 +13054,7 @@ impl App {
                     .selection
                     .fleet
                     .and_then(|index| game.fleets.get(index))
-                    .is_some_and(|f| i16::try_from(f.id).is_ok_and(|got| got == *id)),
+                    .is_some_and(|f| fleet_word(f) == *id),
                 grobj::THING => self.selection.thing.is_some(),
                 _ => false,
             },
@@ -13515,7 +13522,25 @@ impl App {
             Check::Messages { .. } => widget("messages", "Next"),
             Check::Selection { class, id } | Check::Summary { class, id } => match *class {
                 grobj::PLANET => take_planet(*id),
-                grobj::FLEET => take_fleet(u16::try_from(*id).ok()?),
+                grobj::FLEET => {
+                    let word = u16::try_from(*id).ok()?;
+                    let owner = usize::from(word >> 9);
+                    if owner == me {
+                        take_fleet(word & 0x1ff)
+                    } else {
+                        // Somebody else's: only the map can offer it, and
+                        // only while it is in view.
+                        game.fleets
+                            .iter()
+                            .enumerate()
+                            .find(|(i, f)| {
+                                f.id == word & 0x1ff
+                                    && usize::try_from(f.owner).is_ok_and(|o| o == owner)
+                                    && self.fleet_in_view(*i)
+                            })
+                            .map(|(_, f)| TutorTarget::Map(f.position))
+                    }
+                }
                 _ => None,
             },
             Check::FleetWaypoint {
@@ -13614,20 +13639,71 @@ impl App {
                     take_planet(*planet)
                 }
             }
-            Check::Research { .. } => {
+            // The Research dialog: a message whose Goto opens it, or its
+            // Done once it is up. F5 and the Commands menu are keys and
+            // menus, which nothing here rings.
+            Check::Research { .. } | Check::ResearchDialog { open: true } => {
+                if self.research_dialog.is_some() {
+                    widget("research", "Done")
+                } else if goto == Goto::Research {
+                    widget("messages", "Goto")
+                } else {
+                    None
+                }
+            }
+            Check::ResearchDialog { open: false } => {
                 if self.research_dialog.is_some() {
                     widget("research", "Done")
                 } else {
                     None
                 }
             }
-            Check::FleetOrders { fleet, .. } | Check::RepeatOrders { fleet } => {
+            // The default template: Import in the Customize box, the blue
+            // diamond that reaches it, or Change to open the queue first.
+            Check::Template { .. } => {
+                if self.production_customize_slot().is_some() {
+                    widget("customize", "Import")
+                } else if self.production.is_some() {
+                    widget("production", "blue diamond")
+                } else if self.selection.planet.is_some() && !self.selection.on_fleet {
+                    widget("planet", "Change")
+                } else {
+                    None
+                }
+            }
+            // "Hit the Split All button": a fleet of more than one ship in
+            // hand is the one to split.
+            Check::FleetCount { cmp, .. } if *cmp != Cmp::Fewer => {
+                let ships = self.pane_fleet_ships();
+                if self.selection.on_fleet && ships > 1 {
+                    widget("fleet", "Split All")
+                } else {
+                    None
+                }
+            }
+            Check::RepeatOrders { fleet } => {
+                if fleet_selected(*fleet) {
+                    widget("fleet", "Repeat Orders")
+                } else {
+                    take_fleet(*fleet)
+                }
+            }
+            Check::FleetOrders { fleet, .. } => {
                 if fleet_selected(*fleet) {
                     None
                 } else {
                     take_fleet(*fleet)
                 }
             }
+            // The toolbar's view buttons, by the labels the toolbar draws.
+            Check::Scanner { view, zoom } => match (view, zoom) {
+                (Some(v), _) if *v < 6 => widget(
+                    "toolbar",
+                    ["Nml", "Surf", "Conc", "%", "Pop", "None"][usize::from(*v)],
+                ),
+                (None, Some(_)) => widget("toolbar", "Zoom"),
+                _ => None,
+            },
             _ => None,
         }
     }

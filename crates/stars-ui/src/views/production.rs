@@ -118,8 +118,11 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     costs(app, ui, at(0x416), line, false);
     costs(app, ui, at(0x417), line, true);
 
-    // The blue diamond, and the templates it reaches.
-    templates(app, ui, rect, line);
+    // The blue diamond, and the templates it reaches. Its `dyArial8` is
+    // the same eight dialog units the template's controls are laid out
+    // in, so it sits its seven pixels clear above the leftover checkbox
+    // as in the original, rather than under it.
+    templates(app, ui, rect, crate::dialog::DLU_Y * 8.0 * scale);
 
     // The row along the foot.
     {
@@ -446,6 +449,7 @@ fn templates(app: &mut App, ui: &mut egui::Ui, dialog: egui::Rect, line: f32) {
             egui::Sense::click(),
         );
         diamond(ui, rect);
+        crate::views::record(app, ui, "blue diamond", &response);
         // And its caption, four pixels past its right edge.
         ui.painter().text(
             egui::pos2(rect.right() + 4.0, rect.top()),
@@ -474,18 +478,24 @@ fn templates(app: &mut App, ui: &mut egui::Ui, dialog: egui::Rect, line: f32) {
 
         // The right button brings up the menu: every template that has
         // something in it, then <Customize>.
+        // The entries are recorded as they are drawn, so a test can pick
+        // one the way page 32 says to.
         response.context_menu(|ui| {
             for (slot, name) in names.iter().enumerate() {
                 if !usable.get(slot).copied().unwrap_or(false) {
                     continue;
                 }
-                if ui.button(name).clicked() {
+                let entry = ui.button(name);
+                crate::views::record(app, ui, name, &entry);
+                if entry.clicked() {
                     apply = Some(slot);
                     ui.close_menu();
                 }
             }
             ui.separator();
-            if ui.button("<Customize>").clicked() {
+            let entry = ui.button("<Customize>");
+            crate::views::record(app, ui, "Customize", &entry);
+            if entry.clicked() {
                 customize = true;
                 ui.close_menu();
             }
@@ -546,6 +556,10 @@ fn customize_panel(app: &mut App, ui: &mut egui::Ui) {
     let Some(mut slot) = app.production_customize_slot() else {
         return;
     };
+    // Its buttons are recorded under a scope of their own, since the
+    // production dialog behind it has an OK too.
+    let was = app.drawn_scope;
+    app.drawn_scope = "customize";
     let names: Vec<String> = (0..stars_formats::TEMPLATE_SLOTS)
         .map(|s| app.production_template_name(s))
         .collect();
@@ -581,18 +595,18 @@ fn customize_panel(app: &mut App, ui: &mut egui::Ui) {
 
         let editable = app.production_template_editable(slot);
         ui.horizontal(|ui| {
-            if ui
+            let import = ui
                 .button(egui::RichText::new("Import").small())
                 .on_hover_text(
                     "Takes the auto-build items out of this planet's queue, in order, \
                      and makes them this template.",
-                )
-                .clicked()
-            {
+                );
+            crate::views::record(app, ui, "Import", &import);
+            if import.clicked() {
                 let name = app.production_template_name(slot);
                 app.production_import_template(slot, &name);
             }
-            if ui
+            let delete = ui
                 .add_enabled(
                     editable,
                     egui::Button::new(egui::RichText::new("Delete").small()),
@@ -600,19 +614,21 @@ fn customize_panel(app: &mut App, ui: &mut egui::Ui) {
                 .on_disabled_hover_text(
                     "The default template cannot be deleted. To empty it, import an \
                      empty queue over it.",
-                )
-                .clicked()
-            {
+                );
+            crate::views::record(app, ui, "Delete", &delete);
+            if delete.clicked() {
                 app.production_delete_template(slot);
             }
-            if ui.button(egui::RichText::new("OK").small()).clicked() {
+            let ok = ui.button(egui::RichText::new("OK").small());
+            crate::views::record(app, ui, "OK", &ok);
+            if ok.clicked() {
                 app.production_customize_close(true);
             }
-            if ui
+            let cancel = ui
                 .button(egui::RichText::new("Cancel").small())
-                .on_hover_text("Puts every template back as it was.")
-                .clicked()
-            {
+                .on_hover_text("Puts every template back as it was.");
+            crate::views::record(app, ui, "Cancel", &cancel);
+            if cancel.clicked() {
                 app.production_customize_close(false);
             }
         });
@@ -635,4 +651,5 @@ fn customize_panel(app: &mut App, ui: &mut egui::Ui) {
             });
         }
     });
+    app.drawn_scope = was;
 }

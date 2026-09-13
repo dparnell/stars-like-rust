@@ -161,6 +161,7 @@ impl Shell {
     /// enabled, and wholly in view.
     fn press(&mut self, scope: &str, label: &str) {
         self.frame();
+        self.assert_halo_somewhere(scope, label);
         let button = self
             .app
             .drawn_button(scope, label)
@@ -217,6 +218,27 @@ impl Shell {
                 .and_then(|p| p.position)
                 .expect("a placed planet")
         };
+        self.point_on_screen(at, planet)
+    }
+
+    /// Where one of our fleets is on the screen this frame — in deep space,
+    /// where there is no planet to right-click.
+    fn fleet_on_screen(&mut self, id: u16) -> egui::Pos2 {
+        self.frame();
+        let at = {
+            let game = self.app.game.as_ref().expect("a game");
+            game.fleets
+                .iter()
+                .find(|f| f.owner == 0 && f.id == id)
+                .map(|f| f.position)
+                .expect("our fleet")
+        };
+        self.point_on_screen(at, i16::try_from(id).unwrap_or(0))
+    }
+
+    /// Where a point of the map is on the screen, brought into view and
+    /// out from under the tutor window as a player would.
+    fn point_on_screen(&mut self, at: stars_core::movement::Point, planet: i16) -> egui::Pos2 {
         let map = self.app.map_frame.expect("the scanner drew the map");
         let mut pos = map.to_screen(at.x, at.y);
         if !map.rect.contains(pos) {
@@ -454,6 +476,45 @@ impl Shell {
         panic!(
             "no message pointing at {target:?}: {:?}",
             self.app.messages()
+        );
+    }
+
+    /// Press Next until the message in front is of the kind named.
+    fn next_message_until_id(&mut self, id: u16) {
+        for _ in 0..12 {
+            self.frame();
+            if self.app.current_message().map(|m| m.id) == Some(id) {
+                return;
+            }
+            self.press("messages", "Next");
+        }
+        panic!("no message of kind {id}: {:?}", self.app.messages());
+    }
+
+    /// Whatever the page is waiting on, the ring is on **something** —
+    /// or the thing wanted is one of the two the ring cannot reach: the
+    /// Research dialog while it is closed (F5, or the Commands menu, and
+    /// nothing here rings a key or a menu), and a fleet of another
+    /// player's that is not in view. A reader following the pages must
+    /// never be left with a bold paragraph and no ring, which is what
+    /// page 4 looked like from the desktop.
+    fn assert_halo_somewhere(&self, scope: &str, label: &str) {
+        use stars_ui::tutorial::Check;
+        let Some(check) = self.app.tutor_pending() else {
+            return;
+        };
+        if self.app.tutor_target().is_some() {
+            return;
+        }
+        let excused = match check {
+            Check::Research { .. } => self.app.research_dialog.is_none(),
+            Check::Summary { class: 2, id } | Check::Selection { class: 2, id } => *id >= 0x200,
+            _ => false,
+        };
+        assert!(
+            excused,
+            "page {} is waiting on {check:?} and nothing is ringed, before {scope}/{label}",
+            self.page()
         );
     }
 
@@ -1182,28 +1243,6 @@ fn year_zero_is_played_through_the_panes() {
         .percent = 30;
     shell.press("research", "Done");
     assert_eq!(shell.page(), 30, "2408 is done");
-    {
-        let game = shell.app.game.as_ref().unwrap();
-        for f in game
-            .fleets
-            .iter()
-            .filter(|f| f.owner == 0 && (f.id == 7 || f.id == 10))
-        {
-            eprintln!(
-                "DBG 2408 fleet {} at {:?} warp {:?} fuel {} cargo {:?} stacks {:?} wps {:?}",
-                f.id,
-                f.position,
-                f.warp,
-                f.cargo.fuel,
-                f.cargo,
-                f.stacks,
-                f.waypoints
-                    .iter()
-                    .map(|w| (w.position, w.warp, w.target))
-                    .collect::<Vec<_>>()
-            );
-        }
-    }
     shell.generate();
     assert_eq!(shell.page(), 30);
 
@@ -1224,7 +1263,6 @@ fn year_zero_is_played_through_the_panes() {
         stars_core::research::NextField::Field(3);
     shell.press("research", "Done");
     shell.press("messages", "Next");
-    eprintln!("DBG 2409 msgs {:?}", shell.app.messages());
     assert_eq!(
         shell.app.current_message().map(|m| m.id),
         Some(stars_core::message::id::MINING_ROBOTS_LOADED),
@@ -1256,7 +1294,10 @@ fn year_zero_is_played_through_the_panes() {
     shell.press("fleet", "Colonize");
     shell.frame();
     assert_eq!(shell.page(), 31, "the probe is still bound for Oxygen");
-    shell.right_click_planet_and_pick(OXYGEN, "Armed Probe #1");
+    // The probe is still a year short of Oxygen, in open space where
+    // there is no planet to right-click: a click on it takes it in hand.
+    let probe = shell.fleet_on_screen(0);
+    shell.click_at(probe);
     assert_eq!(shell.selected_fleet_id(), Some(0));
     let zoom = shell.app.scan_zoom;
     shell.app.scan_zoom = zoom.saturating_sub(1);
@@ -1274,6 +1315,64 @@ fn year_zero_is_played_through_the_panes() {
         );
     }
     assert_eq!(shell.page(), 32, "2409 is done");
+    shell.generate();
+    assert_eq!(shell.page(), 32);
+
+    // --- 2410 -------------------------------------------------------------
+    // Page 32: the message that the colony ship was dismantled switched
+    // off; the next message's Goto is Shaggy Dog; Change; three Factories
+    // (Auto Build), three Mines (Auto Build), the leftover box, OK; Change
+    // again and the blue diamond's Customize.
+    shell.next_message_until_id(stars_core::message::id::FLEET_DISMANTLED);
+    shell.press("messages", "filter");
+    shell.next_message_until(stars_core::message::Goto::Planet(SHAGGY_DOG));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.app.selection.planet, Some(SHAGGY_DOG));
+    shell.press("planet", "Change");
+    shell.scroll_to("production", "Factories", "Factory");
+    for _ in 0..3 {
+        shell.double_click("production", "Factories");
+    }
+    shell.scroll_to("production", "Mines", "Factories");
+    for _ in 0..3 {
+        shell.double_click("production", "Mines");
+    }
+    shell.press(
+        "production",
+        "Contribute only leftover resources to research",
+    );
+    {
+        let dialog = shell.app.production.as_ref().expect("open");
+        assert_eq!(dialog.queue.len(), 2, "{:?}", dialog.queue);
+        assert_eq!((dialog.queue[0].item, dialog.queue[0].count), (1, 3));
+        assert_eq!((dialog.queue[1].item, dialog.queue[1].count), (0, 3));
+        assert!(dialog.no_research);
+    }
+    shell.press("production", "OK");
+    assert_eq!(shell.page(), 32, "the template is not set yet");
+    shell.press("planet", "Change");
+    shell.right_click("production", "blue diamond");
+    shell.press("production", "Customize");
+    // The page turns on the template itself (`FCheckTemplate`), so it is
+    // still 32 with the Customize box open, and Import is what turns it.
+    assert_eq!(shell.page(), 32);
+    shell.press("customize", "Import");
+    assert_eq!(shell.page(), 33);
+
+    // Page 33: OK, and OK on the production dialog; the next message's
+    // Goto is Bloop; a Santa Maria and a Teamster into Stove Top's queue.
+    shell.press("customize", "OK");
+    shell.press("production", "OK");
+    shell.next_message_until(stars_core::message::Goto::Planet(BLOOP));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.app.selection.planet, Some(BLOOP));
+    shell.right_click_planet_and_pick(STOVE_TOP, "Stove Top");
+    assert_eq!(shell.app.selection.planet, Some(STOVE_TOP));
+    shell.press("planet", "Change");
+    shell.double_click("production", "Santa Maria");
+    shell.double_click("production", "Teamster");
+    shell.press("production", "OK");
+    assert_eq!(shell.page(), 34, "2410 is done");
 }
 
 /// The planet pane's own tile has Prev and Next as well — `SelectAdjPlanet`

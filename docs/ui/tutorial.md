@@ -433,8 +433,9 @@ pages, through the same calls the panes make, and checks that every task
 turns the page as `AdvanceTutor` would. `tutorial_ui.rs` plays it through
 the panes themselves — every step a press on a button where a pane drew it,
 a pick from a menu or dropdown where it opened, or a click on the map where
-the scanner drew the planet — and so far gets through **2400 to 2408**,
-pages one to twenty-nine; see *Through the panes* below. It gets through **2400 to 2410** —
+the scanner drew the planet — and so far gets through **2400 to 2410**,
+pages one to thirty-three, and stops where the walkthrough stops; see
+*Through the panes* below. It gets through **2400 to 2410** —
 pages one to thirty-three — and stops on page 34. The first four years took three corrections to
 what was here:
 
@@ -542,7 +543,26 @@ must press what the text names:
   and unloads it, and page 28 has its message;
 * page 27's drag from Slime to Sea Squared needs both on the screen, which
   at the opening zoom they are not; the harness takes the map down a step
-  first, as a player would, and drags at the scanner's own grab reach.
+  first, as a player would, and drags at the scanner's own grab reach;
+* page 30 opens on a message whose Goto is the **Research dialog**, and
+  the window Gotos (`-2` to `-7`, `message-pane.md`) were all dead here;
+  the message itself, `DoResearch`'s level-gained report, was never sent;
+* page 30 switches off the **robots' haul** — a Transport load at an
+  unowned planet where a fleet of yours with mining robots sits is reported
+  as `idmHasLoadedMiningRobotsWorking`, not `idmHasLoaded` — and there was
+  no such load to report, twice over: a split fleet took **no cargo and no
+  fuel** with it (`FleetTransferCargoBalance` was not run on the ship
+  transfer, so page 26's two colony ships flew with 600 mg and 50
+  colonists in one 25 kT hold), and **Repeat Orders** did nothing, so the
+  Teamster never went back to Prune (`KillUsedWaypoints` puts the
+  waypoint reached back at the end of the route);
+* page 32's blue diamond sat under the leftover checkbox, because the
+  diamond was placed by egui's small line height where the template's
+  controls are placed by dialog units; sized by the same units it sits its
+  seven pixels clear;
+* page 32 turns on the **template** (`FCheckTemplate`), not on the
+  Customize box opening, so Import is what turns it — the text of page 33
+  is read after the fact, as in the original.
 
 ### Page 4, read the other way up
 
@@ -575,7 +595,10 @@ drawn this frame and rings it on the tooltip layer, swelling and fading
 over a second and a half. Where nothing on screen answers — a key, a
 dialog with no button into it — there is no ring. `tutorial_ui.rs` checks
 that the ring sits on what it is about to press at the start of pages 1,
-2, 6 and 12.
+2, 4, 6 and 12 — and, before **every** press, that the ring is somewhere
+whenever the page is waiting on something, with two exceptions it names:
+the Research dialog while it is closed (a key or a menu opens it), and
+another player's fleet that is not in view.
 
 ### Where it stops, and why
 
