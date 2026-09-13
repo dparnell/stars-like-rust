@@ -51,6 +51,9 @@ fn main() {
         );
     }
     for (i, pl) in state.players.iter().enumerate() {
-        println!("player {i} levels {:?}", pl.research.levels);
+        println!(
+            "player {i} levels {:?} control {:?}",
+            pl.research.levels, pl.control
+        );
     }
 }
