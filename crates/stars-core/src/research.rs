@@ -156,6 +156,10 @@ pub struct Breakthrough {
     pub field: usize,
     /// The level reached.
     pub level: u8,
+    /// The field research carries on in afterwards — `iTechNext2` in
+    /// `DoResearch`: the current field, unless it was this one that
+    /// finished and the player had asked for another next.
+    pub continues_in: usize,
 }
 
 /// The resource cost of reaching `level` in `field`.
@@ -255,10 +259,6 @@ fn spend_research(research: &mut Research, race: &Race, slow_tech: bool) -> Vec<
 
             research.points[field] -= cost;
             research.levels[field] += 1;
-            gained.push(Breakthrough {
-                field,
-                level: research.levels[field],
-            });
             advanced = true;
 
             // Completing the *current* field can hand research over to another.
@@ -270,6 +270,11 @@ fn spend_research(research: &mut Research, race: &Race, slow_tech: bool) -> Vec<
                     research.current_field = next;
                 }
             }
+            gained.push(Breakthrough {
+                field,
+                level: research.levels[field],
+                continues_in: research.current_field,
+            });
             break;
         }
 

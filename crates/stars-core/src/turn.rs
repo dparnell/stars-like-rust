@@ -469,15 +469,32 @@ pub fn generate_turn_with_orders(
     }
 
     // --- Produce: research advance.
-    for (index, player) in state.players.iter_mut().enumerate() {
+    let slow_tech = state.slow_tech;
+    for index in 0..state.players.len() {
+        let player = &mut state.players[index];
         let resources = report.research_spending[index];
         player.research_last_year = resources;
-        let gained = add_research(
-            &mut player.research,
-            &player.race,
-            resources,
-            state.slow_tech,
-        );
+        let gained = add_research(&mut player.research, &player.race, resources, slow_tech);
+        // `DoResearch` (`turn2.c`): one message a level, its Goto the
+        // Research dialog; the Generalized Research wording names the
+        // primary field.
+        let general = player.race.has_lrt(crate::race::lrt::GENERALIZED_RESEARCH);
+        for gain in &gained {
+            state.messages.push(crate::message::Message {
+                player: index,
+                id: if general {
+                    crate::message::id::TECH_LEVEL_GAINED_GENERAL
+                } else {
+                    crate::message::id::TECH_LEVEL_GAINED
+                },
+                object: crate::message::RESEARCH_OBJECT,
+                params: vec![
+                    i16::from(gain.level),
+                    n_i16(i32::try_from(gain.field).unwrap_or(0)),
+                    n_i16(i32::try_from(gain.continues_in).unwrap_or(0)),
+                ],
+            });
+        }
         report.breakthroughs[index] = gained;
     }
 
@@ -485,7 +502,8 @@ pub fn generate_turn_with_orders(
     // A task is consumed when it executes, which is why every waypoint in a
     // saved game that has already been reached reads 0.
     {
-        let (done, drops) = crate::orders::execute_arrival_tasks(state);
+        let (done, drops) =
+            crate::orders::execute_arrival_tasks_after_moving(state, &moved_this_turn);
         report.tasks_done = done;
         let settled = crate::orders::resolve_colonist_drops(state, &drops);
         report.colonised.extend(settled);
@@ -2436,8 +2454,25 @@ fn move_fleet(
             .get(1)
             .filter(|w| w.target_class != 8)
             .and_then(|w| w.target);
-        if !fleet.waypoints.is_empty() {
-            fleet.waypoints.remove(0);
+        // `KillUsedWaypoints` copies the waypoint reached over the one
+        // left and drops it — `DeleteWpFar(lpfl, 1, fRepOrders)`
+        // (`1050:9e28`) — and with **Repeat Orders** on, the drop puts it
+        // back at the end of the route instead, task and all, so the
+        // route circles. Not when there is only the one leg, not when the
+        // last waypoint already stands where this one does, and not for a
+        // Merge with a fleet (`1080:1bfb`).
+        if fleet.waypoints.len() > 1 {
+            let reached = fleet.waypoints.remove(1);
+            let merge_with_fleet = reached.task == stars_formats::task::MERGE
+                && reached.target_class == crate::fleet::grobj::FLEET;
+            let recycle = fleet.repeat_orders
+                && !merge_with_fleet
+                && fleet.waypoints.len() > 1
+                && fleet.waypoints.last().map(|w| w.position) != Some(reached.position);
+            fleet.waypoints[0] = reached.clone();
+            if recycle {
+                fleet.waypoints.push(reached);
+            }
         }
     } else {
         fleet.orbiting = None;

@@ -5056,11 +5056,44 @@ impl App {
                 self.open_battle(index);
                 true
             }
-            // One of the original's own windows, from an object word of
-            // `-2`..`-5`, `-7` or a component. Which window each stands for
-            // is not recovered, so the button stays dead rather than
-            // guessing at one.
-            Goto::Elsewhere | Goto::None => false,
+            // The game's own windows, by the menu command the Goto arm
+            // posts for each (`1030:6d8d`): Research (`0x7e`), Ship Design
+            // (`0x7d`), the Score sheet (`0x5f`), the Battles report
+            // (`0x901`) and Player Relations (`0x7de`).
+            Goto::Research => {
+                self.open_research();
+                true
+            }
+            Goto::ShipDesign => {
+                self.open_designer();
+                self.designer.is_some()
+            }
+            Goto::Score => {
+                self.open_score_sheet();
+                true
+            }
+            // Not posted while Battles is already up, since the command
+            // would close it (`vprptCur != &vrptBattle`).
+            Goto::BattleReport => {
+                if self.screen != Screen::Battles {
+                    self.choose_report(Screen::Battles);
+                }
+                true
+            }
+            Goto::PlayerRelations => self.open_relations(),
+            // A component: the Technology Browser on it, the category from
+            // bits 8..=11 as a flag and the item from the low byte.
+            Goto::Part(word) => {
+                self.open_browser();
+                if let Some(browser) = self.browser.as_mut() {
+                    browser.category = 0;
+                    browser.showing = (1 << ((word >> 8) & 0xf), usize::from(word & 0xff));
+                }
+                true
+            }
+            // The serial-number box: this project has no registration to
+            // enter, so the button does nothing.
+            Goto::SerialNumber | Goto::None => false,
         }
     }
 

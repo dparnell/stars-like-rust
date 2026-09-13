@@ -23,6 +23,7 @@ const NO_VACANCY: i16 = 0x03;
 const SLIME: i16 = 0x08;
 const WALLABY: i16 = 0x05;
 const OXYGEN: i16 = 0x02;
+const MOZART: i16 = 0x04;
 const DWARTE: i16 = 0x15;
 const MOBIUS: i16 = 0x13;
 const CASTLE: i16 = 0x14;
@@ -1175,6 +1176,98 @@ fn year_zero_is_played_through_the_panes() {
         .percent = 30;
     shell.press("research", "Done");
     assert_eq!(shell.page(), 30, "2408 is done");
+    {
+        let game = shell.app.game.as_ref().unwrap();
+        for f in game
+            .fleets
+            .iter()
+            .filter(|f| f.owner == 0 && (f.id == 7 || f.id == 10))
+        {
+            eprintln!(
+                "DBG 2408 fleet {} at {:?} warp {:?} fuel {} cargo {:?} stacks {:?} wps {:?}",
+                f.id,
+                f.position,
+                f.warp,
+                f.cargo.fuel,
+                f.cargo,
+                f.stacks,
+                f.waypoints
+                    .iter()
+                    .map(|w| (w.position, w.warp, w.target))
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+    shell.generate();
+    assert_eq!(shell.page(), 30);
+
+    // --- 2409 -------------------------------------------------------------
+    // Page 30: the first message — a level of Weapons finished — has the
+    // Research dialog for its Goto; 'Next field to research' to
+    // Construction and Done (the dropdown is a plain egui widget and is
+    // set the same way as the radio on page 5); then the next message,
+    // the robots' haul, switched off.
+    shell.next_message_until(stars_core::message::Goto::Research);
+    assert_eq!(
+        shell.app.current_message().map(|m| m.id),
+        Some(stars_core::message::id::TECH_LEVEL_GAINED)
+    );
+    shell.press("messages", "Goto");
+    assert!(shell.app.research_dialog.is_some(), "Goto opens the dialog");
+    shell.app.research_dialog.as_mut().expect("the dialog").next =
+        stars_core::research::NextField::Field(3);
+    shell.press("research", "Done");
+    shell.press("messages", "Next");
+    eprintln!("DBG 2409 msgs {:?}", shell.app.messages());
+    assert_eq!(
+        shell.app.current_message().map(|m| m.id),
+        Some(stars_core::message::id::MINING_ROBOTS_LOADED),
+        "the Teamster took what the robots dug at Prune"
+    );
+    shell.press("messages", "filter");
+    assert_eq!(shell.page(), 31);
+
+    // Page 31: the next message's Goto is Oxygen, found by Armed Probe #1;
+    // Santa Maria #10 from Stove Top's menu, filled, and sent to settle
+    // Oxygen; then the probe's waypoint dragged from Oxygen to Mozart.
+    shell.next_message_until(stars_core::message::Goto::Planet(OXYGEN));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.app.selection.planet, Some(OXYGEN));
+    shell.right_click_planet_and_pick(STOVE_TOP, "Santa Maria #10");
+    assert_eq!(shell.selected_fleet_id(), Some(9));
+    shell.press("fleet", "Xfer");
+    shell.frame();
+    let gauge = shell
+        .app
+        .drawn_button("xfer", "Colonists gauge")
+        .expect("the colonists gauge")
+        .rect;
+    shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
+    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard[3], 25);
+    shell.press("xfer", "OK");
+    shell.shift_click_planet(OXYGEN);
+    shell.press("fleet", "Waypoint Task");
+    shell.press("fleet", "Colonize");
+    shell.frame();
+    assert_eq!(shell.page(), 31, "the probe is still bound for Oxygen");
+    shell.right_click_planet_and_pick(OXYGEN, "Armed Probe #1");
+    assert_eq!(shell.selected_fleet_id(), Some(0));
+    let zoom = shell.app.scan_zoom;
+    shell.app.scan_zoom = zoom.saturating_sub(1);
+    let (oxygen, mozart) = shell.two_planets_on_screen(OXYGEN, MOZART);
+    shell.drag(oxygen, mozart);
+    shell.app.scan_zoom = zoom;
+    shell.frame();
+    {
+        let game = shell.app.game.as_ref().expect("a game");
+        let fleet = &game.fleets[shell.app.selection.fleet.expect("in hand")];
+        assert_eq!(
+            fleet.waypoints[1].target,
+            Some(MOZART as u16),
+            "the leg moved"
+        );
+    }
+    assert_eq!(shell.page(), 32, "2409 is done");
 }
 
 /// The planet pane's own tile has Prev and Next as well — `SelectAdjPlanet`

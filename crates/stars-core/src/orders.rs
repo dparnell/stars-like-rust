@@ -450,8 +450,25 @@ pub fn apply_default_queue(state: &mut GameState, planet: usize) {
 /// A task is **consumed** once it runs, which is why every waypoint in a saved
 /// game that has already been reached reads `0`.
 ///
+/// **Loading at a planet nobody owns.** `SatisfyOrders` gives a fleet
+/// nothing from such a planet unless one of its owner's own fleets is there,
+/// has been there all turn (`fHereAllTurn`) and carries mining robots
+/// (`CMineFromLpfl`): then the load is what the robots have dug — the
+/// planet's surface — and is reported as `idmHasLoadedMiningRobotsWorking`
+/// rather than `idmHasLoaded`. Without such a fleet the original refuses
+/// the load and says so; that refusal is not modelled here yet.
+///
 /// Returns the tasks performed and the colonist landings they caused.
 pub fn execute_arrival_tasks(state: &mut GameState) -> (Vec<(u16, u8)>, Vec<ColonistDrop>) {
+    execute_arrival_tasks_after_moving(state, &std::collections::BTreeSet::new())
+}
+
+/// [`execute_arrival_tasks`], told which fleets (by index) travelled this
+/// year, which is what "here all turn" is decided by.
+pub fn execute_arrival_tasks_after_moving(
+    state: &mut GameState,
+    travelled: &std::collections::BTreeSet<usize>,
+) -> (Vec<(u16, u8)>, Vec<ColonistDrop>) {
     use stars_formats::{task, XferAction};
 
     let mut done = Vec::new();
@@ -562,6 +579,31 @@ pub fn execute_arrival_tasks(state: &mut GameState) -> (Vec<(u16, u8)>, Vec<Colo
                         .iter()
                         .find(|p| p.id == planet_id)
                         .is_some_and(|p| p.starbase);
+                    // The robots whose digging a load at an unowned planet
+                    // takes: another fleet of ours, here all turn, with
+                    // remote miners aboard (`turn3.c`, `fMining = 2`).
+                    let unowned = state
+                        .planets
+                        .iter()
+                        .find(|p| p.id == planet_id)
+                        .is_some_and(|p| p.owner.is_none());
+                    let miner = if unowned {
+                        usize::try_from(owner)
+                            .ok()
+                            .and_then(|o| state.designs.get(o))
+                            .and_then(|designs| {
+                                state.fleets.iter().enumerate().find_map(|(i, f)| {
+                                    (i != index
+                                        && f.owner == owner
+                                        && f.orbiting == Some(orbiting)
+                                        && !travelled.contains(&i)
+                                        && crate::mining::remote_mines(designs, &f.stacks) > 0)
+                                        .then_some(f.id)
+                                })
+                            })
+                    } else {
+                        None
+                    };
                     for (kind, item) in orders.items.iter().enumerate() {
                         if kind == FUEL && !starbase {
                             continue;
@@ -593,6 +635,8 @@ pub fn execute_arrival_tasks(state: &mut GameState) -> (Vec<(u16, u8)>, Vec<Colo
                         let id = if went > 0 {
                             if kind == COLONISTS {
                                 crate::message::id::HAS_BEAMED_UP
+                            } else if miner.is_some() {
+                                crate::message::id::MINING_ROBOTS_LOADED
                             } else {
                                 crate::message::id::HAS_LOADED
                             }
@@ -613,7 +657,15 @@ pub fn execute_arrival_tasks(state: &mut GameState) -> (Vec<(u16, u8)>, Vec<Colo
                                     lo,
                                     hi,
                                     kind_word,
-                                    i16::from(crate::fleet::grobj::PLANET),
+                                    // The fifth word is the class of the far
+                                    // side, or the miner's number when it
+                                    // is the robots' haul.
+                                    match (id, miner) {
+                                        (crate::message::id::MINING_ROBOTS_LOADED, Some(m)) => {
+                                            m as i16
+                                        }
+                                        _ => i16::from(crate::fleet::grobj::PLANET),
+                                    },
                                     planet_id,
                                 ],
                             });

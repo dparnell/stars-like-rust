@@ -606,6 +606,10 @@ fn move_ships(state: &mut GameState, player: usize, transfer: &CargoTransfer) ->
     if from == to {
         return false;
     }
+    let before = [
+        state.fleets[from].stacks.clone(),
+        state.fleets[to].stacks.clone(),
+    ];
 
     let mut next = transfer.quantities.iter();
     let mut moved = false;
@@ -661,6 +665,18 @@ fn move_ships(state: &mut GameState, player: usize, transfer: &CargoTransfer) ->
         for index in [from, to] {
             state.fleets[index].stacks.retain(|s| s.count > 0);
         }
+        // The cargo and fuel follow the ships, by capacity
+        // (`FleetTransferCargoBalance`, which `FRunLogRecord` runs after
+        // the counts change).
+        let designs = state.designs.get(player).cloned().unwrap_or_default();
+        let (low, high) = (from.min(to), from.max(to));
+        let (head, tail) = state.fleets.split_at_mut(high);
+        let (first, second) = if from < to {
+            (&mut head[low], &mut tail[0])
+        } else {
+            (&mut tail[0], &mut head[low])
+        };
+        crate::fleet::balance_cargo([first, second], [&before[0], &before[1]], &designs);
         // A fleet with nothing left in it no longer exists. Removing shifts
         // the indices, so do it after both ends are settled.
         state.fleets.retain(|f| !f.is_empty());

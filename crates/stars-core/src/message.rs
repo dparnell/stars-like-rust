@@ -45,10 +45,20 @@ pub mod id {
     pub const HAS_UNLOADED: u16 = 45;
     /// `idmHasBeamed2`: colonists put down.
     pub const HAS_BEAMED_DOWN: u16 = 0x2e;
-    /// `idmHasLoadedMiningRobotsWorking`: the remote miner reports its haul.
+    /// `idmHasLoadedMiningRobotsWorking`: a Transport load at an unowned
+    /// planet where the player's own remote miner sits took what the
+    /// robots had dug (`SatisfyOrders`, `turn3.c`, the `fMining` path);
+    /// `[fleet, amount lo, amount hi, kind, miner, planet]`.
     ///
     /// The fourth message the tutorial teaches you to filter.
     pub const MINING_ROBOTS_LOADED: u16 = 125;
+    /// `idmScientistsHaveCompletedResearchTechLevelWill`: a level gained,
+    /// `[level, field, the field research goes on in]`, with the object
+    /// `-2` so Goto opens the Research dialog (`DoResearch`, `turn2.c`).
+    pub const TECH_LEVEL_GAINED: u16 = 0x50;
+    /// `idmScientistsHaveCompletedResearchTechLevelPrimary`: the same for a
+    /// race with Generalized Research, whose primary field it names.
+    pub const TECH_LEVEL_GAINED_GENERAL: u16 = 0x136;
     /// `idmHasDismantledKtMineralsWhichHaveDeposited`: a colony ship broke
     /// itself up on arrival. The fifth message the tutorial filters.
     pub const FLEET_DISMANTLED: u16 = 89;
@@ -306,11 +316,30 @@ pub enum Goto {
     Thing(u16),
     /// A place on the map, which is where a battle happened.
     Position(i16, i16),
-    /// One of the original's own windows, which this engine has no equivalent
-    /// for. The original enables the button; here it does nothing, so the
-    /// button is left dead rather than lying about what it will do.
-    Elsewhere,
+    /// The Research dialog: object `-2`, which `MessageWndProc`'s Goto arm
+    /// (`1030:6d8d`, mode 3) answers by posting the Commands menu's
+    /// `&Research...` (`0x7e`). Research reports go here.
+    Research,
+    /// The Ship Design dialog: object `-3` (mode 5, menu `0x7d`).
+    ShipDesign,
+    /// The Score sheet: object `-4` (mode 8, menu `0x5f`).
+    Score,
+    /// The serial-number box: object `-5` (mode 9, dialog `0x56`).
+    SerialNumber,
+    /// The Battles report: object `-7` (mode `0xb`, menu `0x901`).
+    BattleReport,
+    /// Player Relations: object `0x4800` (mode 7, menu `0x7de`).
+    PlayerRelations,
+    /// A component in the Technology Browser: an object word with bits
+    /// 14 and 15 set (mode 4), the category in bits 8..=11 and the item
+    /// in the low byte.
+    Part(u16),
 }
+
+/// The object word that sends a message's Goto to the Research dialog.
+///
+/// `DoResearch` (`turn2.c`) passes `-2` with every tech-level report.
+pub const RESEARCH_OBJECT: i16 = -2;
 
 /// One message, for one player.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -363,6 +392,28 @@ impl Message {
                 cargo_kind(self.params.get(3).copied().unwrap_or(0)),
                 self.params.get(5).copied().unwrap_or(0)
             ),
+            id::MINING_ROBOTS_LOADED => format!(
+                "Fleet {} has taken {}kT of {} aboard, dug at {} by the mining robots of fleet {}.",
+                fleet(),
+                long(1),
+                cargo_kind(self.params.get(3).copied().unwrap_or(0)),
+                self.params.get(5).copied().unwrap_or(0),
+                self.params.get(4).copied().unwrap_or(0)
+            ),
+            id::TECH_LEVEL_GAINED | id::TECH_LEVEL_GAINED_GENERAL => {
+                let field = |at: usize| {
+                    usize::try_from(self.params.get(at).copied().unwrap_or(0))
+                        .ok()
+                        .and_then(|i| crate::research::TechField::ALL.get(i))
+                        .map_or("?", |f| f.name())
+                };
+                format!(
+                    "Your scientists have reached level {} in {}; research goes on in {}.",
+                    self.params.first().copied().unwrap_or(0),
+                    field(1),
+                    field(2)
+                )
+            }
             id::HAS_UNLOADED | id::HAS_BEAMED_DOWN => format!(
                 "Fleet {} has put {}kT of {} down at {}.",
                 fleet(),
@@ -546,12 +597,16 @@ impl Message {
                 .params
                 .first()
                 .map_or(Goto::None, |id| Goto::Thing(*id as u16)),
-            -2 | -3 | -4 | -5 | -7 => Goto::Elsewhere,
+            -2 => Goto::Research,
+            -3 => Goto::ShipDesign,
+            -4 => Goto::Score,
+            -5 => Goto::SerialNumber,
+            -7 => Goto::BattleReport,
             _ => {
                 let bits = word as u16;
                 if bits & 0xC000 == 0xC000 {
                     // A component, shown in the part browser.
-                    Goto::Elsewhere
+                    Goto::Part(bits & 0x3FFF)
                 } else if bits & 0x4000 == 0 {
                     if word < 0 {
                         let id = bits & 0x7FFF;
@@ -564,7 +619,7 @@ impl Message {
                         Goto::Planet(word)
                     }
                 } else if bits & 0x3FFF == 0x800 {
-                    Goto::Elsewhere
+                    Goto::PlayerRelations
                 } else {
                     let x = self.params.first().copied().unwrap_or(0);
                     let y = self.params.get(1).copied().unwrap_or(0);
