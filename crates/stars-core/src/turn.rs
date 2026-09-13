@@ -252,6 +252,32 @@ pub fn generate_turn_with_orders(
                         .wormhole_trips
                         .push((state.fleets[index].id, entered, left));
                 }
+                // `KillUsedWaypoints` (`1080:189a`): a fleet that has
+                // reached the last of its orders says so — unless the
+                // waypoint carries a task that will report for itself when
+                // it runs. Merge and Transfer do not, and neither does a
+                // Route at anything but a planet of yours with a route set,
+                // which this engine does not model.
+                let fleet = &state.fleets[index];
+                let task = fleet.waypoints.first().map_or(0, |w| w.task);
+                let reports_itself = matches!(
+                    task,
+                    stars_formats::task::TRANSPORT
+                        | stars_formats::task::COLONIZE
+                        | stars_formats::task::REMOTE_MINING
+                        | stars_formats::task::SCRAP
+                        | stars_formats::task::LAY_MINES
+                        | stars_formats::task::PATROL
+                );
+                if fleet.waypoints.len() == 1 && !reports_itself {
+                    let id = fleet.id;
+                    state.messages.push(crate::message::Message {
+                        player: owner,
+                        id: crate::message::id::ORDERS_COMPLETE,
+                        object: crate::message::fleet_object(id),
+                        params: vec![id as i16, 0],
+                    });
+                }
             }
         }
     }

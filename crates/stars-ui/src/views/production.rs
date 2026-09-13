@@ -23,6 +23,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     if app.production.is_none() {
         return;
     }
+    app.drawn_scope = "production";
     let (ctrl, shift) = ui.input(|i| (i.modifiers.command, i.modifiers.shift));
     let step = App::production_step(ctrl, shift);
     let template = &crate::dialog::PRODUCTION;
@@ -78,10 +79,10 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     // The column between them. The hints are this project's, not the game's,
     // and say what the modifiers do because the original says it in the manual
     // instead (p. 7-3).
-    if button(ui, at(0x439), &caption(0x439)).clicked() {
+    if button(app, ui, at(0x439), &caption(0x439)).clicked() {
         app.production_move(true);
     }
-    if button(ui, at(0x418), &caption(0x418))
+    if button(app, ui, at(0x418), &caption(0x418))
         .on_hover_text(
             "Shift for ten, Ctrl for a hundred, both for as many as possible. \
              The item goes under whichever queue row is selected.",
@@ -90,19 +91,19 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     {
         app.production_add(step);
     }
-    if button(ui, at(0x419), &caption(0x419))
+    if button(app, ui, at(0x419), &caption(0x419))
         .on_hover_text("Shift for ten, Ctrl for a hundred, both for all of them.")
         .clicked()
     {
         app.production_remove(step);
     }
-    if button(ui, at(0x42d), &caption(0x42d))
+    if button(app, ui, at(0x42d), &caption(0x42d))
         .on_hover_text("Empties the queue. Anything part-built loses what it has spent.")
         .clicked()
     {
         app.production_clear();
     }
-    if button(ui, at(0x43a), &caption(0x43a)).clicked() {
+    if button(app, ui, at(0x43a), &caption(0x43a)).clicked() {
         app.production_move(false);
     }
 
@@ -134,29 +135,31 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     // Prev and Next write this planet's queue out and move on, which is what
     // `FinishProduction(1)` does before `SelectAdjPlanet`.
     let hint = "Shift jumps to the next planet with a starbase.";
-    if button(ui, at(0x42e), &caption(0x42e))
+    if button(app, ui, at(0x42e), &caption(0x42e))
         .on_hover_text(hint)
         .clicked()
     {
         app.production_step_planet(false, shift);
     }
-    if button(ui, at(0x42f), &caption(0x42f))
+    if button(app, ui, at(0x42f), &caption(0x42f))
         .on_hover_text(hint)
         .clicked()
     {
         app.production_step_planet(true, shift);
     }
-    if button(ui, at(0x1), &caption(0x1)).clicked() {
+    if button(app, ui, at(0x1), &caption(0x1)).clicked() {
         app.production_ok();
     }
-    if button(ui, at(0x2), &caption(0x2)).clicked() {
+    if button(app, ui, at(0x2), &caption(0x2)).clicked() {
         app.production_cancel();
     }
 }
 
-/// One of the template's buttons, at the size the template gives it.
-fn button(ui: &mut egui::Ui, rect: egui::Rect, text: &str) -> egui::Response {
-    ui.put(rect, egui::Button::new(egui::RichText::new(text).small()))
+/// One of the template's buttons, at the size the template gives it, and
+/// recorded under its caption so a test can press it.
+fn button(app: &mut App, ui: &mut egui::Ui, rect: egui::Rect, text: &str) -> egui::Response {
+    let caption = text.replace('&', "");
+    crate::views::placed_button(app, ui, rect, &caption, true)
 }
 
 /// One of the two list boxes: a sunken frame with a scrolling list inside it.
@@ -171,6 +174,12 @@ fn list(ui: &mut egui::Ui, rect: egui::Rect, id: &str, body: impl FnOnce(&mut eg
     let inner = rect.shrink(2.0);
     let mut child = ui.child_ui(inner, egui::Layout::top_down(egui::Align::Min), None);
     child.set_clip_rect(inner);
+    // A list box's rows are a line of text each, nothing added: the
+    // template's 84 dialog units are ten rows of 8-point text, and the
+    // tutorial's first year needs Factory, the seventh row, in view without
+    // scrolling. egui's selectable rows would pad that out to six.
+    child.spacing_mut().item_spacing.y = 0.0;
+    child.spacing_mut().button_padding.y = 0.0;
     egui::ScrollArea::vertical()
         .id_source(id)
         .show(&mut child, body);
@@ -292,6 +301,7 @@ fn inventory(app: &mut App, ui: &mut egui::Ui, step: i32) {
             text = text.italics();
         }
         let response = ui.selectable_label(index == selected, text);
+        crate::views::record(app, ui, &row.name, &response);
         if response.clicked() {
             clicked = Some(index);
         }
@@ -368,6 +378,7 @@ fn queue(app: &mut App, ui: &mut egui::Ui, step: i32) {
             EtaMark::Ordinary => text,
         };
         let response = ui.selectable_label(selected == Some(index), text);
+        crate::views::record(app, ui, &label, &response);
         if response.clicked() {
             clicked = Some(Some(index));
         }

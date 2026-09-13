@@ -138,6 +138,32 @@ fn a_tank_that_covers_the_leg_is_left_alone() {
         .messages
         .iter()
         .any(|m| m.id == id::OUT_OF_FUEL || m.id == id::OUT_OF_FUEL_SLOWED));
+    // And, having nothing to do there, it says its orders are complete —
+    // `KillUsedWaypoints` (`1080:189a`).
+    let done: Vec<_> = state
+        .messages
+        .iter()
+        .filter(|m| m.id == id::ORDERS_COMPLETE)
+        .collect();
+    assert_eq!(done.len(), 1, "{:?}", state.messages);
+    assert_eq!(done[0].object, stars_core::message::fleet_object(1));
+    assert_eq!(done[0].params, vec![1, 0]);
+}
+
+/// A last waypoint with a task that reports for itself — Transport here —
+/// does not also announce the arrival.
+#[test]
+fn a_task_at_the_last_waypoint_keeps_the_arrival_quiet() {
+    let mut state = a_freighter(450, 0);
+    state.fleets[0].waypoints[1].task = stars_formats::task::TRANSPORT;
+    let mut rng = Rng::randomize(1);
+    generate_turn(&mut state, &mut rng);
+    assert_eq!(state.fleets[0].position, Point::new(1049, 1000), "arrived");
+    assert!(
+        !state.messages.iter().any(|m| m.id == id::ORDERS_COMPLETE),
+        "{:?}",
+        state.messages
+    );
 }
 
 /// A tank that empties exactly on the waypoint is an arrival, not a

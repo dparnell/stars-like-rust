@@ -208,9 +208,9 @@ fn the_first_four_years_play_through_from_the_pages() {
         shift_click(&mut app, planet);
     }
     assert!(!app.advance_tutor());
-    // "Read your next two messages" is a hint, not a gate, and it stays lit
-    // here because this engine sends no arrival messages yet; the page is
-    // done all the same once Prune is in the Summary pane.
+    // "Read your next two messages" is a hint, not a gate: it stays lit
+    // while they are unread, and the page is done all the same once Prune
+    // is in the Summary pane.
     assert_eq!(bold(&app), Some(5));
     app.select_object(ScanObject::Planet(PRUNE));
     assert!(app.advance_tutor());

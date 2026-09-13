@@ -506,6 +506,18 @@ pub(crate) fn placed_button(
     )
 }
 
+/// Record any widget the way the buttons are recorded, so a test can find a
+/// list row by its text and click it where it was drawn.
+pub(crate) fn record(app: &mut App, ui: &egui::Ui, label: &str, response: &egui::Response) {
+    app.drawn.push(crate::app::DrawnWidget {
+        scope: app.drawn_scope,
+        label: label.to_string(),
+        rect: response.rect,
+        enabled: response.enabled(),
+        visible: ui.clip_rect().contains_rect(response.rect),
+    });
+}
+
 /// A push button in the flow of a layout, recorded the same way.
 pub(crate) fn flow_button(
     app: &mut App,

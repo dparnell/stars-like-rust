@@ -74,11 +74,18 @@ impl Shell {
                     .current_pos(egui::pos2(1700.0, 40.0))
                     .show(ctx, |ui| stars_ui::views::tutorial::view(app, ui));
             }
-            // The Research dialog, where the shell puts it: over the map.
+            // The Research and Production dialogs, where the shell puts
+            // them: over the map.
             if app.research_dialog.is_some() {
                 egui::Window::new("Research")
                     .current_pos(egui::pos2(900.0, 100.0))
                     .show(ctx, |ui| stars_ui::views::research::view(app, ui));
+            }
+            if app.production.is_some() {
+                egui::Window::new("Production")
+                    .current_pos(egui::pos2(900.0, 100.0))
+                    .default_width(700.0)
+                    .show(ctx, |ui| stars_ui::views::production::view(app, ui));
             }
         });
         app.advance_tutor();
@@ -153,6 +160,19 @@ impl Shell {
         self.modifiers = egui::Modifiers::SHIFT;
         self.click_at(pos);
         self.modifiers = egui::Modifiers::NONE;
+    }
+
+    /// A click with a modifier held, as shift-Add is.
+    fn press_with(&mut self, modifiers: egui::Modifiers, scope: &str, label: &str) {
+        self.modifiers = modifiers;
+        self.press(scope, label);
+        self.modifiers = egui::Modifiers::NONE;
+    }
+
+    /// F9: the shell's key, so the year is generated directly.
+    fn generate(&mut self) {
+        self.app.generate_turn();
+        self.frame();
     }
 
     fn page(&self) -> usize {
@@ -264,6 +284,30 @@ fn year_zero_is_played_through_the_panes() {
         Some(5),
         "Cotton Picker #6, wrapping round"
     );
+    shell.generate();
+    assert_eq!(shell.app.game.as_ref().expect("a game").turn, 1);
+    assert_eq!(shell.page(), 6);
+
+    // --- 2401 -------------------------------------------------------------
+    // Page 6: "Press Change on the Production tile. Pick Factory in the
+    // list on the left, hold down shift and press Add twice, giving 20
+    // factories in all, then press OK."
+    shell.press("planet", "Change");
+    assert!(
+        shell.app.production.is_some(),
+        "the Production dialog is up"
+    );
+    shell.press("production", "Factory");
+    shell.press_with(egui::Modifiers::SHIFT, "production", "Add ->");
+    shell.press_with(egui::Modifiers::SHIFT, "production", "Add ->");
+    {
+        let dialog = shell.app.production.as_ref().expect("still up");
+        assert_eq!(dialog.queue.len(), 1, "{:?}", dialog.queue);
+        assert_eq!(dialog.queue[0].count, 20, "twenty factories in one row");
+    }
+    shell.press("production", "OK");
+    assert!(shell.app.production.is_none(), "OK closes the dialog");
+    assert_eq!(shell.page(), 7, "2401 is done");
 }
 
 /// The planet pane's own tile has Prev and Next as well — `SelectAdjPlanet`

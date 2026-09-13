@@ -43,8 +43,11 @@ pub mod id {
     /// `idmHasDismantledKtMineralsWhichHaveDeposited`: a colony ship broke
     /// itself up on arrival. The fifth message the tutorial filters.
     pub const FLEET_DISMANTLED: u16 = 89;
-    /// `idmHasCompletedAssignedOrders`: a fleet has run out of orders.
-    /// `SatisfyOrders`' cancel path.
+    /// `idmHasCompletedAssignedOrders`: a fleet has arrived at the last of
+    /// its waypoints with nothing there to do — `KillUsedWaypoints`
+    /// (`1080:189a`) at the end of the movement pass, and `SatisfyOrders`'
+    /// cancel path. The fleet is the object and the first parameter. It is
+    /// the message the tutorial's Goto buttons lean on from 2402 onward.
     pub const ORDERS_COMPLETE: u16 = 0x4e;
     /// `idmHasRunFuel`: a fleet has emptied its tank short of its waypoint
     /// and cannot move at any warp (`MoveFleets`, `10b0:42c3`). The fleet is
