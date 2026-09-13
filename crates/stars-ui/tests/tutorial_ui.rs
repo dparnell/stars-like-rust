@@ -119,6 +119,12 @@ impl Shell {
                     .default_width(stars_ui::dialog::TRANSFER.pixels().x)
                     .show(ctx, |ui| stars_ui::views::transfer::view(app, ui));
             }
+            if app.split.is_some() {
+                egui::Window::new("Ship Transfer")
+                    .current_pos(egui::pos2(900.0, 100.0))
+                    .default_width(stars_ui::dialog::TRANSFER.pixels().x)
+                    .show(ctx, |ui| stars_ui::views::split::view(app, ui));
+            }
             halo = stars_ui::views::tutorial::halo(app, ctx);
         });
         self.halo = halo;
@@ -175,6 +181,27 @@ impl Shell {
             button.rect
         );
         self.click_at(button.rect.center());
+    }
+
+    /// Where two planets are on the screen at once: the map is centred
+    /// between them first, so bringing one in does not push the other out.
+    fn two_planets_on_screen(&mut self, a: i16, b: i16) -> (egui::Pos2, egui::Pos2) {
+        let at = |app: &App, id: i16| {
+            let game = app.game.as_ref().expect("a game");
+            game.planets
+                .iter()
+                .chain(game.known_planets.iter())
+                .find(|p| p.id == id)
+                .and_then(|p| p.position)
+                .expect("a placed planet")
+        };
+        let (pa, pb) = (at(&self.app, a), at(&self.app, b));
+        self.app.scan_center = Some(stars_core::movement::Point::new(
+            i16::midpoint(pa.x, pb.x),
+            i16::midpoint(pa.y, pb.y),
+        ));
+        self.frame();
+        (self.planet_on_screen(a), self.planet_on_screen(b))
     }
 
     /// Where a planet is on the screen this frame.
@@ -247,7 +274,14 @@ impl Shell {
             modifiers: self.modifiers,
         });
         self.frame();
-        // In steps, so egui sees a drag rather than a jump.
+        // In steps, so egui sees a drag rather than a jump — and the first
+        // step a few pixels only, as a hand's is, so what is grabbed is
+        // still under the pointer when the drag is seen to begin.
+        // Eight pixels: past egui's six, where a press becomes a drag, and
+        // inside the twenty a waypoint is grabbed from.
+        let first = from + (to - from).normalized() * 8.0;
+        self.events.push(egui::Event::PointerMoved(first));
+        self.frame();
         for step in 1..=4 {
             let t = step as f32 / 4.0;
             self.events
@@ -1048,6 +1082,99 @@ fn year_zero_is_played_through_the_panes() {
     shell.double_click("production", "Armed Probe");
     shell.press("production", "OK");
     assert_eq!(shell.page(), 26, "2407 is done");
+    shell.generate();
+    assert_eq!(shell.page(), 26);
+
+    // --- 2408 -------------------------------------------------------------
+    // Page 26: the first message's Goto is the new colony ships; Split, one
+    // Santa Maria across to Fleet #10, OK; the two left filled with
+    // colonists and given Colonize at Slime; then Split All.
+    shell.next_message_until(stars_core::message::Goto::Fleet(7));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(7), "the three Santa Marias");
+    shell.press("fleet", "Split");
+    assert!(shell.app.split.is_some(), "the Ship Transfer dialog is up");
+    shell.frame();
+    assert_eq!(shell.app.split.as_ref().expect("up").new_id, 9, "Fleet #10");
+    shell.press("split", "Santa Maria >");
+    assert_eq!(shell.app.split.as_ref().expect("up").right, vec![1]);
+    shell.press("split", "OK");
+    assert!(shell.app.split.is_none());
+    assert_eq!(shell.app.own_fleets().len(), 10);
+    shell.press("fleet", "Xfer");
+    shell.frame();
+    let gauge = shell
+        .app
+        .drawn_button("xfer", "Colonists gauge")
+        .expect("the colonists gauge")
+        .rect;
+    shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
+    assert_eq!(
+        shell.app.xfer.as_ref().expect("up").aboard[3],
+        50,
+        "two holds"
+    );
+    shell.press("xfer", "OK");
+    shell.shift_click_planet(SLIME);
+    shell.press("fleet", "Waypoint Task");
+    shell.press("fleet", "Colonize");
+    shell.press("fleet", "Split All");
+    assert_eq!(shell.app.own_fleets().len(), 11);
+    assert_eq!(shell.page(), 27);
+
+    // Page 27: drag the waypoint at Slime to Sea Squared; the next
+    // message's Goto is the new Armed Probes; shift-click Hiho.
+    // Slime and Sea Squared are further apart than the map shows at this
+    // zoom, so the map is taken down a step first — the toolbar's Zoom
+    // menu — as a player would before dragging from one to the other.
+    let zoom = shell.app.scan_zoom;
+    shell.app.scan_zoom = zoom.saturating_sub(1);
+    let (slime, sea_squared) = shell.two_planets_on_screen(SLIME, SEA_SQUARED);
+    shell.drag(slime, sea_squared);
+    shell.app.scan_zoom = zoom;
+    shell.frame();
+    {
+        let game = shell.app.game.as_ref().expect("a game");
+        let fleet = &game.fleets[shell.app.selection.fleet.expect("in hand")];
+        assert_eq!(
+            fleet.waypoints[1].target,
+            Some(SEA_SQUARED as u16),
+            "the leg moved"
+        );
+    }
+    shell.next_message_until(stars_core::message::Goto::Fleet(8));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(8), "Armed Probe #9");
+    shell.shift_click_planet(HIHO);
+    assert_eq!(shell.page(), 28);
+
+    // Page 28: the next message — the Teamster unloading at Stove Top —
+    // switched off; the last message's Goto is Wallaby; F5 is the shell's
+    // key.
+    shell.press("messages", "Next");
+    assert_eq!(
+        shell.app.current_message().map(|m| m.id),
+        Some(stars_core::message::id::HAS_UNLOADED),
+        "the Teamster has unloaded what it mined at Prune"
+    );
+    shell.press("messages", "filter");
+    shell.next_message_until(stars_core::message::Goto::Planet(WALLABY));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.app.selection.planet, Some(WALLABY));
+    shell.app.open_research();
+    shell.frame();
+    assert_eq!(shell.page(), 29);
+
+    // Page 29: research to 30% and Done. The percentage is a slider here
+    // where the original has spin buttons; it is set directly.
+    shell
+        .app
+        .research_dialog
+        .as_mut()
+        .expect("the dialog")
+        .percent = 30;
+    shell.press("research", "Done");
+    assert_eq!(shell.page(), 30, "2408 is done");
 }
 
 /// The planet pane's own tile has Prev and Next as well — `SelectAdjPlanet`

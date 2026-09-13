@@ -529,6 +529,9 @@ pub struct App {
     pub research_dialog: Option<ResearchDialog>,
     /// The Cargo Transfer dialog, while it is open (`TransferDlg`).
     pub xfer: Option<XferDialog>,
+    /// The Ship Transfer dialog — the same `TransferDlg` in its ship mode,
+    /// the **Split** button — while it is open.
+    pub split: Option<SplitDialog>,
     /// Which cargo the Waypoint Task tile's Transport table is showing —
     /// the tile's **second dropdown** — as an index into
     /// [`stars_formats::CARGO_ORDER`]: fuel first, then the four holds.
@@ -1913,9 +1916,20 @@ impl App {
     ///
     /// Returns whether the split happened.
     pub fn split_fleet(&mut self, fleet: usize, design: u8, count: i32) -> bool {
+        if count <= 0 {
+            return false;
+        }
+        self.split_fleet_many(fleet, &[(design, count)])
+    }
+
+    /// Split several designs' worth of ships off into one new fleet, as the
+    /// Ship Transfer dialog's OK does: one `FleetSplit` and one ships
+    /// record with a bit per design moved.
+    pub fn split_fleet_many(&mut self, fleet: usize, moves: &[(u8, i32)]) -> bool {
         use stars_formats::{CargoTransfer, FleetSplit, LogRecord};
 
-        if count <= 0 {
+        let moves: Vec<(u8, i32)> = moves.iter().copied().filter(|(_, n)| *n > 0).collect();
+        if moves.is_empty() {
             return false;
         }
         let Some(game) = self.game.as_ref() else {
@@ -1928,6 +1942,8 @@ impl App {
         let from = (owner << 9) | (source.id & 0x1ff);
         let new_id = stars_core::turn::next_fleet_id(game, source.owner);
         let to = (owner << 9) | (new_id & 0x1ff);
+        let mut ordered = moves;
+        ordered.sort_by_key(|(design, _)| *design);
 
         self.apply_and_log(vec![
             LogRecord::split_fleet(FleetSplit { fleet_id: from }),
@@ -1936,9 +1952,9 @@ impl App {
                 id2: to,
                 grobj1: FLEET_CLASS,
                 grobj2: FLEET_CLASS,
-                items_mask: 1 << design,
+                items_mask: ordered.iter().map(|(d, _)| 1u16 << d).sum(),
                 // Negative: the ships leave the fleet named first.
-                quantities: vec![-count],
+                quantities: ordered.iter().map(|(_, n)| -n).collect(),
                 quantity_bytes: Vec::new(),
             }),
         ])
@@ -7838,7 +7854,122 @@ impl XferDialog {
     }
 }
 
+/// The **Ship Transfer** dialog — `TransferDlg` with `mdXferDlg == 1`, the
+/// **Split** button on the Fleet Composition tile.
+///
+/// The fleet on the left and a new fleet on the right, one row per design
+/// aboard (`rgXferValidHulls`), each a name and a count in a sunken frame
+/// (`DrawFleetShipsXferSide`), with an arrow pair a row between them. OK
+/// makes the new fleet from whatever was moved across; Cancel makes nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SplitDialog {
+    /// The fleet on the left, as an index into the game's fleets.
+    pub fleet: usize,
+    /// The number the new fleet will have — `Fleet #10`, page 26 says.
+    pub new_id: u16,
+    /// The designs aboard, by slot, with their names.
+    pub designs: Vec<(u8, String)>,
+    /// How many of each stay on the left.
+    pub left: Vec<i32>,
+    /// How many of each go to the new fleet.
+    pub right: Vec<i32>,
+}
+
 impl App {
+    /// **Split**: open the Ship Transfer dialog for the fleet in the pane.
+    /// Nothing opens for a fleet of one ship, or one that is not the
+    /// player's.
+    pub fn open_split(&mut self) -> bool {
+        let me = self.local_player();
+        let Some(index) = self.survey_subject().fleet_index() else {
+            return false;
+        };
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        let Some(fleet) = game.fleets.get(index) else {
+            return false;
+        };
+        if usize::try_from(fleet.owner).is_ok_and(|o| o != me) {
+            return false;
+        }
+        if fleet.stacks.iter().map(|s| s.count).sum::<i32>() < 2 {
+            return false;
+        }
+        let designs = game.designs.get(me).map_or(&[][..], Vec::as_slice);
+        let rows: Vec<(u8, String)> = fleet
+            .stacks
+            .iter()
+            .filter(|s| s.count > 0)
+            .map(|s| {
+                (
+                    s.design,
+                    designs
+                        .get(usize::from(s.design))
+                        .filter(|d| !d.name.is_empty())
+                        .map_or_else(|| format!("Design #{}", s.design), |d| d.name.clone()),
+                )
+            })
+            .collect();
+        let left: Vec<i32> = fleet
+            .stacks
+            .iter()
+            .filter(|s| s.count > 0)
+            .map(|s| s.count)
+            .collect();
+        let right = vec![0; left.len()];
+        self.split = Some(SplitDialog {
+            fleet: index,
+            new_id: stars_core::turn::next_fleet_id(game, fleet.owner),
+            designs: rows,
+            left,
+            right,
+        });
+        true
+    }
+
+    /// Move `delta` ships of one row **to the new fleet** (negative: back),
+    /// as an arrow press does, clamped to what the giver has.
+    pub fn split_move(&mut self, row: usize, delta: i32) -> i32 {
+        let Some(dialog) = self.split.as_mut() else {
+            return 0;
+        };
+        if row >= dialog.left.len() {
+            return 0;
+        }
+        let moved = if delta > 0 {
+            delta.min(dialog.left[row])
+        } else {
+            -((-delta).min(dialog.right[row]))
+        };
+        dialog.left[row] -= moved;
+        dialog.right[row] += moved;
+        moved
+    }
+
+    /// **OK**: the ships moved across become a fleet of their own.
+    pub fn split_ok(&mut self) {
+        let Some(dialog) = self.split.take() else {
+            return;
+        };
+        let moves: Vec<(u8, i32)> = dialog
+            .designs
+            .iter()
+            .zip(dialog.right.iter())
+            .filter(|(_, count)| **count > 0)
+            .map(|((design, _), count)| (*design, *count))
+            .collect();
+        if moves.is_empty() {
+            return;
+        }
+        self.split_fleet_many(dialog.fleet, &moves);
+    }
+
+    /// **Cancel**: nothing moved.
+    pub fn split_cancel(&mut self) {
+        self.split = None;
+    }
+
     /// **Xfer**: open the Cargo Transfer dialog for the fleet in the pane
     /// and the planet it orbits. Nothing opens for a fleet in deep space,
     /// or one that is not the player's.

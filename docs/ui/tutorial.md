@@ -220,8 +220,8 @@ name, and where each stands:
 | "choose **Tutorial** from the **Help** menu" | `0x9c5` | **added** |
 | "hit the **Split All** button in the Fleet Composition tile" | `FFleetSplitAll` (`1038:3a00`) | **added** |
 | "right click on the **blue diamond** … select **QuikDrop**" | `vrgZip`, `ZipOrderDlg` (`1080:0175`) | **added** |
-| "hit the **Split** button" — a dialog for moving ships one at a time | | not done: split from the Fleets screen |
-| "Click on the **Xfer** button … drag in the Colonists gauge" | `TransferDlg` | not done |
+| "hit the **Split** button" — a dialog for moving ships one at a time | `TransferDlg` in ship mode | **added** — see `cargo-transfer.md` |
+| "Click on the **Xfer** button … drag in the Colonists gauge" | `TransferDlg` | **added** — see `cargo-transfer.md` |
 | "Click and **drag in the fuel gauge** in the Other Fleets Here tile" | | **added** |
 | "Click in various places in the **Summary pane** to get popup explanations" | | not done |
 
@@ -433,8 +433,8 @@ pages, through the same calls the panes make, and checks that every task
 turns the page as `AdvanceTutor` would. `tutorial_ui.rs` plays it through
 the panes themselves — every step a press on a button where a pane drew it,
 a pick from a menu or dropdown where it opened, or a click on the map where
-the scanner drew the planet — and so far gets through **2400 to 2407**,
-pages one to twenty-five; see *Through the panes* below. It gets through **2400 to 2410** —
+the scanner drew the planet — and so far gets through **2400 to 2408**,
+pages one to twenty-nine; see *Through the panes* below. It gets through **2400 to 2410** —
 pages one to thirty-three — and stops on page 34. The first four years took three corrections to
 what was here:
 
@@ -463,8 +463,7 @@ its own; new ships as fleets of their own with full tanks; `FuelFleets`;
 the previous leg's task copied onto a new waypoint; and fuel staying
 aboard where there is no starbase to take it.
 
-Page 26's **Split** goes through `App::split_fleet` and `split_all`
-directly — the Split dialog itself is not drawn yet — and showed that a
+Page 26's **Split** showed that a
 split-off fleet must take a **copy of every order** the old one had
 (`LpflNewSplit`, `1038:3372`): the page expects the lone Santa Maria to be
 bound for Slime with Colonize already set, not sitting at Wallaby with a
@@ -529,7 +528,21 @@ must press what the text names:
   a line a row overflowed;
 * the Production dialog's lists kept their scroll position from one opening
   to the next, so a list rolled down for 90210 opened rolled down for Stove
-  Top and page 25's double-click on Armed Probe fell on the wrong row.
+  Top and page 25's double-click on Armed Probe fell on the wrong row;
+* page 26's **Split** button opened nothing; the Ship Transfer dialog is
+  the Cargo Transfer template with a row per design (`cargo-transfer.md`);
+* page 28 switches off the message that the Teamster **unloaded** at Stove
+  Top, and there was none, for two reasons in the engine: the Prune miner
+  had never mined, because a fleet's `warp` stayed set after it arrived and
+  the *here all turn* test read that instead of whether the fleet moved
+  this year (`MoveFleets` clears it; the engine now keeps the set of fleets
+  that moved and asks that); and the Teamster had "loaded" 210 kT from a
+  planet with nothing on it, where `XferSupply` gives only what the planet
+  has. With both, Prune yields its 7/3/9 a year and the Teamster carries
+  and unloads it, and page 28 has its message;
+* page 27's drag from Slime to Sea Squared needs both on the screen, which
+  at the opening zoom they are not; the harness takes the map down a step
+  first, as a player would, and drags at the scanner's own grab reach.
 
 ### The halo
 

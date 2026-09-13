@@ -26,6 +26,7 @@ pub mod relations;
 pub mod report;
 pub mod research;
 pub mod score;
+pub mod split;
 pub mod statusbar;
 pub mod survey;
 pub mod toolbar;
@@ -495,16 +496,30 @@ pub(crate) fn placed_button(
     label: &str,
     enabled: bool,
 ) -> egui::Response {
+    placed_button_named(app, ui, rect, label, label, enabled)
+}
+
+/// A placed button whose caption is one thing and whose recorded name is
+/// another — an arrow drawn as `<` but known as `Colonists <`, so a row of
+/// identical arrows can be told apart.
+pub(crate) fn placed_button_named(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    caption: &str,
+    name: &str,
+    enabled: bool,
+) -> egui::Response {
     app.drawn.push(crate::app::DrawnWidget {
         scope: app.drawn_scope,
-        label: label.to_string(),
+        label: name.to_string(),
         rect,
         enabled,
         visible: ui.clip_rect().contains_rect(rect),
     });
     ui.put(
         rect,
-        egui::Button::new(egui::RichText::new(label).small()).sense(if enabled {
+        egui::Button::new(egui::RichText::new(caption).small()).sense(if enabled {
             egui::Sense::click()
         } else {
             egui::Sense::hover()

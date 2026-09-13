@@ -209,7 +209,10 @@ pub fn generate_turn_with_orders(
     report.trader_events = move_traders(state, rng);
     report.packets_landed = move_packets(state, false);
 
-    // --- MoveFleets, which happens before Produce.
+    // --- MoveFleets, which happens before Produce. Which fleets moved is
+    // remembered for the tasks that want a fleet to have been **here all
+    // turn** (`fHereAllTurn`): laying mines and remote mining.
+    let mut moved_this_turn: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
     for index in 0..state.fleets.len() {
         let owner = usize::try_from(state.fleets[index].owner).unwrap_or(usize::MAX);
         let designs = state.designs.get(owner).cloned().unwrap_or_default();
@@ -223,6 +226,9 @@ pub fn generate_turn_with_orders(
         let waypoints = state.fleets[index].waypoints.len();
         if let Some((travelled, dry)) = move_fleet(&mut state.fleets[index], &designs, ife) {
             report.moved.push((state.fleets[index].id, travelled));
+            if travelled > 0 {
+                moved_this_turn.insert(index);
+            }
             let fleet_id = state.fleets[index].id;
             match dry {
                 RanDry::No => {}
@@ -498,7 +504,7 @@ pub fn generate_turn_with_orders(
     // --- SatisfyOrders(3): laying mines. A fleet ordered to lay does so where
     // it now is, into its own field if one reaches that far.
     for index in 0..state.fleets.len() {
-        let laid = lay_mines_for_fleet(state, index);
+        let laid = lay_mines_for_fleet(state, index, moved_this_turn.contains(&index));
         let id = state.fleets[index].id;
         let owner = usize::try_from(state.fleets[index].owner).ok();
         let total: i32 = laid.iter().map(|(_, mines)| mines).sum();
@@ -521,7 +527,9 @@ pub fn generate_turn_with_orders(
     // over an unowned planet, carrying mining robots and ordered to mine, digs
     // as `CMineFromLpfl` mines would and leaves the minerals on the surface.
     for index in 0..state.fleets.len() {
-        let Some(mined) = remote_mine_for_fleet(state, index, rng) else {
+        let Some(mined) =
+            remote_mine_for_fleet(state, index, rng, moved_this_turn.contains(&index))
+        else {
             continue;
         };
         report.remote_mined.push(mined);
@@ -778,11 +786,12 @@ fn remote_mine_for_fleet(
     state: &mut GameState,
     index: usize,
     rng: &mut Rng,
+    moved: bool,
 ) -> Option<(i16, [i32; 3])> {
     let fleet = &state.fleets[index];
     // `fHereAllTurn`: a fleet that moved this turn has not been in place long
     // enough to mine.
-    if fleet.waypoints.first().map(|w| w.task) != Some(TASK_REMOTE_MINE) || fleet.warp.is_some() {
+    if fleet.waypoints.first().map(|w| w.task) != Some(TASK_REMOTE_MINE) || moved {
         return None;
     }
     let planet_id = i16::try_from(fleet.orbiting?).ok()?;
@@ -811,7 +820,7 @@ fn remote_mine_for_fleet(
 /// is never spent, `0` clears the order, and anything else loses a year.
 ///
 /// Returns what was laid, as `(kind, mines)`.
-fn lay_mines_for_fleet(state: &mut GameState, index: usize) -> Vec<(u8, i32)> {
+fn lay_mines_for_fleet(state: &mut GameState, index: usize, moved: bool) -> Vec<(u8, i32)> {
     let fleet = &state.fleets[index];
     if fleet.waypoints.first().map(|w| w.task) != Some(stars_formats::task::LAY_MINES) {
         return Vec::new();
@@ -819,9 +828,6 @@ fn lay_mines_for_fleet(state: &mut GameState, index: usize) -> Vec<(u8, i32)> {
     let Ok(owner) = usize::try_from(fleet.owner) else {
         return Vec::new();
     };
-    // `fHereAllTurn`: this engine records a fleet that moved by leaving its
-    // warp set, which is the same test remote mining makes.
-    let moved = fleet.warp.is_some();
     let demolition = state
         .players
         .get(owner)
@@ -2420,7 +2426,9 @@ fn move_fleet(
 
     if to == target {
         // Arrived: this waypoint is done with, and the fleet is orbiting
-        // whatever it named.
+        // whatever it named. Its current-leg warp becomes the next leg's,
+        // or nothing when there is none.
+        fleet.warp = fleet.waypoints.get(2).map(|w| w.warp);
         // A waypoint aimed at a `THING` — a wormhole, say — names no planet,
         // so arriving at one leaves the fleet in deep space.
         fleet.orbiting = fleet

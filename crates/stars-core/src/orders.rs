@@ -1036,6 +1036,28 @@ fn move_cargo(
 ) -> i32 {
     use stars_formats::{CargoTransferRecord, GrobjClass};
 
+    // A load is what the planet has to give (`SatisfyOrders` asks
+    // `ChgCargo` on the planet first), never more: the replay below settles
+    // the planet's side without holding the fleet to it, which is right for
+    // a logged order the client has already checked and wrong for "load all
+    // available" at a bare planet.
+    let amount = if amount > 0 {
+        let stock = state
+            .planets
+            .iter()
+            .find(|p| p.id == planet)
+            .map_or(0, |p| match kind {
+                COLONISTS => p.pop,
+                FUEL => i32::MAX,
+                k => p.surface_min[k],
+            });
+        amount.min(stock.max(0))
+    } else {
+        amount
+    };
+    if amount == 0 {
+        return 0;
+    }
     let owner_bits = u16::try_from(owner.max(0)).unwrap_or(0);
     let source = (owner_bits << 9) | (state.fleets[fleet].id & 0x1ff);
     let mut quantities = [0i32; CARGO_KINDS];

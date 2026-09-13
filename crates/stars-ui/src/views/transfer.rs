@@ -21,8 +21,10 @@
 //!   share of the tank or hold.
 //!
 //! The arrows, the gauges and the three buttons are recorded as drawn
-//! widgets under the scope `"xfer"` — the gauges by their row's label —
-//! so a test can press what the tutorial's pages name.
+//! widgets under the scope `"xfer"` — the gauges by their row's label, the
+//! arrows as `Colonists <` and `Colonists >` — so a test can press what the
+//! tutorial's pages name. The dialog's ship mode, the **Split** button, is
+//! `split.rs`.
 
 use crate::dialog::Control;
 use crate::App;
@@ -232,10 +234,12 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             let out_of =
                 egui::Rect::from_min_size(egui::pos2(mid + 3.0, y), egui::vec2(size, size));
             if show {
-                if crate::views::placed_button(app, ui, into, "<", true).clicked() {
+                let name = format!("{label} <");
+                if crate::views::placed_button_named(app, ui, into, "<", &name, true).clicked() {
                     moves.push((*k, step));
                 }
-                if crate::views::placed_button(app, ui, out_of, ">", true).clicked() {
+                let name = format!("{label} >");
+                if crate::views::placed_button_named(app, ui, out_of, ">", &name, true).clicked() {
                     moves.push((*k, -step));
                 }
             }
@@ -282,7 +286,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
 
 /// `_Draw3dFrame(hdc, rc, 0)`: one ring, lit along the top and left and
 /// shadowed along the bottom and right.
-fn frame_3d(painter: &egui::Painter, rect: egui::Rect) {
+pub(crate) fn frame_3d(painter: &egui::Painter, rect: egui::Rect) {
     let colour = |[r, g, b]: [u8; 3]| egui::Color32::from_rgb(r, g, b);
     let hilite = colour(crate::toolbar::HILITE);
     let shadow = colour(crate::toolbar::SHADOW);

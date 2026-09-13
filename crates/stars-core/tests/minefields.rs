@@ -128,10 +128,24 @@ fn a_counted_order_runs_out() {
 fn only_space_demolition_lays_on_the_move() {
     for (prt, expect) in [(Prt::Joat, 0), (Prt::Sd, 40)] {
         let mut state = a_layer(5, prt);
-        // A fleet with a warp set is one that moved this year.
-        state.fleets[0].warp = Some(6);
+        // A fleet with a leg to fly is one that moves this year: a long one,
+        // at warp 6, so it is still under way when the laying comes round.
+        state.fleets[0].waypoints.push(Waypoint {
+            position: Point::new(1300, 1000),
+            target: None,
+            target_class: 0,
+            warp: 6,
+            task: 0,
+            transport: None,
+            task_data: Vec::new(),
+        });
+        state.fleets[0].cargo.fuel = 1000;
         let mut rng = Rng::from_seeds(1, 2);
         let report = generate_turn(&mut state, &mut rng);
+        assert!(
+            report.moved.iter().any(|(_, d)| *d > 0),
+            "the fleet flew this year"
+        );
         let laid: i32 = report.mines_laid.iter().map(|(_, _, n)| n).sum();
         assert_eq!(laid, expect, "{prt:?} laying while moving");
         // And the Space Demolition fleet lays half of the eighty it would

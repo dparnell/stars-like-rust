@@ -693,8 +693,7 @@ fn waypoints(app: &mut App, ui: &mut egui::Ui) {
 /// same planet: *"We don't want both colonizers to go to Slime so hit the
 /// Split All button in the Fleet Composition tile."*
 ///
-/// Split itself opens a dialog for moving ships one at a time, which this
-/// project does from the Fleets screen instead.
+/// Split itself opens the Ship Transfer dialog (`split.rs`).
 fn split_buttons(app: &mut App, ui: &mut egui::Ui) {
     let mine = app
         .survey_subject()
@@ -703,16 +702,13 @@ fn split_buttons(app: &mut App, ui: &mut egui::Ui) {
         .is_some_and(|f| usize::try_from(f.owner).is_ok_and(|owner| owner == app.local_player()));
     let several = app.pane_fleet_ships() > 1;
     ui.horizontal(|ui| {
-        ui.add_enabled(
-            false,
-            egui::Button::new(egui::RichText::new("Split").small()),
-        )
-        .on_disabled_hover_text("Split a fleet ship by ship from the Fleets screen.");
-        if ui
-            .add_enabled(
-                mine && several,
-                egui::Button::new(egui::RichText::new("Split All").small()),
-            )
+        if crate::views::flow_button(app, ui, "Split", mine && several)
+            .on_hover_text("Move ships to a fleet of their own, one at a time.")
+            .clicked()
+        {
+            app.open_split();
+        }
+        if crate::views::flow_button(app, ui, "Split All", mine && several)
             .on_hover_text("Put every ship into a fleet of its own.")
             .clicked()
         {

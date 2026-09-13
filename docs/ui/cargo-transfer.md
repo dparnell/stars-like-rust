@@ -1,7 +1,8 @@
 # UI: the Cargo Transfer dialog
 
-- **Status:** in progress — fleet to planet done; fleet to fleet, deep-space
-  jettison and the Ship Transfer mode (the **Split** button) still to come
+- **Status:** in progress — fleet to planet and the Ship Transfer mode
+  (the **Split** button) done; fleet to fleet and deep-space jettison still
+  to come
 - **Ghidra routine(s):** `TransferDlg` (`1050:5686`), `DrawXferDlg`
   (`1050:6908`), `GetXferLeftRightRcs` (`1050:6b46`), `FSetupXferBtns`
   (`1050:6bea`), `DrawFleetCargoXferSide` (`1050:72de`), `DrawPlanetXferSide`
@@ -9,7 +10,9 @@
   `LogMakeValidXfer` (`1048:99f6`)
 - **Manual reference:** `MANUAL.PDF`, the Fleet pane's Xfer button
 - **Implemented in:** `crates/stars-ui/src/views/transfer.rs`,
-  `App::open_xfer` and the `xfer_*` methods, `App::transfer_cargo_many`
+  `App::open_xfer` and the `xfer_*` methods, `App::transfer_cargo_many`;
+  `crates/stars-ui/src/views/split.rs`, `App::open_split` and the
+  `split_*` methods, `App::split_fleet_many`
 
 The **Xfer** button on the fleet pane's location tile ("Orbiting Stove Top")
 opens it. The tutorial uses it on pages 12, 14, 19, 23 and 26 to load
@@ -79,6 +82,20 @@ has no tank of its own. The view records its arrows, its gauges (by row
 label, `"Colonists gauge"`) and its three buttons under the scope `"xfer"`,
 which is how `tutorial_ui.rs` loads the colony ship on page 12.
 
+## The Split button: Ship Transfer
+
+The same template, titled `Ship Transfer`, with a row for each of the
+fleet's designs instead of the cargo rows: the fleet in hand on the left,
+the new fleet on the right (named for the next free fleet number, which is
+how page 26 knows the split-off ships become **Fleet #10**), a pair of
+arrows a row, and OK, Cancel and Help along the foot. The right arrow moves
+one ship of that design across, ten with Shift and so on as the cargo arrows
+do; the left arrow brings one back. OK logs the split as one order through
+`App::split_fleet_many`, which — as `LpflNewSplit` (`1038:3372`) does —
+gives the new fleet a copy of every waypoint the old one had. Cancel drops
+it. The view records its arrows as `"{design} <"` and `"{design} >"` and
+its buttons under the scope `"split"`; a fleet of one design and one ship
+has nothing to split and the button is dead.
+
 Not yet: the fleet-to-fleet form (the fleets-here tile's Xfer), Jettison in
-deep space, the Robber Baron's take from a space object, and the Ship
-Transfer mode behind the **Split** button.
+deep space, and the Robber Baron's take from a space object.
