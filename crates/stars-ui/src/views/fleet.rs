@@ -102,7 +102,7 @@ fn tile_body(app: &mut App, ui: &mut egui::Ui, index: usize) {
             }
             ui.allocate_space(egui::vec2(ui.available_width(), tall + 4.0));
         }
-        2 => crate::views::planet::grid(ui, "waypoints", &app.fleet_waypoints_tile(), false),
+        2 => waypoints(app, ui),
         3 => waypoint_task(app, ui),
         4 => fuel_and_cargo(app, ui),
         5 => {
@@ -591,6 +591,98 @@ fn fuel_and_cargo(app: &mut App, ui: &mut egui::Ui) {
         y += line;
     }
     ui.allocate_space(egui::vec2(ui.available_width(), (y - rect.top()).max(0.0)));
+}
+
+/// The **Fleet Waypoints** tile, `DrawShipOrders` (`1050:0000`): a list
+/// box four rows tall of the fleet's waypoints, then the figures for the
+/// leg in hand — where it is coming from or going, the distance, the warp,
+/// the travel time and the fuel — and along the foot the **Repeat Orders**
+/// checkbox (`BM_SETCHECK` from `fRepOrders`) with a blue diamond at the
+/// right. The list is the other way to take a waypoint in hand: page 17
+/// says "click its waypoint at Shaggy Dog", and either the map or this
+/// list will do.
+fn waypoints(app: &mut App, ui: &mut egui::Ui) {
+    let line = ui.text_style_height(&egui::TextStyle::Small);
+    let Some(index) = app.survey_subject().fleet_index() else {
+        return;
+    };
+    let (legs, repeat, mine) = {
+        let Some(game) = app.game.as_ref() else {
+            return;
+        };
+        let Some(fleet) = game.fleets.get(index) else {
+            return;
+        };
+        let legs: Vec<(usize, String)> = fleet
+            .waypoints
+            .iter()
+            .enumerate()
+            .skip(1)
+            .map(|(i, w)| (i, app.location_name(w.target_class, w.target, w.position)))
+            .collect();
+        (
+            legs,
+            fleet.repeat_orders,
+            usize::try_from(fleet.owner).is_ok_and(|o| o == app.local_player()),
+        )
+    };
+
+    // The list box: four rows, framed — `(dyArial8 + 2) * 4` in the
+    // original, a pixel a row less here so the checkbox at the foot fits
+    // inside the tile rather than over its frame.
+    let list = egui::Rect::from_min_size(
+        ui.cursor().min + egui::vec2(2.0, 2.0),
+        egui::vec2(ui.available_width() - 4.0, (line + 1.0) * 4.0),
+    );
+    ui.painter()
+        .rect_filled(list, 0.0, ui.visuals().extreme_bg_color);
+    ui.painter().rect_stroke(
+        list,
+        0.0,
+        egui::Stroke::new(1.0_f32, ui.visuals().widgets.noninteractive.bg_stroke.color),
+    );
+    let mut picked = None;
+    {
+        let inner = list.shrink(2.0);
+        let mut child = ui.child_ui(inner, egui::Layout::top_down(egui::Align::Min), None);
+        child.set_clip_rect(inner);
+        child.spacing_mut().item_spacing.y = 0.0;
+        child.spacing_mut().button_padding.y = 0.0;
+        child.spacing_mut().interact_size.y = line;
+        egui::ScrollArea::vertical()
+            .id_source("fleet-waypoints")
+            .show(&mut child, |ui| {
+                for (i, name) in &legs {
+                    let response = ui.selectable_label(
+                        app.selection.waypoint == Some(*i),
+                        egui::RichText::new(name).small(),
+                    );
+                    crate::views::record(app, ui, name, &response);
+                    if response.clicked() {
+                        picked = Some(*i);
+                    }
+                }
+            });
+    }
+    if let Some(i) = picked {
+        app.selection.waypoint = Some(i);
+    }
+    ui.allocate_space(egui::vec2(ui.available_width(), list.height() + 4.0));
+
+    crate::views::planet::grid(ui, "waypoints", &app.fleet_waypoints_tile(), false);
+
+    // Repeat Orders, along the foot: a line tall, as a Windows checkbox is.
+    ui.spacing_mut().interact_size.y = line;
+    ui.spacing_mut().button_padding.y = 0.0;
+    let mut on = repeat;
+    let response = ui.add_enabled(
+        mine,
+        egui::Checkbox::new(&mut on, egui::RichText::new("Repeat Orders").small()),
+    );
+    crate::views::record(app, ui, "Repeat Orders", &response);
+    if response.changed() {
+        app.set_repeat_orders(index, on);
+    }
 }
 
 /// **Split** and **Split All** across the foot of the Fleet Composition tile.

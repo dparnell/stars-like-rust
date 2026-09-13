@@ -1313,10 +1313,13 @@ fn the_fleet_pane_reports_a_fleet() {
         composition[0].1
     );
 
-    // With no orders, the waypoint tile says where it is and nothing more.
+    // With no orders, the waypoint tile says there is no next stop and
+    // nothing more.
     let rows = app.fleet_waypoints_tile();
-    assert_eq!(rows[0].0, "Coming From");
-    assert_eq!(rows[1], ("Next Way Pt".to_string(), "(none)".to_string()));
+    assert_eq!(
+        rows,
+        vec![("Next Way Pt".to_string(), "(none)".to_string())]
+    );
     assert_eq!(app.fleet_task_tile(), "(no task here)");
 
     // Give it somewhere to go, and the leg is costed.
@@ -1338,7 +1341,6 @@ fn the_fleet_pane_reports_a_fleet() {
     assert_eq!(
         labels,
         vec![
-            "Coming From",
             "Next Way Pt",
             "Warp Factor",
             "Distance",
@@ -1346,11 +1348,11 @@ fn the_fleet_pane_reports_a_fleet() {
             "Est Fuel Usage"
         ]
     );
-    assert_eq!(rows[2].1, "5");
-    assert_eq!(rows[3].1, "100 l.y.");
+    assert_eq!(rows[1].1, "5");
+    assert_eq!(rows[2].1, "100 l.y.");
     // A hundred light years at warp 5 is twenty-five a year: four years.
-    assert_eq!(rows[4].1, "4.0 years");
-    assert!(rows[5].1.ends_with("kT"), "{}", rows[5].1);
+    assert_eq!(rows[3].1, "4.0 years");
+    assert!(rows[4].1.ends_with("kT"), "{}", rows[4].1);
     assert_eq!(app.fleet_task_tile(), "Colonize");
 
     let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));

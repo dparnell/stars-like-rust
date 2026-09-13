@@ -188,10 +188,22 @@ that what it offers is exactly what the engine honours. It is the one place in
 this pane where the community reconstruction has been followed over the
 resource, and it is marked so it can be put right when the reader turns up.
 
+## Fleet Waypoints
+
+`DrawShipOrders` (`1050:0000`): a list box four rows tall of the fleet's
+waypoints (a click takes one in hand, as a click on the map does), then one
+location row — `Next Way Pt` while the fleet's own position is in hand,
+`Coming From` and the stop before when a later waypoint is — and the leg
+into the waypoint in hand: `Distance`, `Warp Factor` (a gauge when a later
+waypoint is in hand), `Travel Time` and `Est Fuel Usage` in red when it is
+more than the tank holds. Along the foot the **Repeat Orders** checkbox
+(`fRepOrders`) and a blue diamond.
+
 ## Fuel & Cargo
 
-Fuel, then ironium, boranium, germanium and colonists, with **Jettison** and
-**Xfer** buttons on the tile.
+`DrawShipCargo` (`1050:1a54`): `Fuel` and a gauge, `Cargo` and a gauge, then
+ironium, boranium, germanium and colonists as figures, each name in its own
+colour. A press in either gauge is the Xfer button.
 
 ## Fleet Composition
 

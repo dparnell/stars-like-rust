@@ -70,11 +70,16 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             .map_or_else(String::new, Control::label)
     };
 
-    // The two lists.
-    list(ui, at(0x416), "production-inventory", |ui| {
+    // The two lists. Their scroll positions are keyed by the opening, so a
+    // list rolled down one time opens at the top the next, as a fresh list
+    // box does.
+    let opening = app.production.as_ref().map_or(0, |d| d.opening);
+    list(ui, at(0x416), ("production-inventory", opening), |ui| {
         inventory(app, ui, step)
     });
-    list(ui, at(0x417), "production-queue", |ui| queue(app, ui, step));
+    list(ui, at(0x417), ("production-queue", opening), |ui| {
+        queue(app, ui, step)
+    });
 
     // The column between them. The hints are this project's, not the game's,
     // and say what the modifiers do because the original says it in the manual
@@ -162,7 +167,12 @@ fn button(app: &mut App, ui: &mut egui::Ui, rect: egui::Rect, text: &str) -> egu
 }
 
 /// One of the two list boxes: a sunken frame with a scrolling list inside it.
-fn list(ui: &mut egui::Ui, rect: egui::Rect, id: &str, body: impl FnOnce(&mut egui::Ui)) {
+fn list(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    id: impl std::hash::Hash,
+    body: impl FnOnce(&mut egui::Ui),
+) {
     ui.painter()
         .rect_filled(rect, 0.0, ui.visuals().extreme_bg_color);
     ui.painter().rect_stroke(

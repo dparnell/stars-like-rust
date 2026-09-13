@@ -357,13 +357,17 @@ impl Shell {
     /// A double-click on a drawn widget: two clicks, close together.
     fn double_click(&mut self, scope: &str, label: &str) {
         self.frame();
-        let at = self
+        let widget = self
             .app
             .drawn_button(scope, label)
             .unwrap_or_else(|| panic!("no {label:?} in the {scope} pane"))
-            .rect
-            .center();
-        self.double_click_at(at);
+            .clone();
+        assert!(
+            widget.visible,
+            "{scope}'s {label:?} is drawn at {:?} but cut off by its list",
+            widget.rect
+        );
+        self.double_click_at(widget.rect.center());
     }
 
     /// A double-click at a point on the screen.
@@ -932,6 +936,118 @@ fn year_zero_is_played_through_the_panes() {
         shell.frame();
     }
     assert_eq!(shell.page(), 21, "2405 is done");
+    shell.generate();
+    assert_eq!(shell.page(), 21);
+
+    // --- 2406 -------------------------------------------------------------
+    // Page 21: the first message's Goto is Teamster #4, home; shift-click
+    // Prune; Transport; QuikLoad from the blue diamond; shift-click Stove
+    // Top again.
+    shell.next_message_until(stars_core::message::Goto::Fleet(3));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(3), "Teamster #4");
+    shell.shift_click_planet(PRUNE);
+    shell.press("fleet", "Waypoint Task");
+    shell.press("fleet", "Transport");
+    shell.right_click("fleet", "blue diamond");
+    shell.press("fleet", "QuikLoad");
+    shell.shift_click_planet(STOVE_TOP);
+    assert_eq!(shell.page(), 22);
+
+    // Page 22: QuikDrop for the leg home; tick Repeat Orders in the Fleet
+    // Waypoints tile; select Stove Top; a Santa Maria in its queue.
+    shell.right_click("fleet", "blue diamond");
+    shell.press("fleet", "QuikDrop");
+    shell.press("fleet", "Repeat Orders");
+    {
+        let game = shell.app.game.as_ref().expect("a game");
+        let teamster = game
+            .fleets
+            .iter()
+            .find(|f| f.owner == 0 && f.id == 3)
+            .expect("Teamster");
+        assert!(teamster.repeat_orders, "Repeat Orders is ticked");
+    }
+    let home = shell.planet_on_screen(STOVE_TOP);
+    shell.click_at(home);
+    assert_eq!(shell.app.selection.planet, Some(STOVE_TOP));
+    assert!(!shell.app.selection.on_fleet);
+    shell.press("planet", "Change");
+    shell.double_click("production", "Santa Maria");
+    shell.press("production", "OK");
+    assert_eq!(shell.page(), 23, "2406 is done");
+    shell.generate();
+    assert_eq!(shell.page(), 23);
+
+    // --- 2407 -------------------------------------------------------------
+    // Page 23: the first message's Goto is the new Santa Maria; load it;
+    // the % button; Colonize at Red Storm; three more Santa Marias in
+    // Stove Top's queue; the leftmost button.
+    shell.next_message_until(stars_core::message::Goto::Fleet(6));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(6), "Santa Maria #7");
+    shell.press("fleet", "Xfer");
+    shell.frame();
+    let gauge = shell
+        .app
+        .drawn_button("xfer", "Colonists gauge")
+        .expect("the colonists gauge")
+        .rect;
+    shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
+    shell.press("xfer", "OK");
+    shell.press("toolbar", "%");
+    shell.shift_click_planet(RED_STORM);
+    shell.press("fleet", "Waypoint Task");
+    shell.press("fleet", "Colonize");
+    let home = shell.planet_on_screen(STOVE_TOP);
+    shell.click_at(home);
+    shell.press("planet", "Change");
+    for _ in 0..3 {
+        shell.double_click("production", "Santa Maria");
+    }
+    shell.press("production", "OK");
+    shell.press("toolbar", "Nml");
+    assert_eq!(shell.page(), 24);
+
+    // Page 24: the next message — mines built — switched off; the next
+    // message's Goto is 90210; its queue: shift-double-click Factories
+    // (Auto Build) and Mines (Auto Build); OK; the rest of the messages.
+    shell.press("messages", "Next");
+    shell.press("messages", "filter");
+    shell.next_message_until(stars_core::message::Goto::Planet(PLANET_90210));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.app.selection.planet, Some(PLANET_90210));
+    shell.press("planet", "Change");
+    shell.scroll_to("production", "Factories", "Factory");
+    shell.modifiers = egui::Modifiers::SHIFT;
+    shell.double_click("production", "Factories");
+    shell.modifiers = egui::Modifiers::NONE;
+    shell.scroll_to("production", "Mines", "Factories");
+    shell.modifiers = egui::Modifiers::SHIFT;
+    shell.double_click("production", "Mines");
+    shell.modifiers = egui::Modifiers::NONE;
+    {
+        let dialog = shell.app.production.as_ref().expect("open");
+        assert_eq!(dialog.queue.len(), 2, "{:?}", dialog.queue);
+        assert_eq!((dialog.queue[0].item, dialog.queue[0].count), (1, 10));
+        assert_eq!((dialog.queue[1].item, dialog.queue[1].count), (0, 10));
+    }
+    shell.press("production", "OK");
+    while shell.app.message_next(false).is_some() {
+        shell.press("messages", "Next");
+    }
+    assert_eq!(shell.page(), 25);
+
+    // Page 25: the enemy scout between Slime and No Vacancy is the
+    // Berserkers' to fly there, and it has not; the task is two Armed
+    // Probes at the foot of Stove Top's queue.
+    let home = shell.planet_on_screen(STOVE_TOP);
+    shell.click_at(home);
+    shell.press("planet", "Change");
+    shell.double_click("production", "Armed Probe");
+    shell.double_click("production", "Armed Probe");
+    shell.press("production", "OK");
+    assert_eq!(shell.page(), 26, "2407 is done");
 }
 
 /// The planet pane's own tile has Prev and Next as well — `SelectAdjPlanet`

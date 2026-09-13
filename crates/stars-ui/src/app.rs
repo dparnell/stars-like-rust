@@ -523,6 +523,8 @@ pub struct App {
     pub designer: Option<Designer>,
     /// The Production dialog, while it is open (`hwndProdDlg`).
     pub production: Option<Production>,
+    /// How many times it has been opened; see [`Production::opening`].
+    pub production_openings: u64,
     /// The Research dialog, while it is open.
     pub research_dialog: Option<ResearchDialog>,
     /// The Cargo Transfer dialog, while it is open (`TransferDlg`).
@@ -4047,30 +4049,43 @@ impl App {
             .map_or_else(|| format!("Planet #{id}"), ToString::to_string)
     }
 
-    /// The **Fleet Waypoints** tile: where it has come from, where it is going,
-    /// and what the leg costs (`DrawShipOrders`, `1050:0000`).
+    /// The **Fleet Waypoints** tile's figures (`DrawShipOrders`,
+    /// `1050:0000`): **one** location row — `Next Way Pt` and the fleet's
+    /// next stop while the fleet's own position is in hand, `Coming From`
+    /// and the stop before when a later waypoint is — then the leg into
+    /// the waypoint in hand: its distance, warp, travel time and fuel.
     #[must_use]
     pub fn fleet_waypoints_tile(&self) -> Vec<(String, String)> {
         let Some(fleet) = self.pane_fleet() else {
             return Vec::new();
         };
-        let here = fleet.waypoints.first();
-        let next = fleet.waypoints.get(1);
-        let mut rows = vec![(
-            "Coming From".to_string(),
-            here.map_or_else(
-                || format!("({}, {})", fleet.position.x, fleet.position.y),
-                |w| format!("({}, {})", w.position.x, w.position.y),
-            ),
-        )];
-        let Some(next) = next else {
-            rows.push(("Next Way Pt".to_string(), "(none)".to_string()));
-            return rows;
+        // The waypoint in hand, and the leg into it.
+        let in_hand = self
+            .selection
+            .waypoint
+            .filter(|w| *w >= 1 && *w < fleet.waypoints.len());
+        let (label, from_index, into_index) = match in_hand {
+            Some(w) => ("Coming From", w - 1, w),
+            None => ("Next Way Pt", 0, 1),
         };
-        rows.push((
-            "Next Way Pt".to_string(),
-            format!("({}, {})", next.position.x, next.position.y),
-        ));
+        let Some(next) = fleet.waypoints.get(into_index) else {
+            return vec![(label.to_string(), "(none)".to_string())];
+        };
+        let from = fleet
+            .waypoints
+            .get(from_index)
+            .map_or(fleet.position, |w| w.position);
+        let named = if in_hand.is_some() {
+            fleet
+                .waypoints
+                .get(from_index)
+                .map_or_else(String::new, |w| {
+                    self.location_name(w.target_class, w.target, w.position)
+                })
+        } else {
+            self.location_name(next.target_class, next.target, next.position)
+        };
+        let mut rows = vec![(label.to_string(), named)];
         let warp = i32::from(next.warp);
         rows.push((
             "Warp Factor".to_string(),
@@ -4080,7 +4095,7 @@ impl App {
                 warp.to_string()
             },
         ));
-        let distance = stars_core::movement::distance(fleet.position, next.position);
+        let distance = stars_core::movement::distance(from, next.position);
         rows.push(("Distance".to_string(), format!("{distance:.0} l.y.")));
         // A year covers the square of the warp factor.
         let per_year = warp * warp;
@@ -7062,6 +7077,10 @@ pub struct Production {
     /// Which queue row is picked out. `None` is the list's first line,
     /// `— Top of the Queue —`, which is where a new item goes to the front.
     pub queue_index: Option<usize>,
+    /// Which opening of the dialog this is. The lists' scroll positions
+    /// are keyed by it, so every opening starts at the top of each list,
+    /// as a dialog made afresh does.
+    pub opening: u64,
 }
 
 impl App {
@@ -7082,12 +7101,15 @@ impl App {
             .queue
             .iter()
             .rposition(|entry| entry.ship || !entry.is_auto());
+        let (id, queue, no_research) = (planet.id, planet.queue.clone(), planet.no_research);
+        self.production_openings += 1;
         self.production = Some(Production {
-            planet: planet.id,
-            queue: planet.queue.clone(),
-            no_research: planet.no_research,
+            planet: id,
+            queue,
+            no_research,
             inventory_index: 0,
             queue_index,
+            opening: self.production_openings,
         });
     }
 

@@ -180,7 +180,7 @@ fn rows_grid(
     }
     egui::Grid::new(id)
         .num_columns(2)
-        .spacing([8.0, 1.0])
+        .spacing([8.0, 0.0])
         .striped(false)
         .show(ui, |ui| {
             for (row, (label, value)) in rows.iter().enumerate() {

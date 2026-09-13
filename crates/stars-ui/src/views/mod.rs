@@ -430,6 +430,11 @@ pub(crate) fn tile_pane(
                 let mut child = ui.child_ui(inside, egui::Layout::top_down(egui::Align::Min), None);
                 child.set_clip_rect(inside);
                 child.spacing_mut().item_spacing.y = 0.0;
+                // A tile's rows are a line each, `dyArial8` apart, and the
+                // table sizes the tile for exactly that many: egui's
+                // eighteen-pixel minimum row would run every tile over.
+                child.spacing_mut().interact_size.y = line;
+                child.spacing_mut().button_padding.y = 0.0;
                 body(app, &mut child, *index);
             }
         }

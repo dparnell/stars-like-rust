@@ -433,8 +433,8 @@ pages, through the same calls the panes make, and checks that every task
 turns the page as `AdvanceTutor` would. `tutorial_ui.rs` plays it through
 the panes themselves — every step a press on a button where a pane drew it,
 a pick from a menu or dropdown where it opened, or a click on the map where
-the scanner drew the planet — and so far gets through **2400 to 2405**,
-pages one to twenty; see *Through the panes* below. It gets through **2400 to 2410** —
+the scanner drew the planet — and so far gets through **2400 to 2407**,
+pages one to twenty-five; see *Through the panes* below. It gets through **2400 to 2410** —
 pages one to thirty-three — and stops on page 34. The first four years took three corrections to
 what was here:
 
@@ -521,7 +521,15 @@ must press what the text names:
   on the **Berserkers'** fleet with that number; a Transport task said
   nothing when it loaded or unloaded, where the original reports each kind
   moved (`0x2b`–`0x2e`), which is the message page 20 Gotos the Teamster
-  from.
+  from;
+* the Fleet Waypoints tile had no **Repeat Orders** checkbox and no list of
+  the waypoints (page 22, page 17); its figures had two location rows where
+  `DrawShipOrders` draws one; and every tile's rows were egui's eighteen
+  pixels where the original's are a line, so the tiles the table sizes for
+  a line a row overflowed;
+* the Production dialog's lists kept their scroll position from one opening
+  to the next, so a list rolled down for 90210 opened rolled down for Stove
+  Top and page 25's double-click on Armed Probe fell on the wrong row.
 
 ### The halo
 
