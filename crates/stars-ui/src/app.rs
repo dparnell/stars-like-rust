@@ -12614,6 +12614,16 @@ pub struct PaneFleet {
     pub mine: bool,
 }
 
+/// What the tutorial's halo should ring: a button or row a pane drew, by
+/// the name it was recorded under, or a point on the map.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TutorTarget {
+    /// A drawn widget, looked up in [`App::drawn`].
+    Widget { scope: &'static str, label: String },
+    /// A place on the map, in galaxy units.
+    Map(stars_core::movement::Point),
+}
+
 /// A button as it was drawn this frame: what it said, where, and whether it
 /// could be pressed.
 ///
@@ -13154,6 +13164,230 @@ impl App {
             .find(|stage| stage.check.as_ref().is_some_and(|c| !self.tutor_check(c)))
             .or_else(|| step.stages.last())
             .map(|stage| stage.bold)
+    }
+
+    /// The check the page is waiting on: the first of its stages not yet
+    /// satisfied, in the page's own year.
+    #[must_use]
+    pub fn tutor_pending(&self) -> Option<&'static crate::tutorial::Check> {
+        let step = self.tutor_step()?;
+        let turn = self.game.as_ref().map_or(-1_i16, |game| game.turn);
+        if step.turn != turn {
+            return None;
+        }
+        step.stages
+            .iter()
+            .filter_map(|stage| stage.check.as_ref())
+            .find(|check| !self.tutor_check(check))
+    }
+
+    /// What the tutorial would like the player to press next, if that can
+    /// be said in terms of something on the screen — the halo's target.
+    ///
+    /// This is this project's own addition, not the original's, which
+    /// emboldens a paragraph and leaves the finding to the reader. It reads
+    /// the check the page is waiting on and works out the nearest thing to
+    /// do about it: the message pane's **Next** while messages are unread,
+    /// its **Goto** when the message in front points at what the page
+    /// wants, the planet or fleet on the map otherwise; the **Change** button
+    /// for a queue, then the row and **Add** and **OK** inside the dialog;
+    /// **Xfer** and the gauge for a hold; the Waypoint Task dropdown for a
+    /// task. Where no button answers — a key, a dialog with no way in from
+    /// a pane — there is no target and no halo.
+    #[must_use]
+    pub fn tutor_target(&self) -> Option<TutorTarget> {
+        use crate::tutorial::{Check, Cmp};
+        use stars_core::fleet::grobj;
+        use stars_core::message::Goto;
+
+        let check = self.tutor_pending()?;
+        let game = self.game.as_ref()?;
+        let me = self.local_player();
+        let widget = |scope: &'static str, label: &str| {
+            Some(TutorTarget::Widget {
+                scope,
+                label: label.to_string(),
+            })
+        };
+        let planet_at = |id: i16| {
+            game.planets
+                .iter()
+                .chain(game.known_planets.iter())
+                .find(|p| p.id == id)
+                .and_then(|p| p.position)
+                .map(TutorTarget::Map)
+        };
+        let fleet_index = |id: u16| {
+            game.fleets
+                .iter()
+                .position(|f| f.id == id && usize::try_from(f.owner).is_ok_and(|o| o == me))
+        };
+        // The message in front, and where its Goto goes.
+        let goto = self.message_goto();
+        let fleet_selected = |id: u16| {
+            self.selection.on_fleet
+                && self
+                    .selection
+                    .fleet
+                    .and_then(|i| game.fleets.get(i))
+                    .is_some_and(|f| f.id == id)
+        };
+        // How to get a fleet in hand: the message that points at it, the
+        // fleets-here tile's Goto when it is at the selected planet, or the
+        // fleet itself on the map.
+        let take_fleet = |id: u16| -> Option<TutorTarget> {
+            if goto == Goto::Fleet(id) {
+                return widget("messages", "Goto");
+            }
+            let index = fleet_index(id)?;
+            let fleet = &game.fleets[index];
+            let at_selected_planet = !self.selection.on_fleet
+                && fleet.orbiting.is_some()
+                && self.selection.planet == fleet.orbiting.and_then(|p| i16::try_from(p).ok());
+            if at_selected_planet {
+                return widget("planet", "Goto");
+            }
+            Some(TutorTarget::Map(fleet.position))
+        };
+        let take_planet = |id: i16| -> Option<TutorTarget> {
+            if goto == Goto::Planet(id) {
+                return widget("messages", "Goto");
+            }
+            planet_at(id)
+        };
+
+        match check {
+            Check::Messages {
+                filter: true, kind, ..
+            } => {
+                let here = self.current_message();
+                if here
+                    .as_ref()
+                    .is_some_and(|m| kind.is_none_or(|k| m.id == k))
+                {
+                    widget("messages", "filter")
+                } else {
+                    widget("messages", "Next")
+                }
+            }
+            Check::Messages { .. } => widget("messages", "Next"),
+            Check::Selection { class, id } | Check::Summary { class, id } => match *class {
+                grobj::PLANET => take_planet(*id),
+                grobj::FLEET => take_fleet(u16::try_from(*id).ok()?),
+                _ => None,
+            },
+            Check::FleetWaypoint {
+                fleet, order, id, ..
+            } => {
+                if !fleet_selected(*fleet) {
+                    return take_fleet(*fleet);
+                }
+                let has_leg = fleet_index(*fleet)
+                    .and_then(|i| game.fleets[i].waypoints.get(*order))
+                    .is_some();
+                if has_leg {
+                    widget("fleet", "Waypoint Task")
+                } else {
+                    planet_at(i16::try_from(*id).ok()?)
+                }
+            }
+            Check::ColonizeWaypoint { fleet, id, .. } => {
+                if !fleet_selected(*fleet) {
+                    return take_fleet(*fleet);
+                }
+                let has_leg = fleet_index(*fleet)
+                    .and_then(|i| game.fleets[i].waypoints.get(1))
+                    .is_some();
+                if has_leg {
+                    widget("fleet", "Waypoint Task")
+                } else {
+                    planet_at(i16::try_from(*id).ok()?)
+                }
+            }
+            Check::TransportWaypoint {
+                fleet, order, id, ..
+            } => {
+                if !fleet_selected(*fleet) {
+                    return take_fleet(*fleet);
+                }
+                let leg = fleet_index(*fleet).and_then(|i| game.fleets[i].waypoints.get(*order));
+                match leg {
+                    None => planet_at(i16::try_from(*id).ok()?),
+                    Some(leg) if leg.task != stars_formats::task::TRANSPORT => {
+                        widget("fleet", "Waypoint Task")
+                    }
+                    Some(_) => widget("fleet", "blue diamond"),
+                }
+            }
+            Check::Cargo { fleet, .. } => {
+                if !fleet_selected(*fleet) {
+                    return take_fleet(*fleet);
+                }
+                if self.xfer.is_none() {
+                    widget("fleet", "Xfer")
+                } else {
+                    widget("xfer", "Colonists gauge")
+                }
+            }
+            Check::Queue {
+                planet, item, ship, ..
+            } => {
+                let Some(dialog) = self.production.as_ref() else {
+                    return if self.selection.planet == Some(*planet) && !self.selection.on_fleet {
+                        widget("planet", "Change")
+                    } else {
+                        take_planet(*planet)
+                    };
+                };
+                let wanted = self
+                    .production_inventory()
+                    .iter()
+                    .position(|row| row.ship == *ship && row.item == *item);
+                let queued = dialog
+                    .queue
+                    .iter()
+                    .any(|entry| entry.ship == *ship && entry.item == *item);
+                match wanted {
+                    Some(row) if !queued && dialog.inventory_index != row => {
+                        let name = self.production_inventory()[row].name.clone();
+                        widget("production", &name)
+                    }
+                    Some(_) if !queued => widget("production", "Add ->"),
+                    _ => widget("production", "OK"),
+                }
+            }
+            Check::QueueLength { planet, cmp, .. } => {
+                if self.production.is_some() {
+                    widget(
+                        "production",
+                        if *cmp == Cmp::Fewer {
+                            "<- Remove"
+                        } else {
+                            "OK"
+                        },
+                    )
+                } else if self.selection.planet == Some(*planet) && !self.selection.on_fleet {
+                    widget("planet", "Change")
+                } else {
+                    take_planet(*planet)
+                }
+            }
+            Check::Research { .. } => {
+                if self.research_dialog.is_some() {
+                    widget("research", "Done")
+                } else {
+                    None
+                }
+            }
+            Check::FleetOrders { fleet, .. } | Check::RepeatOrders { fleet } => {
+                if fleet_selected(*fleet) {
+                    None
+                } else {
+                    take_fleet(*fleet)
+                }
+            }
+            _ => None,
+        }
     }
 
     /// Step the tutorial on if the page's task is done.

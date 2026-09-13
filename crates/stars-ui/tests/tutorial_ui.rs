@@ -44,6 +44,8 @@ struct Shell {
     /// second after the last, or egui would take each one for the third of
     /// a triple.
     time: f64,
+    /// Where the halo was painted this frame, if anywhere.
+    halo: Option<egui::Rect>,
 }
 
 impl Shell {
@@ -54,6 +56,7 @@ impl Shell {
             events: Vec::new(),
             modifiers: egui::Modifiers::NONE,
             time: 0.0,
+            halo: None,
         }
     }
 
@@ -76,6 +79,7 @@ impl Shell {
         let app = &mut self.app;
         app.start_frame();
         app.screen = Screen::Galaxy;
+        let mut halo = None;
         let _ = self.ctx.run(input, |ctx| {
             egui::TopBottomPanel::bottom("messages")
                 .show(ctx, |ui| stars_ui::views::messages::view(app, ui));
@@ -115,7 +119,9 @@ impl Shell {
                     .default_width(stars_ui::dialog::TRANSFER.pixels().x)
                     .show(ctx, |ui| stars_ui::views::transfer::view(app, ui));
             }
+            halo = stars_ui::views::tutorial::halo(app, ctx);
         });
+        self.halo = halo;
         app.advance_tutor();
     }
 
@@ -396,6 +402,36 @@ impl Shell {
         self.app.tutor.as_ref().expect("running").page()
     }
 
+    /// The halo rings the widget named — the thing the page wants pressed.
+    fn assert_halo_on(&mut self, scope: &str, label: &str) {
+        self.frame();
+        let widget = self
+            .app
+            .drawn_button(scope, label)
+            .unwrap_or_else(|| panic!("no {label:?} in the {scope} pane"))
+            .rect;
+        let halo = self.halo.unwrap_or_else(|| {
+            panic!(
+                "no halo, but {scope}'s {label:?} is what the page wants; target {:?}",
+                self.app.tutor_target()
+            )
+        });
+        assert!(
+            halo.contains_rect(widget),
+            "the halo {halo:?} is not around {scope}'s {label:?} at {widget:?}"
+        );
+    }
+
+    /// The halo rings a planet on the map.
+    fn assert_halo_on_planet(&mut self, planet: i16) {
+        let at = self.planet_on_screen(planet);
+        let halo = self.halo.expect("a halo on the map");
+        assert!(
+            halo.contains(at),
+            "the halo {halo:?} is not around {planet:#x} at {at:?}"
+        );
+    }
+
     fn selected_fleet_id(&self) -> Option<u16> {
         self.app
             .selection
@@ -415,15 +451,20 @@ fn year_zero_is_played_through_the_panes() {
     shell.frame();
     assert_eq!(shell.page(), 1);
 
-    // Page 1: "click on the Next button" in the Messages pane, four times.
+    // Page 1: "click on the Next button" in the Messages pane, four times —
+    // and the halo says so.
+    shell.assert_halo_on("messages", "Next");
     for _ in 0..4 {
         shell.press("messages", "Next");
     }
     assert_eq!(shell.page(), 2, "all five messages read");
 
-    // Page 2: the Fleets in Orbit tile's Goto, then shift-click Prune.
+    // Page 2: the Fleets in Orbit tile's Goto, then shift-click Prune. The
+    // halo moves from the button to the planet once the probe is in hand.
+    shell.assert_halo_on("planet", "Goto");
     shell.press("planet", "Goto");
     assert_eq!(shell.selected_fleet_id(), Some(0), "Armed Probe #1 in hand");
+    shell.assert_halo_on_planet(PRUNE);
     shell.shift_click_planet(PRUNE);
     {
         let fleet = &shell.app.game.as_ref().expect("a game").fleets[0];
@@ -509,14 +550,23 @@ fn year_zero_is_played_through_the_panes() {
     // Page 6: "Press Change on the Production tile. Pick Factory in the
     // list on the left, hold down shift and press Add twice, giving 20
     // factories in all, then press OK."
+    // "Read the message in the Messages pane" — the empty queue at Stove
+    // Top, whose Goto puts the planet in front of the fleet the pane was
+    // left on; the halo points there first, then at Change.
+    shell.assert_halo_on("messages", "Goto");
+    shell.press("messages", "Goto");
+    shell.assert_halo_on("planet", "Change");
     shell.press("planet", "Change");
     assert!(
         shell.app.production.is_some(),
         "the Production dialog is up"
     );
+    shell.assert_halo_on("production", "Factory");
     shell.press("production", "Factory");
+    shell.assert_halo_on("production", "Add ->");
     shell.press_with(egui::Modifiers::SHIFT, "production", "Add ->");
     shell.press_with(egui::Modifiers::SHIFT, "production", "Add ->");
+    shell.assert_halo_on("production", "OK");
     {
         let dialog = shell.app.production.as_ref().expect("still up");
         assert_eq!(dialog.queue.len(), 1, "{:?}", dialog.queue);
@@ -595,6 +645,7 @@ fn year_zero_is_played_through_the_panes() {
     // 90210; Colonize from the Waypoint Task dropdown.
     shell.right_click_planet_and_pick(STOVE_TOP, "Santa Maria #3");
     assert_eq!(shell.selected_fleet_id(), Some(2));
+    shell.assert_halo_on("fleet", "Xfer");
     shell.press("fleet", "Xfer");
     assert!(shell.app.xfer.is_some(), "the Cargo Transfer dialog is up");
     shell.frame();

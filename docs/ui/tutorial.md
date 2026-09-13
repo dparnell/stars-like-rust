@@ -515,6 +515,25 @@ must press what the text names:
   clicks are a second apart, or egui takes every one for the third of a
   triple and no double-click ever registers.
 
+### The halo
+
+One thing here the original does not have, asked for rather than found: a
+**pulsing ring** around whatever the page would like pressed next. The
+original's only pointer is the emboldened paragraph. `App::tutor_target`
+reads the check the page is waiting on (`tutor_pending`, the first stage
+not satisfied) and names the nearest thing to do about it — the message
+pane's **Next** while messages are unread and its **Goto** when the
+message in front points at what the page wants, the planet or fleet on the
+map otherwise, **Change** for a queue and then the row, **Add** and **OK**
+inside the dialog, **Xfer** and the gauge for a hold, the Waypoint Task
+dropdown for a task — as a drawn widget by the name a pane recorded it
+under, or a point on the map. `views::tutorial::halo` finds where that was
+drawn this frame and rings it on the tooltip layer, swelling and fading
+over a second and a half. Where nothing on screen answers — a key, a
+dialog with no button into it — there is no ring. `tutorial_ui.rs` checks
+that the ring sits on what it is about to press at the start of pages 1,
+2, 6 and 12.
+
 ### Where it stops, and why
 
 Page 34 (2411) is where the client's picture of the game stops matching

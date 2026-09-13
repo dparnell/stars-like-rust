@@ -254,3 +254,59 @@ fn face() -> egui::Color32 {
 fn text_colour() -> egui::Color32 {
     egui::Color32::BLACK
 }
+
+/// The **halo**: a pulsing ring around whatever the tutorial would like
+/// pressed next, painted over everything once the panes have drawn.
+///
+/// This project's own aid, not the original's, whose only pointer is the
+/// emboldened paragraph. [`App::tutor_target`] says what to ring — a button
+/// or row by the name a pane recorded it under, or a point on the map — and
+/// this finds where that was drawn this frame and rings it. Nothing is
+/// drawn while the tutor window is hidden, or when there is no target.
+///
+/// Returns where the halo went, for a test to check.
+pub fn halo(app: &App, ctx: &egui::Context) -> Option<egui::Rect> {
+    if app.tutor.as_ref().is_none_or(|t| t.hidden || t.finished) {
+        return None;
+    }
+    let target = app.tutor_target()?;
+    let rect = match target {
+        crate::app::TutorTarget::Widget { scope, label } => {
+            let widget = app.drawn_button(scope, &label)?;
+            if !widget.visible {
+                return None;
+            }
+            widget.rect
+        }
+        crate::app::TutorTarget::Map(at) => {
+            let map = app.map_frame?;
+            let centre = map.to_screen(at.x, at.y);
+            if !map.rect.contains(centre) {
+                return None;
+            }
+            egui::Rect::from_center_size(centre, egui::vec2(18.0, 18.0))
+        }
+    };
+
+    // A breath every second and a half: the ring swells and fades, and the
+    // frame after this one is asked for so it keeps breathing.
+    let t = ctx.input(|i| i.time);
+    #[allow(clippy::cast_possible_truncation)]
+    let pulse = ((t * std::f64::consts::TAU / 1.5).sin() * 0.5 + 0.5) as f32;
+    let grow = 3.0 + pulse * 5.0;
+    let alpha = (110.0 + pulse * 130.0) as u8;
+    let colour = egui::Color32::from_rgba_unmultiplied(0xff, 0xb0, 0x00, alpha);
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Tooltip,
+        egui::Id::new("tutor-halo"),
+    ));
+    let ring = rect.expand(grow);
+    painter.rect_stroke(ring, 4.0, egui::Stroke::new(2.5_f32, colour));
+    painter.rect_stroke(
+        ring.expand(3.0),
+        6.0,
+        egui::Stroke::new(1.0_f32, colour.gamma_multiply(0.5)),
+    );
+    ctx.request_repaint_after(std::time::Duration::from_millis(33));
+    Some(ring)
+}

@@ -1548,6 +1548,9 @@ impl eframe::App for StarsApp {
                 .resizable(false)
                 .default_width(stars_ui::dialog::TUTOR.pixels().x)
                 .show(ctx, |ui| stars_ui::views::tutorial::view(&mut self.app, ui));
+            // The halo around what the page would like pressed, over
+            // everything drawn so far.
+            stars_ui::views::tutorial::halo(&self.app, ctx);
             if !open {
                 // Closing the window is the Hide button, not Stop: the
                 // tutorial goes on running.
