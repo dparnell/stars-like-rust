@@ -170,6 +170,25 @@ impl Shell {
     fn press(&mut self, scope: &str, label: &str) {
         self.frame();
         self.assert_halo_somewhere(scope, label);
+        let before = (self.page(), self.app.tutor_bold());
+        self.press_unchecked(scope, label);
+        // Following the pages, the bold never goes back up the page: a
+        // step done stays done. Page 14 once sent it back to "Goto 90210"
+        // when Teamster #4 was picked.
+        let after = (self.page(), self.app.tutor_bold());
+        if after.0 == before.0 {
+            assert!(
+                after.1 >= before.1,
+                "the bold went back from {:?} to {:?} on page {} after {scope}/{label}",
+                before.1,
+                after.1,
+                after.0
+            );
+        }
+    }
+
+    /// The press itself, without the checks around it.
+    fn press_unchecked(&mut self, scope: &str, label: &str) {
         let button = self
             .app
             .drawn_button(scope, label)
@@ -881,8 +900,14 @@ fn year_zero_is_played_through_the_panes() {
         assert!(dialog.no_research);
     }
     shell.press("production", "OK");
+    // The queue done, the bold moves on to "pick Teamster #4" and stays
+    // there once it is picked — the "Goto 90210" above only decorated the
+    // queue, as the original's nesting has it — rather than going back to
+    // the top of the page because 90210 is no longer selected.
+    assert_eq!(shell.app.tutor_bold(), Some(0x6d));
     shell.right_click_planet_and_pick(STOVE_TOP, "Teamster #4");
     assert_eq!(shell.selected_fleet_id(), Some(3));
+    assert_eq!(shell.app.tutor_bold(), Some(0x6e), "the Xfer paragraph");
     shell.press("fleet", "Xfer");
     shell.frame();
     let gauge = shell

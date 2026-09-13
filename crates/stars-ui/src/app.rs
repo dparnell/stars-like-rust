@@ -5327,6 +5327,8 @@ impl App {
     pub fn open_battle(&mut self, index: usize) {
         self.vcr = self.battles.get(index).map(Vcr::new);
         self.playing = false;
+        // `VCRDlg` (`10e8:1879`) tells the tutor a battle was watched.
+        self.tutor_note_seen();
     }
 
     /// The planetary items the selected planet's owner may build.
@@ -7173,6 +7175,9 @@ impl App {
             return;
         };
         self.production_write(&dialog);
+        // `FinishProduction` (`10d0:11ed`) tells the tutor a queue was
+        // finished with.
+        self.tutor_note_seen();
     }
 
     /// Write one dialog's working copy back to its planet.
@@ -13030,6 +13035,7 @@ impl App {
         };
 
         match check {
+            Check::Any(checks) => checks.iter().any(|c| self.tutor_check(c)),
             Check::Selection { class, id } => match *class {
                 grobj::PLANET => self.selection.planet == Some(*id) && !self.selection.on_fleet,
                 // A fleet's id in the original carries its owner in the
@@ -13373,7 +13379,7 @@ impl App {
         step.stages
             .iter()
             .filter(|stage| stage.gates)
-            .all(|stage| stage.check.as_ref().is_none_or(|c| self.tutor_check(c)))
+            .all(|stage| self.tutor_stage_passes(stage))
     }
 
     /// Whether the page is done and only waiting for the year to be
@@ -13388,9 +13394,46 @@ impl App {
         step.wait.is_some() && step.turn == turn && self.tutor_task_done()
     }
 
-    /// Which paragraph the page emboldens: the first rung not yet satisfied,
-    /// the page's waiting paragraph once its year's work is done, or the
-    /// last rung's when they all are.
+    /// Whether a rung passes: its check holds, or it is sticky and has held
+    /// once already this page (bit 10). A rung with no check passes.
+    fn tutor_stage_passes(&self, stage: &crate::tutorial::Stage) -> bool {
+        if stage.sticky && self.tutor.as_ref().is_some_and(|t| t.seen) {
+            return true;
+        }
+        stage.check.as_ref().is_none_or(|c| self.tutor_check(c))
+    }
+
+    /// The rungs the page is on: from the rung after the last gate passed
+    /// up to the first gate not yet passed.
+    ///
+    /// The original's arms are nested — `if (queue done) { ask about the
+    /// freighter } else { bold by the message and the selection }` — so a
+    /// hint decorates only the gate it stands before. Page 14's "Goto
+    /// 90210" is asked about only while 90210's queue is unfilled; once
+    /// it is filled, picking Teamster #4 must not send the bold back to
+    /// the top of the page because 90210 is no longer selected.
+    fn tutor_rungs(&self) -> &'static [crate::tutorial::Stage] {
+        let Some(step) = self.tutor_step() else {
+            return &[];
+        };
+        let mut from = 0;
+        for (index, stage) in step.stages.iter().enumerate() {
+            if !stage.gates {
+                continue;
+            }
+            let passed = self.tutor_stage_passes(stage);
+            if passed {
+                from = index + 1;
+            } else {
+                return &step.stages[from..=index];
+            }
+        }
+        &step.stages[from.min(step.stages.len())..]
+    }
+
+    /// Which paragraph the page emboldens: the first rung not yet satisfied
+    /// among the rungs it is on, the page's waiting paragraph once its
+    /// year's work is done, or the last rung's when they all are.
     #[must_use]
     pub fn tutor_bold(&self) -> Option<usize> {
         let step = self.tutor_step()?;
@@ -13403,14 +13446,9 @@ impl App {
         }
         // A rung's paragraph shows while its check fails — or, for a
         // `held` rung, while it holds.
-        step.stages
+        self.tutor_rungs()
             .iter()
-            .find(|stage| {
-                stage
-                    .check
-                    .as_ref()
-                    .is_some_and(|c| self.tutor_check(c) == stage.held)
-            })
+            .find(|stage| stage.check.is_some() && self.tutor_stage_passes(stage) == stage.held)
             .or_else(|| step.stages.last())
             .map(|stage| stage.bold)
     }
@@ -13425,11 +13463,20 @@ impl App {
             return None;
         }
         // A `held` rung says where the reader is, not what to do next.
-        step.stages
+        self.tutor_rungs()
             .iter()
-            .filter(|stage| !stage.held)
-            .filter_map(|stage| stage.check.as_ref())
-            .find(|check| !self.tutor_check(check))
+            .filter(|stage| !stage.held && !self.tutor_stage_passes(stage))
+            .find_map(|stage| stage.check.as_ref())
+    }
+
+    /// Note that something the page was watching for has been seen — bit
+    /// 10 of `tutor.fVisible`, which the panes set when a queue is OK'd
+    /// (`FinishProduction`), a pop-up opens (`PopupWndProc`) or a battle is
+    /// played (`VCRDlg`), and which the page's sticky rungs read.
+    pub fn tutor_note_seen(&mut self) {
+        if let Some(tutor) = self.tutor.as_mut() {
+            tutor.seen = true;
+        }
     }
 
     /// What the tutorial would like the player to press next, if that can
@@ -13447,10 +13494,6 @@ impl App {
     /// a pane — there is no target and no halo.
     #[must_use]
     pub fn tutor_target(&self) -> Option<TutorTarget> {
-        use crate::tutorial::{Check, Cmp};
-        use stars_core::fleet::grobj;
-        use stars_core::message::Goto;
-
         let widget = |scope: &'static str, label: &str| {
             Some(TutorTarget::Widget {
                 scope,
@@ -13476,6 +13519,33 @@ impl App {
             return menu("Generate", "Turn");
         }
         let check = self.tutor_pending()?;
+        self.tutor_target_for(check)
+    }
+
+    /// The target for one check — see [`Self::tutor_target`].
+    #[allow(clippy::too_many_lines)]
+    fn tutor_target_for(&self, check: &crate::tutorial::Check) -> Option<TutorTarget> {
+        use crate::tutorial::{Check, Cmp};
+        use stars_core::fleet::grobj;
+        use stars_core::message::Goto;
+
+        let widget = |scope: &'static str, label: &str| {
+            Some(TutorTarget::Widget {
+                scope,
+                label: label.to_string(),
+            })
+        };
+        let menu = |item: &str, header: &str| {
+            if self
+                .drawn
+                .iter()
+                .any(|w| w.scope == "menu" && w.label == item)
+            {
+                widget("menu", item)
+            } else {
+                widget("menu", header)
+            }
+        };
         let game = self.game.as_ref()?;
         let me = self.local_player();
         let planet_at = |id: i16| {
@@ -13544,6 +13614,8 @@ impl App {
         };
 
         match check {
+            // Any of several: the first that can be pointed at.
+            Check::Any(checks) => checks.iter().find_map(|c| self.tutor_target_for(c)),
             Check::Messages {
                 filter: true, kind, ..
             } => {
@@ -13760,6 +13832,18 @@ impl App {
             return false;
         }
         let was = tutor.idt;
+        // A sticky rung whose check holds sets the bit, as the arm does at
+        // the moment it sees what it was watching for.
+        if !tutor.seen {
+            let held = self.tutor_step().is_some_and(|step| {
+                step.stages
+                    .iter()
+                    .any(|s| s.sticky && s.check.as_ref().is_some_and(|c| self.tutor_check(c)))
+            });
+            if held {
+                self.tutor_note_seen();
+            }
+        }
         while self.tutor_task_done() && !self.tutor_waiting() {
             let Some(tutor) = self.tutor.as_mut() else {
                 return false;
@@ -13767,6 +13851,8 @@ impl App {
             tutor.idt += stars_formats::tutorial::PARAGRAPHS_PER_PAGE;
             tutor.error = None;
             tutor.bold = tutor.idt;
+            // `& 0xfbdf`: the page turned forgets what the last one saw.
+            tutor.seen = false;
             if tutor.idt > crate::tutorial::LAST_PARAGRAPH {
                 tutor.finished = true;
                 break;
@@ -13863,6 +13949,10 @@ impl App {
         self.drawn.clear();
         self.drawn_scope = "";
         self.map_frame = None;
+        // `PopupWndProc` (`10c0:00cd`) tells the tutor a pop-up came up.
+        if self.popup.is_some() {
+            self.tutor_note_seen();
+        }
     }
 
     /// The button with this label in this pane, as it was drawn this frame.

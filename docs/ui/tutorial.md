@@ -579,6 +579,39 @@ must press what the text names:
   Customize box opening, so Import is what turns it — the text of page 33
   is read after the fact, as in the original.
 
+### A hint decorates the gate it stands before
+
+The arms are nested: `if (queue done) { ask about the freighter } else {
+bold by the message and the selection }`. A hint therefore only matters
+while the gate that follows it is unpassed. Page 14's "Goto 90210" is asked
+about only while 90210's queue is unfilled; the step table used to check
+every rung from the top, so picking Teamster #4 — once the queue was done
+— sent the bold back to "Goto 90210", 90210 no longer being selected.
+`App::tutor_rungs` is the window the page is on: from the rung after the
+last gate passed up to the first gate not yet passed. Within a window an
+`Any` check reads a nested `else` as one rung (page 31: the Oxygen
+paragraph only while neither Oxygen is shown nor the ship is in hand).
+
+`tutorial_ui.rs` now checks, at every press, that the bold never goes
+back up a page.
+
+### Bit 10: what has been seen
+
+Beside the wait bit the original keeps **bit 10** of `tutor.fVisible`:
+*something the page was watching for has been seen*. The arms set it as a
+summary they wait on first comes up (pages 25 and 33, `| 0x400`), the
+panes set it on their own — `FinishProduction` (`10d0:11ed`) when a queue
+is OK'd, `PopupWndProc` (`10c0:00cd`) when a pop-up opens, `VCRDlg`
+(`10e8:1879`) when a battle is played, `PlanetWndProc` (`1048:0c55`) on a
+click in the pane — and seventeen arms read it instead of asking again.
+`AdvanceTutor`'s loop clears it with each page turned. `Tutor::seen` is
+the bit, `seen()` a rung that stays passed once it has passed, and
+`App::tutor_note_seen` what the panes call. Page 28 in the original
+gates its Research step on the bit — the pop-ups the page invites you to
+open — and page 25 gates on the Berserker scout having been looked at;
+neither is gated here yet, the summary pop-ups being undrawn and the scout
+unflown.
+
 ### Page 4, read the other way up
 
 Most arms of `FTutorTaskDone` are a chain of *if this is done, embolden

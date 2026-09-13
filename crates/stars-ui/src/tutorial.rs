@@ -61,6 +61,14 @@ pub struct Tutor {
     /// Whether the notice explaining how to get the window back has been
     /// shown. `TutorDlg` shows it once and then clears the bit.
     pub told_how_to_return: bool,
+    /// Bit 10 of `tutor.fVisible`: **something the page asked for has
+    /// been seen**. `FTutorTaskDone` sets it when a summary it was
+    /// watching for came up (pages 25 and 33), and the panes set it on
+    /// their own — `FinishProduction` when a queue is OK'd, `PopupWndProc`
+    /// when a pop-up opens, `VCRDlg` when a battle is played — and the arms
+    /// then read it to stop asking. `AdvanceTutor` clears it with every
+    /// page turned.
+    pub seen: bool,
 }
 
 impl Tutor {
@@ -86,6 +94,11 @@ impl Tutor {
 /// carries [`ANY`], and where it passes `-1` this carries `None`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Check {
+    /// Any of these: how a nested `else` reads as one rung. Page 31 asks
+    /// whether the summary shows Oxygen **only while** Santa Maria #10 is
+    /// not in hand, so the paragraph that says to Goto Oxygen is emboldened
+    /// while neither is so, and not again once the ship is picked.
+    Any(&'static [Check]),
     /// `FCheckSelection` (`10f8:6af4`): that object is selected.
     Selection { class: u8, id: i16 },
     /// `FCheckSummary` (`10f8:69e2`): the summary pane is showing it.
@@ -291,6 +304,7 @@ impl Check {
     #[must_use]
     pub fn verb(&self) -> &'static str {
         match self {
+            Check::Any(checks) => checks.first().map_or("nothing", Check::verb),
             Check::Selection { .. } => "selection",
             Check::Summary { .. } => "summary",
             Check::Messages { .. } => "messages",
@@ -366,6 +380,12 @@ pub struct Stage {
     /// deciding whether the page is done, but still catches the emphasis on
     /// its way past.
     pub gates: bool,
+    /// Whether the rung, once passed, **stays** passed for the rest of the
+    /// page — the original's bit 10, which the arm sets as the check first
+    /// passes and reads instead of the check thereafter. Page 33 asks
+    /// whether the summary shows Bloop, and does not ask again once it
+    /// has.
+    pub sticky: bool,
     /// Whether the paragraph is emboldened while the check **holds** rather
     /// than while it fails.
     ///
@@ -429,6 +449,7 @@ const fn ask(bold: usize, check: Check) -> Stage {
         check: Some(check),
         gates: true,
         held: false,
+        sticky: false,
     }
 }
 
@@ -439,6 +460,18 @@ const fn hint(bold: usize, check: Check) -> Stage {
         check: Some(check),
         gates: false,
         held: false,
+        sticky: false,
+    }
+}
+
+/// A rung asked only until it first passes, and remembered after — bit 10.
+const fn seen(bold: usize, check: Check) -> Stage {
+    Stage {
+        bold,
+        check: Some(check),
+        gates: false,
+        held: false,
+        sticky: true,
     }
 }
 
@@ -450,6 +483,7 @@ const fn mark(bold: usize, check: Check) -> Stage {
         check: Some(check),
         gates: false,
         held: true,
+        sticky: false,
     }
 }
 
@@ -1329,7 +1363,11 @@ pub static STEPS: &[Step] = &[
             // is an enemy scout ship." Fleet ids carry their owner in the
             // high bits, so `0x200` is player 1's fleet 0 — somebody
             // else's, which is the point of the page.
-            hint(
+            //
+            // The original **gates** on this until it has been seen (bit
+            // 10); this engine's computer players do not fly yet, so there
+            // is no scout to click and the rung is a hint until they do.
+            seen(
                 0xc0,
                 Check::Summary {
                     class: grobj::FLEET,
@@ -1491,7 +1529,9 @@ pub static STEPS: &[Step] = &[
         escape: None,
         wait: None,
         stages: &[
-            hint(0xe8, Check::ResearchDialog { open: false }),
+            // "Goto the Research dialog" while it is shut — `pctResGlob ==
+            // -1` — and the next paragraph once it is up.
+            hint(0xe8, Check::ResearchDialog { open: true }),
             // The same field as page 29 but a different **next**: 3 rather
             // than 6, so once Weapons is done research moves on by itself
             // instead of staying put.
@@ -1519,12 +1559,20 @@ pub static STEPS: &[Step] = &[
         escape: None,
         wait: Some(247),
         stages: &[
+            // `if (!selected fleet 9) { summary Oxygen ? 0xf1 : 0xf0 }`:
+            // the Oxygen paragraph only while neither is so.
             hint(
                 0xf0,
-                Check::Summary {
-                    class: grobj::PLANET,
-                    id: 0x02,
-                },
+                Check::Any(&[
+                    Check::Summary {
+                        class: grobj::PLANET,
+                        id: 0x02,
+                    },
+                    Check::Selection {
+                        class: grobj::FLEET,
+                        id: 9,
+                    },
+                ]),
             ),
             hint(
                 0xf1,
@@ -1612,12 +1660,20 @@ pub static STEPS: &[Step] = &[
             // "Hit the Import button to copy Shaggy Dog's queue into the
             // default template and hit OK."
             ask(0x100, Check::Template { template: 0 }),
-            hint(
+            // `if (!bit10 && !sel(Stove Top)) { Bloop shown ? set bit10,
+            // 0x104 : 0x103 }`: asked until Bloop has been looked at.
+            seen(
                 0x103,
-                Check::Summary {
-                    class: grobj::PLANET,
-                    id: 0x17,
-                },
+                Check::Any(&[
+                    Check::Summary {
+                        class: grobj::PLANET,
+                        id: 0x17,
+                    },
+                    Check::Selection {
+                        class: grobj::PLANET,
+                        id: 0x0d,
+                    },
+                ]),
             ),
             hint(
                 0x104,
@@ -2606,6 +2662,7 @@ pub static STEPS: &[Step] = &[
                 check: None,
                 gates: false,
                 held: false,
+                sticky: false,
             },
         ],
     },
@@ -2789,6 +2846,7 @@ pub static STEPS: &[Step] = &[
                 check: None,
                 gates: false,
                 held: false,
+                sticky: false,
             },
         ],
     },
