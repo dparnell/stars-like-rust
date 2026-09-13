@@ -82,6 +82,14 @@ impl Shell {
         app.screen = Screen::Galaxy;
         let mut halo = None;
         let _ = self.ctx.run(input, |ctx| {
+            // The menu bar's game menus, as the desktop draws them: the
+            // pages name Generate on the Turn menu and Research on the
+            // Commands menu.
+            egui::TopBottomPanel::top("menubar").show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    stars_ui::views::menubar::game_menus(app, ui);
+                });
+            });
             egui::TopBottomPanel::bottom("messages")
                 .show(ctx, |ui| stars_ui::views::messages::view(app, ui));
             egui::SidePanel::left("planet")
@@ -453,10 +461,23 @@ impl Shell {
         self.modifiers = egui::Modifiers::NONE;
     }
 
-    /// F9: the shell's key, so the year is generated directly.
+    /// Generate from the Turn menu, which is where the ring sends a
+    /// player whose year is done ("Press F9" being a key): the page must
+    /// be waiting on the turn, with the ring on the menu, and it turns
+    /// once the year has been generated.
     fn generate(&mut self) {
-        self.app.generate_turn();
         self.frame();
+        assert!(
+            self.app.tutor_waiting(),
+            "page {} is waiting on the turn",
+            self.page()
+        );
+        let page = self.page();
+        self.assert_halo_on("menu", "Turn");
+        self.press("menu", "Turn");
+        self.assert_halo_on("menu", "Generate");
+        self.press("menu", "Generate");
+        assert_ne!(self.page(), page, "the year turned the page");
     }
 
     fn page(&self) -> usize {
@@ -492,12 +513,10 @@ impl Shell {
     }
 
     /// Whatever the page is waiting on, the ring is on **something** —
-    /// or the thing wanted is one of the two the ring cannot reach: the
-    /// Research dialog while it is closed (F5, or the Commands menu, and
-    /// nothing here rings a key or a menu), and a fleet of another
-    /// player's that is not in view. A reader following the pages must
-    /// never be left with a bold paragraph and no ring, which is what
-    /// page 4 looked like from the desktop.
+    /// or the thing wanted is the one the ring cannot reach: a fleet of
+    /// another player's that is not in view. A reader following the pages
+    /// must never be left with a bold paragraph and no ring, which is
+    /// what page 4 looked like from the desktop.
     fn assert_halo_somewhere(&self, scope: &str, label: &str) {
         use stars_ui::tutorial::Check;
         let Some(check) = self.app.tutor_pending() else {
@@ -507,7 +526,6 @@ impl Shell {
             return;
         }
         let excused = match check {
-            Check::Research { .. } => self.app.research_dialog.is_none(),
             Check::Summary { class: 2, id } | Check::Selection { class: 2, id } => *id >= 0x200,
             _ => false,
         };
@@ -629,7 +647,12 @@ fn year_zero_is_played_through_the_panes() {
     shell.press("fleet", "Next");
     shell.press("fleet", "Next");
     assert_eq!(shell.selected_fleet_id(), Some(0));
-    shell.app.open_research();
+    // "Open Research from the Commands menu": the ring is on the menu, then
+    // on its item.
+    shell.assert_halo_on("menu", "Commands");
+    shell.press("menu", "Commands");
+    shell.assert_halo_on("menu", "Research…");
+    shell.press("menu", "Research…");
     shell
         .app
         .research_dialog
@@ -662,7 +685,10 @@ fn year_zero_is_played_through_the_panes() {
         shell.app.research_dialog.is_none(),
         "Done closes the dialog"
     );
-    assert_eq!(shell.page(), 6, "the year is done");
+    // The year's work is done, and the page stays up on "Press F9 to
+    // generate the next one" until it is — `FTutorTaskDone`'s bit 3.
+    assert_eq!(shell.page(), 5, "the page waits for the turn");
+    assert_eq!(shell.app.tutor_bold(), Some(39));
 
     // Prev walks the other way, and is there too.
     shell.press("fleet", "Prev");
@@ -703,7 +729,8 @@ fn year_zero_is_played_through_the_panes() {
     }
     shell.press("production", "OK");
     assert!(shell.app.production.is_none(), "OK closes the dialog");
-    assert_eq!(shell.page(), 7, "2401 is done");
+    assert_eq!(shell.page(), 6, "2401 is done, waiting on the turn");
+    assert!(shell.app.tutor_waiting());
     shell.generate();
     assert_eq!(shell.page(), 7);
 
@@ -803,7 +830,8 @@ fn year_zero_is_played_through_the_panes() {
     shell.shift_click_planet(PLANET_90210);
     shell.press("fleet", "Waypoint Task");
     shell.press("fleet", "Colonize");
-    assert_eq!(shell.page(), 13, "2402 is done");
+    assert_eq!(shell.page(), 12, "2402 is done, waiting on the turn");
+    assert!(shell.app.tutor_waiting());
     shell.generate();
     assert_eq!(shell.page(), 13);
 
@@ -921,7 +949,8 @@ fn year_zero_is_played_through_the_panes() {
             "straight on to No Vacancy"
         );
     }
-    assert_eq!(shell.page(), 17, "2403 is done");
+    assert_eq!(shell.page(), 16, "2403 is done, waiting on the turn");
+    assert!(shell.app.tutor_waiting());
     shell.generate();
     assert_eq!(shell.page(), 17);
 
@@ -962,7 +991,8 @@ fn year_zero_is_played_through_the_panes() {
     shell.press("planet", "Change");
     shell.double_click("production", "Santa Maria");
     shell.press("production", "OK");
-    assert_eq!(shell.page(), 19, "2404 is done");
+    assert_eq!(shell.page(), 18, "2404 is done, waiting on the turn");
+    assert!(shell.app.tutor_waiting());
     shell.generate();
     assert_eq!(shell.page(), 19);
 
@@ -1037,7 +1067,8 @@ fn year_zero_is_played_through_the_panes() {
         shell.app.delete_current_waypoint();
         shell.frame();
     }
-    assert_eq!(shell.page(), 21, "2405 is done");
+    assert_eq!(shell.page(), 20, "2405 is done, waiting on the turn");
+    assert!(shell.app.tutor_waiting());
     shell.generate();
     assert_eq!(shell.page(), 21);
 
@@ -1077,7 +1108,8 @@ fn year_zero_is_played_through_the_panes() {
     shell.press("planet", "Change");
     shell.double_click("production", "Santa Maria");
     shell.press("production", "OK");
-    assert_eq!(shell.page(), 23, "2406 is done");
+    assert_eq!(shell.page(), 22, "2406 is done, waiting on the turn");
+    assert!(shell.app.tutor_waiting());
     shell.generate();
     assert_eq!(shell.page(), 23);
 
@@ -1149,7 +1181,8 @@ fn year_zero_is_played_through_the_panes() {
     shell.double_click("production", "Armed Probe");
     shell.double_click("production", "Armed Probe");
     shell.press("production", "OK");
-    assert_eq!(shell.page(), 26, "2407 is done");
+    assert_eq!(shell.page(), 25, "2407 is done, waiting on the turn");
+    assert!(shell.app.tutor_waiting());
     shell.generate();
     assert_eq!(shell.page(), 26);
 
@@ -1229,8 +1262,8 @@ fn year_zero_is_played_through_the_panes() {
     shell.next_message_until(stars_core::message::Goto::Planet(WALLABY));
     shell.press("messages", "Goto");
     assert_eq!(shell.app.selection.planet, Some(WALLABY));
-    shell.app.open_research();
-    shell.frame();
+    shell.press("menu", "Commands");
+    shell.press("menu", "Research…");
     assert_eq!(shell.page(), 29);
 
     // Page 29: research to 30% and Done. The percentage is a slider here
@@ -1242,7 +1275,8 @@ fn year_zero_is_played_through_the_panes() {
         .expect("the dialog")
         .percent = 30;
     shell.press("research", "Done");
-    assert_eq!(shell.page(), 30, "2408 is done");
+    assert_eq!(shell.page(), 29, "2408 is done, waiting on the turn");
+    assert!(shell.app.tutor_waiting());
     shell.generate();
     assert_eq!(shell.page(), 30);
 
@@ -1314,7 +1348,8 @@ fn year_zero_is_played_through_the_panes() {
             "the leg moved"
         );
     }
-    assert_eq!(shell.page(), 32, "2409 is done");
+    assert_eq!(shell.page(), 31, "2409 is done, waiting on the turn");
+    assert!(shell.app.tutor_waiting());
     shell.generate();
     assert_eq!(shell.page(), 32);
 
@@ -1372,7 +1407,8 @@ fn year_zero_is_played_through_the_panes() {
     shell.double_click("production", "Santa Maria");
     shell.double_click("production", "Teamster");
     shell.press("production", "OK");
-    assert_eq!(shell.page(), 34, "2410 is done");
+    assert_eq!(shell.page(), 33, "2410 is done, waiting on the turn");
+    assert!(shell.app.tutor_waiting());
 }
 
 /// The planet pane's own tile has Prev and Next as well — `SelectAdjPlanet`

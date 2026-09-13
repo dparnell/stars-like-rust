@@ -396,6 +396,16 @@ pub struct Step {
     pub escape: Option<Check>,
     /// The rungs, in order.
     pub stages: &'static [Stage],
+    /// A page that ends the year: once its task is done it stays up, with
+    /// this paragraph emboldened — "Press F9 to generate the next year" —
+    /// until the turn has been generated.
+    ///
+    /// `FTutorTaskDone` sets bit 3 of `tutor.fVisible` as it reports these
+    /// pages done, and `AdvanceTutor` (`10f8:0a30`) then refuses to step
+    /// on while the bit is set; the frame clears it when the new year
+    /// arrives (`1020:1093`) and asks again. Thirty-seven pages do it — every
+    /// year's last.
+    pub wait: Option<usize>,
 }
 
 impl Step {
@@ -459,6 +469,7 @@ pub static STEPS: &[Step] = &[
         turn: 0,
         idt: 0,
         escape: None,
+        wait: None,
         stages: &[ask(
             5,
             Check::Messages {
@@ -472,6 +483,7 @@ pub static STEPS: &[Step] = &[
         turn: 0,
         idt: 8,
         escape: None,
+        wait: None,
         stages: &[
             ask(
                 11,
@@ -497,6 +509,7 @@ pub static STEPS: &[Step] = &[
         turn: 0,
         idt: 16,
         escape: None,
+        wait: None,
         stages: &[
             ask(
                 18,
@@ -522,6 +535,7 @@ pub static STEPS: &[Step] = &[
         turn: 0,
         idt: 24,
         escape: None,
+        wait: None,
         stages: &[
             // The original picks a paragraph for each fleet you might have
             // in hand on the way — `10f8:0fbc`, the `idt == 0x18` arm:
@@ -565,6 +579,7 @@ pub static STEPS: &[Step] = &[
         turn: 0,
         idt: 32,
         escape: None,
+        wait: Some(39),
         stages: &[ask(
             32,
             Check::Research {
@@ -579,8 +594,11 @@ pub static STEPS: &[Step] = &[
         turn: 1,
         idt: 40,
         escape: None,
+        wait: Some(47),
+        // The paragraph is "Press Change on the Production tile" (`0x2a`),
+        // not the page's first: the message above it is only read.
         stages: &[ask(
-            40,
+            42,
             Check::Queue {
                 planet: 0x0d,
                 slot: 0,
@@ -605,6 +623,7 @@ pub static STEPS: &[Step] = &[
         // Fleet 1 already sent on: the next page's work is done, so this one
         // is not asked for.
         escape: Some(leg(1, 1, 0x15)),
+        wait: None,
         stages: &[
             hint(
                 0x30,
@@ -631,6 +650,7 @@ pub static STEPS: &[Step] = &[
         turn: 2,
         idt: 56,
         escape: Some(leg(4, 1, 0x0e)),
+        wait: None,
         stages: &[
             ask(0x39, leg(1, 1, 0x15)),
             ask(0x3a, leg(1, 2, 0x13)),
@@ -658,6 +678,7 @@ pub static STEPS: &[Step] = &[
         idt: 64,
         // The miner already sent to mine: page 10's work.
         escape: Some(mine(5, 0x0c)),
+        wait: None,
         stages: &[
             ask(0x40, leg(4, 1, 0x0e)),
             ask(0x41, leg(4, 2, 0x11)),
@@ -692,6 +713,7 @@ pub static STEPS: &[Step] = &[
             id: 0x10,
             warp: ANY,
         }),
+        wait: None,
         stages: &[
             // Three questions about one waypoint, and only the last is the
             // answer: select the miner, lay the leg, then set the task. The
@@ -716,6 +738,7 @@ pub static STEPS: &[Step] = &[
             id: 0x10,
             warp: ANY,
         }),
+        wait: None,
         stages: &[
             hint(
                 0x50,
@@ -745,6 +768,7 @@ pub static STEPS: &[Step] = &[
         turn: 2,
         idt: 88,
         escape: None,
+        wait: Some(95),
         stages: &[
             hint(
                 0x59,
@@ -782,6 +806,7 @@ pub static STEPS: &[Step] = &[
         turn: 3,
         idt: 96,
         escape: None,
+        wait: None,
         stages: &[
             // "Your first message is quite common and we don't need to look
             // at it every year. Filter it out by clicking the blue check
@@ -819,6 +844,7 @@ pub static STEPS: &[Step] = &[
         turn: 3,
         idt: 104,
         escape: None,
+        wait: None,
         stages: &[
             hint(
                 0x68,
@@ -874,6 +900,7 @@ pub static STEPS: &[Step] = &[
         turn: 3,
         idt: 112,
         escape: None,
+        wait: None,
         stages: &[
             hint(0x70, at_planet(3, 1, 0x10, ANY)),
             hint(0x71, at_planet(3, 1, 0x10, TRANSPORT_TASK)),
@@ -910,6 +937,7 @@ pub static STEPS: &[Step] = &[
         turn: 3,
         idt: 120,
         escape: None,
+        wait: Some(127),
         stages: &[
             hint(
                 0x79,
@@ -942,6 +970,7 @@ pub static STEPS: &[Step] = &[
             count: 3,
             cmp: Cmp::Exactly,
         }),
+        wait: None,
         stages: &[
             hint(
                 0x80,
@@ -978,6 +1007,7 @@ pub static STEPS: &[Step] = &[
         turn: 4,
         idt: 136,
         escape: None,
+        wait: Some(143),
         stages: &[
             ask(
                 0x88,
@@ -1009,6 +1039,7 @@ pub static STEPS: &[Step] = &[
         turn: 5,
         idt: 144,
         escape: None,
+        wait: None,
         stages: &[
             hint(
                 0x90,
@@ -1039,6 +1070,7 @@ pub static STEPS: &[Step] = &[
         turn: 5,
         idt: 152,
         escape: None,
+        wait: Some(159),
         stages: &[
             ask(
                 0x98,
@@ -1089,6 +1121,7 @@ pub static STEPS: &[Step] = &[
         turn: 6,
         idt: 160,
         escape: None,
+        wait: None,
         stages: &[
             hint(
                 0xa0,
@@ -1118,6 +1151,7 @@ pub static STEPS: &[Step] = &[
         turn: 6,
         idt: 168,
         escape: None,
+        wait: Some(175),
         stages: &[
             // "Right click on the blue diamond and select QuikDrop from the
             // Zip menu."
@@ -1166,6 +1200,7 @@ pub static STEPS: &[Step] = &[
         turn: 7,
         idt: 176,
         escape: None,
+        wait: None,
         stages: &[
             ask(
                 0xb0,
@@ -1222,6 +1257,7 @@ pub static STEPS: &[Step] = &[
         turn: 7,
         idt: 184,
         escape: None,
+        wait: None,
         stages: &[
             // The second message the tutorial has you filter, and its
             // neighbour: mines rather than factories.
@@ -1287,6 +1323,7 @@ pub static STEPS: &[Step] = &[
         turn: 7,
         idt: 192,
         escape: None,
+        wait: Some(198),
         stages: &[
             // "Click on the red triangle between Slime and No Vacancy. This
             // is an enemy scout ship." Fleet ids carry their owner in the
@@ -1327,6 +1364,7 @@ pub static STEPS: &[Step] = &[
         turn: 8,
         idt: 200,
         escape: None,
+        wait: None,
         stages: &[
             hint(
                 0xc8,
@@ -1367,6 +1405,7 @@ pub static STEPS: &[Step] = &[
         turn: 8,
         idt: 208,
         escape: None,
+        wait: None,
         stages: &[
             // "Click on the waypoint at Slime and drag it to Sea Squared" —
             // the colonize order moves with the waypoint, from planet 8 to
@@ -1398,6 +1437,7 @@ pub static STEPS: &[Step] = &[
             next: 6,
             pct: 30,
         }),
+        wait: None,
         stages: &[
             // The third message the tutorial teaches you to hide.
             ask(
@@ -1430,6 +1470,7 @@ pub static STEPS: &[Step] = &[
         turn: 8,
         idt: 224,
         escape: None,
+        wait: Some(230),
         stages: &[
             ask(0xe4, Check::ResearchDialog { open: false }),
             ask(
@@ -1448,6 +1489,7 @@ pub static STEPS: &[Step] = &[
         turn: 9,
         idt: 232,
         escape: None,
+        wait: None,
         stages: &[
             hint(0xe8, Check::ResearchDialog { open: false }),
             // The same field as page 29 but a different **next**: 3 rather
@@ -1475,6 +1517,7 @@ pub static STEPS: &[Step] = &[
         turn: 9,
         idt: 240,
         escape: None,
+        wait: Some(247),
         stages: &[
             hint(
                 0xf0,
@@ -1517,6 +1560,7 @@ pub static STEPS: &[Step] = &[
         turn: 10,
         idt: 248,
         escape: None,
+        wait: None,
         stages: &[
             ask(
                 0xf8,
@@ -1563,6 +1607,7 @@ pub static STEPS: &[Step] = &[
         turn: 10,
         idt: 256,
         escape: None,
+        wait: Some(263),
         stages: &[
             // "Hit the Import button to copy Shaggy Dog's queue into the
             // default template and hit OK."
@@ -1628,6 +1673,7 @@ pub static STEPS: &[Step] = &[
         turn: 11,
         idt: 264,
         escape: None,
+        wait: None,
         stages: &[
             hint(
                 0x108,
@@ -1667,6 +1713,7 @@ pub static STEPS: &[Step] = &[
         turn: 11,
         idt: 272,
         escape: None,
+        wait: None,
         stages: &[
             hint(
                 0x110,
@@ -1724,6 +1771,7 @@ pub static STEPS: &[Step] = &[
         turn: 11,
         idt: 280,
         escape: None,
+        wait: None,
         stages: &[
             ask(
                 0x118,
@@ -1773,6 +1821,7 @@ pub static STEPS: &[Step] = &[
         turn: 11,
         idt: 288,
         escape: None,
+        wait: Some(295),
         stages: &[
             // "Notice that the button normally labeled Goto now says View.
             // Press View to open the Battle VCR. Use the VCR controls to
@@ -1799,6 +1848,7 @@ pub static STEPS: &[Step] = &[
             count: 3,
             cmp: Cmp::AtLeast,
         }),
+        wait: None,
         stages: &[
             hint(
                 0x129,
@@ -1838,6 +1888,7 @@ pub static STEPS: &[Step] = &[
         turn: 12,
         idt: 304,
         escape: None,
+        wait: None,
         stages: &[
             hint(
                 0x132,
@@ -1868,6 +1919,7 @@ pub static STEPS: &[Step] = &[
         turn: 12,
         idt: 312,
         escape: None,
+        wait: Some(319),
         stages: &[
             hint(
                 0x139,
@@ -1927,6 +1979,7 @@ pub static STEPS: &[Step] = &[
             count: 7,
             cmp: Cmp::Exactly,
         }),
+        wait: None,
         stages: &[
             hint(
                 0x140,
@@ -1988,6 +2041,7 @@ pub static STEPS: &[Step] = &[
             count: 7,
             cmp: Cmp::Exactly,
         }),
+        wait: None,
         stages: &[
             hint(
                 0x148,
@@ -2020,6 +2074,7 @@ pub static STEPS: &[Step] = &[
         turn: 13,
         idt: 336,
         escape: None,
+        wait: None,
         stages: &[
             // The designer must be **shut** before this page will move: it
             // is the other half of page 42, the way page 29 was the other
@@ -2070,6 +2125,7 @@ pub static STEPS: &[Step] = &[
         turn: 13,
         idt: 344,
         escape: None,
+        wait: Some(350),
         stages: &[
             ask(
                 0x159,
@@ -2088,6 +2144,7 @@ pub static STEPS: &[Step] = &[
         turn: 14,
         idt: 352,
         escape: None,
+        wait: Some(358),
         stages: &[
             hint(
                 0x160,
@@ -2134,6 +2191,7 @@ pub static STEPS: &[Step] = &[
         turn: 15,
         idt: 360,
         escape: None,
+        wait: None,
         stages: &[
             ask(0x168, at_planet(8, 1, 0x0b, ANY)),
             ask(
@@ -2178,6 +2236,7 @@ pub static STEPS: &[Step] = &[
         turn: 15,
         idt: 368,
         escape: None,
+        wait: Some(374),
         stages: &[
             hint(0x173, Check::ResearchDialog { open: true }),
             ask(0x174, at_planet(0x0b, 1, 0x0d, ANY)),
@@ -2189,6 +2248,7 @@ pub static STEPS: &[Step] = &[
         turn: 16,
         idt: 376,
         escape: None,
+        wait: Some(383),
         stages: &[
             ask(0x178, at_planet(4, 1, 0x05, ANY)),
             hint(
@@ -2248,6 +2308,7 @@ pub static STEPS: &[Step] = &[
         turn: 17,
         idt: 384,
         escape: None,
+        wait: Some(387),
         stages: &[
             hint(
                 0x180,
@@ -2265,6 +2326,7 @@ pub static STEPS: &[Step] = &[
         turn: 18,
         idt: 392,
         escape: None,
+        wait: Some(399),
         stages: &[
             ask(
                 0x188,
@@ -2310,6 +2372,7 @@ pub static STEPS: &[Step] = &[
         turn: 19,
         idt: 400,
         escape: None,
+        wait: None,
         stages: &[
             ask(
                 0x190,
@@ -2366,6 +2429,7 @@ pub static STEPS: &[Step] = &[
         turn: 19,
         idt: 408,
         escape: None,
+        wait: Some(414),
         stages: &[
             // The same three instructions as page 51, on the other
             // freighter: unload at Oxygen, load at home, repeat.
@@ -2417,6 +2481,7 @@ pub static STEPS: &[Step] = &[
         turn: 20,
         idt: 416,
         escape: None,
+        wait: Some(423),
         stages: &[
             ask(0x1a0, at_planet(8, 1, 0x06, ANY)),
             ask(
@@ -2465,6 +2530,7 @@ pub static STEPS: &[Step] = &[
         turn: 21,
         idt: 424,
         escape: None,
+        wait: None,
         stages: &[
             ask(
                 0x1a8,
@@ -2511,6 +2577,7 @@ pub static STEPS: &[Step] = &[
         turn: 21,
         idt: 432,
         escape: None,
+        wait: Some(439),
         stages: &[
             ask(
                 0x1b0,
@@ -2547,6 +2614,7 @@ pub static STEPS: &[Step] = &[
         turn: 22,
         idt: 440,
         escape: None,
+        wait: None,
         stages: &[
             hint(
                 0x1b8,
@@ -2568,6 +2636,7 @@ pub static STEPS: &[Step] = &[
         turn: 22,
         idt: 448,
         escape: None,
+        wait: None,
         stages: &[
             ask(
                 0x1c0,
@@ -2647,6 +2716,7 @@ pub static STEPS: &[Step] = &[
         turn: 22,
         idt: 456,
         escape: None,
+        wait: Some(461),
         stages: &[
             hint(
                 0x1c8,
@@ -2687,6 +2757,7 @@ pub static STEPS: &[Step] = &[
             minerals: [0, 0, 0],
             colonists: 210,
         }),
+        wait: None,
         stages: &[
             hint(
                 0x1d0,
@@ -2725,6 +2796,7 @@ pub static STEPS: &[Step] = &[
         turn: 23,
         idt: 472,
         escape: None,
+        wait: None,
         stages: &[
             ask(
                 0x1d8,
@@ -2765,6 +2837,7 @@ pub static STEPS: &[Step] = &[
         turn: 23,
         idt: 480,
         escape: None,
+        wait: Some(487),
         stages: &[
             // Task 6 is Lay Mine Field, and it is on waypoint **zero** —
             // where the fleet already is, so it lays where it sits.
@@ -2822,6 +2895,7 @@ pub static STEPS: &[Step] = &[
         turn: 24,
         idt: 488,
         escape: None,
+        wait: Some(492),
         stages: &[
             ask(0x1e8, at_planet(4, 1, 0x05, ANY)),
             ask(
@@ -2851,6 +2925,7 @@ pub static STEPS: &[Step] = &[
         turn: 25,
         idt: 496,
         escape: None,
+        wait: None,
         stages: &[
             hint(
                 0x1f0,
@@ -2891,6 +2966,7 @@ pub static STEPS: &[Step] = &[
         turn: 25,
         idt: 504,
         escape: None,
+        wait: Some(511),
         stages: &[
             ask(
                 0x1f8,
@@ -2968,6 +3044,7 @@ pub static STEPS: &[Step] = &[
         turn: 26,
         idt: 512,
         escape: None,
+        wait: None,
         stages: &[
             hint(
                 0x200,
@@ -3023,6 +3100,7 @@ pub static STEPS: &[Step] = &[
         turn: 26,
         idt: 520,
         escape: None,
+        wait: Some(527),
         stages: &[
             ask(
                 0x209,
@@ -3069,6 +3147,7 @@ pub static STEPS: &[Step] = &[
         turn: 27,
         idt: 528,
         escape: None,
+        wait: None,
         stages: &[
             hint(
                 0x210,
@@ -3112,6 +3191,7 @@ pub static STEPS: &[Step] = &[
         turn: 27,
         idt: 536,
         escape: None,
+        wait: None,
         stages: &[
             // The page only starts once fleet 0xc has gone -- merged into
             // another on the page before.
@@ -3151,6 +3231,7 @@ pub static STEPS: &[Step] = &[
         turn: 27,
         idt: 544,
         escape: None,
+        wait: Some(551),
         stages: &[
             // A ninth design, this one checked by its whole slot layout:
             // one each in slots 0 to 3, two in slot 4, one each in 5 and 6.
@@ -3188,6 +3269,7 @@ pub static STEPS: &[Step] = &[
         turn: 28,
         idt: 552,
         escape: None,
+        wait: Some(559),
         stages: &[
             hint(
                 0x228,
@@ -3222,6 +3304,7 @@ pub static STEPS: &[Step] = &[
         turn: 29,
         idt: 560,
         escape: None,
+        wait: None,
         stages: &[
             hint(
                 0x230,
@@ -3266,6 +3349,7 @@ pub static STEPS: &[Step] = &[
         turn: 29,
         idt: 568,
         escape: None,
+        wait: None,
         stages: &[
             hint(
                 0x239,
@@ -3317,6 +3401,7 @@ pub static STEPS: &[Step] = &[
         turn: 29,
         idt: 576,
         escape: None,
+        wait: Some(583),
         stages: &[
             // A tenth design, again checked from outside by its existence
             // and the designer being shut.
@@ -3354,6 +3439,7 @@ pub static STEPS: &[Step] = &[
         turn: 30,
         idt: 584,
         escape: None,
+        wait: Some(590),
         stages: &[
             hint(
                 0x24a,
@@ -3385,6 +3471,7 @@ pub static STEPS: &[Step] = &[
         turn: 31,
         idt: 592,
         escape: None,
+        wait: Some(598),
         stages: &[
             hint(
                 0x250,
@@ -3435,6 +3522,7 @@ pub static STEPS: &[Step] = &[
         turn: 32,
         idt: 600,
         escape: None,
+        wait: Some(606),
         stages: &[
             hint(
                 0x258,
@@ -3474,6 +3562,7 @@ pub static STEPS: &[Step] = &[
         turn: 33,
         idt: 608,
         escape: None,
+        wait: Some(612),
         stages: &[
             hint(
                 0x260,
@@ -3524,6 +3613,7 @@ pub static STEPS: &[Step] = &[
         turn: 34,
         idt: 616,
         escape: None,
+        wait: Some(619),
         stages: &[ask(
             0x26b,
             Check::Messages {
@@ -3538,6 +3628,7 @@ pub static STEPS: &[Step] = &[
         turn: 35,
         idt: 624,
         escape: None,
+        wait: Some(628),
         stages: &[ask(
             0x270,
             Check::Messages {
@@ -3553,6 +3644,7 @@ pub static STEPS: &[Step] = &[
         turn: 36,
         idt: 632,
         escape: None,
+        wait: Some(637),
         stages: &[ask(
             0x27c,
             Check::Messages {

@@ -138,13 +138,17 @@ fn the_first_four_years_play_through_from_the_pages() {
     app.open_research();
     app.research_dialog.as_mut().expect("the dialog").field = 1;
     app.research_ok();
-    assert!(app.advance_tutor(), "Weapons chosen");
-    assert_eq!(page(&app), 6, "the year's last page turned, ready for F9");
+    // Weapons chosen: the year's work is done, and the page stays up on
+    // "Press F9" until the turn is generated (`FTutorTaskDone`'s bit 3).
+    assert!(!app.advance_tutor());
+    assert!(app.tutor_waiting());
+    assert_eq!(page(&app), 5);
+    assert_eq!(app.tutor_bold(), Some(39));
 
-    // F9. Page 6 belongs to 2401, and the tutorial waits on it.
+    // F9. Page 6 belongs to 2401, and the new year turns to it.
     app.generate_turn();
     assert_eq!(app.game.as_ref().expect("a game").turn, 1);
-    assert!(!app.advance_tutor());
+    assert!(app.advance_tutor());
     assert_eq!(page(&app), 6);
 
     // --- 2401 -------------------------------------------------------------
@@ -169,9 +173,12 @@ fn the_first_four_years_play_through_from_the_pages() {
             .map(|p| (p.queue[0].item, p.queue[0].count)),
         Some((item::FACTORY, 20))
     );
+    assert!(!app.advance_tutor());
+    assert!(app.tutor_waiting());
+    assert_eq!(page(&app), 6);
+    app.generate_turn();
     assert!(app.advance_tutor());
     assert_eq!(page(&app), 7);
-    app.generate_turn();
 
     // --- 2402 -------------------------------------------------------------
     // Page 7: Armed Probe #1 has reached Prune; five more stops.
@@ -235,8 +242,8 @@ fn the_first_four_years_play_through_from_the_pages() {
     assert_eq!(app.transfer_cargo(santa_maria, 3, 250), 25, "a full hold");
     shift_click(&mut app, PLANET_90210);
     assert!(app.set_waypoint_task(task::COLONIZE));
-    assert!(app.advance_tutor());
-    assert_eq!(page(&app), 13, "the year is done");
+    assert!(!app.advance_tutor());
+    assert_eq!(page(&app), 12, "the year is done, waiting on the turn");
     {
         let fleet = &app.game.as_ref().expect("a game").fleets[santa_maria];
         let warp = i32::from(fleet.waypoints[1].warp);
@@ -245,7 +252,11 @@ fn the_first_four_years_play_through_from_the_pages() {
             "a colony ship spends fuel on speed: warp {warp} reaches 90210 in a year"
         );
     }
+    assert!(app.tutor_waiting());
+    assert_eq!(page(&app), 12);
     app.generate_turn();
+    assert!(app.advance_tutor());
+    assert_eq!(page(&app), 13);
 
     // --- 2403 -------------------------------------------------------------
     // The year's news, in the order the original's own turn-3 file has it:
@@ -339,15 +350,16 @@ fn the_first_four_years_play_through_from_the_pages() {
     app.select_object(ScanObject::Planet(HIHO));
     assert!(app.goto_fleet(0));
     assert!(app.advance_tutor());
-    // Page 16 asks for the Hiho waypoint to be deleted, and is skipped when
-    // the probe has already reached Hiho and dropped it on its own.
-    assert!(page(&app) == 16 || page(&app) == 17, "page {}", page(&app));
-    if page(&app) == 16 {
+    // Page 16 asks for the Hiho waypoint to be deleted; with the probe
+    // already at Hiho and the waypoint dropped on its own, the page's task
+    // is done at once and it waits for the turn.
+    assert_eq!(page(&app), 16);
+    if !app.tutor_waiting() {
         app.selection.waypoint = Some(1);
         assert!(app.delete_waypoint(1));
-        assert!(app.advance_tutor());
+        assert!(!app.advance_tutor());
     }
-    assert_eq!(page(&app), 17, "2403 is done; page 17 waits for 2404");
+    assert_eq!(page(&app), 16, "2403 is done; page 16 waits for 2404");
     // What the player knows of the galaxy in 2403 is what the tutorial's
     // own history file, `tutorial.h1`, holds: home, 90210, and the three
     // planets the scouts reached or came within twenty light years of —
@@ -358,9 +370,11 @@ fn the_first_four_years_play_through_from_the_pages() {
         vec![HIHO, PRUNE, STOVE_TOP, ALEXANDER, PLANET_90210],
         "the history file's five"
     );
+    assert!(app.tutor_waiting());
+    assert_eq!(page(&app), 16);
     app.generate_turn();
     assert_eq!(app.game.as_ref().expect("a game").turn, 4);
-    assert!(!app.advance_tutor());
+    assert!(app.advance_tutor());
     assert_eq!(page(&app), 17);
 
     // --- 2404 -------------------------------------------------------------
@@ -406,11 +420,14 @@ fn the_first_four_years_play_through_from_the_pages() {
     app.production.as_mut().expect("open").inventory_index = santa_maria_design;
     app.production_add(1);
     app.production_ok();
-    assert!(app.advance_tutor());
-    assert_eq!(page(&app), 19, "2404 is done");
+    // The year's work done, the page stays up and waits for the turn.
+    assert!(!app.advance_tutor());
+    assert!(app.tutor_waiting());
+    assert_eq!(page(&app), 18);
     app.generate_turn();
     assert_eq!(app.game.as_ref().expect("a game").turn, 5);
-    assert!(!app.advance_tutor());
+    assert!(app.advance_tutor(), "the new year turns the page");
+    assert_eq!(page(&app), 19);
 
     // --- 2405 -------------------------------------------------------------
     // Page 19: the new Santa Maria is fleet #3 again, filled, then the value
@@ -444,16 +461,19 @@ fn the_first_four_years_play_through_from_the_pages() {
     app.select_object(ScanObject::Planet(PLANET_90210));
     // The last rung is Armed Probe #1 having other than five orders, which
     // a probe that has already reached No Vacancy satisfies on its own.
-    if !app.advance_tutor() {
+    app.advance_tutor();
+    if !app.tutor_waiting() {
         assert!(app.goto_fleet(0));
         app.selection.waypoint = Some(1);
         assert!(app.delete_waypoint(1));
-        assert!(app.advance_tutor());
+        app.advance_tutor();
     }
-    assert_eq!(page(&app), 21, "2405 is done");
+    assert!(app.tutor_waiting());
+    assert_eq!(page(&app), 20, "2405 is done, waiting on the turn");
     app.generate_turn();
     assert_eq!(app.game.as_ref().expect("a game").turn, 6);
-    assert!(!app.advance_tutor());
+    assert!(app.advance_tutor());
+    assert_eq!(page(&app), 21);
 
     // --- 2406 -------------------------------------------------------------
     // Page 21: Teamster #4 to Prune, Transport, QuikLoad, then Stove Top.
@@ -477,11 +497,14 @@ fn the_first_four_years_play_through_from_the_pages() {
     app.production.as_mut().expect("open").inventory_index = santa_maria_design;
     app.production_add(1);
     app.production_ok();
-    assert!(app.advance_tutor());
-    assert_eq!(page(&app), 23, "2406 is done");
+    // The year's work done, the page stays up and waits for the turn.
+    assert!(!app.advance_tutor());
+    assert!(app.tutor_waiting());
+    assert_eq!(page(&app), 22);
     app.generate_turn();
     assert_eq!(app.game.as_ref().expect("a game").turn, 7);
-    assert!(!app.advance_tutor());
+    assert!(app.advance_tutor(), "the new year turns the page");
+    assert_eq!(page(&app), 23);
 
     // --- 2407 -------------------------------------------------------------
     // Page 23: the new Santa Maria #7, filled; the value view; Colonize at
@@ -538,11 +561,14 @@ fn the_first_four_years_play_through_from_the_pages() {
     app.production.as_mut().expect("open").inventory_index = armed_probe_design;
     app.production_add(2);
     app.production_ok();
-    assert!(app.advance_tutor());
-    assert_eq!(page(&app), 26, "2407 is done");
+    // The year's work done, the page stays up and waits for the turn.
+    assert!(!app.advance_tutor());
+    assert!(app.tutor_waiting());
+    assert_eq!(page(&app), 25);
     app.generate_turn();
     assert_eq!(app.game.as_ref().expect("a game").turn, 8);
-    assert!(!app.advance_tutor());
+    assert!(app.advance_tutor(), "the new year turns the page");
+    assert_eq!(page(&app), 26);
 
     // --- 2408 -------------------------------------------------------------
     // Nine fleets: the five the game began with (the Santa Maria of 2406
@@ -602,11 +628,14 @@ fn the_first_four_years_play_through_from_the_pages() {
     // Page 29: research up to 30% and Done.
     app.research_dialog.as_mut().expect("the dialog").percent = 30;
     app.research_ok();
-    assert!(app.advance_tutor());
-    assert_eq!(page(&app), 30, "2408 is done");
+    // The year's work done, the page stays up and waits for the turn.
+    assert!(!app.advance_tutor());
+    assert!(app.tutor_waiting());
+    assert_eq!(page(&app), 29);
     app.generate_turn();
     assert_eq!(app.game.as_ref().expect("a game").turn, 9);
-    assert!(!app.advance_tutor());
+    assert!(app.advance_tutor(), "the new year turns the page");
+    assert_eq!(page(&app), 30);
 
     // --- 2409 -------------------------------------------------------------
     // Page 30: the research dialog's next field set to Construction, then
@@ -639,11 +668,14 @@ fn the_first_four_years_play_through_from_the_pages() {
     assert!(app.goto_fleet(0));
     let mozart = at_planet(&app, MOZART);
     assert!(app.move_waypoint(1, mozart.x, mozart.y, 20.0));
-    assert!(app.advance_tutor());
-    assert_eq!(page(&app), 32, "2409 is done");
+    // The year's work done, the page stays up and waits for the turn.
+    assert!(!app.advance_tutor());
+    assert!(app.tutor_waiting());
+    assert_eq!(page(&app), 31);
     app.generate_turn();
     assert_eq!(app.game.as_ref().expect("a game").turn, 10);
-    assert!(!app.advance_tutor());
+    assert!(app.advance_tutor(), "the new year turns the page");
+    assert_eq!(page(&app), 32);
 
     // --- 2410 -------------------------------------------------------------
     // Page 32: the dismantling report switched off; Shaggy Dog's queue set
@@ -699,11 +731,14 @@ fn the_first_four_years_play_through_from_the_pages() {
         app.production_add(1);
     }
     app.production_ok();
-    assert!(app.advance_tutor());
-    assert_eq!(page(&app), 34, "2410 is done");
+    // The year's work done, the page stays up and waits for the turn.
+    assert!(!app.advance_tutor());
+    assert!(app.tutor_waiting());
+    assert_eq!(page(&app), 33);
     app.generate_turn();
     assert_eq!(app.game.as_ref().expect("a game").turn, 11);
-    assert!(!app.advance_tutor());
+    assert!(app.advance_tutor(), "the new year turns the page");
+    assert_eq!(page(&app), 34);
 
     // --- 2411 -------------------------------------------------------------
     // Page 34 is as far as this goes for now. Its first task, Armed Probe

@@ -13356,8 +13356,12 @@ impl App {
             return false;
         };
         let turn = self.game.as_ref().map_or(-1_i16, |game| game.turn);
+        // A page of a year gone by is done — the `else` of every arm but
+        // the first year's says so — which is how the year-ending pages
+        // are left behind once the turn has been generated. A page of a
+        // year to come is not.
         if step.turn != turn {
-            return false;
+            return step.turn < turn;
         }
         if step
             .escape
@@ -13372,14 +13376,30 @@ impl App {
             .all(|stage| stage.check.as_ref().is_none_or(|c| self.tutor_check(c)))
     }
 
+    /// Whether the page is done and only waiting for the year to be
+    /// generated — bit 3 of `tutor.fVisible`, which `FTutorTaskDone` sets
+    /// on the pages that end a year and `AdvanceTutor` will not step past.
+    #[must_use]
+    pub fn tutor_waiting(&self) -> bool {
+        let Some(step) = self.tutor_step() else {
+            return false;
+        };
+        let turn = self.game.as_ref().map_or(-1_i16, |game| game.turn);
+        step.wait.is_some() && step.turn == turn && self.tutor_task_done()
+    }
+
     /// Which paragraph the page emboldens: the first rung not yet satisfied,
-    /// or the last when they all are.
+    /// the page's waiting paragraph once its year's work is done, or the
+    /// last rung's when they all are.
     #[must_use]
     pub fn tutor_bold(&self) -> Option<usize> {
         let step = self.tutor_step()?;
         let turn = self.game.as_ref().map_or(-1_i16, |game| game.turn);
         if step.turn != turn {
             return step.stages.first().map(|stage| stage.bold);
+        }
+        if self.tutor_waiting() {
+            return step.wait;
         }
         // A rung's paragraph shows while its check fails — or, for a
         // `held` rung, while it holds.
@@ -13401,7 +13421,7 @@ impl App {
     pub fn tutor_pending(&self) -> Option<&'static crate::tutorial::Check> {
         let step = self.tutor_step()?;
         let turn = self.game.as_ref().map_or(-1_i16, |game| game.turn);
-        if step.turn != turn {
+        if step.turn != turn || self.tutor_waiting() {
             return None;
         }
         // A `held` rung says where the reader is, not what to do next.
@@ -13431,15 +13451,33 @@ impl App {
         use stars_core::fleet::grobj;
         use stars_core::message::Goto;
 
-        let check = self.tutor_pending()?;
-        let game = self.game.as_ref()?;
-        let me = self.local_player();
         let widget = |scope: &'static str, label: &str| {
             Some(TutorTarget::Widget {
                 scope,
                 label: label.to_string(),
             })
         };
+        // A menu's item is only there to ring while the menu is open —
+        // which is whether a pane drew it this frame — and its header
+        // otherwise.
+        let menu = |item: &str, header: &str| {
+            if self
+                .drawn
+                .iter()
+                .any(|w| w.scope == "menu" && w.label == item)
+            {
+                widget("menu", item)
+            } else {
+                widget("menu", header)
+            }
+        };
+        // The year's work done: Generate, from the Turn menu.
+        if self.tutor_waiting() {
+            return menu("Generate", "Turn");
+        }
+        let check = self.tutor_pending()?;
+        let game = self.game.as_ref()?;
+        let me = self.local_player();
         let planet_at = |id: i16| {
             game.planets
                 .iter()
@@ -13648,7 +13686,7 @@ impl App {
                 } else if goto == Goto::Research {
                     widget("messages", "Goto")
                 } else {
-                    None
+                    menu("Research…", "Commands")
                 }
             }
             Check::ResearchDialog { open: false } => {
@@ -13722,7 +13760,7 @@ impl App {
             return false;
         }
         let was = tutor.idt;
-        while self.tutor_task_done() {
+        while self.tutor_task_done() && !self.tutor_waiting() {
             let Some(tutor) = self.tutor.as_mut() else {
                 return false;
             };

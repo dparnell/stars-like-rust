@@ -31,6 +31,21 @@ is already done, so a page you have satisfied in advance is skipped rather
 than shown. Past `0x27f` — the last paragraph of page 80 — it calls
 `TutorError(0x20a)` and `EndTutor`.
 
+One thing stops the loop: **bit 3 of `tutor.fVisible`**, the *wait for the
+turn* bit. Every year's last page sets it as it reports itself done —
+thirty-seven pages, each with a `fVisible |= 8` beside a bold of its
+"Press F9" paragraph — and `AdvanceTutor`, seeing it, leaves the page up
+with that paragraph emboldened and sets `idh` to `0xdb6` instead of
+stepping. The frame clears the bit when the new year arrives (`1020:1093`)
+and asks again; and since every arm but the first year's answers *done*
+for a page of an earlier year, the old page then steps aside. The step
+table carries this as `Step::wait`, the paragraph to show; `App::
+tutor_waiting` is the bit, and the ring goes to the Turn menu's Generate.
+Without it the tutorial turned to page 6 as soon as Weapons was chosen in
+2400, "Read the message in the Messages pane" emboldened, nothing ringed
+and nothing to do — page 6's checks belong to 2401 — which is where a
+reader from the desktop got stuck.
+
 `StartTutor` runs the same loop before it shows anything, which is why a
 new game **must open with something to do**: page one asks you to read your
 messages, and `GenerateWorld` (`1078:0136`) gives every player five — four
@@ -592,13 +607,16 @@ inside the dialog, **Xfer** and the gauge for a hold, the Waypoint Task
 dropdown for a task — as a drawn widget by the name a pane recorded it
 under, or a point on the map. `views::tutorial::halo` finds where that was
 drawn this frame and rings it on the tooltip layer, swelling and fading
-over a second and a half. Where nothing on screen answers — a key, a
-dialog with no button into it — there is no ring. `tutorial_ui.rs` checks
+over a second and a half. The menu bar's four game menus are drawn by
+`views::menubar` and recorded under `"menu"`, so a key's job has a ring
+too: the Turn menu, then Generate, when the year is done; the Commands
+menu, then Research…, when the Research dialog is wanted. Where nothing
+on screen answers — a dialog with no button into it — there is no ring. `tutorial_ui.rs` checks
 that the ring sits on what it is about to press at the start of pages 1,
 2, 4, 6 and 12 — and, before **every** press, that the ring is somewhere
 whenever the page is waiting on something, with two exceptions it names:
-the Research dialog while it is closed (a key or a menu opens it), and
-another player's fleet that is not in view.
+another player's fleet that is not in view, and a fleet of ours that a
+pane cannot reach.
 
 ### Where it stops, and why
 
