@@ -544,6 +544,18 @@ must press what the text names:
   at the opening zoom they are not; the harness takes the map down a step
   first, as a player would, and drags at the scanner's own grab reach.
 
+### Page 4, read the other way up
+
+Most arms of `FTutorTaskDone` are a chain of *if this is done, embolden
+the next paragraph and ask the next thing*. Page 4's (`10f8:0fbc`, the
+`idt == 0x18` arm) is written upside down: fleet 4 in hand, else 29 for
+fleet 3, 27 for fleet 2, 25 for anything else — the paragraph follows
+whichever fleet the reader has reached with the tile's Next. The step
+table had only "25 until fleet 4", so the bold never moved and nothing
+told the reader they were getting anywhere. A rung can now be **held**
+(`mark`): emboldened while its check holds, gating nothing and asking for
+nothing.
+
 ### The halo
 
 One thing here the original does not have, asked for rather than found: a
@@ -552,8 +564,10 @@ original's only pointer is the emboldened paragraph. `App::tutor_target`
 reads the check the page is waiting on (`tutor_pending`, the first stage
 not satisfied) and names the nearest thing to do about it — the message
 pane's **Next** while messages are unread and its **Goto** when the
-message in front points at what the page wants, the planet or fleet on the
-map otherwise, **Change** for a queue and then the row, **Add** and **OK**
+message in front points at what the page wants, the fleet tile's **Next**
+or **Prev** when another fleet of yours is in hand (the walk pages 3 to 5
+name), the planet or fleet on the map otherwise, **Change** for a queue
+and then the row, **Add** and **OK**
 inside the dialog, **Xfer** and the gauge for a hold, the Waypoint Task
 dropdown for a task — as a drawn widget by the name a pane recorded it
 under, or a point on the map. `views::tutorial::halo` finds where that was

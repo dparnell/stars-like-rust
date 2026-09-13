@@ -355,6 +355,87 @@ pub fn primary_design(fleet: &Fleet, designs: &[crate::design::ShipDesign]) -> O
     best.map(|design| Primary { design, distinct })
 }
 
+/// Share two fleets' cargo and fuel out after ships have passed between them.
+///
+/// `FleetTransferCargoBalance` (`1050:ae7d`), which the original runs on
+/// every ship transfer — a split, a merge, a Split All, a stargate jump, a
+/// minefield's toll — after the ship counts have changed and before the
+/// cargo has. Each side gives up the share of what it carries that the
+/// ships it **lost** made of its capacity: `fuel × lost tank ÷ tank` and
+/// `cargo × lost hold ÷ hold`, the cargo spread over the four kinds in
+/// proportion to what is aboard, with any rounding shortfall made up one
+/// unit at a time from the first kind that still has some. A side that
+/// gained ships gives nothing, so a split hands the new fleet its ships'
+/// share and a merge pulls everything into the survivor.
+///
+/// `before` is each fleet's ship counts before the transfer, by design
+/// slot. The damage rebalancing the same routine does is not modelled.
+pub fn balance_cargo(fleets: [&mut Fleet; 2], before: [&[ShipStack]; 2], designs: &[ShipDesign]) {
+    let [a, b] = fleets;
+    let mut delta = [[0i64; 5]; 2];
+    for (side, (fleet, was)) in [(&*a, before[0]), (&*b, before[1])].into_iter().enumerate() {
+        let (mut fuel_cap, mut fuel_lost, mut cargo_cap, mut cargo_lost) = (0i64, 0i64, 0i64, 0i64);
+        for stack in was {
+            let design = designs.get(usize::from(stack.design));
+            let tank = i64::from(design.and_then(ShipDesign::fuel_capacity).unwrap_or(0));
+            let hold = i64::from(design.and_then(ShipDesign::cargo_capacity).unwrap_or(0));
+            let now = fleet
+                .stacks
+                .iter()
+                .find(|s| s.design == stack.design)
+                .map_or(0, |s| s.count);
+            let lost = i64::from(stack.count - now);
+            fuel_cap += i64::from(stack.count) * tank;
+            cargo_cap += i64::from(stack.count) * hold;
+            if lost > 0 {
+                fuel_lost += lost * tank;
+                cargo_lost += lost * hold;
+            }
+        }
+        if fuel_cap != 0 {
+            delta[side][4] -= i64::from(fleet.cargo.fuel) * fuel_lost / fuel_cap;
+        }
+        if cargo_cap != 0 {
+            let holds = [
+                fleet.cargo.minerals[0],
+                fleet.cargo.minerals[1],
+                fleet.cargo.minerals[2],
+                fleet.cargo.colonists,
+            ];
+            let total: i64 = holds.iter().map(|h| i64::from(*h)).sum();
+            if total != 0 {
+                let moving = total * cargo_lost / cargo_cap;
+                let mut left = moving;
+                for (kind, held) in holds.iter().enumerate() {
+                    let part = (i64::from(*held) * moving / total).min(left);
+                    delta[side][kind] -= part;
+                    left -= part;
+                }
+                for (kind, held) in holds.iter().enumerate() {
+                    if left <= 0 {
+                        break;
+                    }
+                    if i64::from(*held) + delta[side][kind] > 0 {
+                        delta[side][kind] -= 1;
+                        left -= 1;
+                    }
+                }
+            }
+        }
+    }
+    // What one side sheds, the other takes.
+    let net: Vec<i32> = (0..5)
+        .map(|kind| i32::try_from(delta[0][kind] - delta[1][kind]).unwrap_or(0))
+        .collect();
+    for (fleet, sign) in [(a, 1), (b, -1)] {
+        for (held, moved) in fleet.cargo.minerals.iter_mut().zip(&net) {
+            *held += sign * moved;
+        }
+        fleet.cargo.colonists += sign * net[3];
+        fleet.cargo.fuel += sign * net[4];
+    }
+}
+
 #[cfg(test)]
 mod primary_tests {
     use super::*;
@@ -453,86 +534,5 @@ mod primary_tests {
         let designs = [design(4)];
         assert_eq!(primary_design(&fleet(&[]), &designs), None);
         assert_eq!(primary_design(&fleet(&[(0, 0)]), &designs), None);
-    }
-}
-
-/// Share two fleets' cargo and fuel out after ships have passed between them.
-///
-/// `FleetTransferCargoBalance` (`1050:ae7d`), which the original runs on
-/// every ship transfer — a split, a merge, a Split All, a stargate jump, a
-/// minefield's toll — after the ship counts have changed and before the
-/// cargo has. Each side gives up the share of what it carries that the
-/// ships it **lost** made of its capacity: `fuel × lost tank ÷ tank` and
-/// `cargo × lost hold ÷ hold`, the cargo spread over the four kinds in
-/// proportion to what is aboard, with any rounding shortfall made up one
-/// unit at a time from the first kind that still has some. A side that
-/// gained ships gives nothing, so a split hands the new fleet its ships'
-/// share and a merge pulls everything into the survivor.
-///
-/// `before` is each fleet's ship counts before the transfer, by design
-/// slot. The damage rebalancing the same routine does is not modelled.
-pub fn balance_cargo(fleets: [&mut Fleet; 2], before: [&[ShipStack]; 2], designs: &[ShipDesign]) {
-    let [a, b] = fleets;
-    let mut delta = [[0i64; 5]; 2];
-    for (side, (fleet, was)) in [(&*a, before[0]), (&*b, before[1])].into_iter().enumerate() {
-        let (mut fuel_cap, mut fuel_lost, mut cargo_cap, mut cargo_lost) = (0i64, 0i64, 0i64, 0i64);
-        for stack in was {
-            let design = designs.get(usize::from(stack.design));
-            let tank = i64::from(design.and_then(ShipDesign::fuel_capacity).unwrap_or(0));
-            let hold = i64::from(design.and_then(ShipDesign::cargo_capacity).unwrap_or(0));
-            let now = fleet
-                .stacks
-                .iter()
-                .find(|s| s.design == stack.design)
-                .map_or(0, |s| s.count);
-            let lost = i64::from(stack.count - now);
-            fuel_cap += i64::from(stack.count) * tank;
-            cargo_cap += i64::from(stack.count) * hold;
-            if lost > 0 {
-                fuel_lost += lost * tank;
-                cargo_lost += lost * hold;
-            }
-        }
-        if fuel_cap != 0 {
-            delta[side][4] -= i64::from(fleet.cargo.fuel) * fuel_lost / fuel_cap;
-        }
-        if cargo_cap != 0 {
-            let holds = [
-                fleet.cargo.minerals[0],
-                fleet.cargo.minerals[1],
-                fleet.cargo.minerals[2],
-                fleet.cargo.colonists,
-            ];
-            let total: i64 = holds.iter().map(|h| i64::from(*h)).sum();
-            if total != 0 {
-                let moving = total * cargo_lost / cargo_cap;
-                let mut left = moving;
-                for (kind, held) in holds.iter().enumerate() {
-                    let part = (i64::from(*held) * moving / total).min(left);
-                    delta[side][kind] -= part;
-                    left -= part;
-                }
-                for (kind, held) in holds.iter().enumerate() {
-                    if left <= 0 {
-                        break;
-                    }
-                    if i64::from(*held) + delta[side][kind] > 0 {
-                        delta[side][kind] -= 1;
-                        left -= 1;
-                    }
-                }
-            }
-        }
-    }
-    // What one side sheds, the other takes.
-    let net: Vec<i32> = (0..5)
-        .map(|kind| i32::try_from(delta[0][kind] - delta[1][kind]).unwrap_or(0))
-        .collect();
-    for (fleet, sign) in [(a, 1), (b, -1)] {
-        for kind in 0..3 {
-            fleet.cargo.minerals[kind] += sign * net[kind];
-        }
-        fleet.cargo.colonists += sign * net[3];
-        fleet.cargo.fuel += sign * net[4];
     }
 }

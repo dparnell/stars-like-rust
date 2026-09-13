@@ -13374,9 +13374,16 @@ impl App {
         if step.turn != turn {
             return step.stages.first().map(|stage| stage.bold);
         }
+        // A rung's paragraph shows while its check fails — or, for a
+        // `held` rung, while it holds.
         step.stages
             .iter()
-            .find(|stage| stage.check.as_ref().is_some_and(|c| !self.tutor_check(c)))
+            .find(|stage| {
+                stage
+                    .check
+                    .as_ref()
+                    .is_some_and(|c| self.tutor_check(c) == stage.held)
+            })
             .or_else(|| step.stages.last())
             .map(|stage| stage.bold)
     }
@@ -13390,8 +13397,10 @@ impl App {
         if step.turn != turn {
             return None;
         }
+        // A `held` rung says where the reader is, not what to do next.
         step.stages
             .iter()
+            .filter(|stage| !stage.held)
             .filter_map(|stage| stage.check.as_ref())
             .find(|check| !self.tutor_check(check))
     }
@@ -13448,6 +13457,8 @@ impl App {
                     .is_some_and(|f| f.id == id)
         };
         // How to get a fleet in hand: the message that points at it, the
+        // fleet tile's Next or Prev when another fleet of ours is in hand
+        // (the walk `SelectAdjFleet` takes, which pages 3 to 5 name), the
         // fleets-here tile's Goto when it is at the selected planet, or the
         // fleet itself on the map.
         let take_fleet = |id: u16| -> Option<TutorTarget> {
@@ -13455,6 +13466,22 @@ impl App {
                 return widget("messages", "Goto");
             }
             let index = fleet_index(id)?;
+            if self.selection.on_fleet {
+                if let Some(held) = self.selection.fleet {
+                    let walk = self.own_fleets();
+                    if let (Some(from), Some(to)) = (
+                        walk.iter().position(|f| *f == held),
+                        walk.iter().position(|f| *f == index),
+                    ) {
+                        if from != to {
+                            // The shorter way round, Next by preference.
+                            let forward = (to + walk.len() - from) % walk.len();
+                            let back = (from + walk.len() - to) % walk.len();
+                            return widget("fleet", if forward <= back { "Next" } else { "Prev" });
+                        }
+                    }
+                }
+            }
             let fleet = &game.fleets[index];
             let at_selected_planet = !self.selection.on_fleet
                 && fleet.orbiting.is_some()

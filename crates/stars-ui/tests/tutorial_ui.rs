@@ -546,11 +546,17 @@ fn year_zero_is_played_through_the_panes() {
     shell.shift_click_planet(PLANET_90210);
     assert_eq!(shell.page(), 4);
 
-    // Page 4: Next three times, then Alexander.
-    for _ in 0..3 {
+    // Page 4: Next three times, then Alexander. The ring sits on the
+    // tile's Next each time, and the emboldened paragraph follows the
+    // fleet in hand — "press Next once more" for the colony ship, "press
+    // Next again" for the freighter — as `10f8:0fbc` writes it.
+    for (bold, fleet) in [(25, 2), (27, 3), (29, 4)] {
+        assert_eq!(shell.app.tutor_bold(), Some(bold));
+        shell.assert_halo_on("fleet", "Next");
         shell.press("fleet", "Next");
+        assert_eq!(shell.selected_fleet_id(), Some(fleet));
     }
-    assert_eq!(shell.selected_fleet_id(), Some(4), "Stalwart Defender #5");
+    assert_eq!(shell.app.tutor_bold(), Some(31), "shift-click Alexander");
     shell.shift_click_planet(ALEXANDER);
     assert_eq!(shell.page(), 5);
 

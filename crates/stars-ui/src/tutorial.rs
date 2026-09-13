@@ -366,6 +366,14 @@ pub struct Stage {
     /// deciding whether the page is done, but still catches the emphasis on
     /// its way past.
     pub gates: bool,
+    /// Whether the paragraph is emboldened while the check **holds** rather
+    /// than while it fails.
+    ///
+    /// Page 4 is written the other way up from most: `if (fleet 4) ... else
+    /// if (fleet 3) bold = 29; else if (fleet 2) bold = 27; else bold = 25`
+    /// — the paragraph follows whichever fleet is in hand. A rung like that
+    /// never gates and asks for nothing; it only says where the reader is.
+    pub held: bool,
 }
 
 /// One page of the tutorial.
@@ -410,6 +418,7 @@ const fn ask(bold: usize, check: Check) -> Stage {
         bold,
         check: Some(check),
         gates: true,
+        held: false,
     }
 }
 
@@ -419,6 +428,18 @@ const fn hint(bold: usize, check: Check) -> Stage {
         bold,
         check: Some(check),
         gates: false,
+        held: false,
+    }
+}
+
+/// A rung that emboldens its paragraph **while** its check holds: where
+/// the reader is, not what is wanted of them.
+const fn mark(bold: usize, check: Check) -> Stage {
+    Stage {
+        bold,
+        check: Some(check),
+        gates: false,
+        held: true,
     }
 }
 
@@ -502,9 +523,24 @@ pub static STEPS: &[Step] = &[
         idt: 24,
         escape: None,
         stages: &[
-            // The original picks a different paragraph for each of the three
-            // wrong fleets you might have selected instead; this points at
-            // the one that names the right one.
+            // The original picks a paragraph for each fleet you might have
+            // in hand on the way — `10f8:0fbc`, the `idt == 0x18` arm:
+            // fleet 4 wanted, else 29 for fleet 3, 27 for fleet 2, and 25
+            // for anything else.
+            mark(
+                27,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 2,
+                },
+            ),
+            mark(
+                29,
+                Check::Selection {
+                    class: grobj::FLEET,
+                    id: 3,
+                },
+            ),
             ask(
                 25,
                 Check::Selection {
@@ -2502,6 +2538,7 @@ pub static STEPS: &[Step] = &[
                 bold: 0x1b7,
                 check: None,
                 gates: false,
+                held: false,
             },
         ],
     },
@@ -2680,6 +2717,7 @@ pub static STEPS: &[Step] = &[
                 bold: 0x1d7,
                 check: None,
                 gates: false,
+                held: false,
             },
         ],
     },
