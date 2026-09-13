@@ -31,11 +31,20 @@ pub mod id {
     pub const BUILT_MINE: u16 = 55;
     /// Several mines.
     pub const BUILT_MINES: u16 = 56;
-    /// `idmHasUnloaded`: a fleet put its cargo down somewhere.
+    /// `idmHasLoaded`: a Transport task took minerals aboard
+    /// (`SatisfyOrders`). The fleet is the object; parameters
+    /// `[fleet, amount lo, amount hi, kind, target class, target]`.
+    pub const HAS_LOADED: u16 = 0x2b;
+    /// `idmHasBeamed`: the same, for colonists coming aboard.
+    pub const HAS_BEAMED_UP: u16 = 0x2c;
+    /// `idmHasUnloaded`: a fleet put minerals down somewhere, in the same
+    /// shape.
     ///
     /// The third message the tutorial teaches you to filter, once the
     /// freighter is shuttling and sends one every year.
     pub const HAS_UNLOADED: u16 = 45;
+    /// `idmHasBeamed2`: colonists put down.
+    pub const HAS_BEAMED_DOWN: u16 = 0x2e;
     /// `idmHasLoadedMiningRobotsWorking`: the remote miner reports its haul.
     ///
     /// The fourth message the tutorial teaches you to filter.
@@ -338,8 +347,29 @@ impl Message {
             let high = i32::from(self.params.get(at + 1).copied().unwrap_or(0));
             (high << 16) | low
         };
+        let cargo_kind = |kind: i16| match kind {
+            0 => "ironium",
+            1 => "boranium",
+            2 => "germanium",
+            3 => "colonists",
+            _ => "fuel",
+        };
         match self.id {
             id::ORDERS_COMPLETE => format!("Fleet {} has finished its orders.", fleet()),
+            id::HAS_LOADED | id::HAS_BEAMED_UP => format!(
+                "Fleet {} has taken {}kT of {} aboard at {}.",
+                fleet(),
+                long(1),
+                cargo_kind(self.params.get(3).copied().unwrap_or(0)),
+                self.params.get(5).copied().unwrap_or(0)
+            ),
+            id::HAS_UNLOADED | id::HAS_BEAMED_DOWN => format!(
+                "Fleet {} has put {}kT of {} down at {}.",
+                fleet(),
+                long(1),
+                cargo_kind(self.params.get(3).copied().unwrap_or(0)),
+                self.params.get(5).copied().unwrap_or(0)
+            ),
             id::OUT_OF_FUEL => format!("Fleet {} has no fuel left and cannot move.", fleet()),
             id::OUT_OF_FUEL_SLOWED => format!(
                 "Fleet {} has no fuel left and has slowed to warp {}.",

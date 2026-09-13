@@ -433,8 +433,8 @@ pages, through the same calls the panes make, and checks that every task
 turns the page as `AdvanceTutor` would. `tutorial_ui.rs` plays it through
 the panes themselves — every step a press on a button where a pane drew it,
 a pick from a menu or dropdown where it opened, or a click on the map where
-the scanner drew the planet — and so far gets through **2400 to 2403**,
-pages one to sixteen; see *Through the panes* below. It gets through **2400 to 2410** —
+the scanner drew the planet — and so far gets through **2400 to 2405**,
+pages one to twenty; see *Through the panes* below. It gets through **2400 to 2410** —
 pages one to thirty-three — and stops on page 34. The first four years took three corrections to
 what was here:
 
@@ -513,7 +513,15 @@ must press what the text names:
 * a row past the tenth of a list box is below the fold, in the original
   too, so the harness rolls the wheel to it as a player would; and its
   clicks are a second apart, or egui takes every one for the third of a
-  triple and no double-click ever registers.
+  triple and no double-click ever registers;
+* the Fuel & Cargo tile gave its figures as text where the original draws
+  two gauges and figures, and a press in either gauge is Xfer (page 19);
+  and the toolbar's buttons were not pressable by name;
+* a message's Goto matched a fleet by number alone and, on page 19, landed
+  on the **Berserkers'** fleet with that number; a Transport task said
+  nothing when it loaded or unloaded, where the original reports each kind
+  moved (`0x2b`–`0x2e`), which is the message page 20 Gotos the Teamster
+  from.
 
 ### The halo
 

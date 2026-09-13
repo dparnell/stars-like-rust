@@ -402,6 +402,22 @@ impl Shell {
         self.app.tutor.as_ref().expect("running").page()
     }
 
+    /// Press Next until the message in front points where the page says
+    /// to Goto.
+    fn next_message_until(&mut self, target: stars_core::message::Goto) {
+        for _ in 0..12 {
+            self.frame();
+            if self.app.message_goto() == target {
+                return;
+            }
+            self.press("messages", "Next");
+        }
+        panic!(
+            "no message pointing at {target:?}: {:?}",
+            self.app.messages()
+        );
+    }
+
     /// The halo rings the widget named — the thing the page wants pressed.
     fn assert_halo_on(&mut self, scope: &str, label: &str) {
         self.frame();
@@ -432,11 +448,18 @@ impl Shell {
         );
     }
 
+    /// The fleet in hand, by number — and it must be the player's own: a
+    /// Berserker fleet with the same number once slipped through here.
     fn selected_fleet_id(&self) -> Option<u16> {
-        self.app
-            .selection
-            .fleet
-            .map(|f| self.app.game.as_ref().expect("a game").fleets[f].id)
+        self.app.selection.fleet.map(|f| {
+            let fleet = &self.app.game.as_ref().expect("a game").fleets[f];
+            assert_eq!(
+                fleet.owner, 0,
+                "fleet {} in hand is somebody else's",
+                fleet.id
+            );
+            fleet.id
+        })
     }
 }
 
@@ -793,6 +816,122 @@ fn year_zero_is_played_through_the_panes() {
         );
     }
     assert_eq!(shell.page(), 17, "2403 is done");
+    shell.generate();
+    assert_eq!(shell.page(), 17);
+
+    // --- 2404 -------------------------------------------------------------
+    // Page 17: the first message's Goto is Shaggy Dog, found by Stalwart
+    // Defender #5; double-click the destroyer just above the planet, click
+    // its waypoint at Shaggy Dog and Delete; the next message's Goto is
+    // Dwarte; double-click Stove Top.
+    shell.press("messages", "Goto");
+    assert_eq!(shell.app.selection.planet, Some(SHAGGY_DOG));
+    let destroyer = {
+        let game = shell.app.game.as_ref().expect("a game");
+        game.fleets
+            .iter()
+            .find(|f| f.owner == 0 && f.id == 4)
+            .expect("Stalwart Defender #5")
+            .position
+    };
+    shell.frame();
+    let map = shell.app.map_frame.expect("the map");
+    let at = map.to_screen(destroyer.x, destroyer.y);
+    shell.double_click_at(at);
+    assert_eq!(shell.selected_fleet_id(), Some(4));
+    let shaggy = shell.planet_on_screen(SHAGGY_DOG);
+    shell.click_at(shaggy);
+    assert_eq!(shell.app.selection.waypoint, Some(1));
+    shell.app.delete_current_waypoint();
+    shell.frame();
+    shell.press("messages", "Next");
+    shell.press("messages", "Goto");
+    assert_eq!(shell.app.selection.planet, Some(DWARTE));
+    let home = shell.planet_on_screen(STOVE_TOP);
+    shell.double_click_at(home);
+    assert_eq!(shell.app.selection.planet, Some(STOVE_TOP));
+    assert_eq!(shell.page(), 18);
+
+    // Page 18: Change; double-click Santa Maria; OK.
+    shell.press("planet", "Change");
+    shell.double_click("production", "Santa Maria");
+    shell.press("production", "OK");
+    assert_eq!(shell.page(), 19, "2404 is done");
+    shell.generate();
+    assert_eq!(shell.page(), 19);
+
+    // --- 2405 -------------------------------------------------------------
+    // Page 19: the first message's Goto is the new Santa Maria; a click in
+    // the cargo gauge on the Fuel & Cargo tile is Xfer; fill with
+    // colonists, OK; the % toolbar button; shift-click Shaggy Dog.
+    shell.press("messages", "Goto");
+    assert_eq!(
+        shell.selected_fleet_id(),
+        Some(2),
+        "the new colony ship is fleet #3 again"
+    );
+    shell.press("fleet", "Cargo gauge");
+    assert!(
+        shell.app.xfer.is_some(),
+        "the cargo gauge opens the Cargo Transfer dialog"
+    );
+    shell.frame();
+    let gauge = shell
+        .app
+        .drawn_button("xfer", "Colonists gauge")
+        .expect("the colonists gauge")
+        .rect;
+    shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
+    shell.press("xfer", "OK");
+    shell.press("toolbar", "%");
+    assert_eq!(shell.app.scan_view, stars_ui::ScanView::PlanetValue);
+    shell.shift_click_planet(SHAGGY_DOG);
+    assert_eq!(shell.page(), 20);
+
+    // Page 20: Colonize; the leftmost toolbar button; the next two
+    // messages' Goto is Teamster #4, sent home; 90210 from the "Orbiting
+    // 90210" tile's Goto; the next message, then Armed Probe #1's waypoint
+    // at No Vacancy deleted.
+    shell.press("fleet", "Waypoint Task");
+    shell.press("fleet", "Colonize");
+    shell.press("toolbar", "Nml");
+    assert_eq!(shell.app.scan_view, stars_ui::ScanView::Normal);
+    // The year's news here runs: the ship built, the Teamster's colonists
+    // beamed down at 90210, then the two planets found. The page reads two
+    // and Gotos the Teamster, so its message is read up to and followed.
+    shell.next_message_until(stars_core::message::Goto::Fleet(3));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(3), "Teamster #4");
+    shell.shift_click_planet(STOVE_TOP);
+    shell.press("fleet", "Goto");
+    assert_eq!(shell.app.selection.planet, Some(PLANET_90210));
+    assert!(!shell.app.selection.on_fleet);
+    // The next message is No Vacancy, found; the probe's waypoint there
+    // wants deleting unless the probe has already reached it, in which
+    // case the waypoint went on its own and the page is done.
+    shell.press("messages", "Next");
+    shell.press("messages", "Goto");
+    assert_eq!(shell.app.selection.planet, Some(NO_VACANCY));
+    if shell.page() == 20 {
+        let probe = {
+            let game = shell.app.game.as_ref().expect("a game");
+            game.fleets
+                .iter()
+                .find(|f| f.owner == 0 && f.id == 0)
+                .expect("Armed Probe #1")
+                .position
+        };
+        shell.frame();
+        let map = shell.app.map_frame.expect("the map");
+        shell.double_click_at(map.to_screen(probe.x, probe.y));
+        assert_eq!(shell.selected_fleet_id(), Some(0), "Armed Probe #1");
+        let no_vacancy = shell.planet_on_screen(NO_VACANCY);
+        shell.click_at(no_vacancy);
+        assert_eq!(shell.app.selection.waypoint, Some(1));
+        shell.app.delete_current_waypoint();
+        shell.frame();
+    }
+    assert_eq!(shell.page(), 21, "2405 is done");
 }
 
 /// The planet pane's own tile has Prev and Next as well — `SelectAdjPlanet`

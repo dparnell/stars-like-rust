@@ -21,6 +21,7 @@ const HEIGHT: f32 = toolbar::BUTTON_HEIGHT as f32;
 
 /// Draw the toolbar. Returns whether anything was pressed.
 pub fn view(app: &mut App, ui: &mut egui::Ui) -> bool {
+    app.drawn_scope = "toolbar";
     let mut acted = false;
     // What the pointer is resting on, and how long it has been there: the
     // tooltip's own timing wants both. See `crate::toolbar::Tooltip`.
@@ -197,6 +198,9 @@ fn draw_button(app: &mut App, ui: &mut egui::Ui, button: Button) -> (bool, egui:
         ui.painter()
             .rect_filled(rect, 0.0, egui::Color32::from_black_alpha(80));
     }
+    // Recorded under the short label — `Nml`, `%`, `+WP` — so a test can
+    // press "the % button on the toolbar".
+    crate::views::record(app, ui, short_label(button), &response);
 
     // The three buttons that open a menu do nothing themselves; the caller
     // handles them.

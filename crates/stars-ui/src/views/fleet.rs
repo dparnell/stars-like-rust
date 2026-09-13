@@ -104,7 +104,7 @@ fn tile_body(app: &mut App, ui: &mut egui::Ui, index: usize) {
         }
         2 => crate::views::planet::grid(ui, "waypoints", &app.fleet_waypoints_tile(), false),
         3 => waypoint_task(app, ui),
-        4 => crate::views::planet::grid(ui, "fuel-cargo", &app.fleet_cargo_tile(), false),
+        4 => fuel_and_cargo(app, ui),
         5 => {
             crate::views::planet::grid(ui, "composition", &app.fleet_composition_tile(), false);
             split_buttons(app, ui);
@@ -475,6 +475,122 @@ fn transport(app: &mut App, ui: &mut egui::Ui) {
     if chosen != action || amount != quantity {
         app.set_waypoint_transport(slot, chosen, amount);
     }
+}
+
+/// The **Fuel & Cargo** tile, `DrawShipCargo` (`1050:1a54`): `Fuel` and a
+/// gauge, `Cargo` and a gauge — each gauge from the wider of the two labels
+/// to four from the edge, a line tall, the rows a line and four apart —
+/// then the three minerals and the colonists as figures, the name in its
+/// own colour on the left and `%ld kT` right-aligned. The two gauges are
+/// the tile's click targets (`rgrcRef[2]` and `[3]`): a press in either is
+/// the Xfer button, which page 19 says in so many words.
+fn fuel_and_cargo(app: &mut App, ui: &mut egui::Ui) {
+    let line = ui.text_style_height(&egui::TextStyle::Small);
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    let Some(gauges) = app.fleet_in_hand_gauges() else {
+        // Somebody else's fleet: figures only, as `fleet_cargo_tile` gives.
+        crate::views::planet::grid(ui, "fuel-cargo", &app.fleet_cargo_tile(), false);
+        return;
+    };
+    let mine = true;
+    let rect = ui.max_rect();
+    let painter = ui.painter().clone();
+    let colour = |[r, g, b]: [u8; 3]| egui::Color32::from_rgb(r, g, b);
+    let text = ui.visuals().text_color();
+    let label_width = ["Fuel", "Cargo"]
+        .iter()
+        .map(|s| {
+            ui.fonts(|f| f.layout_no_wrap((*s).to_string(), font.clone(), text))
+                .rect
+                .width()
+        })
+        .fold(0.0_f32, f32::max)
+        .ceil();
+    let left = rect.left() + 4.0;
+    let right = rect.right() - 4.0;
+    let mut y = rect.top() + 1.0;
+    let mut open = false;
+
+    for (label, gauge) in [
+        (
+            "Fuel",
+            crate::survey::Gauge {
+                segments: vec![(gauges.fuel, crate::survey::CARGO_COLOURS[4])],
+                total: gauges.fuel_capacity,
+                label: format!("{} of {}mg", gauges.fuel, gauges.fuel_capacity),
+            },
+        ),
+        (
+            "Cargo",
+            crate::survey::Gauge {
+                segments: (0..3)
+                    .map(|i| (gauges.minerals[i], crate::survey::CARGO_COLOURS[i]))
+                    .chain(std::iter::once((
+                        gauges.colonists,
+                        crate::survey::CARGO_COLOURS[3],
+                    )))
+                    .collect(),
+                total: gauges.cargo_capacity,
+                label: format!("{} of {}kT", gauges.cargo(), gauges.cargo_capacity),
+            },
+        ),
+    ] {
+        painter.text(
+            egui::pos2(left, y),
+            egui::Align2::LEFT_TOP,
+            label,
+            font.clone(),
+            text,
+        );
+        let bar = egui::Rect::from_min_max(
+            egui::pos2(left + label_width + 4.0, y),
+            egui::pos2(right, y + line),
+        );
+        crate::views::survey::gauge_bar(ui, &painter, &gauge, bar, &font);
+        let response = ui.interact(
+            bar,
+            ui.id().with(("cargo-gauge", label)),
+            if mine {
+                egui::Sense::click()
+            } else {
+                egui::Sense::hover()
+            },
+        );
+        crate::views::record(app, ui, &format!("{label} gauge"), &response);
+        if response.clicked() {
+            open = true;
+        }
+        y += line + 4.0;
+    }
+    if open {
+        app.open_xfer();
+    }
+
+    let names = ["Ironium", "Boranium", "Germanium", "Colonists"];
+    let amounts = [
+        gauges.minerals[0],
+        gauges.minerals[1],
+        gauges.minerals[2],
+        gauges.colonists,
+    ];
+    for (index, (name, amount)) in names.iter().zip(amounts).enumerate() {
+        painter.text(
+            egui::pos2(left, y),
+            egui::Align2::LEFT_TOP,
+            *name,
+            font.clone(),
+            colour(crate::survey::CARGO_COLOURS[index]),
+        );
+        painter.text(
+            egui::pos2(right, y),
+            egui::Align2::RIGHT_TOP,
+            format!("{amount} kT"),
+            font.clone(),
+            text,
+        );
+        y += line;
+    }
+    ui.allocate_space(egui::vec2(ui.available_width(), (y - rect.top()).max(0.0)));
 }
 
 /// **Split** and **Split All** across the foot of the Fleet Composition tile.

@@ -577,10 +577,46 @@ pub fn execute_arrival_tasks(state: &mut GameState) -> (Vec<(u16, u8)>, Vec<Colo
                             // Not performed: see the note above.
                             _ => 0,
                         };
-                        if amount != 0
-                            && move_cargo(state, index, planet_id, owner, kind, amount) != 0
-                        {
-                            moved = true;
+                        if amount == 0 {
+                            continue;
+                        }
+                        let went = move_cargo(state, index, planet_id, owner, kind, amount);
+                        if went == 0 {
+                            continue;
+                        }
+                        moved = true;
+                        // What moved is reported: minerals are loaded and
+                        // unloaded, colonists beamed up and down
+                        // (`SatisfyOrders`, `10b0:6798`), with the fleet,
+                        // the amount as a long, the kind, and the planet.
+                        let kind_word = i16::try_from(kind).unwrap_or(0);
+                        let id = if went > 0 {
+                            if kind == COLONISTS {
+                                crate::message::id::HAS_BEAMED_UP
+                            } else {
+                                crate::message::id::HAS_LOADED
+                            }
+                        } else if kind == COLONISTS {
+                            crate::message::id::HAS_BEAMED_DOWN
+                        } else {
+                            crate::message::id::HAS_UNLOADED
+                        };
+                        let fleet_id = state.fleets[index].id;
+                        let [lo, hi] = crate::message::Message::long(went.abs());
+                        if let Ok(player) = usize::try_from(owner) {
+                            state.messages.push(crate::message::Message {
+                                player,
+                                id,
+                                object: crate::message::fleet_object(fleet_id),
+                                params: vec![
+                                    fleet_id as i16,
+                                    lo,
+                                    hi,
+                                    kind_word,
+                                    i16::from(crate::fleet::grobj::PLANET),
+                                    planet_id,
+                                ],
+                            });
                         }
                     }
                     if moved {

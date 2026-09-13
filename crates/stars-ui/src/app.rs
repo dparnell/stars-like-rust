@@ -2667,6 +2667,25 @@ impl App {
         })
     }
 
+    /// The gauges of the fleet the pane is about — the one in hand — or
+    /// `None` for somebody else's, whose holds are not on file.
+    #[must_use]
+    pub fn fleet_in_hand_gauges(&self) -> Option<FleetGauges> {
+        let fleet = self.pane_fleet()?;
+        let owner = usize::try_from(fleet.owner).ok()?;
+        if owner != self.local_player() {
+            return None;
+        }
+        let designs = self.game.as_ref()?.designs.get(owner)?;
+        Some(FleetGauges {
+            fuel: fleet.cargo.fuel,
+            fuel_capacity: fleet.fuel_capacity(designs),
+            minerals: fleet.cargo.minerals,
+            colonists: fleet.cargo.colonists,
+            cargo_capacity: fleet.cargo_capacity(designs),
+        })
+    }
+
     /// A fleet's name, as the game writes it (`PszGetFleetName`, `util.c`).
     ///
     /// A fleet the player has renamed shows that name. Otherwise it is named
@@ -4931,10 +4950,19 @@ impl App {
         if !self.view_filtered && self.message_filter().hidden(message.id) {
             return Goto::None;
         }
+        // A message names one of the player's **own** fleets by number;
+        // another player's fleet with the same number is not it.
+        let me = self.local_player();
         let fleets: Vec<u16> = self
             .game
             .as_ref()
-            .map(|g| g.fleets.iter().map(|f| f.id).collect())
+            .map(|g| {
+                g.fleets
+                    .iter()
+                    .filter(|f| usize::try_from(f.owner).is_ok_and(|o| o == me))
+                    .map(|f| f.id)
+                    .collect()
+            })
             .unwrap_or_default();
         message.goto(&fleets)
     }
@@ -4967,11 +4995,12 @@ impl App {
                 true
             }
             Goto::Fleet(id) => {
-                let Some(index) = self
-                    .game
-                    .as_ref()
-                    .and_then(|g| g.fleets.iter().position(|f| f.id == id))
-                else {
+                let me = self.local_player();
+                let Some(index) = self.game.as_ref().and_then(|g| {
+                    g.fleets
+                        .iter()
+                        .position(|f| f.id == id && usize::try_from(f.owner).is_ok_and(|o| o == me))
+                }) else {
                     return false;
                 };
                 self.select_object(ScanObject::Fleet(index));

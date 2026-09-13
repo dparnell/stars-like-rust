@@ -62,6 +62,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     // View (Toolbar) hides it, which the manual offers as a way to make room.
     if app.toolbar_visible() {
         crate::views::toolbar::view(app, ui);
+        app.drawn_scope = "scanner";
         ui.separator();
     }
 
