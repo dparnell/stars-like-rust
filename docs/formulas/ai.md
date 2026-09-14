@@ -112,8 +112,9 @@ mainly in which ships they build and when they decide to attack.
 
 **Status:** the research plans and shares recovered for all seven; the
 Maid's turn transcribed in full; the TurinDrone's in `turindrone.rs`; the
-Robotoid's in `robotoid.rs` (*The Robotoid's turn*, below); the other
-four run the TurinDrone's middle in place of their own.
+Robotoid's in `robotoid.rs` (*The Robotoid's turn*, below); the
+Automitron's in `automitron.rs` (*The Automitron's turn*); the other
+three run the TurinDrone's middle in place of their own.
 
 Every `Do…AiTurn` opens with `IroEnsureAi(plan, count, &ishdefSBLatest,
 pct)` and closes with `HandleBasicAiTasks` then `FillProductionQueue`.
@@ -151,13 +152,11 @@ over the fleets, with their own war tests (`FPotentRobWarFleet`
 shape is the TurinDrone's — merges by slot mask, `vrgAiArmadaPotency`
 from the year, `CheckAiShdefStatus` over the slot ranges,
 `SplitOutShdefs`, then the queues and the fleets — with the ranges, the
-thresholds and the designs differing. The Robotoid's is transcribed
-(*The Robotoid's turn*, below). The Automitron merges `0x4000` from turn
-31 and `0x1e0c`, `0x40` and `0x4000` from 51, rates from 3, and counts
-the planets it could settle before building colony ships. Until the four
-are transcribed each runs `turindrone::turn_as` — the TurinDrone's
-designs, queues and dispatch — under its own research plan and share,
-which is how they play today: not silent, and not yet themselves.
+thresholds and the designs differing. The Robotoid's and the
+Automitron's are transcribed (below). Until the other three are, each
+runs `turindrone::turn_as` — the TurinDrone's designs, queues and
+dispatch — under its own research plan and share, which is how they play
+today: not silent, and not yet themselves.
 
 ### Production
 
@@ -1166,6 +1165,138 @@ and sent out, nothing scouting, the designs drawn on the hulls the table
 names. Not verified against a corpus turn: the Robotoid games in
 `fixtures/` are being read for that.
 
+### The Automitron's turn — transcribed
+
+`DoAutomitronAiTurn` (`1098:01e0`) is `ai::automitron::turn`. In order:
+
+1. `IroEnsureAi(vrgbAutomitronRes, 18, &ishdefSBLatest, turn < 10 ? 0 :
+   20)`, then `ValidateStarbaseHistory`.
+2. `MergeAllShdefs(0x4000)` (slot 14) from turn 31; from turn 51 `0x1e0c`
+   (slots 2, 3, 9–12), `0x40` (slot 6) and `0x4000`.
+3. The potencies (`1098:0280`): `[0]` = 3, from turn 131 `3 + (turn −
+   120) / 20`, at most 50; `[1]` = half that; `[2]` = 6, from turn 116
+   `6 + (turn − 100) / 22`, at most 12; `[3]` = `min([2]/2 − 1, 3)`.
+4. `CheckAiShdefStatus` with the recycling period 50 (70 from turn 120,
+   100 from 200) over slots 11–12, 4–5, 2–3 and 9–10; from turn 61,
+   `SplitOutShdefs` for the old designs.
+5. `EnsureISShdefs` (`1098:1938`), below.
+6. The planets that could be settled are counted: unowned, scanned
+   (`det & 0xff > 2`), `PctPlanetOptValue > 0`.
+7. **The planet pass**, in planet order: every planet gets `[+9] = 1`;
+   an own planet hostile as it stands (`PctPlanetDesirability < 0`) is
+   marked `[+2] = 1` and passed over; somebody else's planet is marked
+   `[+10]` = 1 or 2 with a starbase and `[+3] = 1` when its opt value is
+   positive. An own planet with a starbase and over 150,000 people
+   (`rgwtMin[3] > 0x5db`) that has no ship queued:
+   - haulers (newest of 4–5) from Propulsion 5: while under
+     `max(2 × history entries, owned/10)`, or under ten sevenths of it
+     one roll in four, one;
+   - a colony freighter (slot 1), from turn 11, while there is somewhere
+     to settle and no ship of the design exists, one;
+   - mine layers (slot 6 live), one roll in three: three, when the fleet
+     of them here is under ten (under seventeen one roll in eight) and
+     `Random(2 × count + 1)` is zero;
+   - bombers (newest of 2–3): where an own fleet here passes
+     `FPotentISWarFleet` (ships in 11–12 plus twice those in 9–10 at
+     least `potency[0]`) and already holds `potency[2]` bombers, four,
+     and the planet is done;
+   - then, paid for out of what is left after the queue, up to five of
+     each while under the limit, stopping at the first that cannot be
+     paid: the newest of 11–12 to `planets/12 + 8`, the newest
+     Battleship (9–10) to `planets/24 + 4`.
+8. **The first fleet pass**: attack fleets (`FIsAiAttack`) are listed;
+   a transport (`FIsAiTransport`), or a colony freighter whose
+   destination is a planet marked `[+3]`, bound for — sitting at with no
+   leg, else its next waypoint's planet — a planet that is gone or
+   somebody else's: with colonists aboard, the planet marked `[+3]` and
+   its owner not Alternate Reality, a Transport order unloading all
+   colonists is written for that planet (`0x1101`, item `0x2000`) and the
+   planet claimed (`[+3] |= 0x80`); otherwise the orders are blown away.
+   A colony freighter bound for somebody else's planet not so marked has
+   its orders blown away too. No move to a starbase follows, unlike the
+   TurinDrone's.
+9. **The second fleet pass**, own fleets only. Under way: a fleet with
+   under 2 mg of fuel, when the scout design's engine is no scoop (item
+   under 10), is scrapped. With no leg:
+   - mine layers (slot 6) with no task: Lay Mines, 5 years;
+   - colony freighters (slot 1): scrapped unless the slot's design is a
+     Medium Freighter (`1098:12b4`); empty and not at an own planet of
+     20,000 people or more: at an own starbase they wait, else they go
+     to the nearest own starbase (`FMoveToNearestStarbase`, only when
+     the design's engine item is over 1) or are scrapped; otherwise
+     `IdNearestColonizablePlanet`, 15,000 colonists from the own planet
+     they sit at (`XferAiSupply(…, 3, 0x96)`), `FColonizeAiFleet` and
+     the planet claimed (`[+15] = 4`);
+   - transports: `IdTargetFreighter` from the starbase-history planet,
+     else the first own starbase — with none, the rest of the fleets are
+     left alone;
+   - bombers aboard (2, 3): the armada, at warp 4 (`0x1140`): in deep
+     space from the first own starbase planet; at an own starbase it
+     waits while it holds under two of either bomber and under three of
+     either Battleship (`1098:16f8`); at somebody else's planet it stays
+     unless one of their warships is there; the target by
+     `FEnumCalcArmadaDest` (`FEnumCalcArmadaHumanDest` first with the
+     alliance option), claimed with `[+10] |= 0x80`;
+   - scouts (slot 0): out of fuel as above, scrapped; else
+     `IdTargetScout`.
+10. `HandleBasicAiTasks`, `FillProductionQueue`.
+
+Nothing in the routine queues a scout: the slot-0 design is redrawn
+every year no ship of it exists, but only the ships the player began
+with ever scout, and once the starting scouts (fuel engines) are out of
+fuel the Automitron sees no further than its planets. On the tutorial's
+world that leaves it with two planets after eighty years; whether the
+original does the same is for a corpus game to say.
+
+#### `IdTargetScout` (`1090:61de`)
+
+An armed fleet (`FFleetMightHaveTeeth`) looks for the nearest of the
+other players' fleets — a computer player's passed over when the
+computer players band together (`fOnlyHumans`, game flag bit 4), and
+one another attack fleet of ours is already chasing one roll in three.
+Within 180 light years (squared distance under `0x7e90`) it is the
+target, a leg of class fleet. Further off, a fleet with half its fuel
+capacity or less goes home (`FMoveToNearestStarbase`); else the nearest
+planet to that fleet that no attack fleet of ours is bound for is the
+target, unless it is the one we orbit. With no enemy in view and the
+alliance option on, the search is repeated without it.
+
+Failing all that, and for an unarmed fleet: `IdNearestUnknownPlanet`
+(`1090:15a4`) — the nearest planet marked unknown (`[+15] == 0x10`); with
+none, `LpplFindBestEnum(home planet, FEnumCalcArmadaDest)` from
+`rgplr[].idPlanetHome`, else a planet at random. A planet target is
+claimed (`[+15] = 4`) and the leg laid at `IFindIdealWarp`. The wormhole
+the routine may be handed (`plpthWorm`, one time in twenty at a planet
+by `IdNearestUnknownPlanet`) is not kept, as in the other transcriptions.
+
+#### The Automitron's design slots
+
+`EnsureISShdefs` draws into a retired slot (the scout and colony slots
+also whenever no ship of the design is left, the live design retired
+first) when the tech allows (`rgTech` 1–5 = Weapons, Propulsion,
+Construction, Electronics, Biotechnology). The fittings are the
+part-class bytes at `1098:0078` by the offsets at `1098:0064`
+(`automitron::fitting`).
+
+| slot | role | hull | fitting | needs |
+|-----:|------|------|---------|-------|
+| 0 | scout | Scout (4) | 1: `[30,26,4]` | — |
+| 1 | colony freighter | Medium Freighter (1) | 0: `[30,31,10]` | — |
+| 2 | bomber | B-17 (17) | 15: `[8,21,23,12]` | Weap > 7, Elec > 6, Con > 5, Prop > 6 |
+| 3 | bomber | B-52 (19) | 16: `[8,21,23,23,23,12,10]` | Weap > 10, Elec > 11, Con > 14, Prop > 8 |
+| 4 | hauler | Medium Freighter (1) | 14: `[8,16,10]` | Prop > 4 |
+| 5 | hauler | Super Freighter (3) | 18: `[8,16,10,19]` | Prop > 6 |
+| 6 | mine layer | Privateer (11) | 17: `[30,10,12,25,32]` | Con > 3, Prop > 4, Bio > 5 |
+| 9 | battleship | Battleship (9) | 10–13, one at random, five tries | Weap > 4, Elec > 5, Con > 12, Prop > 6 |
+| 14 | destroyer | Destroyer (6) | 4: `[30,0,0,13,9,18,11]`, four tries | Weap > 4, Elec > 5, Con > 3, Prop > 4 |
+
+Slots 10, 11 and 12 are never drawn; the pass counts and builds whatever
+the player began with there.
+
+`tests/automitron.rs` runs it in the Berserkers' seat on the tutorial's
+world: the starting colony ship scrapped, the scouts sent out, the
+Medium Freighter colony design drawn and sent to settle.
+
 ### Other queue sources
 
 Eighteen functions call `AddItemToQueue`. Besides the two above, the AI-side
@@ -1182,6 +1313,9 @@ which is why Cyber's always-1 terraform entries have no known source yet.
 
 - `DoAiTurn` (`1088:0000`) — dispatch table and turn preparation.
 - `DoTurinDroneAiTurn` (`1088:3670`) — the worked example above.
+- `DoAutomitronAiTurn` (`1098:01e0`), `EnsureISShdefs` (`1098:1938`),
+  `FPotentISWarFleet` (`1098:012e`), `IdTargetScout` (`1090:61de`),
+  `IdNearestUnknownPlanet` (`1090:15a4`), `XferAiSupply` (`1090:0ad0`).
 - `DoRobotoidAiTurn` (`1088:0312`), `EnsureRobotoidShdefs` (`1088:20ae`),
   `FPotentRobWarFleet` (`1088:31bc`), `FShouldWeBuildColonizers`
   (`1090:476a`), `IdTargetAttack` (`1090:1ffe`), `FFindBuddyAndJoinUp`

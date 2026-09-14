@@ -24,6 +24,8 @@ pub enum Shape {
     TurinDrone,
     /// The Robotoid's full turn (`DoRobotoidAiTurn`, `1088:0312`).
     Robotoid,
+    /// The Automitron's full turn (`DoAutomitronAiTurn`, `1098:01e0`).
+    Automitron,
     /// A personality whose own middle is not yet transcribed: the
     /// TurinDrone's runs for it, under its own research plan and share.
     StandIn,
@@ -119,7 +121,7 @@ impl Profile {
                 personality,
                 plan: AUTOMITRON_PLAN,
                 pct: pct_twenty_from_ten,
-                shape: Shape::StandIn,
+                shape: Shape::Automitron,
             },
             // `DoRototillAiTurn` (`1098:1e22`) hands `IroEnsureAi` no plan
             // and 15 % from turn 20.

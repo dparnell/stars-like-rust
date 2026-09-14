@@ -2044,19 +2044,133 @@ pub(crate) fn merge_all(state: &mut GameState, me: i16, mask: u16, report: &mut 
     }
 }
 
-/// `FEnumCalcArmadaDest` (`1088:3286`) over every planet, from `base`:
-/// a foreign planet's mark — 1, or 2 with a starbase — plus 7, 5, 4, 3, 2
-/// or 1 for lying within 50, 100, 150, 200, 300 or 500 light years, a
-/// claimed planet counting only one time in four; the best score wins, the
-/// nearer breaking a tie, and a score of one is no target. With the
-/// "computer players form alliances" option only human players' planets
-/// are looked at first (`FEnumCalcArmadaHumanDest`, `1088:3406`).
+/// How a personality sends its armadas: which slots its bombers are in
+/// (another armada bound for a planet claims it), when a fleet waiting
+/// at an own starbase is ready to leave, and the warp of the leg — the
+/// ideal warp when `None`.
+pub(crate) struct ArmadaRule<'a> {
+    pub bombers: &'a [u8],
+    pub ready: &'a dyn Fn(&crate::fleet::Fleet) -> bool,
+    pub warp: Option<u8>,
+}
+
+/// `LpplFindBestEnum(base, FEnumCalcArmadaDest)` (`1088:3286`) over every
+/// planet, from `base`: a foreign planet's mark — 1, or 2 with a starbase
+/// — plus 7, 5, 4, 3, 2 or 1 for lying within 50, 100, 150, 200, 300 or
+/// 500 light years, a claimed planet counting only one time in four; the
+/// best score wins, the nearer breaking a tie, and a score of one is no
+/// target. With the "computer players form alliances" option only human
+/// players' planets are looked at first (`FEnumCalcArmadaHumanDest`,
+/// `1088:3406`). `claimed` are the planets other armadas of ours are
+/// bound for (`vlpbAiPlanet[+10] & 0x80`).
+pub(crate) fn armada_dest(
+    state: &GameState,
+    player: usize,
+    me: i16,
+    base: i16,
+    from: Point,
+    claimed: &BTreeSet<u16>,
+    rng: &mut Rng,
+) -> Option<(i16, Point)> {
+    let explored = &state.players[player].explored;
+    let human = |owner: i16| {
+        usize::try_from(owner)
+            .ok()
+            .and_then(|o| state.players.get(o))
+            .is_some_and(|p| !p.control.is_computer())
+    };
+    let pick = |only_humans: bool, rng: &mut Rng| -> Option<(i16, Point)> {
+        let mut best: Option<(u8, i64, i16, Point)> = None;
+        for planet in &state.planets {
+            let (Some(owner), Some(at)) = (planet.owner, planet.position) else {
+                continue;
+            };
+            if owner == me || planet.id == base || !explored.contains(&planet.id) {
+                continue;
+            }
+            if only_humans && !human(owner) {
+                continue;
+            }
+            let mut score: u8 = if planet.starbase { 2 } else { 1 };
+            let dx = i64::from(at.x) - i64::from(from.x);
+            let dy = i64::from(at.y) - i64::from(from.y);
+            let d2 = dx * dx + dy * dy;
+            score += match d2 {
+                d if d < 2_500 => 7,
+                d if d < 10_000 => 5,
+                d if d < 22_500 => 4,
+                d if d < 40_000 => 3,
+                d if d < 90_000 => 2,
+                d if d < 250_000 => 1,
+                _ => 0,
+            };
+            if claimed.contains(&u16::try_from(planet.id).unwrap_or(u16::MAX)) && rng.random(4) != 0
+            {
+                continue;
+            }
+            if score <= 1 {
+                continue;
+            }
+            if best.is_none_or(|(s, d, _, _)| score > s || (score == s && d2 < d)) {
+                best = Some((score, d2, planet.id, at));
+            }
+        }
+        best.map(|(_, _, id, at)| (id, at))
+    };
+    if state.ais_band {
+        pick(true, rng).or_else(|| pick(false, rng))
+    } else {
+        pick(false, rng)
+    }
+}
+
+/// The TurinDrone's armada dispatch: bombers in slots 13 and 14, a fleet
+/// at an own starbase leaving once it holds `potency[2]` bombers and
+/// `potency[1]` battleships (slots 4, 5), at the ideal warp.
 pub(crate) fn target_armada(
     state: &mut GameState,
     player: usize,
     me: i16,
     index: usize,
     potency: &[u8; 4],
+    rng: &mut Rng,
+) -> Option<i16> {
+    let ready = |fleet: &crate::fleet::Fleet| {
+        let count = |slots: [u8; 2]| -> i32 {
+            fleet
+                .stacks
+                .iter()
+                .filter(|s| slots.contains(&s.design))
+                .map(|s| s.count)
+                .sum()
+        };
+        count([13, 14]) >= i32::from(potency[2]) && count([4, 5]) >= i32::from(potency[1])
+    };
+    target_armada_as(
+        state,
+        player,
+        me,
+        index,
+        &ArmadaRule {
+            bombers: &[13, 14],
+            ready: &ready,
+            warp: None,
+        },
+        rng,
+    )
+}
+
+/// The armada's leg, by a personality's [`ArmadaRule`]: a fleet in deep
+/// space works from the first own planet with a starbase; at an own
+/// starbase it waits until `ready`; at somebody else's planet it stays
+/// unless one of their warships is there too; then [`armada_dest`] from
+/// where it is, and a leg there.
+pub(crate) fn target_armada_as(
+    state: &mut GameState,
+    player: usize,
+    me: i16,
+    index: usize,
+    rule: &ArmadaRule<'_>,
     rng: &mut Rng,
 ) -> Option<i16> {
     let fleet = state.fleets[index].clone();
@@ -2071,22 +2185,8 @@ pub(crate) fn target_armada(
             .find(|p| p.owner == Some(me) && p.starbase)?
             .clone(),
         Some(planet) if planet.owner == Some(me) => {
-            if planet.starbase {
-                let bombers: i32 = fleet
-                    .stacks
-                    .iter()
-                    .filter(|s| s.design == 13 || s.design == 14)
-                    .map(|s| s.count)
-                    .sum();
-                let battleships: i32 = fleet
-                    .stacks
-                    .iter()
-                    .filter(|s| s.design == 4 || s.design == 5)
-                    .map(|s| s.count)
-                    .sum();
-                if bombers < i32::from(potency[2]) || battleships < i32::from(potency[1]) {
-                    return None;
-                }
+            if planet.starbase && !(rule.ready)(&fleet) {
+                return None;
             }
             planet.clone()
         }
@@ -2120,7 +2220,6 @@ pub(crate) fn target_armada(
         Some(planet) => planet.clone(),
     };
     let from = base.position?;
-    let explored = state.players[player].explored.clone();
     let claimed: BTreeSet<u16> = state
         .fleets
         .iter()
@@ -2128,67 +2227,23 @@ pub(crate) fn target_armada(
         .filter(|f| {
             f.stacks
                 .iter()
-                .any(|s| (s.design == 13 || s.design == 14) && s.count > 0)
+                .any(|s| rule.bombers.contains(&s.design) && s.count > 0)
         })
         .filter_map(|f| f.waypoints[1].target)
         .collect();
-    let human = |owner: i16| {
-        usize::try_from(owner)
-            .ok()
-            .and_then(|o| state.players.get(o))
-            .is_some_and(|p| !p.control.is_computer())
-    };
-    let pick = |only_humans: bool, rng: &mut Rng| -> Option<(i16, Point)> {
-        let mut best: Option<(u8, i64, i16, Point)> = None;
-        for planet in &state.planets {
-            let (Some(owner), Some(at)) = (planet.owner, planet.position) else {
-                continue;
-            };
-            if owner == me || planet.id == base.id || !explored.contains(&planet.id) {
-                continue;
-            }
-            if only_humans && !human(owner) {
-                continue;
-            }
-            let mut score: u8 = if planet.starbase { 2 } else { 1 };
-            let dx = i64::from(at.x) - i64::from(from.x);
-            let dy = i64::from(at.y) - i64::from(from.y);
-            let d2 = dx * dx + dy * dy;
-            score += match d2 {
-                d if d < 2_500 => 7,
-                d if d < 10_000 => 5,
-                d if d < 22_500 => 4,
-                d if d < 40_000 => 3,
-                d if d < 90_000 => 2,
-                d if d < 250_000 => 1,
-                _ => 0,
-            };
-            if claimed.contains(&u16::try_from(planet.id).unwrap_or(u16::MAX)) && rng.random(4) != 0
-            {
-                continue;
-            }
-            if score <= 1 {
-                continue;
-            }
-            if best.is_none_or(|(s, d, _, _)| score > s || (score == s && d2 < d)) {
-                best = Some((score, d2, planet.id, at));
-            }
+    let (target, at) = armada_dest(state, player, me, base.id, from, &claimed, rng)?;
+    let warp = match rule.warp {
+        Some(warp) => warp,
+        None => {
+            let designs = state.designs.get(player).cloned().unwrap_or_default();
+            let stacks: Vec<(&crate::design::ShipDesign, i32)> = fleet
+                .stacks
+                .iter()
+                .filter_map(|s| designs.get(usize::from(s.design)).map(|d| (d, s.count)))
+                .collect();
+            ideal_warp(&stacks, false)
         }
-        best.map(|(_, _, id, at)| (id, at))
     };
-    let target = if state.ais_band {
-        pick(true, rng).or_else(|| pick(false, rng))
-    } else {
-        pick(false, rng)
-    };
-    let (target, at) = target?;
-    let designs = state.designs.get(player).cloned().unwrap_or_default();
-    let stacks: Vec<(&crate::design::ShipDesign, i32)> = fleet
-        .stacks
-        .iter()
-        .filter_map(|s| designs.get(usize::from(s.design)).map(|d| (d, s.count)))
-        .collect();
-    let warp = ideal_warp(&stacks, false);
     lay_leg(
         &mut state.fleets[index],
         at,
