@@ -143,7 +143,7 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
     // slots, made when the tech allows.
     ensure_designs(state, player, rng, &mut report);
 
-    let marks = marks(state, player, me, &explored);
+    let mut marks = marks(state, player, me, &explored);
     let anywhere_to_settle = marks.contains(&Mark::Colonisable);
 
     // `CheckAiShdefStatus` over each slot range: how many ships of the
@@ -402,8 +402,8 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
     }
     // The first walk over the fleets: stale orders cut, colonists dropped
     // where they would be wanted, and the miners' planets claimed.
-    let valued = valued_planets(state, player, me);
-    first_pass(state, player, me, &valued, &mut worth, &mut report);
+    let mut valued = valued_planets(state, player, me);
+    first_pass(state, player, me, &mut valued, &mut worth, &mut report);
     for index in 0..state.fleets.len() {
         let fleet = &state.fleets[index];
         if fleet.owner != me || fleet.is_empty() {
@@ -550,6 +550,11 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
                     stars_formats::task::COLONIZE,
                     warp,
                 );
+                // `vlpbAiPlanet[+15] = 4`: claimed, for the colony ships
+                // after this one.
+                if let Some(mark) = usize::try_from(target).ok().and_then(|i| marks.get_mut(i)) {
+                    *mark = Mark::Claimed;
+                }
                 report.colonising.push((fleet_id, target));
             }
             continue;
@@ -1087,7 +1092,7 @@ fn first_pass(
     state: &mut GameState,
     player: usize,
     me: i16,
-    valued: &BTreeSet<i16>,
+    valued: &mut Valued,
     worth: &mut [u8],
     report: &mut Report,
 ) {
@@ -1134,7 +1139,7 @@ fn first_pass(
                 let Some(dest) = dest else {
                     continue;
                 };
-                if !valued.contains(&dest) {
+                if !valued.planets.contains(&dest) {
                     if planet_of(dest).is_some_and(|p| p.owner.is_some_and(|o| o != me)) {
                         blow_away(state, report);
                     }
@@ -1155,7 +1160,7 @@ fn first_pass(
             if !gone_or_theirs {
                 continue;
             }
-            let drop = valued.contains(&dest)
+            let drop = valued.planets.contains(&dest)
                 && fleet.cargo.colonists > 0
                 && !we_are_ar
                 && planet.as_ref().is_some_and(|p| !p.starbase);
@@ -1181,6 +1186,9 @@ fn first_pass(
                 first.transport = Some(TransportTask { items });
                 first.task_data = Vec::new();
             }
+            // `vlpbAiPlanet[+3] |= 0x80`: claimed, so no hauler goes for it
+            // this turn.
+            valued.claimed.insert(dest);
             report.dropping.push((fleet.id, dest));
             move_to_nearest_starbase(state, me, index, false);
             continue;
@@ -1215,21 +1223,34 @@ fn first_pass(
     }
 }
 
-/// `vlpbAiPlanet[+3]`, from the planet pass: the other players' planets
-/// with a positive opt value (`PctPlanetOptValue`) for us.
-fn valued_planets(state: &GameState, player: usize, me: i16) -> BTreeSet<i16> {
+/// `vlpbAiPlanet[+3]`: the other players' planets with a positive opt
+/// value (`PctPlanetOptValue`) for us, and which of them a fleet has
+/// claimed this turn (the byte's `0x80`).
+#[derive(Debug, Default)]
+struct Valued {
+    /// The planets, by id.
+    planets: BTreeSet<i16>,
+    /// Those a colonist drop is already bound for.
+    claimed: BTreeSet<i16>,
+}
+
+/// The planet pass's `vlpbAiPlanet[+3]` marks.
+fn valued_planets(state: &GameState, player: usize, me: i16) -> Valued {
     let race = &state.players[player].race;
     let levels = state.players[player].research.levels;
-    state
-        .planets
-        .iter()
-        .filter(|p| p.owner.is_some_and(|o| o != me))
-        .filter(|p| {
-            let reach = crate::terraform::optimal_env(p, race, levels);
-            pct_planet_opt_value(p, race, reach) > 0
-        })
-        .map(|p| p.id)
-        .collect()
+    Valued {
+        planets: state
+            .planets
+            .iter()
+            .filter(|p| p.owner.is_some_and(|o| o != me))
+            .filter(|p| {
+                let reach = crate::terraform::optimal_env(p, race, levels);
+                pct_planet_opt_value(p, race, reach) > 0
+            })
+            .map(|p| p.id)
+            .collect(),
+        claimed: BTreeSet::new(),
+    }
 }
 
 /// `ValidateStarbaseHistory` (`1090:4cf0`), which `IroEnsureAi` runs for
@@ -1569,8 +1590,9 @@ fn is_attack_fleet(state: &GameState, player: usize, fleet: &crate::fleet::Fleet
 ///   else what it has, over nine, as a share of the hold capped at the
 ///   room left, times a hundred over the distance;
 /// * another player's planet, for the TurinDrone: only one worth
-///   settling (`vlpbAiPlanet[+3]`) while we are at home, scored like an
-///   own planet — the colonists aboard are dropped on it;
+///   settling (`vlpbAiPlanet[+3]`) that no colonist drop has claimed this
+///   turn (the byte's `0x80`), while we are at home, scored like an own
+///   planet — the colonists aboard are dropped on it;
 /// * salvage (`FSalvageTargetFreighter2`, `1090:395a`): a stationary
 ///   packet within 200 light years, scored like a planet on what it has;
 ///   one at our own position is emptied into the hold on the spot, and a
@@ -1592,7 +1614,7 @@ fn target_freighter(
     index: usize,
     worth: &[u8],
     home: i16,
-    valued: &BTreeSet<i16>,
+    valued: &Valued,
     rng: &mut Rng,
 ) -> Option<i16> {
     use stars_formats::{ItemAction, TransportTask, XferAction};
@@ -1675,7 +1697,10 @@ fn target_freighter(
         let score = if planet.owner.is_none() && worth_here & 0x80 != 0 {
             i64::from(worth_here & 0x7f) * 500 / distance(at)
         } else if planet.owner.is_none()
-            || (planet.owner != Some(me) && !(valued.contains(&planet.id) && at_home))
+            || (planet.owner != Some(me)
+                && !(valued.planets.contains(&planet.id)
+                    && !valued.claimed.contains(&planet.id)
+                    && at_home))
         {
             // Unowned and unclaimed, or somebody else's that is not worth
             // settling from home.

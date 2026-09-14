@@ -983,3 +983,30 @@ fn a_hauler_collects_salvage() {
     assert_eq!(hauler.cargo.minerals, [60, 40, 0], "a 120 kT hold");
     assert_eq!(state.packets[0].minerals, [0, 0, 0]);
 }
+
+/// `vlpbAiPlanet[+15] = 4`: a planet one colony ship is sent to this turn
+/// is claimed, and the next colony ship goes elsewhere.
+#[test]
+fn colony_ships_of_one_turn_claim_their_planets() {
+    let mut state = tutorial_world();
+    let mut rng = stars_core::rng::Rng::randomize(4);
+    state.turn = 5;
+    // Planets 14 and 16 are habitable to the Berserkers once known.
+    state.players[1].explored.insert(14);
+    state.players[1].explored.insert(16);
+    let colony = state
+        .fleets
+        .iter()
+        .position(|f| f.owner == 1 && f.id == 1)
+        .expect("the Santa Maria");
+    let mut second = state.fleets[colony].clone();
+    second.id = 7;
+    state.fleets.push(second);
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert_eq!(report.colonising.len(), 2, "{:?}", report.colonising);
+    assert_ne!(
+        report.colonising[0].1, report.colonising[1].1,
+        "two ships, two planets: {:?}",
+        report.colonising
+    );
+}

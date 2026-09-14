@@ -968,10 +968,17 @@ than it. The TurinDrone reads it twice: the cruiser limit is
 planet. `Player::starbase_history` holds it for the game in hand; the
 history file's copy is not read or written.
 
+The claim bits in the scratch bytes, which last the turn: `[+1] |= 0x80`
+a miner's planet, `[+3] |= 0x80` a colonist drop's planet (no hauler
+goes for it), `[+10] |= 0x80` an armada's target, and `[+15] = 4` a
+colony ship's planet (`Claimed`, so the next colony ship of the turn
+goes elsewhere). `[+2] & 0x80`, which `IdTargetFreighter` tests on a
+hostile own planet, is set by nothing in the TurinDrone's turn.
+
 Not yet: `FixPlanetsUnderAttack`, which never runs in a tutorial game
 (flag bit 3); the `det` bit 15 the first pass clears and the colonise
-and armada targeting set (nothing in the TurinDrone's turn reads it);
-the `0x80` claim on `vlpbAiPlanet[+2]` and `[+3]`. A fleet of
+and armada targeting set (nothing in the TurinDrone's turn reads it). A
+fleet of
 battleships or Rogues with no bombers
 aboard is given nothing by the TurinDrone — its ladder of `rgcsh` tests
 (`1088:4932`–`1088:4eb0`: miners, orders pending, colony ships, freighters,
