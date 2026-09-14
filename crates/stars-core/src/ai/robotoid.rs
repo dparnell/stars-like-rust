@@ -257,7 +257,7 @@ pub fn should_build_colonizers(
 /// planet within `range` chosen uniformly by reservoir — the first is
 /// kept, the second replaces it one time in two, the third one in three —
 /// drawn again up to twice when the one drawn has a starbase.
-fn random_planet_nearby(
+pub(crate) fn random_planet_nearby(
     state: &GameState,
     at: Point,
     range: i32,
@@ -563,6 +563,7 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng, profile: &Profi
         }
     }
     let potency = potency(turn);
+    state.ai_armada_potency = potency;
 
     // `CheckAiShdefStatus` over the slot ranges, with the freighters'
     // recycling period half as long again; a Nubian in 14 or 15 is never
@@ -1258,7 +1259,7 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng, profile: &Profi
 /// business next year — when within `dist1`, or within `dist2` one time
 /// in two.
 #[allow(clippy::too_many_arguments)]
-fn find_buddy_and_join_up(
+pub(crate) fn find_buddy_and_join_up(
     state: &mut GameState,
     me: i16,
     index: usize,
@@ -1330,7 +1331,7 @@ fn find_buddy_and_join_up(
 /// all: the nearest planet of somebody else's, or failing that the nearest
 /// planet nobody holds, or failing that one at random. The leg is laid at
 /// warp 4 unless the fleet is already bound for the planet chosen.
-fn target_attack(
+pub(crate) fn target_attack(
     state: &mut GameState,
     player: usize,
     me: i16,

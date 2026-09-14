@@ -211,6 +211,13 @@ pub struct Player {
     /// it in the player's history file; here it lives only for the game in
     /// hand and is rebuilt from the fleets when it is empty.
     pub starbase_history: Vec<ai::StarbaseHistoryEntry>,
+    /// The Cybertron's own use of `vlpbAiData` (`DoCyberAiTurn`,
+    /// `10a8:002a`): a word per planet that lasts from year to year — the
+    /// scanner-packet direction, the colony-ship and packet flags and a
+    /// three-year cooldown on a planet packets were thrown at — indexed
+    /// by planet id. See [`ai::cyber`]. Empty for everyone else; like the
+    /// starbase history it lives only for the game in hand.
+    pub cyber_words: Vec<u16>,
 }
 
 /// The five battle plans a new game gives every player.
@@ -285,6 +292,7 @@ impl Player {
             battle_plans: default_battle_plans(0),
             explored: std::collections::BTreeSet::new(),
             starbase_history: Vec::new(),
+            cyber_words: Vec::new(),
         }
     }
 }
@@ -366,6 +374,14 @@ pub struct GameState {
     /// How far apart the players started (`GAME.mdStartDist`, 0 close to 3
     /// farther), which the Robotoid reads for its first years.
     pub start_distance: i16,
+    /// `vrgAiArmadaPotency` (`1120:515c`): the four armada potencies the
+    /// TurinDrone, Robotoid and Automitron turns each set for the year
+    /// before using them. The Cybertron's `TargetCyberArmada`
+    /// (`10a8:51a4`) reads this table but its turn only ever writes its
+    /// own (`vrgAiCyberArmadaPotency`, `1120:4846`), so it sees whatever
+    /// the last of those three to move left behind — zeros when none
+    /// plays. Kept here so that quirk is reproduced within a game.
+    pub ai_armada_potency: [u8; 4],
     /// The game's victory conditions, exactly as `GAME.rgvc` holds them. Read
     /// through [`stars_formats::GameInfo`]; see [`crate::victory`].
     pub victory: [u8; stars_formats::victory::COUNT],
@@ -474,6 +490,7 @@ impl GameState {
             galaxy_planets: 0,
             galaxy_size: 0,
             start_distance: 0,
+            ai_armada_potency: [0; 4],
             victory: [0; stars_formats::victory::COUNT],
             messages: Vec::new(),
             minefields: Vec::new(),

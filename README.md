@@ -116,7 +116,9 @@ play: each researches by its own recovered plan and share; the Maid's
 turn is its own, so is the Robotoid's — its Frigate mine layers, Meta
 Morph and Battleship warships, Nubian armadas and its hunt for the other
 players' fleets — and so is the Automitron's, which colonises by Medium
-Freighter and whose scouts chase the enemy; the other three run the
+Freighter and whose scouts chase the enemy — and so is the Cybertron's,
+which spreads its people by freighter, builds warship groups and throws
+mineral packets at its enemies; the Rototill and the Macinti run the
 TurinDrone's designs, queues and dispatch in place of their own until
 those are transcribed (`docs/formulas/ai.md`, *The seven
 personalities*).

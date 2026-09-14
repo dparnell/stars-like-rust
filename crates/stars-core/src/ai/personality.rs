@@ -26,6 +26,8 @@ pub enum Shape {
     Robotoid,
     /// The Automitron's full turn (`DoAutomitronAiTurn`, `1098:01e0`).
     Automitron,
+    /// The Cybertron's full turn (`DoCyberAiTurn`, `10a8:002a`).
+    Cyber,
     /// A personality whose own middle is not yet transcribed: the
     /// TurinDrone's runs for it, under its own research plan and share.
     StandIn,
@@ -135,7 +137,7 @@ impl Profile {
                 personality,
                 plan: CYBER_PLAN,
                 pct: pct_seventeen,
-                shape: Shape::StandIn,
+                shape: Shape::Cyber,
             },
             AiPersonality::Macinti => Self {
                 personality,

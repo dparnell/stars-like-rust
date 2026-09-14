@@ -261,6 +261,7 @@ pub fn turn_as(
         i32::try_from(state.planets.iter().filter(|p| p.owner == Some(me)).count()).unwrap_or(0);
     let levels = state.players[player].research.levels;
     let potency = potency(state.turn);
+    state.ai_armada_potency = potency;
     for index in 0..state.planets.len() {
         let planet = &state.planets[index];
         if planet.owner != Some(me) || !planet.starbase || planet.pop < QUEUE_MIN_POP {

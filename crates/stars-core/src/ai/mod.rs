@@ -13,6 +13,7 @@
 
 pub mod automitron;
 pub mod colonise;
+pub mod cyber;
 pub mod dispatch;
 pub mod parts;
 pub mod personality;

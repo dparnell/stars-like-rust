@@ -113,8 +113,9 @@ mainly in which ships they build and when they decide to attack.
 **Status:** the research plans and shares recovered for all seven; the
 Maid's turn transcribed in full; the TurinDrone's in `turindrone.rs`; the
 Robotoid's in `robotoid.rs` (*The Robotoid's turn*, below); the
-Automitron's in `automitron.rs` (*The Automitron's turn*); the other
-three run the TurinDrone's middle in place of their own.
+Automitron's in `automitron.rs` (*The Automitron's turn*); the
+Cybertron's in `cyber.rs` (*The Cybertron's turn*); the Rototill and the
+Macinti run the TurinDrone's middle in place of their own.
 
 Every `Do…AiTurn` opens with `IroEnsureAi(plan, count, &ishdefSBLatest,
 pct)` and closes with `HandleBasicAiTasks` then `FillProductionQueue`.
@@ -152,11 +153,11 @@ over the fleets, with their own war tests (`FPotentRobWarFleet`
 shape is the TurinDrone's — merges by slot mask, `vrgAiArmadaPotency`
 from the year, `CheckAiShdefStatus` over the slot ranges,
 `SplitOutShdefs`, then the queues and the fleets — with the ranges, the
-thresholds and the designs differing. The Robotoid's and the
-Automitron's are transcribed (below). Until the other three are, each
-runs `turindrone::turn_as` — the TurinDrone's designs, queues and
-dispatch — under its own research plan and share, which is how they play
-today: not silent, and not yet themselves.
+thresholds and the designs differing. The Robotoid's, the Automitron's
+and the Cybertron's are transcribed (below). Until the Rototill's and the
+Macinti's are, each runs `turindrone::turn_as` — the TurinDrone's
+designs, queues and dispatch — under its own research plan and share,
+which is how they play today: not silent, and not yet themselves.
 
 ### Production
 
@@ -1297,6 +1298,205 @@ the player began with there.
 world: the starting colony ship scrapped, the scouts sent out, the
 Medium Freighter colony design drawn and sent to settle.
 
+### The Cybertron's turn — transcribed
+
+`DoCyberAiTurn` (`10a8:002a`) is `ai::cyber::turn`. The Cybertron is the
+Packet Physics opponent and plays unlike the others: it spreads its
+people by freighter, throws mineral packets at its own short planets
+and at its enemies, and fires packets at the galaxy's edge to scan with
+them. Its per-planet scratch is `vlpbAiData` read as **words**: a lasting
+half (`Player::cyber_words`: bits 0–2 the scanner-packet direction, 3 a
+colony ship queued last year, 4 a scanner packet just sent, 5–6 a
+three-year cooldown on a planet packets were thrown at, 7 more packets
+owed) and a half zeroed each year (bit 0 a colony ship here found
+nowhere to go, 1–2 freighters that unloaded here, 3–4 freighters bound
+here, 5 defenders here short, 6 defenders here, 8–10 short of each
+mineral). In order:
+
+1. `IroEnsureAi(vrgbCyberRes, 42, &ishdefSBLatest, 17)` — no starbase
+   history; `EnsureCyberAiShdefs` (`10a8:4826`), below; then, every
+   year, `MergeAllShdefs` with `1`, `0x30`, `0xc000`, `0x3c0` and
+   `0x3c00` (the mine layers, the Destroyers, the starbase defenders,
+   and each warship group).
+2. The attack strength (`10a8:0090`): 1, `(turn − 50)/10 + 1` past
+   turn 50, plus `(turn − 100)/10 × turn/100` past 100. Its own
+   potencies (`vrgAiCyberArmadaPotency`, from 3 and 6 like the
+   Automitron's) are set and never read: `TargetCyberArmada` reads the
+   shared `vrgAiArmadaPotency` (`1120:515c`), which only the TurinDrone,
+   Robotoid and Automitron turns write — `GameState::ai_armada_potency`
+   keeps that quirk, so a Cybertron alone fights at zero potency.
+3. The recycling period: 50, 70 from turn 120, 100 from 200, 300 from
+   400. `CheckAiShdefStatus` over 4–5, 14–15 and 2–3, the newest of each
+   never counted old. Each warship group (6–9, 10–13) whose base design
+   is live but past the period has its unused designs retired from the
+   top down (the base only when a higher slot was kept) and the rest
+   marked old; the group with the newest live base is the one to build.
+   From turn 81, `SplitOutShdefs` for the old designs, then slots 2 and
+   3 each and together.
+4. **The planet marks**: every planet's cooldown counts down; an own
+   starbase planet is marked short of each mineral under 1,000 kT (10 at
+   a starbase in design slot 1, 3, 6 or 8); the other players' planets
+   are worth `min(popguess/250 + 1, 6)` plus one for a starbase.
+5. **The first fleet pass** (`IdNearestColonizablePlanet` marks first):
+   fleets with slot 14/15 ships are counted as defenders; those with
+   slot-0 ships as mine-layer fleets (and their Frigates); a fleet with
+   ships in 4–13 is an attack fleet — roaming when in deep space with no
+   planet leg, else its destination's mark is claimed (`0x80`) and it
+   counts as bound; a colonist freighter (2, 3) under way to a planet
+   with colonists aboard adds to that planet's bound count.
+6. **The second fleet pass**: a fleet of old ships is scrapped at an own
+   planet (one in five at one without a starbase) or sent to the nearest
+   starbase. Defenders at a planet mark it defended, and short when the
+   fresh ones (designed within the period less ten) are under twice the
+   attack strength. A fleet with ships in 4–13: without Destroyers (slot
+   4) it is an armada, `TargetCyberArmada`, then one time in four
+   `FFindBuddyAndJoinUp` with its own group (6–9 or 10–13) within 100 or
+   200 light years; with Destroyers, `IdTargetAttack` once twice their
+   number reaches the attack strength (or under way already), then the
+   same join with slots 4–5. With no leg: the starting scouts (slot 0)
+   are scrapped before turn 6; a colony ship loads 25,000 colonists at
+   an own planet and goes to the nearest colonisable planet, or marks
+   its planet as having nowhere to send one; a colonist freighter goes
+   on battle plan 4 to `DoCyberFreighter`; mine layers from turn 41 join
+   a buddy (`FFindBuddyAndJoinUp(0, 0, 72, 108)`) when over 55 layer
+   fleets fly (over 40, two rolls in three), a fleet of over six wanders
+   one time in five to `IdRandomPlanetNearby(105)` with a Lay Mines leg
+   at warp 4, and the rest lay mines where they are.
+7. **The planet pass**, over own planets in AI order: a planet that
+   cannot pay for its queue is left; desirability under 10 queues
+   terraforming, `resources left / 70 + 1` of it; else under the opt
+   value with over 70 resources left, one. Then at a starbase planet not
+   in the small design slots: a colony ship unless one was queued last
+   year and the planet grows under 5,500 a year, not where a colony ship
+   found nowhere, while under forty exist, when
+   `FShouldPlanetBuildColonizer` (`1090:9f30`: always before turn 60,
+   then by the nearest colonisable planet — within 350 ly always,
+   within 300 one in two, else within 250 one in two of that) — a
+   second one over 15,000 growth before turn 100; a colonist freighter
+   (newest of 2–3) over 200,000 people, under fifty existing, none
+   unloaded here this year, where `FEnumDropOffStage2` finds a planet;
+   Frigate mine layers four at a time, one in four, under ten thousand
+   flying, the fleet here under ten (under seventeen one in ten), and
+   `Random(2 × here + 1)` zero; a starbase defender where the defenders
+   are short, else with none here and under forty defender fleets one in
+   two within 300 ly of an enemy planet, one in ten otherwise; then
+   `iAddAttackFleet` (below), the Destroyer withheld past 120 roaming
+   fleets and the group past 250 bound.
+8. `HandleBasicAiTasks`, `DoCyberPackets` (below), `FillProductionQueue`.
+
+#### `iAddAttackFleet` (`10a8:4eba`)
+
+Nothing, ninety times in a hundred when the planet could still operate a
+hundred more mines or factories, sixty otherwise. Else with a warship
+group and a roll (made first) of 51 or more: two of the group's first
+two slots, one of the third three times in four, one of its bomber one
+time in two (answers 1, a bound fleet). Else with a starbase defender
+and a roll of 26 or more: one (2). Else a Destroyer: one (3).
+
+#### `TargetCyberArmada` (`10a8:51a4`)
+
+Under way, the fleet keeps going when chasing a fleet within 250 light
+years, or bound for a planet somebody else holds, an own planet with a
+starbase, or a planet not seen this year. Its weight of war is the ships
+in slots 6, 7, 10 and 11 plus twice those in 8 and 12; its bombers those
+in 9 and 13. In deep space, `MoveToNearestPlanetOrEnemy(450)`
+(`1090:7040`): the nearest enemy planet within 450 ly of its next
+waypoint, else the nearest planet, at warp 4. At an own planet it waits
+under the first and third potencies unless, at skill 2 or more, its
+weight is over 60 and over twice the first potency and a run of rolls
+(five in ten; then over three times the potency or three in ten; then
+over 120 or three in ten) sends it. At another player's planet, too weak
+for the second and fourth, it clears its task and goes home to the
+nearest own starbase (`FEnumOurStarbase`) unless at skill 2 or more the
+same rolls keep it in the war; strong enough there, it stays. Otherwise
+the target is `FEnumCalcArmadaDest` from where it is (the human-only
+enumerator first with the alliance option), claimed; with none, the
+nearest fleet not ours (`FEnumCalcEnemyFleets`, `1088:325c`). The leg is
+laid at warp 4 (`0x1040`).
+
+#### `DoCyberFreighter` (`10a8:37b0`)
+
+In deep space the freighter heads for the nearest planet. At an own
+planet under 200,100 people it unloads 1,000 kT of colonists, else it
+loads 1,000 (`XferAiSupply(…, 3, ±1000)`); at an unowned planet, an
+Alternate Reality player's or one with a starbase it keeps what it has;
+at anyone else's it drops everything (a Transport order) and heads for
+the nearest own starbase. Empty, it goes to the nearest own starbase
+planet over 220,000 people (`FEnumPickUp`, `10a8:3f00`); loaded, to the
+nearest own planet under 20,000 people no freighter is bound for within
+170 ly (`FEnumDropOffStage1`, `10a8:3d00`), else one that with the
+freighters bound for it counted at 21,000 each is under 100,000, fewer
+than three bound (`FEnumDropOffStage2`, `10a8:3dfe`); with none it
+unloads where it stands if that is ours and counts the unloading. The
+leg is at the ideal warp.
+
+#### `DoCyberPackets` (`10a8:1a78`)
+
+At every own starbase planet — here only one whose starbase carries a
+mass driver; the original queues packets regardless and production
+never builds them:
+
+1. **Supplies**, unless more packets are owed (bit 7): a planet not in
+   the small starbase slots with over 700 kT of some mineral and `res/2
+   /5 ≥ 7` finds the nearest own starbase planet, cooldown over, short
+   of a mineral it has over 700 kT of, within `3.5 × min(warp)²` where
+   the warps are the two drivers' (`IWarpMAFromLppl` `1090:5d5e`, plus
+   one for a pair) — `FEnumNeedMinerals` (`10a8:3f5e`); for each such
+   mineral up to seven packets (of the `res/2/5`) are queued and the
+   driver aimed at the lesser of the two drivers' warps.
+2. **Attack**, otherwise, at skill 2 or more or at skill 1 one in three:
+   the throwable — each mineral less 70 kT summed, capped at `70 × ((res
+   /2 − 5)/5)` — over 150 kT finds the nearest other player's planet
+   (not Alternate Reality, cooldown over) within `2.5 × speed²` (speed =
+   driver warp + 3) that the throwable, decayed by `pow(0.75 or 0.875
+   paired, distance/speed²)`, would wipe out: a packet lands `(speed² −
+   their driver²) × (100 − (defence guess + 5)) / 16000` of itself, and
+   `min(1000, 4 × (population guess + 25))` kT must land
+   (`FEnumPktAttack`, `10a8:4204`). The amount to throw is that need
+   divided by the decay, in 70 kT packets of whatever mineral is most to
+   hand; the driver is aimed at warp 3 over its own; the target's
+   cooldown is set to three years; bit 7 marks more owed when the flight
+   is over a year (`speed² < distance`).
+3. **Scanning**, with no scanner packet just sent (bit 4) or more owed:
+   a direction is rolled (`Random(7)`, plus one when it repeats the
+   last) and `IdGetBestScannerDest` (`10a8:282a`) takes a point on the
+   galaxy's edge that way — the galaxy is `400 × size + 400` across —
+   jittered along the edge by `Random(0.3 × edge) − 0.15 × edge` and
+   stepped inward by up to the speed squared; the planet nearest that
+   point, not ours and a year's flight or more off, is the target. One
+   packet of the mineral most to hand goes into the queue when 170 kT of
+   it are left (`FAddPacketToQueue`, `10a8:2bc0`), at warp 3 over the
+   driver's; the target's cooldown is set and bit 4 raised — or, with
+   more owed, the old target kept and bit 7 cleared.
+
+The population and defence guesses are read from the planet itself (a
+quarter of the population; the defences over ten) rather than the
+`uPopGuess` nibbles the file carries.
+
+#### The Cybertron's design slots
+
+`EnsureCyberAiShdefs` (`10a8:4826`); the fittings are the part-class
+bytes at `10a8:46f8` by the word offsets at `10a8:46b0`
+(`cyber::fitting`). A draw of *n* tries rolls `Random(c)` with `c`
+counting down from *n*.
+
+| slot | role | hull | when |
+|-----:|------|------|------|
+| 0 | mine layer | Frigate (5), entry 12 | the starting design retired at skill 2+ once no ship is left, from turn 6; drawn whenever retired |
+| 1 | colony ship | never redrawn | |
+| 2, 3 | colonist freighters | Privateer (11), entries 10 and 11 | from turn 21; 3 twenty years after 2 |
+| 4, 5 | destroyers | Destroyer (6), entries 0–4 / 5–9 | from turn 31 (5 twenty years after 4): the set's first until turn 75, then five countdown tries |
+| 6–9, 10–13 | warship groups | Nubian (29) 33–35, three tries; Battleship (9) 29–32, four; 26–28, three — each success moving down a slot; Cruisers (7) 17–25 fill the rest by slot; the fourth slot a Nubian bomber (16), else Battleship bomber (15), else B-52 (19) 14 then 13 | the first from turn 41, the second thirty years after the first's base |
+| 14, 15 | starbase defenders | Battleship 26–32 (seven tries), else Cruiser 17–25 (nine), else Destroyer 0–9 (ten) | from turn 31; 15 twenty years after 14 |
+
+`tests/cyber.rs` runs it in the Berserkers' seat: the starting scouts
+scrapped, the groups drawn on the hulls the table names, warships queued
+and sent hunting. On the tutorial's world the Cybertron — a race that is
+not Packet Physics, with a starbase that has no driver — never settles a
+second planet: its colony ship finds nothing colonisable in scanner
+range in year 0 and marks the homeworld as having nowhere to send one,
+its scouts are scrapped, and no packet flies to scan for it.
+
 ### Other queue sources
 
 Eighteen functions call `AddItemToQueue`. Besides the two above, the AI-side
@@ -1313,6 +1513,12 @@ which is why Cyber's always-1 terraform entries have no known source yet.
 
 - `DoAiTurn` (`1088:0000`) — dispatch table and turn preparation.
 - `DoTurinDroneAiTurn` (`1088:3670`) — the worked example above.
+- `DoCyberAiTurn` (`10a8:002a`), `EnsureCyberAiShdefs` (`10a8:4826`),
+  `TargetCyberArmada` (`10a8:51a4`), `DoCyberFreighter` (`10a8:37b0`),
+  `DoCyberPackets` (`10a8:1a78`), `iAddAttackFleet` (`10a8:4eba`),
+  `FShouldPlanetBuildColonizer` (`1090:9f30`), `IWarpMAFromLppl`
+  (`1090:5d5e`), `IdGetBestScannerDest` (`10a8:282a`),
+  `MoveToNearestPlanetOrEnemy` (`1090:7040`).
 - `DoAutomitronAiTurn` (`1098:01e0`), `EnsureISShdefs` (`1098:1938`),
   `FPotentISWarFleet` (`1098:012e`), `IdTargetScout` (`1090:61de`),
   `IdNearestUnknownPlanet` (`1090:15a4`), `XferAiSupply` (`1090:0ad0`).

@@ -247,6 +247,7 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng, profile: &Profi
         merge_all(state, me, 0x4000, &mut report);
     }
     let potency = potency(turn);
+    state.ai_armada_potency = potency;
 
     // `CheckAiShdefStatus` over the slot ranges.
     let recycle: i16 = if turn < 120 {
