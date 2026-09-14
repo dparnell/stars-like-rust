@@ -709,7 +709,18 @@ turns run:
   minerals (`tutorial.m1`: 390 / 458 / 609 against 393 / 458 / 606); ten
   years of factories at two of every mineral (`../formulas/production.md`)
   turn that into a Teamster's worth. Where the last thirty kilotonnes go
-  is not found.
+  is not found: every figure the fixtures give up to 2403 agrees —
+  `tutorial.h1`'s resources of 125, 152 and 181 are this engine's 115 + 10,
+  132 + 20 (before the Santa Maria's colonists came aboard) and
+  149 + 30 + 2 for Shaggy Dog; the Cotton Picker's two Robo-Mini-Miners
+  dig Prune's 87 % ironium as eight mines (`CMineFromLpfl`, `1080:25d2`:
+  count times rating, and the Mini-Miner rates 4), seven kilotonnes a
+  year, which Teamster #4 brings home fourteen at a time — and nothing
+  the fixtures hold reaches past 2403. The three kilotonnes of 2403 are
+  the mining rolls: ironium's 2.5 a year (no floor lifts a home world's
+  25 to 30 in the fixture, or the figure would be 393) rolled short all
+  three years and germanium's 8.4 rolled long, which is what a fixed seed
+  can do.
 * **The red triangle below Hiho.** Page 34's enemy scout is thirteen light
   years short of Hiho here, still on its way, so the fight page 37 asks
   to watch has not happened in 2411. `DoBattles` fights it when the two
