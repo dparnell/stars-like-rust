@@ -1443,7 +1443,6 @@ fn build_universe(
 /// Bit 5 is **accelerated BBS play**, and it is what makes the tutorial's
 /// home planets start with 100,000 colonists rather than 25,000; see
 /// [`NewGame::accelerated`].
-#[must_use]
 /// The Berserkers' race, as `tutorial.hst` records it: not one of the
 /// wizard's presets but the world's own — a Humanoid with a few points
 /// moved, the lesser traits `0x2045`, a narrower habitable range and 14%
@@ -1461,6 +1460,7 @@ pub fn berserker() -> Race {
     }
 }
 
+#[must_use]
 pub fn tutorial() -> (NewGame, u32) {
     let config = NewGame {
         name: "Tutorial Game".to_string(),
