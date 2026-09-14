@@ -649,13 +649,28 @@ text are loaded when a copy of the original is under `binary/`. Run it in
 release, since two thousand frames of 1920 by 1080 are drawn on the CPU:
 
 ```sh
-STARS_TUTORIAL_VIDEO=/tmp/frames.rgba cargo test --release -p stars-ui --test tutorial_ui year_zero
+STARS_TUTORIAL_VIDEO=/tmp/frames.rgba cargo test --release -p stars-ui --test tutorial_ui the_tutorial
 ffmpeg -f rawvideo -pix_fmt rgba -s 1920x1080 -r 12 -i /tmp/frames.rgba \
        -c:v libx264 -crf 23 -pix_fmt yuv420p tutorial.mp4
 ```
 
 Each page turn is held for two seconds so it can be read. The raw file is
 large — eight megabytes a frame — and is not kept.
+
+### Watching it play
+
+The driver and the pages live in `stars_ui::autopilot` (`Shell`, the
+`Sink` its frames go to, and `script::tutorial`), so the same run can be
+watched as it happens rather than filmed: the desktop's
+`autoplay_tutorial` example plays the script on a thread at a human pace
+— eight tenths of a second a step by default, `STARS_AUTOPLAY_DELAY_MS`
+to change it, three times that on a page turn — rasterising every frame
+into a window. Nothing is clicked; the run stops where the walkthrough
+stops and the status line says so.
+
+```sh
+cargo run --release -p stars-desktop --example autoplay_tutorial
+```
 
 ### The halo
 
