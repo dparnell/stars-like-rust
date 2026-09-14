@@ -1410,6 +1410,23 @@ fn build_universe(
         .map_err(|e| NewGameError::Universe(e.to_string()))
 }
 
+/// The Berserkers' race, as `tutorial.hst` records it: not one of the
+/// wizard's presets but the world's own — a Humanoid with a few points
+/// moved, the lesser traits `0x2045`, a narrower habitable range and 14%
+/// growth. With it the new game gives them what the host file gives them:
+/// a Smaugarian Peeping Tom, a Santa Maria and two Potato Bugs (ARM).
+#[must_use]
+pub fn berserker() -> Race {
+    Race {
+        attrs: [10, 9, 10, 9, 9, 5, 8, 0, 1, 0, 1, 1, 1, 0, 1, 0],
+        lrt_bits: 0x2045,
+        env_center: [58, 35, 65],
+        env_min: [27, 7, 35],
+        env_max: [89, 63, 95],
+        pct_ideal_growth: 14,
+    }
+}
+
 /// The tutorial's sample game.
 ///
 /// `CreateTutorWorld` (`1078:5e5e`) does not hand-place anything: it fills in
@@ -1443,23 +1460,6 @@ fn build_universe(
 /// Bit 5 is **accelerated BBS play**, and it is what makes the tutorial's
 /// home planets start with 100,000 colonists rather than 25,000; see
 /// [`NewGame::accelerated`].
-/// The Berserkers' race, as `tutorial.hst` records it: not one of the
-/// wizard's presets but the world's own — a Humanoid with a few points
-/// moved, the lesser traits `0x2045`, a narrower habitable range and 14%
-/// growth. With it the new game gives them what the host file gives them:
-/// a Smaugarian Peeping Tom, a Santa Maria and two Potato Bugs (ARM).
-#[must_use]
-pub fn berserker() -> Race {
-    Race {
-        attrs: [10, 9, 10, 9, 9, 5, 8, 0, 1, 0, 1, 1, 1, 0, 1, 0],
-        lrt_bits: 0x2045,
-        env_center: [58, 35, 65],
-        env_min: [27, 7, 35],
-        env_max: [89, 63, 95],
-        pct_ideal_growth: 14,
-    }
-}
-
 #[must_use]
 pub fn tutorial() -> (NewGame, u32) {
     let config = NewGame {
