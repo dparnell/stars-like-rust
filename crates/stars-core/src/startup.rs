@@ -45,6 +45,8 @@ impl Template {
             picture: self.picture,
             stored_armor: self.armor,
             obsolete: false,
+            designed: 0,
+            built: 0,
             hull_id: self.hull,
             slots: self
                 .slots

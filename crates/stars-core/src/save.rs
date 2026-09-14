@@ -579,8 +579,12 @@ pub fn design_record(design: &ShipDesign, number: u8, starbase: bool, built: u32
         pic: design.picture,
         armor: Some(design.stored_armor),
         mass: None,
-        turn_designed: Some(DESIGN_TURN),
-        total_built: Some(built),
+        turn_designed: Some(if design.designed > 0 {
+            u16::try_from(design.designed).unwrap_or(DESIGN_TURN)
+        } else {
+            DESIGN_TURN
+        }),
+        total_built: Some(built.max(design.built)),
         total_remaining: Some(built),
         slots: design
             .slots

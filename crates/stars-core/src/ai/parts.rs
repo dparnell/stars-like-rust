@@ -365,6 +365,8 @@ pub fn create_design(hull: i16, fitting: Fitting, who: &Builder<'_>) -> Option<S
         picture: 0,
         stored_armor: 0,
         obsolete: false,
+        designed: 0,
+        built: 0,
         hull_id: hull,
         slots,
     })

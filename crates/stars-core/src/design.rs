@@ -90,6 +90,11 @@ pub struct ShipDesign {
     /// of the design block. An obsolete design cannot be built and the
     /// computer players make a new one in its slot (`FChangeAiShdef`).
     pub obsolete: bool,
+    /// The turn the design was made (`SHDEF.turn`), from which the computer
+    /// players count a design's age.
+    pub designed: i16,
+    /// How many ships of it have ever been built (`SHDEF.cBuilt`).
+    pub built: u32,
 }
 
 /// A design's derived cost.

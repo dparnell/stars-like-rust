@@ -964,6 +964,8 @@ fn give_fleet(state: &mut GameState, index: usize) -> bool {
                 picture: 0,
                 stored_armor: 0,
                 obsolete: false,
+                designed: 0,
+                built: 0,
                 hull_id: -1,
                 slots: Vec::new(),
             });
@@ -1278,6 +1280,8 @@ mod tests {
             picture: 0,
             stored_armor: 0,
             obsolete: false,
+            designed: 0,
+            built: 0,
             hull_id: 4,
             slots: Vec::new(),
         };
@@ -1311,6 +1315,8 @@ mod tests {
             picture: 0,
             stored_armor: 0,
             obsolete: false,
+            designed: 0,
+            built: 0,
             hull_id: 4,
             slots: Vec::new(),
         };
@@ -1442,6 +1448,8 @@ mod tests {
                 picture: 0,
                 stored_armor: 0,
                 obsolete: false,
+                designed: 0,
+                built: 0,
                 hull_id: 0,
                 slots: Vec::new(),
             };

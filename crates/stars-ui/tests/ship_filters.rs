@@ -104,6 +104,8 @@ fn the_eight_classes_are_the_hull_categories() {
         picture: 128,
         stored_armor: 1000,
         obsolete: false,
+        designed: 0,
+        built: 0,
     };
     assert_eq!(starbase.ship_class(), None);
     let empty = ShipDesign {
@@ -162,6 +164,8 @@ fn the_class_filter_counts_by_hull_class() {
                 picture: 0,
                 stored_armor: 0,
                 obsolete: false,
+                designed: 0,
+                built: 0,
             });
         }
     }

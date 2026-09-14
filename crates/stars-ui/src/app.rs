@@ -6333,6 +6333,8 @@ impl App {
             picture: u8::try_from(hull.picture).unwrap_or(0),
             stored_armor: if hull.id >= 32 { 1000 } else { 0 },
             obsolete: false,
+            designed: 0,
+            built: 0,
         }
     }
 
@@ -6739,6 +6741,8 @@ impl App {
                         picture: 0,
                         stored_armor: 0,
                         obsolete: false,
+                        designed: 0,
+                        built: 0,
                         hull_id: -1,
                         slots: Vec::new(),
                     });

@@ -148,6 +148,8 @@ fn the_class_filter_narrows_the_other_side() {
             picture: 0,
             stored_armor: 0,
             obsolete: false,
+            designed: 0,
+            built: 0,
         });
     }
     with_fleets(&mut app, vec![fleet(1, 20, 0, 3), fleet(0, 10, 0, 3)]);

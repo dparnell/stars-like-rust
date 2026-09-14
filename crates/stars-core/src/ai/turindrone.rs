@@ -544,6 +544,8 @@ fn ensure_designs(state: &mut GameState, player: usize, rng: &mut Rng, report: &
                 picture: 0,
                 stored_armor: 0,
                 obsolete: true,
+                designed: 0,
+                built: 0,
             });
         }
         designs[at] = design;

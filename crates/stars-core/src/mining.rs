@@ -224,6 +224,8 @@ mod remote_tests {
             picture: 0,
             stored_armor: 0,
             obsolete: false,
+            designed: 0,
+            built: 0,
             hull_id: 0,
             slots: vec![DesignSlot {
                 category: slot::MINING,
@@ -258,6 +260,8 @@ mod remote_tests {
             picture: 0,
             stored_armor: 0,
             obsolete: false,
+            designed: 0,
+            built: 0,
             hull_id: 0,
             slots: vec![DesignSlot {
                 category: slot::ENGINE,

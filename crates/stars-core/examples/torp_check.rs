@@ -48,6 +48,8 @@ fn main() {
             picture: 0,
             stored_armor: 0,
             obsolete: false,
+            designed: 0,
+            built: 0,
             hull_id: i16::from(r.hull_id),
             slots: r
                 .slots

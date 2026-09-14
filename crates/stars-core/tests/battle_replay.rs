@@ -341,6 +341,8 @@ fn first_beam_hits_reproduce_the_recorded_damage() {
         picture: 0,
         stored_armor: 0,
         obsolete: false,
+        designed: 0,
+        built: 0,
         hull_id: i16::from(r.hull_id),
         slots: r
             .slots
@@ -504,6 +506,8 @@ fn beam_only_battles_replay_to_the_recorded_casualties() {
         picture: 0,
         stored_armor: 0,
         obsolete: false,
+        designed: 0,
+        built: 0,
         hull_id: i16::from(r.hull_id),
         slots: r
             .slots
@@ -758,6 +762,8 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
         picture: 0,
         stored_armor: 0,
         obsolete: false,
+        designed: 0,
+        built: 0,
         hull_id: i16::from(r.hull_id),
         slots: r
             .slots

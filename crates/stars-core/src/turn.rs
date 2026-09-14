@@ -448,6 +448,14 @@ pub fn generate_turn_with_orders(
             let id = state.planets[index].id;
             for (slot, count) in ships_built {
                 report.ships_built.push((id, slot, count));
+                // `SHDEF.cBuilt`, which the computer players read.
+                if let Some(design) = state
+                    .designs
+                    .get_mut(owner_index)
+                    .and_then(|d| d.get_mut(usize::from(slot)))
+                {
+                    design.built += u32::try_from(count).unwrap_or(0);
+                }
                 if let Some(fleet) = add_ships_to_orbiting_fleet(state, owner, id, slot, count) {
                     // "has built a new …" / "has built N new …", about the
                     // new fleet, with the design word the message names
@@ -1919,6 +1927,8 @@ fn give_trader_ship(
             picture: 0,
             stored_armor: 0,
             obsolete: false,
+            designed: 0,
+            built: 0,
             hull_id: -1,
             slots: Vec::new(),
         });

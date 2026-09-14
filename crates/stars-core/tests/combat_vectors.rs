@@ -146,6 +146,8 @@ fn design_armour_matches_the_vectors() {
             picture: 0,
             stored_armor: 0,
             obsolete: false,
+            designed: 0,
+            built: 0,
         };
         assert_eq!(
             i64::from(design.armor(regenerating).expect("known hull")),
