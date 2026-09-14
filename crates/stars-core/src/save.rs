@@ -182,6 +182,7 @@ pub fn player_file(state: &GameState, player: usize) -> Result<Vec<u8>> {
         push_designs(&mut body, state, player, designs, true)?;
     }
     push_battle_plans(state, &mut body, player)?;
+    push_battles(state, &mut body, player)?;
     push_messages(state, &mut body, player)?;
 
     StarsFile::build(&header, &body, footer(state))
@@ -707,6 +708,29 @@ fn waypoint_records(fleet: &Fleet) -> Vec<WaypointRecord> {
             }
         })
         .collect()
+}
+
+/// Append the year's battle recordings this player may watch: every one
+/// whose `player_mask` names them, as a type-31 block, continued in
+/// type-39 blocks past 1,023 bytes — which is how `WriteBattles`
+/// (`1070:709c`) splits a long recording.
+fn push_battles(state: &GameState, body: &mut Vec<Block>, player: usize) -> Result<()> {
+    const PIECE: usize = 1023;
+    let bit = 1u16 << (player & 15);
+    for record in state.battles.iter().filter(|b| b.player_mask & bit != 0) {
+        let bytes = record.encode();
+        let mut first = true;
+        for chunk in bytes.chunks(PIECE) {
+            let type_id = if first {
+                stars_formats::battle::BATTLE_BLOCK
+            } else {
+                stars_formats::battle::CONTINUE_BLOCK
+            };
+            body.push(block(type_id, chunk.to_vec())?);
+            first = false;
+        }
+    }
+    Ok(())
 }
 
 /// Append this player's messages, as one block.

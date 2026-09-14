@@ -52,6 +52,7 @@ pub mod ai;
 pub mod battle;
 pub mod bombing;
 pub mod browser;
+pub mod combat;
 pub mod components;
 pub mod design;
 pub mod fleet;
@@ -396,6 +397,11 @@ pub struct GameState {
     /// Nothing here simulates them, and that is the point: they are carried
     /// verbatim so that writing a game back does not quietly delete them.
     pub other_things: Vec<stars_formats::Thing>,
+    /// This year's battle recordings, one per battle, for the players its
+    /// `player_mask` names — see [`combat::do_battles`]. Cleared at the
+    /// start of a turn like the messages, and written to each player's
+    /// file.
+    pub battles: Vec<stars_formats::battle::BattleRecord>,
 }
 
 impl GameState {
@@ -467,6 +473,7 @@ impl GameState {
             standings: Vec::new(),
             timeline: Vec::new(),
             other_things: Vec::new(),
+            battles: Vec::new(),
         }
     }
 

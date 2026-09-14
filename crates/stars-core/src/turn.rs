@@ -98,6 +98,8 @@ pub struct TurnReport {
     pub breakthroughs: Vec<Vec<Breakthrough>>,
     /// What each computer player's turn did, by player index.
     pub ai: Vec<(usize, crate::ai::turindrone::Report)>,
+    /// The year's battles — see [`crate::combat::do_battles`].
+    pub battles: Vec<crate::combat::Outcome>,
     /// Planets `AutoTerraform` moved this year — Claim Adjusters only.
     pub terraformed: Vec<i16>,
     /// Planets remote terraforming moved, as `(planet id, clicks applied)`.
@@ -194,6 +196,7 @@ pub fn generate_turn_with_orders(
     // into this one; here it has to be said explicitly, and it has to be said
     // *first* — the Mystery Trader's news is the earliest thing a year sends.
     state.messages.clear();
+    state.battles.clear();
 
     // --- DoAiTurn, for each computer player: the host plays their turn
     // before the year runs, as if they had submitted orders. Only the
@@ -524,6 +527,10 @@ pub fn generate_turn_with_orders(
         }
         report.breakthroughs[index] = gained;
     }
+
+    // --- DoOrders(1) -> DoBattles: fleets that have come to share a place
+    // with an enemy fight, before anything lands or unloads.
+    report.battles = crate::combat::do_battles(state, rng);
 
     // --- SatisfyOrders after movement: the tasks a fleet performs on arrival.
     // A task is consumed when it executes, which is why every waypoint in a

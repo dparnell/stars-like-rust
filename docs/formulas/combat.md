@@ -1,6 +1,6 @@
 # Subsystem: Combat
 
-- **Status:** in progress — board, movement (schedule, phases, search, scoring, 95% against a 72% chance rate), targeting, the damage estimate and **both** firing loops implemented; the torpedo accuracy formula is transcribed but unverified, and replaying a recorded torpedo battle needs the RNG
+- **Status:** in progress — board, movement (schedule, phases, search, scoring, 95% against a 72% chance rate), targeting, the damage estimate and **both** firing loops implemented; the torpedo accuracy formula is transcribed but unverified, and replaying a recorded torpedo battle needs the RNG; the frame around the board — who fights, the tokens from the fleets, the round loop, the results, salvage, messages and the recording — is transcribed in `combat.rs` (*The battle around the board*, below) and not verified against a corpus battle
 - **Ghidra routine(s):** `battle.c` region — `DxyFromSpdRound`, `DzFromBrcBrc`, `CTorpHit`, `ScoreFromGiveAndTakeAndTactic`, `FAttack`, `FDamageTok`, `DxyMoveTokTo`, and the `rgbrcStart` table
 - **Manual reference:** `MANUAL.PDF` pp. 23-2..23-10
 - **Uses RNG:** **yes** — torpedo hits are rolled individually
@@ -838,3 +838,107 @@ Worth separating the three states this subsystem is now in:
 
 Only the third is an acquisition problem. The second would be settled by any
 game with more torpedo fire in it, tutorial mode or not.
+
+## The battle around the board
+
+`DoOrders(1)` (`10b0:179a`) runs `DoBattles` (`10f0:3a26`) after movement
+and before the arrival tasks, with `idBattle = (turn & 0xf) * 0x100 + 1`;
+`DoBombing` follows it. `crates/stars-core/src/combat.rs` is the
+transcription; nothing in it is verified against a corpus battle, for the
+reason the replay section gives.
+
+### Who fights — `CplrBattle` (`10f0:2952`)
+
+`LinkFleets` chains the fleets at each place. For a chain, each player's
+attack mask comes from a battle plan's "attack who" (`mdAttack`: 1
+enemies, 2 neutrals and enemies — by `rgmdRelation`, 0 neutral, 1 friend,
+2 enemy — 3 everyone, 4+ a named player): a fleet's plan counts when the
+plan has a primary target, attacks somebody and the fleet has teeth
+(`FFleetHasTeeth`); a starbase with teeth attacks by its owner's **first**
+plan. Only a fleet's plan opens a battle (`bVar5`); the starbase's mask
+then counts. The players attacked by anyone present are *fighting*;
+anyone attacking a fighter joins; a fighter fights back against all its
+attackers; a present player attacked by nobody joins on a friend's side,
+with the friend's targets, unless one of those is itself a friend. The
+rest present are spectators, and so is the owner of a planet without a
+starbase (`grfSeen`). The exclusion of fleets past 255 tokens is not
+written.
+
+### The tokens — `InitializeBoard` (`10f0:45b4`)
+
+One token per design stack with ships, plus the starbase (design `16 +
+isb`, one ship, its `pctDamage` as damage, tactic Maximise Damage,
+targets Any, class armed or unarmed by its weapons, no movement), placed
+by `rgbrcStart[players (players − 1) / 2 + side]`, the side being the
+player's rank among those present; then shuffled (`RandomizeTokOrder`, a
+forward `Random` shuffle). The fields:
+
+* `CheckTarget` (`10f0:212a`): the class — armed, bomber
+  (`FHullHasBombs`), fuel transport (`FFuelTanker`), unarmed (no cargo
+  space), else freighter; the plan's two targets; the plan's tactic for
+  an **armed** ship and Disengage for anything else, with `dzDis = 7`
+  moves before a disengaging token leaves.
+* `InitFromHuldef` (`10f0:3cba`): initiative = hull's (six bits) plus
+  one, two and three per Battle Computer, Super Computer and Nexus, at
+  most 63; `pctBC` = `bc += (100 − bc) × bonus / 100` per computer
+  (20/30/50) and per Multi Contained Munition (10).
+* `CheckWeapons` (`10f0:3ec2`): jamming as the product of `100 − jam`
+  over the Jammers (10/20/30/50), the Multi Function Pod (10), the
+  Langston Shell (5), the Mega Poly Shell (20) and the Alien Miner (30):
+  `pctJam = 100 − (product + 50) / 100`, at most 95, three quarters of
+  it for a starbase; capacitors as the product of `100 + bonus` (Energy
+  10, Flux 20) over ten, at most 255; beam deflection as the product of
+  `100 − 10` per Beam Deflector over ten; the Energy Dampener flag; the
+  torpedo flag; each weapon's initiative as the token's plus its own, at
+  most 63; `dxyLim` the longest weapon range (+1 for a starbase) and
+  `dxyMax` the shortest.
+* `SpdOfShip` (`10f0:339c`): the battle speed index — the engine's base
+  (10 for the Interspace-10, Enigma Pulsar, Trans-Star 10, Trans-Galactic
+  Mizer Scoop and Galaxy Scoop, else the highest warp at 120 % fuel or
+  less) less 4, plus one per Maneuvering Jet or Multi Function Pod, two
+  per Overthruster, one per two Enigma Pulsars or Alien Miners rounded
+  up, and two for a War Monger; less the ship's mass — the design's plus
+  its share of the fleet's cargo — over 70, per engine; clamped to
+  `0..=8`. A dampening field then takes four off every ship. A `Random(15)`
+  is drawn per token for the movement jitter (`dwt`).
+* Shields `DpShieldOfShdef`, armour `dp`, ships and the stack's damage
+  word from the fleet.
+
+`FDumpCargo` (a plan's dump-cargo flag, the cargo to the planet or to
+salvage) is not written.
+
+### The rounds — `FDoCoolBattle` (`10f0:8bcc`)
+
+Sixteen rounds at most. Each: `RegenShield` for Regenerating Shields
+races from the second round (a tenth of the design's shields back, to
+the maximum); stop when fewer than two players have live tokens; each
+token's moves for the round (`DxyFromSpdRound`, none for a starbase);
+three movement phases, heaviest token first with the jitter; a
+disengaging token counts `dzDis` down and leaves (`brcDest = 0xff`) at
+zero; stop when no one left has an enemy left (`grfPlayer` against
+`rggrfAttack`); then the firing loop from the highest initiative present
+to the lowest, `FAttack` per token, each shot a `BTLREC` with its kills.
+
+### Afterwards
+
+`FDamageTok` writes each stack's ships and damage word back to its fleet
+as it goes, and `KillShips` (`10f0:8a34`) marks a fleet with nothing
+left dead and calls `CreateSalvage` (`10f0:7ee8`) with the dead ships: a
+third of each design's ore cost per ship (recomputed for Bleeding Edge
+Tech) plus a dead fleet's cargo minerals; at a planet, eight tenths of
+it onto the surface with a starbase there and half without; in space,
+half of it dropped (`DropSalvage`, `10f0:24dc`) as a stationary mineral
+packet at the spot, joined to one already there, never on a planet's
+position, and 1–9 kT of each mineral when the total would be nothing. A
+starbase that dies leaves the planet without one (except an Alternate
+Reality's), its queued ships and packets cancelled. `SendBattleMessages`
+(`10f0:9c0e`) then tells every player present, in one of a dozen
+wordings by outcome (ids `0x8d`–`0xa8`, `0x113`–`0x116`), with the
+battle id and bit 14 as the object and the place first among the
+parameters; spectators get `0xf9`/`0xfa`; a player whose fleets were
+excluded `0x180`; and wreckage teaches tech (`ITechLearnATech`). The
+transcription sends one wording (`0xa8`) with the two sides' ships and
+losses, and the tech is not written. The recording — header, tokens,
+actions — goes to every player in `grfSpectator` (the present mask) and
+is written to their file as type-31 blocks continued in type-39 blocks
+(`WriteBattles`, `1070:709c`).

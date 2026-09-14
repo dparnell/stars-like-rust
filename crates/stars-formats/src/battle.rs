@@ -442,6 +442,72 @@ impl BattleRecord {
         })
     }
 
+    /// Encode the recording in the [`ActionLayout::Modern`] layout, as one
+    /// byte string: the fourteen-byte header, the tokens, then the actions
+    /// with their kills. `declared_len` is written as the length of what
+    /// is produced, whatever the field says.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(
+            HEADER_LEN + self.tokens.len() * TOKEN_LEN + self.actions.len() * ACTION_LEN,
+        );
+        out.extend_from_slice(&self.id.to_le_bytes());
+        out.push(self.players);
+        out.push(u8::try_from(self.tokens.len()).unwrap_or(u8::MAX));
+        out.extend_from_slice(&self.player_mask.to_le_bytes());
+        out.extend_from_slice(&[0, 0]);
+        out.extend_from_slice(&self.planet.to_le_bytes());
+        out.extend_from_slice(&self.position.0.to_le_bytes());
+        out.extend_from_slice(&self.position.1.to_le_bytes());
+        for t in &self.tokens {
+            out.extend_from_slice(&t.id.to_le_bytes());
+            out.push(t.player);
+            out.push(t.object_class);
+            out.push(t.design);
+            out.push(t.square.to_brc());
+            out.push(t.initiative_base);
+            out.push(t.initiative_min);
+            out.push(t.initiative_max);
+            out.push(t.target);
+            out.push(t.pct_cloak);
+            out.push(t.pct_jam);
+            out.push(t.pct_computer);
+            out.push(t.pct_capacitor);
+            out.push(t.pct_beam_defence);
+            out.extend_from_slice(&t.mass.to_le_bytes());
+            out.extend_from_slice(&t.shields.to_le_bytes());
+            out.extend_from_slice(&t.ships.to_le_bytes());
+            out.extend_from_slice(&t.damage.to_le_bytes());
+            out.extend_from_slice(&t.tactics.to_le_bytes());
+            out.extend_from_slice(&t.movement.to_le_bytes());
+            out.extend_from_slice(&t.flags.to_le_bytes());
+        }
+        for a in &self.actions {
+            out.push(a.token);
+            out.push(a.destination.map_or(BRC_DEPARTED, Square::to_brc));
+            out.extend_from_slice(
+                &u16::try_from(a.kills.len())
+                    .unwrap_or(u16::MAX)
+                    .to_le_bytes(),
+            );
+            let packed = u16::from(a.round & 0x0f)
+                | (u16::from(a.range & 0x0f) << 4)
+                | (u16::from(a.target) << 8);
+            out.extend_from_slice(&packed.to_le_bytes());
+            for k in &a.kills {
+                out.push(k.token);
+                out.push(k.weapon);
+                out.extend_from_slice(&k.ships_killed.to_le_bytes());
+                out.extend_from_slice(&k.shield_damage.to_le_bytes());
+                out.extend_from_slice(&k.damage.to_le_bytes());
+            }
+        }
+        let len = u16::try_from(out.len()).unwrap_or(u16::MAX).to_le_bytes();
+        out[6] = len[0];
+        out[7] = len[1];
+        out
+    }
+
     /// Total ships destroyed in this battle.
     #[must_use]
     pub fn ships_destroyed(&self) -> u32 {
@@ -527,4 +593,110 @@ pub fn battle_records(file: &StarsFile) -> Vec<BattleRecord> {
     let header = &file.latest_segment().header;
     let layout = ActionLayout::for_version(header.version_major, header.version_minor);
     battle_records_in_with(&file.blocks, layout)
+}
+
+#[cfg(test)]
+mod encode_tests {
+    use super::*;
+
+    /// A recording survives the trip through its bytes.
+    #[test]
+    fn a_recording_round_trips() {
+        let record = BattleRecord {
+            id: 0x101,
+            players: 2,
+            player_mask: 0b11,
+            planet: 10,
+            position: (1149, 1135),
+            tokens: vec![
+                BattleToken {
+                    id: 0x200,
+                    player: 0,
+                    object_class: 2,
+                    design: 3,
+                    square: Square { x: 1, y: 4 },
+                    initiative_base: 5,
+                    initiative_min: 5,
+                    initiative_max: 9,
+                    target: 0xff,
+                    pct_cloak: 0,
+                    pct_jam: 10,
+                    pct_computer: 0,
+                    pct_capacitor: 0,
+                    pct_beam_defence: 100,
+                    mass: 120,
+                    shields: 40,
+                    ships: 3,
+                    damage: 0,
+                    tactics: 0x3511,
+                    movement: 0x0223,
+                    flags: 0x0011,
+                },
+                BattleToken {
+                    id: 0x201,
+                    player: 1,
+                    object_class: 2,
+                    design: 0,
+                    square: Square { x: 8, y: 5 },
+                    initiative_base: 1,
+                    initiative_min: 0xff,
+                    initiative_max: 0xff,
+                    target: 0xff,
+                    pct_cloak: 0,
+                    pct_jam: 0,
+                    pct_computer: 0,
+                    pct_capacitor: 0,
+                    pct_beam_defence: 100,
+                    mass: 20,
+                    shields: 0,
+                    ships: 1,
+                    damage: 0,
+                    tactics: 0x5000,
+                    movement: 0x0300,
+                    flags: 0x00e1,
+                },
+            ],
+            actions: vec![
+                BattleAction {
+                    token: 0,
+                    destination: Some(Square { x: 2, y: 4 }),
+                    round: 0,
+                    range: 0,
+                    target: 0,
+                    kills: Vec::new(),
+                },
+                BattleAction {
+                    token: 0,
+                    destination: Some(Square { x: 2, y: 4 }),
+                    round: 1,
+                    range: 3,
+                    target: 1,
+                    kills: vec![Kill {
+                        token: 1,
+                        weapon: 0,
+                        ships_killed: 1,
+                        shield_damage: 0,
+                        damage: 0,
+                    }],
+                },
+                BattleAction {
+                    token: 1,
+                    destination: None,
+                    round: 2,
+                    range: 0,
+                    target: 0,
+                    kills: Vec::new(),
+                },
+            ],
+            declared_len: 0,
+        };
+        let bytes = record.encode();
+        let back = BattleRecord::decode(&bytes).expect("decodes");
+        assert_eq!(back.tokens, record.tokens);
+        assert_eq!(back.actions, record.actions);
+        assert_eq!(back.id, record.id);
+        assert_eq!(back.player_mask, record.player_mask);
+        assert_eq!(back.position, record.position);
+        assert_eq!(usize::from(back.declared_len), bytes.len());
+    }
 }

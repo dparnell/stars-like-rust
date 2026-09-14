@@ -593,6 +593,7 @@ fn beam_only_battles_replay_to_the_recorded_casualties() {
                         design.weapons().iter().map(|w| w.range).max().unwrap_or(0)
                     },
                     player: t.player,
+                    enemies: 0xffff,
                     active: true,
                     square: CoreSquare::new(t.square.x, t.square.y),
                     initiative_base: i32::from(t.initiative_base),
@@ -835,6 +836,7 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
                         design.weapons().iter().map(|w| w.range).max().unwrap_or(0)
                     },
                     player: t.player,
+                    enemies: 0xffff,
                     active: true,
                     square: CoreSquare::new(t.square.x, t.square.y),
                     initiative_base: i32::from(t.initiative_base),

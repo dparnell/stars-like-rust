@@ -1525,6 +1525,17 @@ impl App {
             .filter(|m| m.player == me)
             .map(|m| (m.id, m.summary()))
             .collect();
+        // And the year's battles, as the player's file would carry them.
+        let bit = 1u16 << (me & 15);
+        let battles: Vec<BattleRecord> = state
+            .battles
+            .iter()
+            .filter(|b| b.player_mask & bit != 0)
+            .cloned()
+            .collect();
+        self.battles = battles;
+        self.vcr = None;
+        self.playing = false;
         // The log covers one turn; the year has moved on — and so has what
         // the player can see.
         self.refresh_view();

@@ -104,6 +104,18 @@ pub mod id {
     pub const MINES_LAID: u16 = 0xc3;
     /// `idmStarbaseHasSweptMinesMineField`: a starbase of yours cleared mines.
     pub const STARBASE_SWEPT: u16 = 0xf4;
+    /// A battle was fought with the player in it: object the battle id
+    /// with bit 14 set (the Goto finds the place from the parameters, or
+    /// the Battles report), parameters the place (`-1` and the planet,
+    /// or the coordinates), then the player's ships, their losses, the
+    /// enemy's ships and its losses. The original words the outcome a
+    /// dozen ways (`SendBattleMessages`, ids `0x8d`–`0xa8` and
+    /// `0x113`–`0x116`); this is its general case, `0xa8`.
+    pub const BATTLE: u16 = 0xa8;
+    /// A battle was fought within sight of one of the player's fleets or
+    /// at a planet of theirs, without them (`0xfa`; the original uses
+    /// `0xf9` for the planet's owner).
+    pub const BATTLE_SEEN: u16 = 0xfa;
     /// `idmCouldntGiveAwayBecauseThereColonistsBoard`: a fleet with colonists
     /// aboard cannot be given away (`10b0:9436`).
     pub const GIFT_HAS_COLONISTS: u16 = 0x149;
@@ -383,7 +395,25 @@ impl Message {
             3 => "colonists",
             _ => "fuel",
         };
+        let place = || {
+            let x = self.params.first().copied().unwrap_or(0);
+            let y = self.params.get(1).copied().unwrap_or(0);
+            if x == -1 {
+                format!("planet {y}")
+            } else {
+                format!("({x}, {y})")
+            }
+        };
         match self.id {
+            id::BATTLE => format!(
+                "A battle took place at {}: {} of your ships fought {} of theirs; you lost {}, they lost {}.",
+                place(),
+                self.params.get(2).copied().unwrap_or(0),
+                self.params.get(4).copied().unwrap_or(0),
+                self.params.get(3).copied().unwrap_or(0),
+                self.params.get(5).copied().unwrap_or(0)
+            ),
+            id::BATTLE_SEEN => format!("A battle took place at {}.", place()),
             id::ORDERS_COMPLETE => format!("Fleet {} has finished its orders.", fleet()),
             id::HAS_LOADED | id::HAS_BEAMED_UP => format!(
                 "Fleet {} has taken {}kT of {} aboard at {}.",

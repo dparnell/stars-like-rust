@@ -27,7 +27,7 @@ each player's order file:
 10. Produce                       mining, resources, building, growth, research
 11. MoveThings(1)
 12. FuelFleets
-13. DoOrders(1)                   second-pass orders
+13. DoOrders(1)                   DoBattles, DoBombing, then second-pass orders
 14. SweepForMines
 15. HealShips
 16. AutoTerraform

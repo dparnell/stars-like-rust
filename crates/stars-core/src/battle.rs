@@ -839,6 +839,9 @@ pub struct CombatToken {
     /// The stack's mass, which sets its place in the movement order —
     /// heaviest moves first. See [`move_round`].
     pub mass: i32,
+    /// The players this token fights, as a bitmask (`rggrfAttack[iplr]`):
+    /// a token only targets, scores and closes on tokens of those players.
+    pub enemies: u16,
 }
 
 impl CombatToken {
@@ -846,6 +849,12 @@ impl CombatToken {
     #[must_use]
     pub fn alive(&self) -> bool {
         self.active && self.state.ships > 0
+    }
+
+    /// Whether `other` belongs to a player this token fights.
+    #[must_use]
+    pub fn hostile(&self, other: &CombatToken) -> bool {
+        other.player != self.player && self.enemies & (1u16 << (other.player & 15)) != 0
     }
 
     /// The initiative each of this token's weapons fires at.
@@ -873,6 +882,12 @@ pub struct DamageEvent {
     pub shield_damage: i32,
     /// Ships destroyed.
     pub ships_killed: i32,
+    /// The range it was fired at, in squares.
+    pub range: u8,
+    /// Whether the weapon was a torpedo.
+    pub torpedo: bool,
+    /// The target's damage word afterwards (`pctSh:7, pctDp:9`).
+    pub damage_after: u16,
 }
 
 /// How attractive a token is as a target for a beam weapon.
@@ -937,9 +952,9 @@ fn fire_weapon(
         // Torpedoes need the generator, so the caller supplies it separately.
         return;
     }
-    let (player, square, capacitor, ships) = {
+    let (square, capacitor, ships) = {
         let t = &tokens[attacker];
-        (t.player, t.square, t.capacitor_pct, t.state.ships)
+        (t.square, t.capacitor_pct, t.state.ships)
     };
 
     if weapon.is_gattling() {
@@ -952,7 +967,7 @@ fn fire_weapon(
             .filter(|(i, t)| {
                 *i != attacker
                     && t.alive()
-                    && t.player != player
+                    && tokens[attacker].hostile(t)
                     && i32::from(distance(square, t.square)) <= weapon.range
                     // The union, not the two-pass fallback: this arm tests both
                     // classes at once and skips only a token in neither.
@@ -976,6 +991,9 @@ fn fire_weapon(
                 target,
                 shield_damage: result.shield_damage,
                 ships_killed: result.ships_killed,
+                range: distance(square, tokens[target].square),
+                torpedo: false,
+                damage_after: result.after.damage.to_raw(),
             });
         }
         return;
@@ -1021,6 +1039,9 @@ fn fire_weapon(
                 target,
                 shield_damage: result.shield_damage,
                 ships_killed: result.ships_killed,
+                range,
+                torpedo: false,
+                damage_after: result.after.damage.to_raw(),
             });
         }
 
@@ -1107,6 +1128,9 @@ pub fn fire_torpedoes(
             target,
             shield_damage: strike.shield_damage + split.splash().min(pool),
             ships_killed: hull.ships_killed,
+            range: distance(tokens[attacker].square, tokens[target].square),
+            torpedo: true,
+            damage_after: hull.after.damage.to_raw(),
         });
 
         left -= split.fired();
@@ -1153,6 +1177,43 @@ pub fn fire_round(tokens: &mut [CombatToken]) -> Vec<DamageEvent> {
                     break;
                 }
                 fire_weapon(tokens, attacker, weapon, &mut events);
+            }
+        }
+    }
+
+    events
+}
+
+/// Resolve one round of firing, torpedoes included.
+///
+/// As [`fire_round`], with the torpedo arm run through [`fire_torpedoes`]
+/// — which rolls each shot — so a whole battle can be played out. The
+/// events come back in firing order.
+pub fn fire_round_rng(tokens: &mut [CombatToken], rng: &mut Rng) -> Vec<DamageEvent> {
+    let mut events = Vec::new();
+
+    for initiative in (0..=MAX_INITIATIVE).rev() {
+        for attacker in (0..tokens.len()).rev() {
+            if !tokens[attacker].alive() {
+                continue;
+            }
+            let base = tokens[attacker].initiative_base;
+            let firing: Vec<Weapon> = tokens[attacker]
+                .weapons
+                .iter()
+                .filter(|w| (w.initiative + base).min(MAX_INITIATIVE) == initiative)
+                .copied()
+                .collect();
+
+            for weapon in firing {
+                if !tokens[attacker].alive() {
+                    break;
+                }
+                if weapon.torpedo {
+                    fire_torpedoes(tokens, attacker, weapon, rng, &mut events);
+                } else {
+                    fire_weapon(tokens, attacker, weapon, &mut events);
+                }
             }
         }
     }
@@ -1219,8 +1280,11 @@ pub fn move_round(tokens: &mut [CombatToken], round: u8, rng: &mut Rng) {
             if !tokens[mover].alive() || phase > tokens[mover].moves_left {
                 continue;
             }
-            let search = move_search(tokens, mover, true);
-            let square = choose_move(tokens, mover, search.radius.max(1), rng);
+            let search = move_search(tokens, mover, primary_target_exists(tokens, mover));
+            let square = match search.beeline {
+                Some(target) => beeline_move(tokens, mover, target, rng),
+                None => choose_move(tokens, mover, search.radius.max(1), rng),
+            };
             tokens[mover].square = square;
         }
     }
@@ -1303,6 +1367,41 @@ pub fn choose_move(tokens: &[CombatToken], mover: usize, radius: i32, rng: &mut 
         return best;
     }
     step_toward(near, here, best, rng)
+}
+
+/// Step toward a square out of reach — the **beeline** of `DxyMoveTokTo`
+/// when [`move_search`] found nothing engageable: the eight neighbours are
+/// scored as they would be for a radius-one search, and the step toward
+/// `target` is chosen among them by [`step_toward`]'s rules.
+#[must_use]
+pub fn beeline_move(tokens: &[CombatToken], mover: usize, target: Square, rng: &mut Rng) -> Square {
+    let token = &tokens[mover];
+    let here = token.square;
+    if distance(here, target) <= 1 {
+        return target;
+    }
+    let x0 = i32::from(here.x);
+    let y0 = i32::from(here.y);
+    let board = i32::from(BOARD_SIZE) - 1;
+    let mut near = [[i32::MAX; 3]; 3];
+    for x in (x0 - 1).max(0)..=(x0 + 1).min(board) {
+        for y in (y0 - 1).max(0)..=(y0 + 1).min(board) {
+            let square = Square::new(x as u8, y as u8);
+            let mut score = score_square(tokens, mover, square);
+            if token.tactic == Tactic::Disengage {
+                let crowd = tokens
+                    .iter()
+                    .filter(|t| t.player == token.player && t.square == square)
+                    .count();
+                score += 2 * i32::try_from(crowd).unwrap_or(0);
+                if square == here {
+                    score -= 1;
+                }
+            }
+            near[(x - x0 + 1) as usize][(y - y0 + 1) as usize] = score;
+        }
+    }
+    step_toward(near, here, target, rng)
 }
 
 /// Take one step from `here` toward `target`, choosing among the neighbours by
@@ -1503,7 +1602,7 @@ pub fn score_square(tokens: &[CombatToken], mover: usize, square: Square) -> i32
     };
 
     for (i, them) in tokens.iter().enumerate() {
-        if i == mover || !them.alive() || them.player == us.player {
+        if i == mover || !them.alive() || !us.hostile(them) {
             continue;
         }
         // A token of the wrong class still threatens us; we just cannot shoot
@@ -1691,7 +1790,7 @@ pub fn select_target(
     for class in [us.primary_target, us.secondary_target] {
         let mut best: Option<(usize, i32)> = None;
         for (i, them) in tokens.iter().enumerate() {
-            if i == attacker || !them.alive() || them.player == us.player {
+            if i == attacker || !them.alive() || !us.hostile(them) {
                 continue;
             }
             if i32::from(distance(us.square, them.square)) > range {
@@ -1720,10 +1819,7 @@ pub fn select_target(
 pub fn primary_target_exists(tokens: &[CombatToken], mover: usize) -> bool {
     let us = &tokens[mover];
     tokens.iter().enumerate().any(|(i, them)| {
-        i != mover
-            && them.alive()
-            && them.player != us.player
-            && is_target_of(them, us.primary_target)
+        i != mover && them.alive() && us.hostile(them) && is_target_of(them, us.primary_target)
     })
 }
 
@@ -1764,7 +1860,7 @@ pub fn move_search(tokens: &[CombatToken], mover: usize, primary: bool) -> MoveS
     let mut nearest: Option<(i32, Square)> = None;
 
     for (i, them) in tokens.iter().enumerate() {
-        if i == mover || !them.alive() || them.player == us.player {
+        if i == mover || !them.alive() || !us.hostile(them) {
             continue;
         }
         if !is_target_of(them, class) {
@@ -1968,6 +2064,7 @@ mod gattling_tests {
                 pct_computer: 0,
                 mass: 0,
                 weapon_reach: 1,
+                enemies: 0xffff,
                 player,
                 active: true,
                 square: Square::new(x, 0),
@@ -2013,6 +2110,7 @@ mod movement_phase_tests {
             pct_jam: 0,
             pct_computer: 0,
             weapon_reach: 1,
+            enemies: 0xffff,
             mass,
             player: 0,
             active: true,
@@ -2091,6 +2189,7 @@ mod target_class_tests {
             pct_computer: 0,
             mass: 0,
             weapon_reach: 1,
+            enemies: 0xffff,
             player,
             active: true,
             square: Square::new(x, 0),
