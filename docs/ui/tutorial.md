@@ -684,24 +684,44 @@ whenever the page is waiting on something, with two exceptions it names:
 another player's fleet that is not in view, and a fleet of ours that a
 pane cannot reach.
 
-### Where it stops, and why
+### Where the run stops
 
-Page 34 (2411) is where the client's picture of the game stops matching
-the original's, and three pieces of the engine are wanted before the
-walkthrough can go on:
+The walkthrough now plays through page 34 and the first half of page 35
+(2411): the three pieces that were wanted for it are in — the player's own
+view of the galaxy (`stars_core::visibility`), the Berserkers' turn
+(`../formulas/ai.md`, *The TurinDrone turn*) and `DoBattles`
+(`../formulas/combat.md`, *The battle around the board*), with the Battle
+VCR drawn under the shared frame and opened by a battle message's View
+(`tests/vcr_ui.rs`).
 
-1. ~~**The player's own view of the galaxy.**~~ Done: `App::known_planets`
-   and `App::in_view`, from `stars_core::visibility` (`../formulas/scanning.md`),
-   refreshed each year. The scouts now fly at the warps the tutorial's
-   turn-3 file records, the probe reaches Mozart, and the client's own
-   "found a planet" messages arrive in 2402 as pages 9 to 11 expect.
-2. **The computer player's turn.** The red triangle below Hiho on page 34
-   is the Berserkers' scout, which their `DoAiTurn` has flown there; this
-   engine's computer players do not move (`../formulas/ai.md`).
-3. **Battles.** Page 37's Battle VCR needs the fight at Hiho in 2411, and
-   `DoBattles` (`10f0:3a26`, inside `DoOrders`) is not in the turn yet —
-   `../formulas/combat.md` has the board, movement and firing, but not who
-   fights whom.
+What stops it is not a missing piece but the **world parting from the
+original's**. The tutorial's pages name the ships the original's game
+built, by number, and its computer player's fleets where the original's
+generator put them; this engine's game is its own from the moment its
+turns run:
+
+* **Stove Top's ironium.** Page 35 goes on to *Teamster #12* (fleet 11),
+  which the original's Stove Top built in 2410 alongside Santa Maria #3.
+  Here it had 33 kT of ironium against the Teamster's 34 and the Santa
+  Maria's 27, so only the Santa Maria came, and the Teamster is on the
+  ways for 2412. The economy matches the original's turn-3 file to the
+  kilotonne in population, positions and fuel and to within three in
+  minerals (`tutorial.m1`: 390 / 458 / 609 against 393 / 458 / 606); ten
+  years of factories at two of every mineral (`../formulas/production.md`)
+  turn that into a Teamster's worth. Where the last thirty kilotonnes go
+  is not found.
+* **The red triangle below Hiho.** Page 34's enemy scout is thirteen light
+  years short of Hiho here, still on its way, so the fight page 37 asks
+  to watch has not happened in 2411. `DoBattles` fights it when the two
+  meet; the Berserkers' scouting draws on the generator, and the
+  original's draws are not reproduced (`../rng/prng.md`).
+* **Long Range Scout #2** still has a leg to fly in 2411, where the
+  original's had finished; the test deletes the leg and lays the Scrap
+  order the page asks for, as a player would.
+
+The test stops at page 35's Teamster with an assertion that says so —
+when the Teamster is built in 2410, extend it. The machine itself is
+transcribed to the end; every page from 35 on waits only on the world.
 
 Two smaller things came out of getting to page 34 all the same: a waypoint
 aimed at a fleet holds the fleet's **full object word**, owner and all,

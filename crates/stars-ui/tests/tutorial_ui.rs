@@ -19,6 +19,7 @@ const STOVE_TOP: i16 = 0x0d;
 const ALEXANDER: i16 = 0x0f;
 const PLANET_90210: i16 = 0x10;
 const HIHO: i16 = 0x09;
+const HACKER: i16 = 0x0a;
 const NO_VACANCY: i16 = 0x03;
 const SLIME: i16 = 0x08;
 const WALLABY: i16 = 0x05;
@@ -1427,6 +1428,131 @@ fn year_zero_is_played_through_the_panes() {
     shell.press("production", "OK");
     assert_eq!(shell.page(), 33, "2410 is done, waiting on the turn");
     assert!(shell.app.tutor_waiting());
+    shell.generate();
+    assert_eq!(shell.page(), 34);
+
+    // --- 2411 -------------------------------------------------------------
+    // Page 34: the first message's Goto is Armed Probe #1; shift-click on
+    // Hacker.
+    shell.next_message_until(stars_core::message::Goto::Fleet(0));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(0));
+    shell.shift_click_planet(HACKER);
+    shell.frame();
+    assert_eq!(shell.app.tutor.as_ref().map(|t| t.bold), Some(266));
+
+    // Long Range Scout #2: shift-click Stove Top and set the task to Scrap
+    // Fleet. In this world the scout still has a leg to fly (its route ran
+    // a year longer than the original's), and no message points at it: it
+    // is taken in hand from the fleet tile and its leg deleted first, as a
+    // player would.
+    shell.press("fleet", "Next");
+    assert_eq!(shell.selected_fleet_id(), Some(1));
+    {
+        let leg = {
+            let game = shell.app.game.as_ref().expect("a game");
+            let fleet = &game.fleets[shell.app.selection.fleet.expect("in hand")];
+            fleet.waypoints.get(1).map(|w| w.position)
+        };
+        if let Some(at) = leg {
+            let pos = shell.point_on_screen(at, MOHOLDI);
+            shell.click_at(pos);
+            assert_eq!(shell.app.selection.waypoint, Some(1), "the leg in hand");
+            assert!(shell.app.delete_current_waypoint());
+            shell.frame();
+            // The click on the leg's end took that planet in hand; the
+            // scout again, before its new leg is laid.
+            let scout = shell.fleet_on_screen(1);
+            shell.click_at(scout);
+            assert_eq!(shell.selected_fleet_id(), Some(1));
+        }
+    }
+    shell.shift_click_planet(STOVE_TOP);
+    shell.press("fleet", "Waypoint Task");
+    shell.press("fleet", "Scrap Fleet");
+    shell.frame();
+    assert_eq!(shell.app.tutor.as_ref().map(|t| t.bold), Some(269));
+
+    // Stalwart Defender #5 to Stove Top.
+    shell.next_message_until(stars_core::message::Goto::Fleet(4));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(4));
+    shell.shift_click_planet(STOVE_TOP);
+    shell.frame();
+    assert_eq!(shell.app.tutor.as_ref().map(|t| t.bold), Some(271));
+
+    // Armed Probe #9 after the enemy scout: shift-click the red triangle.
+    shell.next_message_until(stars_core::message::Goto::Fleet(8));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(8));
+    let enemy = {
+        let game = shell.app.game.as_ref().expect("a game");
+        game.fleets
+            .iter()
+            .find(|f| f.owner == 1 && f.id == 0)
+            .map(|f| f.position)
+            .expect("the enemy scout")
+    };
+    let pos = shell.point_on_screen(enemy, HIHO);
+    shell.modifiers = egui::Modifiers::SHIFT;
+    shell.click_at(pos);
+    shell.modifiers = egui::Modifiers::NONE;
+    shell.frame();
+    {
+        let game = shell.app.game.as_ref().expect("a game");
+        let fleet = &game.fleets[shell.app.selection.fleet.expect("in hand")];
+        assert_eq!(fleet.waypoints[1].target, Some(0x200), "after the scout");
+        assert_eq!(
+            fleet.waypoints[1].target_class,
+            stars_core::fleet::grobj::FLEET
+        );
+    }
+    assert_eq!(shell.page(), 35);
+
+    // Page 35: the new Santa Maria — its message's Goto — loads colonists
+    // and settles Mozart, the best growth figure of the planets known.
+    shell.next_message_until(stars_core::message::Goto::Fleet(2));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(2));
+    shell.press("fleet", "Xfer");
+    shell.frame();
+    let gauge = shell
+        .app
+        .drawn_button("xfer", "Colonists gauge")
+        .expect("the colonists gauge")
+        .rect;
+    shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
+    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard[3], 25);
+    shell.press("xfer", "OK");
+    shell.shift_click_planet(MOZART);
+    shell.press("fleet", "Waypoint Task");
+    shell.press("fleet", "Colonize");
+    shell.frame();
+    assert_eq!(shell.page(), 35);
+    assert_eq!(
+        shell.app.tutor.as_ref().map(|t| t.bold),
+        Some(275),
+        "the Santa Maria is away; Teamster #12 is next"
+    );
+
+    // Here this world parts from the original's. Page 35 goes on to
+    // Teamster #12 (fleet 11), which the original's Stove Top built in
+    // 2410 alongside the Santa Maria; this engine's Stove Top had 33 kT of
+    // ironium to the Teamster's 34 and the Santa Maria's 27, so the
+    // Teamster is still on the ways — see `docs/ui/tutorial.md`, *Where
+    // the run stops*. Everything the pages ask for through here has been
+    // done through the panes, with a ring on every step.
+    assert!(
+        !shell
+            .app
+            .game
+            .as_ref()
+            .expect("a game")
+            .fleets
+            .iter()
+            .any(|f| f.owner == 0 && f.id == 11),
+        "when Teamster #12 exists, the run can go on: extend the test"
+    );
 }
 
 /// The planet pane's own tile has Prev and Next as well — `SelectAdjPlanet`
