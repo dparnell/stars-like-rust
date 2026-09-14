@@ -976,17 +976,103 @@ pub fn tutorial(shell: &mut Shell) {
     // 2410 alongside the Santa Maria; this engine's Stove Top had 33 kT of
     // ironium to the Teamster's 34 and the Santa Maria's 27, so the
     // Teamster is still on the ways — see `docs/ui/tutorial.md`, *Where
-    // the run stops*. Everything the pages ask for through here has been
-    // done through the panes, with a ring on every step.
+    // the run stops*. A player does what the pages of 2411 can still be
+    // done with and generates; the tutor counts the year's pages done.
+    let teamster_12 = shell
+        .app
+        .game
+        .as_ref()
+        .expect("a game")
+        .fleets
+        .iter()
+        .any(|f| f.owner == 0 && f.id == 11);
     assert!(
-        !shell
-            .app
-            .game
-            .as_ref()
-            .expect("a game")
-            .fleets
-            .iter()
-            .any(|f| f.owner == 0 && f.id == 11),
-        "when Teamster #12 exists, the run can go on: extend the test"
+        !teamster_12,
+        "Teamster #12 exists: the pages of 2411 can be played in full — extend the script"
     );
+    shell.generate_anyway("Teamster #12 was not built; on to 2412");
+    assert_eq!(shell.page(), 38, "2412: the year's pages are counted done");
+
+    // --- 2412 -------------------------------------------------------------
+    // Page 38: the first message's Goto is dead (Armed Probe #1 finished
+    // its orders at Hacker and died there); the next message's Goto is
+    // Armed Probe #9, which caught the scout at Hiho. Then Teamster #4 —
+    // the page says View/Find; the planet's own menu finds it as well.
+    shell.next_message_until(stars_core::message::Goto::Fleet(8));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(8));
+    shell.right_click_planet_and_pick(STOVE_TOP, "Teamster #4");
+    assert_eq!(shell.selected_fleet_id(), Some(3));
+    shell.frame();
+    assert_eq!(shell.page(), 39, "Teamster #4 in hand turns the page");
+
+    // Page 39: the battle messages (a look at each is a hint), then Goto
+    // Red Storm.
+    shell.next_message_until(stars_core::message::Goto::Planet(RED_STORM));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.app.selection.planet, Some(RED_STORM));
+    shell.frame();
+    assert_eq!(shell.page(), 40);
+
+    // Page 40: Goto Slime, two Terraform Environments at the head of its
+    // queue; two Teamsters into Stove Top's.
+    shell.next_message_until(stars_core::message::Goto::Planet(SLIME));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.app.selection.planet, Some(SLIME));
+    shell.press("planet", "Change");
+    shell.scroll_to("production", "Terraform Environment", "Factory");
+    shell.double_click("production", "Terraform Environment");
+    shell.double_click("production", "Terraform Environment");
+    // Leftover-only research is already ticked: Slime was settled with
+    // the default queue page 33 set up.
+    shell.press("production", "OK");
+    shell.frame();
+    assert_eq!(shell.page(), 40);
+    assert_eq!(
+        shell.app.tutor.as_ref().map(|t| t.bold),
+        Some(319),
+        "Slime's terraforming is queued; the Teamsters are next"
+    );
+    {
+        let game = shell.app.game.as_ref().expect("a game");
+        let slime = game.planets.iter().find(|p| p.id == SLIME).expect("Slime");
+        assert!(slime.no_research, "leftover-only research ticked");
+        assert_eq!(
+            (slime.queue[0].item, slime.queue[0].count),
+            (stars_core::production::item::TERRAFORM, 2)
+        );
+    }
+    // Two Teamsters into Stove Top's queue. The page asks for them at the
+    // second slot, after the seventy mines of page 36; in this world the
+    // Teamster of 2410 is still building at the head of the queue and the
+    // two join it there, so the tutor does not see the rung done — the
+    // year is generated regardless, as the page's last line says.
+    shell.right_click_planet_and_pick(STOVE_TOP, "Stove Top");
+    assert_eq!(shell.app.selection.planet, Some(STOVE_TOP));
+    shell.press("planet", "Change");
+    shell.double_click("production", "Teamster");
+    shell.double_click("production", "Teamster");
+    shell.press("production", "OK");
+    shell.frame();
+    {
+        let game = shell.app.game.as_ref().expect("a game");
+        let home = game
+            .planets
+            .iter()
+            .find(|p| p.id == STOVE_TOP)
+            .expect("home");
+        let teamsters: i32 = home
+            .queue
+            .iter()
+            .filter(|q| q.ship && q.item == 3)
+            .map(|q| q.count)
+            .sum();
+        assert!(teamsters >= 2, "{:?}", home.queue);
+    }
+    if shell.app.tutor_waiting() {
+        shell.generate();
+    } else {
+        shell.generate_anyway("the Teamsters joined the one still building; on to 2413");
+    }
+    assert_eq!(shell.page(), 41, "2413: the Teamster page");
 }

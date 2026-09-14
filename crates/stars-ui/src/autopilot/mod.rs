@@ -496,19 +496,44 @@ impl Shell {
         assert_ne!(self.page(), page, "the year turned the page");
     }
 
+    /// Generate the year without waiting for the page to be done — what a
+    /// player does when a page asks for something this world has not got
+    /// (`docs/ui/tutorial.md`, *Where the run stops*). The tutor counts
+    /// the year's pages done and goes on to the next year's.
+    pub fn generate_anyway(&mut self, why: &str) {
+        self.frame();
+        self.step(&format!("generate: {why}"));
+        self.press_unchecked("menu", "Turn");
+        self.press_unchecked("menu", "Generate");
+    }
+
     pub fn page(&self) -> usize {
         self.app.tutor.as_ref().expect("running").page()
     }
 
     /// Press Next until the message in front points where the page says
-    /// to Goto.
+    /// to Goto — and Prev, when the year's messages came in another order
+    /// than the original's and the one wanted is behind.
     pub fn next_message_until(&mut self, target: stars_core::message::Goto) {
-        for _ in 0..12 {
+        for _ in 0..40 {
             self.frame();
             if self.app.message_goto() == target {
                 return;
             }
+            if self.app.message_next(false).is_none() {
+                break;
+            }
             self.press("messages", "Next");
+        }
+        for _ in 0..40 {
+            self.frame();
+            if self.app.message_goto() == target {
+                return;
+            }
+            if self.app.message_previous(false).is_none() {
+                break;
+            }
+            self.press_unchecked("messages", "Prev");
         }
         panic!(
             "no message pointing at {target:?}: {:?}",
@@ -529,10 +554,12 @@ impl Shell {
     }
 
     /// Whatever the page is waiting on, the ring is on **something** —
-    /// or the thing wanted is the one the ring cannot reach: a fleet of
-    /// another player's that is not in view. A reader following the pages
-    /// must never be left with a bold paragraph and no ring, which is
-    /// what page 4 looked like from the desktop.
+    /// or the thing wanted is one the ring cannot reach: a fleet of
+    /// another player's that is not in view, or the salvage of a battle
+    /// this world fought in orbit rather than in space (page 38, where
+    /// the minerals went onto Hiho). A reader following the pages must
+    /// never be left with a bold paragraph and no ring, which is what
+    /// page 4 looked like from the desktop.
     pub fn assert_halo_somewhere(&self, scope: &str, label: &str) {
         use crate::tutorial::Check;
         let Some(check) = self.app.tutor_pending() else {
@@ -541,8 +568,14 @@ impl Shell {
         if self.app.tutor_target().is_some() {
             return;
         }
+        let no_salvage = self
+            .app
+            .game
+            .as_ref()
+            .is_some_and(|g| !g.packets.iter().any(|p| p.warp == 0));
         let excused = match check {
             Check::Summary { class: 2, id } | Check::Selection { class: 2, id } => *id >= 0x200,
+            Check::Summary { class: 8, id: -1 } => no_salvage,
             _ => false,
         };
         assert!(

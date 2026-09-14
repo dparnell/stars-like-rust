@@ -235,79 +235,152 @@ pub fn generate_turn_with_orders(
     // remembered for the tasks that want a fleet to have been **here all
     // turn** (`fHereAllTurn`): laying mines and remote mining.
     let mut moved_this_turn: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+    // A fleet whose next waypoint is another **fleet** chases it
+    // (`10b0:426f`): it does not move in the first pass, and in the passes
+    // after — up to ten — it flies toward wherever its quarry now is, all
+    // of what it has left once the quarry has finished moving, a fifth of
+    // it (`(left + used + 4) / 5`) while the quarry is still on the move,
+    // so that two fleets chasing each other close on one another in steps.
+    let mut chase: Vec<(usize, usize, i32, i32)> = Vec::new();
+    let mut deferred: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
     for index in 0..state.fleets.len() {
-        let owner = usize::try_from(state.fleets[index].owner).unwrap_or(usize::MAX);
-        let designs = state.designs.get(owner).cloned().unwrap_or_default();
-        let ife = state
-            .players
-            .get(owner)
-            .is_some_and(|p| p.race.has_lrt(crate::race::lrt::IFE));
-        let from = state.fleets[index].position;
-        // A waypoint is consumed when the fleet reaches it, so the list
-        // getting shorter is how this pass knows the fleet arrived.
-        let waypoints = state.fleets[index].waypoints.len();
-        if let Some((travelled, dry)) = move_fleet(&mut state.fleets[index], &designs, ife) {
-            report.moved.push((state.fleets[index].id, travelled));
-            if travelled > 0 {
-                moved_this_turn.insert(index);
-            }
-            let fleet_id = state.fleets[index].id;
-            match dry {
-                RanDry::No => {}
-                RanDry::Stuck => state.messages.push(crate::message::Message {
-                    player: owner,
-                    id: crate::message::id::OUT_OF_FUEL,
-                    object: crate::message::fleet_object(fleet_id),
-                    params: vec![fleet_id as i16, 0],
-                }),
-                RanDry::SlowedTo(warp) => state.messages.push(crate::message::Message {
-                    player: owner,
-                    id: crate::message::id::OUT_OF_FUEL_SLOWED,
-                    object: crate::message::fleet_object(fleet_id),
-                    params: vec![fleet_id as i16, i16::from(warp)],
-                }),
-            }
-            // FTravelThroughMineFields: the leg is flown, and somewhere along
-            // it the fleet may find somebody else's mines.
-            if let Some(hit) = cross_minefields(state, index, from, travelled, rng) {
-                report.mine_hits.push((state.fleets[index].id, hit));
-            }
-            // And a fleet that has arrived may have arrived at a wormhole, in
-            // which case it is not where it thinks it is.
-            if waypoints > state.fleets[index].waypoints.len() {
-                if let Some((entered, left)) = traverse_wormhole(state, index) {
-                    report
-                        .wormhole_trips
-                        .push((state.fleets[index].id, entered, left));
-                }
-                // `KillUsedWaypoints` (`1080:189a`): a fleet that has
-                // reached the last of its orders says so — unless the
-                // waypoint carries a task that will report for itself when
-                // it runs. Merge and Transfer do not, and neither does a
-                // Route at anything but a planet of yours with a route set,
-                // which this engine does not model.
-                let fleet = &state.fleets[index];
-                let task = fleet.waypoints.first().map_or(0, |w| w.task);
-                let reports_itself = matches!(
-                    task,
-                    stars_formats::task::TRANSPORT
-                        | stars_formats::task::COLONIZE
-                        | stars_formats::task::REMOTE_MINING
-                        | stars_formats::task::SCRAP
-                        | stars_formats::task::LAY_MINES
-                        | stars_formats::task::PATROL
-                );
-                if fleet.waypoints.len() == 1 && !reports_itself {
-                    let id = fleet.id;
-                    state.messages.push(crate::message::Message {
-                        player: owner,
-                        id: crate::message::id::ORDERS_COMPLETE,
-                        object: crate::message::fleet_object(id),
-                        params: vec![id as i16, 0],
+        let fleet = &state.fleets[index];
+        let Some(leg) = fleet.waypoints.get(1) else {
+            continue;
+        };
+        if leg.target_class != crate::fleet::grobj::FLEET || leg.warp == 0 {
+            continue;
+        }
+        let Some(word) = leg.target else {
+            continue;
+        };
+        let (owner, id) = crate::orders::split_fleet_id(word);
+        if let Some(quarry) = state
+            .fleets
+            .iter()
+            .position(|f| f.owner == owner && f.id == id && !f.is_empty())
+        {
+            let allowance = crate::movement::travel_per_year(i16::from(leg.warp));
+            chase.push((index, quarry, allowance, 0));
+            deferred.insert(index);
+        }
+    }
+    let mut in_chase: Vec<usize> = (0..state.fleets.len())
+        .filter(|i| !deferred.contains(i))
+        .collect();
+    let mut passes = 0;
+    while !in_chase.is_empty() && passes <= 10 {
+        let this_pass = std::mem::take(&mut in_chase);
+        for index in this_pass {
+            let cap =
+                chase
+                    .iter()
+                    .find(|(i, _, _, _)| *i == index)
+                    .map(|&(_, quarry, left, used)| {
+                        // Where the quarry now stands is where the leg now points.
+                        let at = state.fleets[quarry].position;
+                        if let Some(leg) = state.fleets[index].waypoints.get_mut(1) {
+                            leg.position = at;
+                        }
+                        let quarry_done = !deferred.contains(&quarry);
+                        if quarry_done {
+                            left
+                        } else {
+                            left.min((left + used + 4) / 5)
+                        }
                     });
+            let owner = usize::try_from(state.fleets[index].owner).unwrap_or(usize::MAX);
+            let designs = state.designs.get(owner).cloned().unwrap_or_default();
+            let ife = state
+                .players
+                .get(owner)
+                .is_some_and(|p| p.race.has_lrt(crate::race::lrt::IFE));
+            let from = state.fleets[index].position;
+            // A waypoint is consumed when the fleet reaches it, so the list
+            // getting shorter is how this pass knows the fleet arrived.
+            let waypoints = state.fleets[index].waypoints.len();
+            let outcome = move_fleet(&mut state.fleets[index], &designs, ife, cap);
+            if let Some(entry) = chase.iter_mut().find(|(i, _, _, _)| *i == index) {
+                let travelled = outcome.map_or(0, |(t, _)| t);
+                entry.2 -= travelled;
+                entry.3 += travelled;
+                let arrived = state.fleets[index].waypoints.len() < waypoints;
+                if entry.2 > 0 && !arrived && travelled > 0 {
+                    // Still chasing: another pass.
+                    in_chase.push(index);
+                } else {
+                    deferred.remove(&index);
+                }
+            }
+            if let Some((travelled, dry)) = outcome {
+                report.moved.push((state.fleets[index].id, travelled));
+                if travelled > 0 {
+                    moved_this_turn.insert(index);
+                }
+                let fleet_id = state.fleets[index].id;
+                match dry {
+                    RanDry::No => {}
+                    RanDry::Stuck => state.messages.push(crate::message::Message {
+                        player: owner,
+                        id: crate::message::id::OUT_OF_FUEL,
+                        object: crate::message::fleet_object(fleet_id),
+                        params: vec![fleet_id as i16, 0],
+                    }),
+                    RanDry::SlowedTo(warp) => state.messages.push(crate::message::Message {
+                        player: owner,
+                        id: crate::message::id::OUT_OF_FUEL_SLOWED,
+                        object: crate::message::fleet_object(fleet_id),
+                        params: vec![fleet_id as i16, i16::from(warp)],
+                    }),
+                }
+                // FTravelThroughMineFields: the leg is flown, and somewhere along
+                // it the fleet may find somebody else's mines.
+                if let Some(hit) = cross_minefields(state, index, from, travelled, rng) {
+                    report.mine_hits.push((state.fleets[index].id, hit));
+                }
+                // And a fleet that has arrived may have arrived at a wormhole, in
+                // which case it is not where it thinks it is.
+                if waypoints > state.fleets[index].waypoints.len() {
+                    if let Some((entered, left)) = traverse_wormhole(state, index) {
+                        report
+                            .wormhole_trips
+                            .push((state.fleets[index].id, entered, left));
+                    }
+                    // `KillUsedWaypoints` (`1080:189a`): a fleet that has
+                    // reached the last of its orders says so — unless the
+                    // waypoint carries a task that will report for itself when
+                    // it runs. Merge and Transfer do not, and neither does a
+                    // Route at anything but a planet of yours with a route set,
+                    // which this engine does not model.
+                    let fleet = &state.fleets[index];
+                    let task = fleet.waypoints.first().map_or(0, |w| w.task);
+                    let reports_itself = matches!(
+                        task,
+                        stars_formats::task::TRANSPORT
+                            | stars_formats::task::COLONIZE
+                            | stars_formats::task::REMOTE_MINING
+                            | stars_formats::task::SCRAP
+                            | stars_formats::task::LAY_MINES
+                            | stars_formats::task::PATROL
+                    );
+                    if fleet.waypoints.len() == 1 && !reports_itself {
+                        let id = fleet.id;
+                        state.messages.push(crate::message::Message {
+                            player: owner,
+                            id: crate::message::id::ORDERS_COMPLETE,
+                            object: crate::message::fleet_object(id),
+                            params: vec![id as i16, 0],
+                        });
+                    }
                 }
             }
         }
+        if passes == 0 {
+            // Everyone else has moved: the chasers' turn, in as many passes
+            // as it takes.
+            in_chase.extend(chase.iter().map(|c| c.0));
+        }
+        passes += 1;
     }
 
     // --- ThingDecay: an armed field goes off under everyone inside it, and
@@ -2410,6 +2483,40 @@ enum RanDry {
     SlowedTo(u8),
 }
 
+/// A fleet has reached its next waypoint: the waypoint is done with, and
+/// the fleet is orbiting whatever it named. Its current-leg warp becomes
+/// the next leg's, or nothing when there is none.
+fn arrive(fleet: &mut Fleet) {
+    fleet.warp = fleet.waypoints.get(2).map(|w| w.warp);
+    // Only a waypoint aimed at a **planet** puts the fleet in orbit: one
+    // aimed at a fleet, a wormhole or a point in space names no planet, so
+    // arriving there leaves the fleet in deep space.
+    fleet.orbiting = fleet
+        .waypoints
+        .get(1)
+        .filter(|w| w.target_class == crate::fleet::grobj::PLANET)
+        .and_then(|w| w.target);
+    // `KillUsedWaypoints` copies the waypoint reached over the one left
+    // and drops it — `DeleteWpFar(lpfl, 1, fRepOrders)` (`1050:9e28`) —
+    // and with **Repeat Orders** on, the drop puts it back at the end of
+    // the route instead, task and all, so the route circles. Not when
+    // there is only the one leg, not when the last waypoint already stands
+    // where this one does, and not for a Merge with a fleet (`1080:1bfb`).
+    if fleet.waypoints.len() > 1 {
+        let reached = fleet.waypoints.remove(1);
+        let merge_with_fleet = reached.task == stars_formats::task::MERGE
+            && reached.target_class == crate::fleet::grobj::FLEET;
+        let recycle = fleet.repeat_orders
+            && !merge_with_fleet
+            && fleet.waypoints.len() > 1
+            && fleet.waypoints.last().map(|w| w.position) != Some(reached.position);
+        fleet.waypoints[0] = reached.clone();
+        if recycle {
+            fleet.waypoints.push(reached);
+        }
+    }
+}
+
 /// Move one fleet along its current leg.
 ///
 /// A fleet covers `warp^2` light years a year toward its next waypoint,
@@ -2435,19 +2542,29 @@ fn move_fleet(
     fleet: &mut Fleet,
     designs: &[crate::design::ShipDesign],
     ife: bool,
+    cap: Option<i32>,
 ) -> Option<(i32, RanDry)> {
     let (target, warp) = fleet.next_leg()?;
     let from = fleet.position;
     let d = distance(from, target);
     if d <= 0.0 {
-        return None;
+        // Already standing on the waypoint — a chase whose quarry has
+        // gone, say: the leg is done with, and the waypoint is consumed as
+        // if it had just been reached.
+        arrive(fleet);
+        return Some((0, RanDry::No));
     }
+    // A chase is flown in pieces: this piece is at most `cap`.
+    let year = |warp: u8| {
+        let full = travel_this_year(i16::from(warp), d, None);
+        cap.map_or(full, |c| full.min(c.max(0)))
+    };
 
     let mut dry = RanDry::No;
     let travel = if designs.is_empty() {
-        travel_this_year(i16::from(warp), d, None)
+        year(warp)
     } else {
-        let wanted = travel_this_year(i16::from(warp), d, None);
+        let wanted = year(warp);
         #[allow(clippy::cast_possible_truncation)]
         let whole_leg = fleet.fuel_use(designs, warp, (d + 0.9999) as i32, ife);
         if fleet.cargo.fuel >= whole_leg {
@@ -2483,37 +2600,7 @@ fn move_fleet(
     fleet.position = to;
 
     if to == target {
-        // Arrived: this waypoint is done with, and the fleet is orbiting
-        // whatever it named. Its current-leg warp becomes the next leg's,
-        // or nothing when there is none.
-        fleet.warp = fleet.waypoints.get(2).map(|w| w.warp);
-        // A waypoint aimed at a `THING` — a wormhole, say — names no planet,
-        // so arriving at one leaves the fleet in deep space.
-        fleet.orbiting = fleet
-            .waypoints
-            .get(1)
-            .filter(|w| w.target_class != 8)
-            .and_then(|w| w.target);
-        // `KillUsedWaypoints` copies the waypoint reached over the one
-        // left and drops it — `DeleteWpFar(lpfl, 1, fRepOrders)`
-        // (`1050:9e28`) — and with **Repeat Orders** on, the drop puts it
-        // back at the end of the route instead, task and all, so the
-        // route circles. Not when there is only the one leg, not when the
-        // last waypoint already stands where this one does, and not for a
-        // Merge with a fleet (`1080:1bfb`).
-        if fleet.waypoints.len() > 1 {
-            let reached = fleet.waypoints.remove(1);
-            let merge_with_fleet = reached.task == stars_formats::task::MERGE
-                && reached.target_class == crate::fleet::grobj::FLEET;
-            let recycle = fleet.repeat_orders
-                && !merge_with_fleet
-                && fleet.waypoints.len() > 1
-                && fleet.waypoints.last().map(|w| w.position) != Some(reached.position);
-            fleet.waypoints[0] = reached.clone();
-            if recycle {
-                fleet.waypoints.push(reached);
-            }
-        }
+        arrive(fleet);
     } else {
         fleet.orbiting = None;
         // The leg continues from where the fleet now is.

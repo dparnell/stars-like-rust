@@ -94,6 +94,31 @@ tank, so the fleet covers `306 × 1000 / 7650 = 40` ly, the tank is zeroed, and
 the leg is rewritten to warp 1 (warp 2 would cost `340 × 20 × 9 / 20000 = 3`
 mg). `crates/stars-core/tests/fuel.rs` checks the three cases.
 
+## Chasing a fleet (`MoveFleets`, `10b0:426f`)
+
+A waypoint aimed at a **fleet** is a moving target, and `MoveFleets` flies
+it in passes. In the first pass every fleet whose next waypoint names a
+fleet is skipped; the rest fly their year. Then, up to ten times over, the
+chasers fly: each first has its waypoint moved to wherever its quarry now
+stands, and then covers
+
+* all of what it has left for the year (`warp²` less what it has flown)
+  when the quarry has finished moving — a ship chasing a scout that has
+  landed reaches it if it can;
+* otherwise `(left + used + 4) / 5`, a fifth of the year's travel, so that
+  two fleets chasing each other close in steps rather than one of them
+  jumping the whole way at once.
+
+A chaser that arrives, or runs out of allowance, or covers nothing, leaves
+the chase; a chase that is still going after ten passes is left where it
+is. Arriving on a fleet puts the chaser **in deep space** beside it, not in
+orbit: only a waypoint aimed at a planet sets a fleet's orbit
+(`KillUsedWaypoints` copies the waypoint's object over the fleet's, and a
+fleet is not a planet). The tutorial's Armed Probe #9 catching the
+Berserkers' scout over Hiho (page 37's battle) is this chase in the engine
+(`turn.rs`, the `chase` list); the probe orbits nothing afterwards, which
+is what the page's battle record says as well.
+
 ## Arriving, and Repeat Orders (`KillUsedWaypoints`, `1080:189a`)
 
 When a fleet stands on its next waypoint, `KillUsedWaypoints` copies that
