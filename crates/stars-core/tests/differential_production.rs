@@ -414,6 +414,7 @@ fn a_queued_ship_is_paid_for_and_joins_the_fleet() {
         name: String::new(),
         picture: 0,
         stored_armor: 0,
+        obsolete: false,
         hull_id: 0,
         slots: vec![DesignSlot {
             category: stars_core::components::slot::ENGINE,
@@ -718,6 +719,7 @@ fn the_inventory_offers_what_the_planet_can_build() {
         name: "Scout".into(),
         picture: 0,
         stored_armor: 0,
+        obsolete: false,
     };
     // A Dreadnought's bare hull is 250kT, more than a Space Dock's 200.
     let dreadnought = ShipDesign {
@@ -726,6 +728,7 @@ fn the_inventory_offers_what_the_planet_can_build() {
         name: "Dreadnought".into(),
         picture: 0,
         stored_armor: 0,
+        obsolete: false,
     };
     let mut designs = vec![scout.clone(), dreadnought.clone()];
     designs.resize(
@@ -736,6 +739,7 @@ fn the_inventory_offers_what_the_planet_can_build() {
             name: String::new(),
             picture: 0,
             stored_armor: 0,
+            obsolete: false,
         },
     );
     // Slot 16: a Space Dock with a mass driver in its orbital slot.
@@ -749,6 +753,7 @@ fn the_inventory_offers_what_the_planet_can_build() {
         name: "Dock".into(),
         picture: 0,
         stored_armor: 1000,
+        obsolete: false,
     };
     // Slot 17: an Orbital Fort, so there is a second starbase to offer.
     designs[usize::from(FIRST_STARBASE_SLOT) + 1] = ShipDesign {
@@ -757,6 +762,7 @@ fn the_inventory_offers_what_the_planet_can_build() {
         name: "Fort".into(),
         picture: 0,
         stored_armor: 1000,
+        obsolete: false,
     };
     planet.starbase = true;
     planet.starbase_design = Some(0);

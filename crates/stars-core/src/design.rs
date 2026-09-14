@@ -86,6 +86,10 @@ pub struct ShipDesign {
     /// recomputes it. This field exists so a design written back to a file
     /// carries the same figure it was read with.
     pub stored_armor: u16,
+    /// Whether the design has been retired: `SHDEF.det` bit 9, byte 1 bit 1
+    /// of the design block. An obsolete design cannot be built and the
+    /// computer players make a new one in its slot (`FChangeAiShdef`).
+    pub obsolete: bool,
 }
 
 /// A design's derived cost.

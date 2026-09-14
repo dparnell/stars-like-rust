@@ -448,6 +448,7 @@ mod primary_tests {
             name: String::new(),
             picture: 0,
             stored_armor: 0,
+            obsolete: false,
         }
     }
 

@@ -21,6 +21,7 @@ fn a_game() -> GameState {
         name: "Scout".to_string(),
         picture: 0,
         stored_armor: 0,
+        obsolete: false,
         hull_id: 4,
         slots: Vec::new(),
     };

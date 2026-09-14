@@ -548,6 +548,7 @@ mod tests {
             name: "Layer".to_string(),
             picture: 0,
             stored_armor: 0,
+            obsolete: false,
             hull_id: 0,
             slots,
         }

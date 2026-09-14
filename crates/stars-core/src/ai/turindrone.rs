@@ -19,6 +19,7 @@ use crate::ai::AiPersonality;
 use crate::components::slot;
 use crate::fleet::{grobj, Waypoint};
 use crate::movement::Point;
+use crate::parts::Builder;
 use crate::production::QueueItem;
 use crate::rng::Rng;
 use crate::GameState;
@@ -43,6 +44,8 @@ pub struct Report {
     pub colonising: Vec<(u16, i16)>,
     /// Ships queued, as `(planet, design slot, count)`.
     pub queued: Vec<(i16, u8, i32)>,
+    /// Designs made this turn, as `(slot, hull)`.
+    pub designed: Vec<(u8, i16)>,
 }
 
 /// Run the personality's turn for `player`, as the host does before the
@@ -64,6 +67,10 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
     state.players[player].explored.extend(seen);
     let explored = state.players[player].explored.clone();
 
+    // `EnsureTurinDroneShdefs`: the designs the personality wants in its
+    // slots, made when the tech allows.
+    ensure_designs(state, player, rng, &mut report);
+
     let marks = marks(state, player, me, &explored);
     let anywhere_to_settle = marks.contains(&Mark::Colonisable);
 
@@ -82,7 +89,7 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
         .designs
         .get(player)
         .and_then(|d| d.get(usize::from(SCOUT_SLOT)))
-        .filter(|d| d.hull().is_some())
+        .filter(|d| d.hull().is_some() && !d.obsolete)
         .map(|_| SCOUT_SLOT);
     let planet_count = i32::try_from(state.planets.len()).unwrap_or(0);
     for index in 0..state.planets.len() {
@@ -305,25 +312,20 @@ fn marks(state: &GameState, player: usize, me: i16, explored: &BTreeSet<i16>) ->
     marks
 }
 
-/// The player's colony-ship design: the personality's slot when it holds
-/// one, else the first design carrying a colonisation module.
+/// The player's colony-ship design: the personality's slot, while it holds
+/// a live design carrying a colonisation module.
 fn colony_design(state: &GameState, player: usize) -> Option<u8> {
     let designs = state.designs.get(player)?;
     let has_module = |d: &crate::design::ShipDesign| {
-        d.slots
-            .iter()
-            .any(|s| s.category == slot::SPECIAL_M && s.item == 0 && s.count > 0)
+        !d.obsolete
+            && d.slots
+                .iter()
+                .any(|s| s.category == slot::SPECIAL_M && s.item == 0 && s.count > 0)
     };
-    if designs
+    designs
         .get(usize::from(COLONY_SLOT))
         .is_some_and(&has_module)
-    {
-        return Some(COLONY_SLOT);
-    }
-    designs
-        .iter()
-        .position(has_module)
-        .and_then(|i| u8::try_from(i).ok())
+        .then_some(COLONY_SLOT)
 }
 
 /// `FMoveAiFleet` with a fresh order: the fleet's route becomes its own
@@ -351,4 +353,200 @@ fn lay_leg(fleet: &mut crate::fleet::Fleet, at: Point, planet: i16, task: u8, wa
         task_data: Vec::new(),
     });
     fleet.warp = Some(warp);
+}
+
+/// `EnsureTurinDroneShdefs` (`1088:58ba`): fill the slots the personality
+/// keeps for each role, each when its tech is reached and the slot is
+/// empty, obsolete, or (for the scout, colony ship, miner and mine layer)
+/// holds a design no ship of which exists. The scout, colony ship and
+/// miner slots have their old design **retired first**, whether or not
+/// the new one can be made — which leaves a young TurinDrone with no
+/// scout design at all once its last starting scout is gone, until it
+/// reaches Construction 6 for the Frigate. The fittings are
+/// [`crate::ai::parts::fitting`].
+///
+/// The tech thresholds are the routine's own comparisons, `tech[f] > n`,
+/// in the order Energy, Weapons, Propulsion, Construction, Electronics,
+/// Biotechnology.
+fn ensure_designs(state: &mut GameState, player: usize, rng: &mut Rng, report: &mut Report) {
+    use crate::ai::parts::{create_design, fitting, pick_name};
+
+    let me = i16::try_from(player).unwrap_or(-1);
+    let levels = state.players[player].research.levels;
+    let above = |field: usize, n: u8| levels[field] > n;
+    let exists = |state: &GameState, slot: u8| -> bool {
+        state
+            .fleets
+            .iter()
+            .filter(|f| f.owner == me)
+            .any(|f| f.stacks.iter().any(|s| s.design == slot && s.count > 0))
+    };
+    let slot_state = |state: &GameState, slot: u8| -> (bool, bool) {
+        let design = state
+            .designs
+            .get(player)
+            .and_then(|d| d.get(usize::from(slot)));
+        // An empty slot carries the retired bit in the original, which is
+        // how "free" is told.
+        let present = design.is_some_and(|d| d.hull().is_some());
+        let obsolete = design.is_none_or(|d| d.obsolete || d.hull().is_none());
+        (present, obsolete)
+    };
+
+    // (slot, hull, fittings to try in turn, needs, retire the old first,
+    //  make when no ship of it exists)
+    struct Want {
+        slot: u8,
+        hull: i16,
+        fittings: Vec<crate::ai::parts::Fitting>,
+        needs: bool,
+        retire_first: bool,
+        when_none_exist: bool,
+    }
+    let battleship_pick = usize::try_from(rng.random(4)).unwrap_or(0);
+    let wants = [
+        Want {
+            slot: 8,
+            hull: 12,
+            fittings: vec![fitting::ROGUE],
+            needs: above(1, 4) && above(3, 7),
+            retire_first: false,
+            when_none_exist: false,
+        },
+        Want {
+            slot: 9,
+            hull: 13,
+            fittings: vec![fitting::GALLEON],
+            needs: above(1, 6) && above(3, 10),
+            retire_first: false,
+            when_none_exist: false,
+        },
+        Want {
+            slot: 10,
+            hull: 6,
+            fittings: vec![fitting::DESTROYER],
+            needs: above(0, 4) && above(4, 4) && above(3, 3) && above(1, 4),
+            retire_first: false,
+            when_none_exist: false,
+        },
+        Want {
+            slot: 1,
+            hull: 15,
+            fittings: vec![fitting::COLONY_SHIP],
+            needs: true,
+            retire_first: true,
+            when_none_exist: true,
+        },
+        Want {
+            slot: 0,
+            hull: 5,
+            fittings: vec![fitting::SCOUT],
+            needs: true,
+            retire_first: true,
+            when_none_exist: true,
+        },
+        Want {
+            slot: 2,
+            hull: 22,
+            fittings: vec![fitting::MINER],
+            needs: above(3, 6) && above(4, 3),
+            retire_first: true,
+            when_none_exist: true,
+        },
+        Want {
+            slot: 12,
+            hull: 11,
+            fittings: vec![fitting::MINE_LAYER],
+            needs: above(3, 3) && above(5, 3),
+            retire_first: false,
+            when_none_exist: true,
+        },
+        Want {
+            slot: 13,
+            hull: 18,
+            fittings: vec![fitting::STEALTH_BOMBER],
+            needs: above(0, 7) && above(4, 6) && above(3, 5),
+            retire_first: false,
+            when_none_exist: false,
+        },
+        Want {
+            slot: 14,
+            hull: 18,
+            fittings: vec![fitting::STEALTH_BOMBER],
+            needs: above(0, 10) && above(4, 11) && above(3, 14) && above(1, 8),
+            retire_first: false,
+            when_none_exist: false,
+        },
+        Want {
+            slot: 4,
+            hull: 9,
+            // One of the four at random, then the others if it fails.
+            fittings: (0..4)
+                .map(|i| fitting::BATTLESHIPS[(battleship_pick + i) % 4])
+                .collect(),
+            needs: above(0, 4) && above(4, 5) && above(3, 12) && above(1, 6),
+            retire_first: false,
+            when_none_exist: false,
+        },
+        Want {
+            slot: 15,
+            hull: 12,
+            fittings: vec![fitting::ROGUE],
+            needs: above(0, 4) && above(4, 5) && above(3, 12) && above(1, 6),
+            retire_first: false,
+            when_none_exist: false,
+        },
+    ];
+
+    for want in wants {
+        let (present, obsolete) = slot_state(state, want.slot);
+        let wanted = obsolete || (want.when_none_exist && !exists(state, want.slot));
+        if !wanted || !want.needs {
+            continue;
+        }
+        // The colony-ship slot keeps a Privateer it may already hold.
+        if want.slot == 1 && present && !obsolete && state.designs[player][1].hull_id == 11 {
+            continue;
+        }
+        if want.retire_first && present && !obsolete {
+            state.designs[player][usize::from(want.slot)].obsolete = true;
+        }
+        let who = Builder::player(&state.players[player]);
+        let Some(mut design) = want
+            .fittings
+            .iter()
+            .find_map(|f| create_design(want.hull, f, &who))
+        else {
+            continue;
+        };
+        let taken: Vec<String> = state
+            .designs
+            .get(player)
+            .map(|d| {
+                d.iter()
+                    .filter(|d| !d.obsolete)
+                    .map(|d| d.name.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        design.name = pick_name(want.hull, &taken, rng);
+        design.picture = crate::components::HULLS
+            .get(usize::try_from(want.hull).unwrap_or(0))
+            .and_then(|h| u8::try_from(h.picture).ok())
+            .unwrap_or(0);
+        let designs = &mut state.designs[player];
+        let at = usize::from(want.slot);
+        while designs.len() <= at {
+            designs.push(crate::design::ShipDesign {
+                hull_id: -1,
+                slots: Vec::new(),
+                name: String::new(),
+                picture: 0,
+                stored_armor: 0,
+                obsolete: true,
+            });
+        }
+        designs[at] = design;
+        report.designed.push((want.slot, want.hull));
+    }
 }

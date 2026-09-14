@@ -147,6 +147,7 @@ fn the_class_filter_narrows_the_other_side() {
             name: "a scout".to_string(),
             picture: 0,
             stored_armor: 0,
+            obsolete: false,
         });
     }
     with_fleets(&mut app, vec![fleet(1, 20, 0, 3), fleet(0, 10, 0, 3)]);

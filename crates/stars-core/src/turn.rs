@@ -1918,6 +1918,7 @@ fn give_trader_ship(
             name: String::new(),
             picture: 0,
             stored_armor: 0,
+            obsolete: false,
             hull_id: -1,
             slots: Vec::new(),
         });

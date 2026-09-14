@@ -593,7 +593,7 @@ pub fn design_record(design: &ShipDesign, number: u8, starbase: bool, built: u32
             .collect(),
         name: design.name.clone(),
         flags0: DESIGN_FLAGS0,
-        flags1: DESIGN_FLAGS1,
+        flags1: DESIGN_FLAGS1 | (u8::from(design.obsolete) << 1),
         trailing: Vec::new(),
     }
 }

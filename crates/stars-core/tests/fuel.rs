@@ -25,6 +25,7 @@ fn a_freighter(fuel: i32, cargo: i32) -> GameState {
         name: "Teamster".to_string(),
         picture: 0,
         stored_armor: 0,
+        obsolete: false,
         hull_id: 1,
         slots: vec![DesignSlot {
             category: slot::ENGINE,

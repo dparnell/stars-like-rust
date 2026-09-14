@@ -24,6 +24,7 @@ fn a_layer(years: u16, prt: Prt) -> GameState {
         name: "Layer".to_string(),
         picture: 0,
         stored_armor: 0,
+        obsolete: false,
         hull_id: 0,
         slots: vec![
             DesignSlot {

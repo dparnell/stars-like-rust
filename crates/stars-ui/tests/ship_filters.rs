@@ -103,6 +103,7 @@ fn the_eight_classes_are_the_hull_categories() {
         name: "Orbital Fort".to_string(),
         picture: 128,
         stored_armor: 1000,
+        obsolete: false,
     };
     assert_eq!(starbase.ship_class(), None);
     let empty = ShipDesign {
@@ -160,6 +161,7 @@ fn the_class_filter_counts_by_hull_class() {
                 name: name.to_string(),
                 picture: 0,
                 stored_armor: 0,
+                obsolete: false,
             });
         }
     }

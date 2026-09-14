@@ -644,8 +644,50 @@ bit 9) and the tech allows:
 | 14 | bomber | Stealth Bomber (18) | Ener > 10, Elec > 11, Con > 14, Weap > 8 |
 | 15 | | Rogue (12) | Ener > 4, Elec > 5, Con > 12, Weap > 6 |
 
-The fittings are byte tables of *AI part* codes beside `rgptPlan`
-(`FGetAIPart` turns a code into a component), not yet read out.
+The fittings are byte strings of **AI part classes**, one per hull slot,
+in the personality's own segment (`1088:35c2`, reached through a table of
+offsets at `1088:35b0`); `FGetAIPart` (`1090:043e`) turns a class into a
+component. A class is a short list of candidates — slot type, item, and
+how many items below it to try — in `vrgcAiParts` (`1120:1450`, 45
+classes) and 139 words at `1090:0000`, and the first candidate the player
+can build (`FLookupPart`, the same gate the designer uses) wins; the slot
+is filled to its capacity. A fitting with a class nothing fills fails as a
+whole. The engine class (8) is the Trans-Star 10, the five scoops from the
+Galaxy Scoop down, and the Fuel Mizer — never the Quick Jump 5 or the Long
+Hump 6 — so a young TurinDrone designs nothing until it has Propulsion 8
+with Energy 2, or Propulsion 2 with Improved Fuel Efficiency, which the
+tutorial's Berserkers have. `ai::parts` holds the tables, `pick_part` and
+`create_design`; the fittings it names are the TurinDrone's:
+
+| offset | hull | classes |
+|-------:|------|---------|
+| 0 | Colony Ship | engine, colony module |
+| 2 | Frigate scout | engine, scanner, torpedo, shield |
+| 6 | Destroyer | engine, torpedo ×3, armour, mechanical, electrical |
+| 48–81 | Battleship, four fittings | |
+| 92 | Rogue | |
+| 101 | Stealth Bomber | engine, bombs ×2, mechanical, electrical |
+| 106 | Privateer mine layer | engine, shield, mechanical, mines ×2 |
+| 111 | Galleon | |
+| 123 | Miner | engine, mechanical, mining ×4 |
+
+`PickANameAndBmp` names the design from one of nine lists of the game's
+(strings `0x03d4`–`0x0431`: Easter Bunny, Lying Bastard, Pidgeon, Ground
+Hog, Egg, Glovebox, Prickly Pear, Zombie, Scrapper), choosing a name no
+live design carries and, after twenty misses, a name with a number; which
+list a hull takes is read from a word of the hull's not yet pinned down,
+so `ai::parts::name_group` goes by the hull's role — which agrees with the
+tutorial, whose Berserker mine layers are *Saguaros*, a Prickly Pear
+name. The picture is the hull's, the first of its four variants not in
+use.
+
+A design slot is **free** when its retired bit (`det` bit 9) is set,
+which is also how an empty slot reads; `ShipDesign::obsolete` is that bit,
+byte 1 bit 1 of the design block. `EnsureTurinDroneShdefs` retires the
+scout, colony and miner slots' old design *before* trying to make the new
+one, and asks for the colony ship, scout, miner and mine layer again
+whenever no ship of the design exists — so a freshly made design is made
+afresh each year until one is built.
 `CheckAiShdefStatus(from, to, recycle, &latest, old)` counts the ships of
 a slot range, notes the newest design, and after `recycle` years — 50
 before turn 120, 70 before 200, 100 after — obsoletes an unused design or
@@ -750,12 +792,13 @@ Santa Maria and Teamster.
 
 #### What `ai::turindrone` does so far
 
-The year-0 scouts, scouting to unknown planets, and colony ships to the
-nearest colonisable planet, with the marks table above; using whatever
-designs the player has in the slots. Not yet: `FCreateAiShdef`'s part
-tables and `EnsureTurinDroneShdefs`, the rest of the queue pass, the war
-fleets, `IdTargetFreighter`, `HandleBasicAiTasks`, the scrap at turn 0.
-None of it is verified against a corpus turn yet.
+`EnsureTurinDroneShdefs` with every slot's tech and fittings; the year-0
+scouts, scouting to unknown planets, and colony ships to the nearest
+colonisable planet, with the marks table above, from the personality's
+own slots. Not yet: the rest of the queue pass, the war fleets,
+`IdTargetFreighter`, `HandleBasicAiTasks`, `CheckAiShdefStatus`'s
+recycling, `MergeAllShdefs`, the scrap at turn 0. None of it is verified
+against a corpus turn yet.
 
 ### Other queue sources
 

@@ -223,6 +223,7 @@ mod remote_tests {
             name: String::new(),
             picture: 0,
             stored_armor: 0,
+            obsolete: false,
             hull_id: 0,
             slots: vec![DesignSlot {
                 category: slot::MINING,
@@ -256,6 +257,7 @@ mod remote_tests {
             name: String::new(),
             picture: 0,
             stored_armor: 0,
+            obsolete: false,
             hull_id: 0,
             slots: vec![DesignSlot {
                 category: slot::ENGINE,

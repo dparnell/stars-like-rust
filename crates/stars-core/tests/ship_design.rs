@@ -458,6 +458,7 @@ fn a_starbase_is_built_for_half_what_the_table_says() {
         name: "Orbital Fort".into(),
         picture: 0,
         stored_armor: 1000,
+        obsolete: false,
     };
     assert_eq!(STARBASE_HULLS[0].resource_cost, 80);
     assert_eq!(STARBASE_HULLS[0].ore_cost, [24, 0, 34]);
@@ -481,6 +482,7 @@ fn a_starbase_is_built_for_half_what_the_table_says() {
         name: "Scout".into(),
         picture: 0,
         stored_armor: 0,
+        obsolete: false,
     };
     let raw = scout.cost().expect("a hull costs something");
     let true_cost = scout
@@ -513,6 +515,7 @@ fn a_designs_true_cost_adds_up_its_miniaturised_parts() {
         name: "Long Range Scout".into(),
         picture: 0,
         stored_armor: 0,
+        obsolete: false,
     };
 
     let hull = part(slot::HULL, 4).expect("Scout");

@@ -335,6 +335,7 @@ fn fuel_range_reflects_the_engine_table() {
         name: String::new(),
         picture: 0,
         stored_armor: 0,
+        obsolete: false,
         hull_id: 4,
         slots: vec![DesignSlot {
             category: slot::ENGINE,

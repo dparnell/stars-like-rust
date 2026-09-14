@@ -44,6 +44,7 @@ impl Template {
             name: self.name.to_string(),
             picture: self.picture,
             stored_armor: self.armor,
+            obsolete: false,
             hull_id: self.hull,
             slots: self
                 .slots

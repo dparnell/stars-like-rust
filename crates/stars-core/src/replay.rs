@@ -916,6 +916,7 @@ fn set_design(state: &mut GameState, player: usize, change: &ShipDesignChange) -
             name: String::new(),
             picture: 0,
             stored_armor: 0,
+            obsolete: false,
             hull_id: -1,
             slots: Vec::new(),
         });
@@ -930,6 +931,7 @@ fn set_design(state: &mut GameState, player: usize, change: &ShipDesignChange) -
                 name: String::new(),
                 picture: 0,
                 stored_armor: 0,
+                obsolete: false,
                 hull_id: -1,
                 slots: Vec::new(),
             };

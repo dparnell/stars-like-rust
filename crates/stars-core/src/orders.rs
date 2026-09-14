@@ -963,6 +963,7 @@ fn give_fleet(state: &mut GameState, index: usize) -> bool {
                 name: String::new(),
                 picture: 0,
                 stored_armor: 0,
+                obsolete: false,
                 hull_id: -1,
                 slots: Vec::new(),
             });
@@ -1276,6 +1277,7 @@ mod tests {
             name: "Scout".to_string(),
             picture: 0,
             stored_armor: 0,
+            obsolete: false,
             hull_id: 4,
             slots: Vec::new(),
         };
@@ -1308,6 +1310,7 @@ mod tests {
             name: name.to_string(),
             picture: 0,
             stored_armor: 0,
+            obsolete: false,
             hull_id: 4,
             slots: Vec::new(),
         };
@@ -1438,6 +1441,7 @@ mod tests {
                 name: "Scout".to_string(),
                 picture: 0,
                 stored_armor: 0,
+                obsolete: false,
                 hull_id: 0,
                 slots: Vec::new(),
             };

@@ -47,6 +47,7 @@ fn main() {
             name: String::new(),
             picture: 0,
             stored_armor: 0,
+            obsolete: false,
             hull_id: i16::from(r.hull_id),
             slots: r
                 .slots

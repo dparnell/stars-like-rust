@@ -331,6 +331,7 @@ pub fn design_from_record(record: &DesignRecord) -> crate::design::ShipDesign {
         name: record.name.clone(),
         picture: record.pic,
         stored_armor: record.armor.unwrap_or(0),
+        obsolete: record.flags1 & 0x02 != 0,
         hull_id: i16::from(record.hull_id),
         slots: record
             .slots
@@ -682,6 +683,7 @@ impl GameState {
                     name: String::new(),
                     picture: 0,
                     stored_armor: 0,
+                    obsolete: false,
                     hull_id: -1,
                     slots: Vec::new(),
                 });
