@@ -1,7 +1,10 @@
 # The computer players
 
 Status: **identification, the planet list and the terraform decision verified;
-mine/factory decision reproduces the choice but not the amounts.**
+mine/factory decision reproduces the choice but not the amounts; the seven
+personalities' research, designs, colony-ship targets and unrolled queue
+items verified against both corpus games** (*What the corpus confirms of the
+personalities*, below).
 
 Stars! ships seven computer opponents. This document records which player a
 save file hands to which opponent, maps the roughly 95 functions that make up
@@ -760,7 +763,15 @@ the search again until no such fleet is left.
   `level = b & 0x1f`) whose level is not yet reached, and when the level
   is one away the *next* field is set from the entry after it; past the
   end of the list the lowest field (first on a tie) is studied and the
-  routine answers `0x39e`. The TurinDrone's plan: Prop 2, Con 4, Bio 4,
+  routine answers `0x39e`. What the AI sets reaches the host as a
+  logged order (`WriteMemRt 0x22`, share and field together), and the
+  order is only logged with a field — always when the plan names one,
+  and with no plan only when the lowest field is not the one under
+  study — so a personality without a plan keeps its old share until its
+  field changes: the corpus shows the Rototill and the Maid at their
+  starting 15 % from year 0, where the code would set 0 until turn 20.
+  `ai::turindrone::ensure_research` does the same. The TurinDrone's
+  plan: Prop 2, Con 4, Bio 4,
   En 4, Weap 5, Prop 6, Con 6, Weap 8, En 6, Elec 6, Prop 9, Bio 7,
   Con 8, Elec 8, Bio 5 (a no-op by then), Con 9, En 7, Elec 10, Weap 10,
   Prop 12, Con 11, En 10, Weap 12, Elec 13, Prop 16, Weap 14, Con 15,
@@ -1308,7 +1319,15 @@ three-year cooldown on a planet packets were thrown at, 7 more packets
 owed) and a half zeroed each year (bit 0 a colony ship here found
 nowhere to go, 1–2 freighters that unloaded here, 3–4 freighters bound
 here, 5 defenders here short, 6 defenders here, 8–10 short of each
-mineral). In order:
+mineral). Of the yearly half only the mineral bits are ever read where
+they were written: the planet pass keeps a pointer to each planet's
+yearly word (`10a8:0599`) and never resets it, so both fleet passes and
+`DoCyberFreighter` — which is handed the same pointer (`10a8:1019`,
+`10a8:1173`) — index from the *last* planet's word, and every bit they
+set lands `last id` words past its planet, beyond every read but the last
+planet's. `ai::cyber::turn` keeps the skew (`skew`); the corpus shows
+its effect — a colony ship queued in the very year one found nowhere to
+go. In order:
 
 1. `IroEnsureAi(vrgbCyberRes, 42, &ishdefSBLatest, 17)` — no starbase
    history; `EnsureCyberAiShdefs` (`10a8:4826`), below; then, every
@@ -1491,8 +1510,9 @@ scrapped, the groups drawn on the hulls the table names, warships queued
 and sent hunting. On the tutorial's world the Cybertron — a race that is
 not Packet Physics, with a starbase that has no driver — never settles a
 second planet: its colony ship finds nothing colonisable in scanner
-range in year 0 and marks the homeworld as having nowhere to send one,
-its scouts are scrapped, and no packet flies to scan for it.
+range in year 0 (the nowhere mark it sets lands past the homeworld, so
+another colony ship is queued all the same), its scouts are scrapped,
+and no packet flies to scan for it.
 
 ### The Rototill's turn — transcribed
 
@@ -1709,6 +1729,53 @@ bytes at `10a0:2a44` by the word offsets at `10a0:2a06`
 Reality race, so no colony ship can be drawn: the starting scouts and
 miners scrapped, the recycling table kept, the designs on the hulls the
 table names.
+
+### What the corpus confirms of the personalities
+
+`crates/stars-core/tests/differential_ai.rs` runs every computer player's
+turn of every year of both games — 3,200 player-years — and compares what
+it wrote with the next year's host file. The turn is run on the player's
+**own view** of the year, not the host's: its `.mN` file, plus the
+planets its `.hN` history remembers, plus the rest of the universe file
+as planets never seen. That view is what the original's `DoAiTurn` had,
+and it matters: a planet absent from the player's files is *unknown*
+(mark `0x10`), which the Robotoid and the Macinti settle and the others
+do not, and a planet the history still calls the player's own but the
+file no longer lists has been lost and behaves as unowned. Fleet ids are
+per player, so a fleet is matched on owner and id together. The original's
+random draws cannot be reproduced — its seed is not in the files — so the
+tests measure agreement and hold it to a floor.
+
+| What | Agreement over both games |
+|------|---------------------------|
+| Research field and share (`IroEnsureAi`) | 3,200 of 3,200 player-years |
+| Designs drawn, by slot and hull (`Ensure…Shdefs`) | 341 of 342; 274 of those with the same fittings — the rest are the `Random`-drawn ones |
+| Colony-ship targets (`IdNearestColonizablePlanet`) | 1,911 of 2,019 legs to the same planet (Automitron 76/79, Cyber 436/464, Macinti 302/343, Robotoid 924/946, Rototill 46/46, TurinDrone 127/141) |
+| Queued colony ships | 100 of 106 |
+| Queued ships, every slot | 1,046 of 1,733 — the warships and scouts gate on `Random` |
+| Starting scouts broken up by turn 21, 6, 11 (Robotoid, Cybertron, Macinti); the Automitron's colony ship in year 0 | every case |
+| Lay Mines, Remote Mining, Colonize on the slots each personality gives them to | 15,000 waypoints, none astray |
+
+Three things the comparison corrected:
+
+* `EnsureTurinDroneShdefs` runs **after** `CheckAiShdefStatus` and
+  `SplitOutShdefs` (`1088:3936`, `1088:3942`), not before: a slot the
+  status check retires that year is redrawn the same year. Running it
+  first missed the TurinDrone's turn-99 design in slot 10.
+* The research share is only carried by a logged field record (above):
+  the Rototill's 15 % stands from year 0.
+* The Cybertron's yearly planet words are written through a stale pointer
+  (above): nothing a colony ship, a freighter or a defender fleet marks
+  is read back, so a colony ship is queued in the year one found nowhere
+  to go, and the freighters' bound and unloaded counts never build up.
+  Modelling the skew took the Cybertron's covered queue items from 88 to
+  133 of 302, its colony ships to 75 of 75.
+
+What the corpus cannot settle is anything behind a `Random`: which warship
+group a planet builds, when a scout is added, the fittings drawn by lot.
+Those are transcribed from the binary and checked only by the unit tests
+in `tests/turindrone.rs`, `tests/robotoid.rs`, `tests/automitron.rs`,
+`tests/cyber.rs`, `tests/rototill.rs` and `tests/macinti.rs`.
 
 ### Other queue sources
 

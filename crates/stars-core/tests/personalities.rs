@@ -35,6 +35,10 @@ fn tutorial_world(personality: AiPersonality) -> stars_core::GameState {
 fn every_personality_takes_its_turn() {
     for personality in ALL {
         let mut state = tutorial_world(personality);
+        let before = (
+            state.players[1].research_pct,
+            state.players[1].research.current_field,
+        );
         let mut rng = stars_core::rng::Rng::randomize(3);
         let report = stars_core::turn::generate_turn(&mut state, &mut rng);
         assert!(
@@ -44,9 +48,17 @@ fn every_personality_takes_its_turn() {
         );
         let profile = Profile::of(personality);
         let player = &state.players[1];
+        // The share only reaches the player with a field record: always
+        // when the plan names one, and with no plan only when the field
+        // changes (`IroEnsureAi`'s order log — see `ensure_research`).
+        let want_share = if profile.plan.is_empty() && player.research.current_field == before.1 {
+            before.0
+        } else {
+            profile.research_pct(0)
+        };
         assert_eq!(
             player.research_pct,
-            profile.research_pct(0),
+            want_share,
             "{}'s share in its first year",
             personality.name()
         );

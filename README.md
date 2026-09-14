@@ -122,7 +122,12 @@ mineral packets at its enemies — and the Rototill's, which never designs
 a ship and lives on what it started with — and the Macinti's, the
 Alternate Reality opponent that moves its people between its starbases
 by the resources they would make there. All seven are transcribed
-(`docs/formulas/ai.md`, *The seven personalities*).
+(`docs/formulas/ai.md`, *The seven personalities*) and checked against the
+two sixteen-player corpus games, each player's turn run on its own files:
+research exact over 3,200 player-years, the designs by slot and hull,
+the colony ships' targets in nineteen legs of twenty, the queues wherever
+no random draw gates them (*What the corpus confirms of the
+personalities*).
 
 Step 5, the frontend, is a playable game: the scanner with its views and
 overlays, the planet and fleet panes and their tiles, the production
@@ -140,8 +145,10 @@ end*).
 Verification is differential where a fixture allows it: replaying a year
 of a real game against the file the original engine wrote reproduces the
 economy to the unit on the tutorial's fixtures and the bulk of the
-sixteen-player corpus; combat and the AI are transcribed from the binary
-and unit-tested, and are not yet checked against a recorded turn.
+sixteen-player corpus, and the computer players' turns are run on the
+corpus players' own files and compared with what the original wrote;
+combat is transcribed from the binary and unit-tested, and is not yet
+checked against a recorded battle.
 
 See `docs/plans/stars-re-reimplementation.md` for the delivery plan,
 `docs/formats/README.md`, `docs/formulas/README.md` and `docs/ui/` for

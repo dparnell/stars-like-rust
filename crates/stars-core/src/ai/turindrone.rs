@@ -200,10 +200,6 @@ pub fn turn_as(
         merge_all(state, me, mask, &mut report);
     }
 
-    // `EnsureTurinDroneShdefs`: the designs the personality wants in its
-    // slots, made when the tech allows.
-    ensure_designs(state, player, rng, &mut report);
-
     let mut marks = marks(state, player, me, &explored, profile.personality);
     let anywhere_to_settle = marks.contains(&Mark::Colonisable);
 
@@ -234,6 +230,10 @@ pub fn turn_as(
     if state.turn > 60 {
         split_out_designs(state, player, me, &old, &mut report);
     }
+    // `EnsureTurinDroneShdefs` (`1088:3942`), after the status checks so a
+    // design retired this year is redrawn this year: the designs the
+    // personality wants in its slots, made when the tech allows.
+    ensure_designs(state, player, rng, &mut report);
 
     // --- The planet pass: the queue at every planet with a starbase and
     // people enough.
@@ -790,8 +790,17 @@ pub(crate) fn ensure_research(state: &mut GameState, player: usize, plan: &[u8],
     let Some(p) = state.players.get_mut(player) else {
         return PLAN_DONE;
     };
-    p.research_pct = pct;
+    // What the AI does reaches the host as a logged order (`WriteMemRt
+    // 0x22`, the share and the field together). The share is written to
+    // the AI's own copy of the player at once, but the order carrying it
+    // is only logged with a field: always when the plan names one, and
+    // with no plan only when the lowest field is not the one under study
+    // — so a personality without a plan keeps its old share until its
+    // field changes. The corpus shows it: the Rototill's fifteen percent
+    // stands from year 0, where its code would set 0 until turn 20.
+    let mut share = pct;
     if p.research.levels.iter().all(|&l| l > 23) {
+        share = 0;
         p.research_pct = 0;
     }
     let decode = |entry: u8| -> (usize, u8) { (usize::from(entry >> 5).min(5), entry & 0x1f) };
@@ -799,6 +808,7 @@ pub(crate) fn ensure_research(state: &mut GameState, player: usize, plan: &[u8],
         let (field, level) = decode(entry);
         let have = p.research.levels[field];
         if have < level {
+            p.research_pct = share;
             p.research.current_field = field;
             if i + 1 < plan.len() && have + 1 == level {
                 p.research.next_field = NextField::Field(decode(plan[i + 1]).0);
@@ -807,7 +817,10 @@ pub(crate) fn ensure_research(state: &mut GameState, player: usize, plan: &[u8],
         }
     }
     let lowest = (0..6).min_by_key(|&f| p.research.levels[f]).unwrap_or(0);
-    p.research.current_field = lowest;
+    if p.research.current_field != lowest {
+        p.research.current_field = lowest;
+        p.research_pct = share;
+    }
     PLAN_DONE
 }
 

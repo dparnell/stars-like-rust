@@ -194,7 +194,9 @@ mod lasting {
 /// a colony ship here found nowhere to settle, bits 1–2 freighters that
 /// unloaded here, bits 3–4 freighters bound here, bit 5 starbase
 /// defenders here short of the attack strength, bit 6 defenders here,
-/// bits 8–10 the planet short of ironium, boranium, germanium.
+/// bits 8–10 the planet short of ironium, boranium, germanium. Only the
+/// mineral bits are ever set where they are read: the rest are written
+/// through a stale pointer (see `turn`) and land past the planet.
 mod yearly {
     pub const NOWHERE: u16 = 0x0001;
     pub const UNLOADED: u16 = 0x0006;
@@ -642,7 +644,20 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng, profile: &Profi
     if state.players[player].cyber_words.len() < planet_count {
         state.players[player].cyber_words.resize(planet_count, 0);
     }
-    let mut yearly: Vec<u16> = vec![0; planet_count];
+    // `DoCyberAiTurn` walks its planets with a pointer to each one's
+    // yearly word (`10a8:0599`) and never resets it: both fleet passes and
+    // `DoCyberFreighter` (`10a8:1019`, `10a8:1173`) then index from the
+    // *last* planet's word, so every yearly bit they set lands `skew`
+    // words past the planet it was meant for — beyond every read but
+    // the last planet's. The corpus bears it out: a colony ship is queued
+    // in the very year one found nowhere to go. The reads in the queue
+    // pass and the drop-off enumerators go through the global and are
+    // sound, as are `DoCyberPackets`'s.
+    let skew = state
+        .planets
+        .last()
+        .map_or(0, |p| usize::try_from(p.id).unwrap_or(0));
+    let mut yearly: Vec<u16> = vec![0; planet_count + skew];
 
     // `IroEnsureAi(vrgbCyberRes, 42, &ishdefSBLatest, 17)`. The Cybertron
     // keeps no starbase history.
@@ -846,7 +861,7 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng, profile: &Profi
             if let Some(w) = fleet.waypoints[1]
                 .target
                 .map(usize::from)
-                .and_then(|i| yearly.get_mut(i))
+                .and_then(|i| yearly.get_mut(skew + i))
             {
                 let n = (*w & yearly::BOUND) >> 3;
                 if n < 3 {
@@ -919,7 +934,7 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng, profile: &Profi
             if fresh > 0 {
                 if let Some(w) = orbiting
                     .and_then(|id| usize::try_from(id).ok())
-                    .and_then(|i| yearly.get_mut(i))
+                    .and_then(|i| yearly.get_mut(skew + i))
                 {
                     *w |= yearly::DEFENDERS;
                     if fresh < attack_str * 2 {
@@ -989,7 +1004,7 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng, profile: &Profi
             let Some(target) = target else {
                 if let Some(w) = orbiting
                     .and_then(|id| usize::try_from(id).ok())
-                    .and_then(|i| yearly.get_mut(i))
+                    .and_then(|i| yearly.get_mut(skew + i))
                 {
                     *w |= yearly::NOWHERE;
                 }
@@ -1026,7 +1041,9 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng, profile: &Profi
         if count(2) > 0 || count(3) > 0 {
             // A colonist freighter, on battle plan 4.
             state.fleets[index].battle_plan = 4;
-            if let Some(to) = cyber_freighter(state, player, me, index, &mut yearly, &mut report) {
+            if let Some(to) =
+                cyber_freighter(state, player, me, index, &mut yearly, skew, &mut report)
+            {
                 report.hauling.push((fleet_id, to));
             }
             continue;
@@ -1338,6 +1355,7 @@ fn cyber_freighter(
     me: i16,
     index: usize,
     yearly: &mut [u16],
+    skew: usize,
     report: &mut Report,
 ) -> Option<i16> {
     let fleet = state.fleets[index].clone();
@@ -1419,9 +1437,11 @@ fn cyber_freighter(
                     None => {
                         if state.planets[p].owner == Some(me) {
                             transfer(state, -FREIGHTER_LOAD);
+                            // Written through the skewed pointer the
+                            // caller hands `DoCyberFreighter`.
                             if let Some(w) = usize::try_from(planet.id)
                                 .ok()
-                                .and_then(|i| yearly.get_mut(i))
+                                .and_then(|i| yearly.get_mut(skew + i))
                             {
                                 let n = (*w & yearly::UNLOADED) >> 1;
                                 if n < 3 {
@@ -1431,7 +1451,10 @@ fn cyber_freighter(
                         }
                     }
                     Some(t) => {
-                        if let Some(w) = usize::try_from(t).ok().and_then(|i| yearly.get_mut(i)) {
+                        if let Some(w) = usize::try_from(t)
+                            .ok()
+                            .and_then(|i| yearly.get_mut(skew + i))
+                        {
                             let n = (*w & yearly::BOUND) >> 3;
                             if n < 3 {
                                 *w = (*w & !yearly::BOUND) | ((n + 1) << 3);
