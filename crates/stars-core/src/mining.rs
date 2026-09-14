@@ -138,12 +138,16 @@ fn deplete(planet: &mut Planet, i: usize, decay_left: &mut i32) {
         let threshold = MINE_YEARS_PER_POINT * level / 256 / conc;
 
         if *decay_left < threshold {
-            // Not enough mining to lose a whole point: bank the progress.
+            // Not enough mining to lose a whole point: bank what is left of
+            // the point, in 256ths — `((threshold - decay) << 8) / (12500 /
+            // conc)` at `1028:5840`. (An earlier reading banked the
+            // progress instead of the remainder, which cost every mined
+            // planet a point of every concentration a year.)
             let per_point = MINE_YEARS_PER_POINT / conc;
             let mut new_level = if per_point == 0 {
                 1
             } else {
-                *decay_left * 256 / per_point
+                (threshold - *decay_left) * 256 / per_point
             };
             new_level = new_level.max(1);
             if new_level >= level {
@@ -276,5 +280,37 @@ mod remote_tests {
     fn the_total_is_capped() {
         let designs = vec![miner(4)];
         assert_eq!(remote_mines(&designs, &[stack(0, 10_000)]), REMOTE_MINE_CAP);
+    }
+}
+
+#[cfg(test)]
+mod depletion_tests {
+    use super::*;
+    use crate::planet::Planet;
+    use crate::race::Race;
+
+    /// Ten mines on a concentration of 30 take four hundred and sixteen
+    /// mine-years to cost a point: after a year the point stands, with most
+    /// of it banked, and it is the 139th year that takes it — not the
+    /// second.
+    #[test]
+    fn a_point_of_concentration_lasts_its_mine_years() {
+        let mut planet = Planet::unowned(1);
+        planet.owner = Some(0);
+        planet.homeworld = true;
+        planet.pop = 1000;
+        planet.mines = 10;
+        planet.min_conc = [30, 70, 84];
+        let race = Race::humanoid();
+        let mut rng = Rng::randomize(1);
+        for _ in 0..3 {
+            mine_minerals(&mut planet, &race, None, &mut rng);
+        }
+        assert_eq!(planet.min_conc, [30, 70, 84], "three years, no point lost");
+        assert!(planet.min_level[0] > 200, "{:?}", planet.min_level);
+        for _ in 3..150 {
+            mine_minerals(&mut planet, &race, None, &mut rng);
+        }
+        assert_eq!(planet.min_conc[0], 29, "a hundred and fifty years take one");
     }
 }

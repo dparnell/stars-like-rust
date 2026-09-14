@@ -863,7 +863,12 @@ fn settle_players(
         };
         for j in 0..3 {
             home.surface_min[j] = template_surface[j];
-            home.min_conc[j] = template_conc[j].max(30);
+            // Floored at 30 — or at 25 while the tutorial runs, a branch on
+            // bit 11 of the client's `gd` word at `1078:1db6`: `tutorial.hst`
+            // has both home worlds at `[25, 70, 84]` from a template of 24.
+            // (Mining still yields as if a home world were at 30, see
+            // `mining.rs`.)
+            home.min_conc[j] = template_conc[j].max(if config.tutorial_game { 25 } else { 30 });
         }
 
         // The homeworld sits at the exact middle of the race's habitable band

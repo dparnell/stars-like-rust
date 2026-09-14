@@ -169,7 +169,10 @@ the trait, Propulsion 1 from Improved Fuel Efficiency.
 
 Ten mines, ten factories, ten defences, a starbase, no artifact, and 250
 hundreds of colonists (175 with Low Starting Population). Surface minerals are
-copied from planet 0; mineral concentrations are copied too, floored at 30. The
+copied from planet 0; mineral concentrations are copied too, floored at 30
+(at 25 while the tutorial runs — bit 11 of the client's `gd` word, tested at
+`1078:1db6`; `tutorial.hst` has both home worlds at `[25, 70, 84]` from a
+template of 24). The
 environment is set to the **exact middle of the race's habitable band** on every
 axis, `min + (max - min) / 2`, or a random `1 + Random(99)` on an axis the race
 is immune to.

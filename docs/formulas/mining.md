@@ -108,9 +108,9 @@ while decay >= 1 and rgMinConc[i] >= 2:
     conc  = clamp_for_decay(rgMinConc[i])
     threshold = 12500 * level / 256 / conc
 
-    if decay < threshold:                  # bank partial progress
+    if decay < threshold:                  # bank what is left of the point
         perPoint  = 12500 / conc
-        newLevel  = max(decay * 256 / perPoint, 1)
+        newLevel  = max((threshold - decay) * 256 / perPoint, 1)   # 1028:5840
         if newLevel >= level: newLevel = level - 1
         rgpctMinLevel[i] = newLevel
         if newLevel == 0: rgMinConc[i] -= 1
@@ -129,6 +129,11 @@ where `clamp_for_decay` flattens the curve at the extremes:
 | `25..=100` | unchanged |
 | `5..=24` | 25 |
 | `< 5` | 10 |
+
+The banked level is the **remainder** of the point, not the progress
+through it: `rgpctMinLevel` counts down. (This project had it as the
+progress until the tutorial's Stove Top lost a point of every
+concentration every year, where `tutorial.m1` shows none lost in three.)
 
 `12500 / concentration` is precisely the manual's "to calculate approximately
 how many Mine years must pass to reduce a mineral's concentration by one,
