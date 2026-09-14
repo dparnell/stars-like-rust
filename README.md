@@ -50,23 +50,41 @@ Requires a stable Rust toolchain (developed against Rust 1.98).
 cargo build --workspace     # compile everything
 cargo test  --workspace     # run all tests
 
-# Open a real saved game and see what the engine makes of it:
+# The game itself: a window with nothing open, or a saved game.
+cargo run -p stars-desktop
 cargo run -p stars-desktop -- fixtures/games/exodus/2424/exodus.m6
+
+# Text tools on a saved game: a summary, or a year generated from it.
+cargo run -p stars-desktop -- fixtures/games/exodus/2424/exodus.m6 --summary
 cargo run -p stars-desktop -- fixtures/games/exodus/2424/exodus.m6 --turn
+
+# The tutorial, playing itself in a window at a human pace (release: the
+# frames are drawn on the CPU). STARS_AUTOPLAY_DELAY_MS sets the pace.
+cargo run --release -p stars-desktop --example autoplay_tutorial
 ```
 
-The second of those prints something like:
+The window reproduces the original's screen: its panes, tiles, dialogs,
+reports and menus are laid out from the original's own dialog templates,
+and its pictures and text are read from a copy of `stars.exe` at run
+time — one under `binary/`, beside the game being opened, or named by
+`STARS_EXE` — so nothing of the original's art is in this repository.
+
+`--turn` prints something like:
 
 ```text
 fixtures/games/exodus/2424/exodus.m6
   Turn file, game 0x012e2128, year 2424
-  19 planets simulated, 3 known only at a distance, 13 designs
-  player 5: 19 planets, 818200 colonists, tech [3, 8, 6, 5, 5, 3], 30% to research
+  19 planets simulated, 3 known only at a distance, 13 designs, 33 fleets
+  player 5: 19 planets, 818200 colonists, 30 fleets (38 ships), tech [3, 8, 6, 5, 5, 3], 30% to research
+
+  player 5: replayed 11 orders (2 cargo, 3 waypoint, 1 queue, 0 research, 0 design, 0 routing)
 
 generated year 2425
-  1012 kT mined, population +274 (in hundreds)
-  player 5 put 1912 into research, gaining 1 levels
-  not simulated: [Orders, FleetMovement, Things, Combat, Terraforming, RandomEvents, Scores]
+  1012 kT mined, population +329 (in hundreds)
+  planet 187 built 1 of item 8, 3 of item 0
+  ...
+  player 5 put 571 into research, gaining 1 levels
+  not simulated: [RandomEvents]
 ```
 
 The last line is deliberate: the engine reports the parts of a turn it does not
@@ -75,22 +93,46 @@ yet simulate rather than quietly leaving them out.
 ## Development status
 
 The file-format layer (Step 2) is decoded and round-trip tested against real
-games, and the deterministic planetary economy (Step 3) — habitability,
+games; the deterministic planetary economy (Step 3) — habitability,
 population, mining, resources, scanning and fleet movement — is recovered,
 specified and verified against real save files.
 
-Step 4 is well advanced: research, the production queue, ship designs, fleets
-and most of combat are implemented, and the turn pipeline runs them. A real
-saved game loads and generates a turn, and replaying a year against the file
-the original engine wrote reproduces **87% of planet populations, 86% of
-mineral concentrations and 378 of 438 fleet positions** exactly.
+Step 4, turn generation, is nearly whole. The pipeline runs the original's
+steps in the original's order (`docs/formulas/turn-order.md`): the order
+logs each player submitted are replayed, fleets move and burn fuel through
+minefields, packets, wormholes and the Mystery Trader move, planets mine,
+build, grow and research, fleets carry out their tasks on arrival —
+transport, colonise, remote mine, lay mines, scrap, patrol, route —
+**battles** are fought on the original's board and recorded for the VCR,
+planets are **bombed**, terraforming runs, and the scores are kept. What
+is still missing is the random events (comets and the like), the
+wreckage's tech, and a handful of corners named in the specs.
 
-Not yet started: the AI players, and the orders that move cargo and colonise —
-which is what holds the remaining figures down.
+The **computer players** are in: `DoAiTurn` and the TurinDrone personality
+— its research plan, its ship designs from the AI part tables, its queue
+pass, its scouts, colony ships, miners, haulers, mine layers and armadas,
+and its housekeeping (`docs/formulas/ai.md`). The other personalities
+share the framework and are transcribed as far as the tutorial needed.
 
-See `docs/plans/stars-re-reimplementation.md` for the full delivery plan,
-`docs/formats/README.md` and `docs/formulas/README.md` for the specs, and
-`docs/ghidra-triage.md` for the map of the original binary.
+Step 5, the frontend, is a playable game: the scanner with its views and
+overlays, the planet and fleet panes and their tiles, the production
+dialog, the Ship Designer, research, the technology browser, cargo and
+ship transfer, battle plans, player relations, the reports, the score
+sheet, the Battle VCR, host mode and a new-game wizard with the race
+designer. The **tutorial** is wired up — the original's tutor machine,
+its 46 pages and its world — and a test plays it through the panes,
+pressing what each page names where the pane drew it, as far as page 35
+(`docs/ui/tutorial.md` says where and why it stops).
+
+Verification is differential where a fixture allows it: replaying a year
+of a real game against the file the original engine wrote reproduces the
+economy to the unit on the tutorial's fixtures and the bulk of the
+sixteen-player corpus; combat and the AI are transcribed from the binary
+and unit-tested, and are not yet checked against a recorded turn.
+
+See `docs/plans/stars-re-reimplementation.md` for the delivery plan,
+`docs/formats/README.md`, `docs/formulas/README.md` and `docs/ui/` for
+the specs, and `docs/ghidra-triage.md` for the map of the original binary.
 
 ## Contributing
 

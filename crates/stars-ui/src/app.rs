@@ -1523,7 +1523,7 @@ impl App {
             .messages
             .iter()
             .filter(|m| m.player == me)
-            .map(|m| (m.id, m.summary()))
+            .map(|m| (m.id, m.summary_with(&stars_core::message::PlainNames)))
             .collect();
         // And the year's battles, as the player's file would carry them.
         let bit = 1u16 << (me & 15);
@@ -5194,7 +5194,7 @@ impl App {
                     default anymore."
                 .to_string();
         }
-        message.summary()
+        message.summary_with(&MessageNames { app: self })
     }
 
     /// Silence a kind of message for the local player, or stop silencing it.
@@ -12876,6 +12876,34 @@ pub enum TutorTarget {
 ///
 /// `visible` is whether the whole of it lay inside the clip rectangle it was
 /// drawn under — a button a tile has cut off is drawn, in egui's sense, but
+/// The names a message's summary uses: the universe's planet names and
+/// the fleets' display names, as the panes show them.
+struct MessageNames<'a> {
+    app: &'a App,
+}
+
+impl stars_core::message::Names for MessageNames<'_> {
+    fn planet(&self, id: i16) -> String {
+        self.app.planet_name(id)
+    }
+
+    fn fleet(&self, id: u16) -> String {
+        let me = self.app.local_player();
+        self.app
+            .game
+            .as_ref()
+            .and_then(|g| {
+                g.fleets
+                    .iter()
+                    .position(|f| f.id == id && usize::try_from(f.owner).is_ok_and(|o| o == me))
+            })
+            .map_or_else(
+                || format!("Fleet #{}", id + 1),
+                |index| self.app.fleet_display_name(index),
+            )
+    }
+}
+
 /// cannot be seen or pressed, which is what a test wants to know.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DrawnWidget {

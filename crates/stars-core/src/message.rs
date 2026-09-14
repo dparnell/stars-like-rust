@@ -361,6 +361,29 @@ pub enum Goto {
 /// `DoResearch` (`turn2.c`) passes `-2` with every tech-level report.
 pub const RESEARCH_OBJECT: i16 = -2;
 
+/// How a summary names the things it mentions. The engine has only ids;
+/// a frontend that knows the universe's planet names and its fleets'
+/// designs supplies the rest.
+pub trait Names {
+    /// A planet, by id.
+    fn planet(&self, id: i16) -> String;
+    /// A fleet of the player's, by id.
+    fn fleet(&self, id: u16) -> String;
+}
+
+/// The engine's own naming: the ids, spelt out.
+pub struct PlainNames;
+
+impl Names for PlainNames {
+    fn planet(&self, id: i16) -> String {
+        format!("planet {id}")
+    }
+
+    fn fleet(&self, id: u16) -> String {
+        format!("fleet {id}")
+    }
+}
+
 /// One message, for one player.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
@@ -390,10 +413,20 @@ impl Message {
     /// it likes.
     #[must_use]
     pub fn summary(&self) -> String {
-        let fleet = || i32::from(self.params.first().copied().unwrap_or(0));
+        self.summary_with(&PlainNames)
+    }
+
+    /// The summary, with planets and fleets named by `names` — the
+    /// frontend's names for them, where it has them.
+    #[must_use]
+    pub fn summary_with(&self, names: &dyn Names) -> String {
+        let param = |at: usize| self.params.get(at).copied().unwrap_or(0);
+        let fleet_id = || u16::try_from(i32::from(param(0)) & 0x1ff).unwrap_or(0);
+        let fleet = || names.fleet(fleet_id());
+        let planet = |id: i16| names.planet(id);
         let long = |at: usize| {
-            let low = i32::from(self.params.get(at).copied().unwrap_or(0)) & 0xFFFF;
-            let high = i32::from(self.params.get(at + 1).copied().unwrap_or(0));
+            let low = i32::from(param(at)) & 0xFFFF;
+            let high = i32::from(param(at + 1));
             (high << 16) | low
         };
         let cargo_kind = |kind: i16| match kind {
@@ -404,102 +437,105 @@ impl Message {
             _ => "fuel",
         };
         let place = || {
-            let x = self.params.first().copied().unwrap_or(0);
-            let y = self.params.get(1).copied().unwrap_or(0);
+            let x = param(0);
+            let y = param(1);
             if x == -1 {
-                format!("planet {y}")
+                planet(y)
             } else {
                 format!("({x}, {y})")
             }
         };
+        let object_planet = || planet(self.object);
+        let object_fleet =
+            || names.fleet(u16::try_from(i32::from(self.object) & 0x1ff).unwrap_or(0));
         match self.id {
             id::BATTLE => format!(
                 "A battle took place at {}: {} of your ships fought {} of theirs; you lost {}, they lost {}.",
                 place(),
-                self.params.get(2).copied().unwrap_or(0),
-                self.params.get(4).copied().unwrap_or(0),
-                self.params.get(3).copied().unwrap_or(0),
-                self.params.get(5).copied().unwrap_or(0)
+                param(2),
+                param(4),
+                param(3),
+                param(5)
             ),
             id::BATTLE_SEEN => format!("A battle took place at {}.", place()),
             id::BOMBED => format!(
-                "Fleet {} has bombed planet {}, killing {} colonists and destroying {} installations.",
+                "{} has bombed {}, killing {} colonists and destroying {} installations.",
                 fleet(),
-                self.params.get(1).copied().unwrap_or(0),
-                i32::from(self.params.get(2).copied().unwrap_or(0)) * 100,
-                self.params.get(3).copied().unwrap_or(0)
+                planet(param(1)),
+                i32::from(param(2)) * 100,
+                param(3)
             ),
             id::BOMBED_YOU => format!(
-                "Planet {} has been bombed by fleet {}: {} colonists killed and {} installations destroyed.",
-                self.params.get(1).copied().unwrap_or(0),
+                "{} has been bombed by {}: {} colonists killed and {} installations destroyed.",
+                planet(param(1)),
                 fleet(),
-                i32::from(self.params.get(2).copied().unwrap_or(0)) * 100,
-                self.params.get(3).copied().unwrap_or(0)
+                i32::from(param(2)) * 100,
+                param(3)
             ),
-            id::ORDERS_COMPLETE => format!("Fleet {} has finished its orders.", fleet()),
+            id::ORDERS_COMPLETE => format!("{} has finished its orders.", fleet()),
             id::HAS_LOADED | id::HAS_BEAMED_UP => format!(
-                "Fleet {} has taken {}kT of {} aboard at {}.",
+                "{} has taken {}kT of {} aboard at {}.",
                 fleet(),
                 long(1),
-                cargo_kind(self.params.get(3).copied().unwrap_or(0)),
-                self.params.get(5).copied().unwrap_or(0)
+                cargo_kind(param(3)),
+                planet(param(5))
             ),
             id::MINING_ROBOTS_LOADED => format!(
-                "Fleet {} has taken {}kT of {} aboard, dug at {} by the mining robots of fleet {}.",
+                "{} has taken {}kT of {} aboard, dug at {} by the mining robots of {}.",
                 fleet(),
                 long(1),
-                cargo_kind(self.params.get(3).copied().unwrap_or(0)),
-                self.params.get(5).copied().unwrap_or(0),
-                self.params.get(4).copied().unwrap_or(0)
+                cargo_kind(param(3)),
+                planet(param(5)),
+                names.fleet(u16::try_from(i32::from(param(4)) & 0x1ff).unwrap_or(0))
             ),
             id::TECH_LEVEL_GAINED | id::TECH_LEVEL_GAINED_GENERAL => {
                 let field = |at: usize| {
-                    usize::try_from(self.params.get(at).copied().unwrap_or(0))
+                    usize::try_from(param(at))
                         .ok()
                         .and_then(|i| crate::research::TechField::ALL.get(i))
                         .map_or("?", |f| f.name())
                 };
                 format!(
                     "Your scientists have reached level {} in {}; research goes on in {}.",
-                    self.params.first().copied().unwrap_or(0),
+                    param(0),
                     field(1),
                     field(2)
                 )
             }
             id::HAS_UNLOADED | id::HAS_BEAMED_DOWN => format!(
-                "Fleet {} has put {}kT of {} down at {}.",
+                "{} has put {}kT of {} down at {}.",
                 fleet(),
                 long(1),
-                cargo_kind(self.params.get(3).copied().unwrap_or(0)),
-                self.params.get(5).copied().unwrap_or(0)
+                cargo_kind(param(3)),
+                planet(param(5))
             ),
-            id::OUT_OF_FUEL => format!("Fleet {} has no fuel left and cannot move.", fleet()),
+            id::OUT_OF_FUEL => format!("{} has no fuel left and cannot move.", fleet()),
             id::OUT_OF_FUEL_SLOWED => format!(
-                "Fleet {} has no fuel left and has slowed to warp {}.",
+                "{} has no fuel left and has slowed to warp {}.",
                 fleet(),
-                self.params.get(1).copied().unwrap_or(0)
+                param(1)
             ),
             id::YOUR_FIELD_SWEPT => format!(
                 "Someone swept {} mines from one of your minefields.",
                 long(1)
             ),
-            id::FLEET_SWEPT => format!("Fleet {} swept {} mines.", fleet(), long(1)),
-            id::MINES_LAID => format!("Fleet {} laid {} mines.", fleet(), long(1)),
+            id::FLEET_SWEPT => format!("{} swept {} mines.", fleet(), long(1)),
+            id::MINES_LAID => format!("{} laid {} mines.", fleet(), long(1)),
             id::STARBASE_SWEPT => format!(
-                "Your starbase at planet {} swept {} mines.",
-                fleet(),
+                "Your starbase at {} swept {} mines.",
+                planet(param(0)),
                 long(1)
             ),
             id::GIFT_HAS_COLONISTS => format!(
-                "Fleet {} could not be given away: your colonists are aboard.",
+                "{} could not be given away: your colonists are aboard.",
                 fleet()
             ),
             id::TRADER_REFUSED => {
-                format!("The Mystery Trader refused fleet {} an audience.", fleet())
+                format!("The Mystery Trader refused {} an audience.", fleet())
             }
             id::TRADER_GAVE_TECH | id::TRADER_GAVE_TECH_AGAIN => format!(
                 "The Mystery Trader absorbed a fleet and gave {} technology levels.",
-                self.params.get(1).copied().unwrap_or(0)
+                param(1)
             ),
             id::TRADER_GAVE_PART | id::TRADER_GAVE_HULL | id::TRADER_GAVE_GENESIS => {
                 format!(
@@ -511,7 +547,7 @@ impl Message {
                 "The Mystery Trader absorbed a fleet and had nothing to give.".to_string()
             }
             id::TRADER_ALREADY_MET => format!(
-                "The Mystery Trader has already traded with fleet {}.",
+                "The Mystery Trader has already traded with {}.",
                 fleet()
             ),
             id::TRADER_ANOTHER_PASS => {
@@ -521,7 +557,7 @@ impl Message {
                 "The Mystery Trader has changed course, or speed, or both.".to_string()
             }
             id::TRADER_VANISHED => format!(
-                "The Mystery Trader fleet {} was following has gone; its orders now point at where it last was.",
+                "The Mystery Trader {} was following has gone; its orders now point at where it last was.",
                 fleet()
             ),
             id::TRADER_TRIED_SHIP => {
@@ -555,82 +591,82 @@ impl Message {
             }
             // One built carries only the planet; several carry the count
             // first and then the planet.
-            id::BUILT_FACTORY => format!("A factory has been built on planet {}.", self.object),
+            id::BUILT_FACTORY => format!("A factory has been built on {}.", object_planet()),
             id::BUILT_FACTORIES => format!(
-                "{} factories have been built on planet {}.",
-                self.params.first().copied().unwrap_or(0),
-                self.object
+                "{} factories have been built on {}.",
+                param(0),
+                object_planet()
             ),
-            id::BUILT_MINE => format!("A mine has been built on planet {}.", self.object),
+            id::BUILT_MINE => format!("A mine has been built on {}.", object_planet()),
             id::BUILT_MINES => format!(
-                "{} mines have been built on planet {}.",
-                self.params.first().copied().unwrap_or(0),
-                self.object
+                "{} mines have been built on {}.",
+                param(0),
+                object_planet()
             ),
             id::SHIP_BUILT => format!(
-                "Planet {} has built a new ship, fleet {}.",
-                self.params.first().copied().unwrap_or(0),
-                i32::from(self.object) & 0x7fff
+                "{} has built a new ship, {}.",
+                planet(param(0)),
+                object_fleet()
             ),
             id::SHIPS_BUILT => format!(
-                "Planet {} has built {} new ships, fleet {}.",
-                self.params.first().copied().unwrap_or(0),
-                self.params.get(1).copied().unwrap_or(0),
-                i32::from(self.object) & 0x7fff
+                "{} has built {} new ships, {}.",
+                planet(param(0)),
+                param(1),
+                object_fleet()
             ),
             id::QUEUE_EMPTY => format!(
-                "Planet {} has finished everything in its production queue, which is now \
+                "{} has finished everything in its production queue, which is now \
                  empty.",
-                self.object
+                object_planet()
             ),
             id::FLEET_DISMANTLED => format!(
-                "Fleet {} has been dismantled and its {}kT of minerals put down on planet {}.",
-                i32::from(self.params.first().copied().unwrap_or(0)) & 0x1ff,
+                "{} has been dismantled and its {}kT of minerals put down on {}.",
+                fleet(),
                 long(1),
-                self.object
+                object_planet()
             ),
             id::COLONISTS_CONTROL | id::COLONISTS_CONTROL_AR => format!(
-                "Your colonists have settled planet {} and it is yours.",
-                self.object
+                "Your colonists have settled {} and it is yours.",
+                object_planet()
             ),
             id::FOUND_OCCUPIED => format!(
-                "You have come across planet {}, and it is somebody else's.",
-                self.params.first().copied().unwrap_or(self.object)
+                "You have come across {}, and it is somebody else's.",
+                planet(self.params.first().copied().unwrap_or(self.object))
             ),
             id::FOUND_HOSTILE => format!(
-                "You have found planet {}, and it is no place for your people: \
+                "You have found {}, and it is no place for your people: \
                  {}% of any colonists there would die each year.",
-                self.params.get(1).copied().unwrap_or(self.object),
-                f64::from(self.params.first().copied().unwrap_or(0)) / 10.0
+                planet(self.params.get(1).copied().unwrap_or(self.object)),
+                f64::from(param(0)) / 10.0
             ),
             id::FOUND_HABITABLE => format!(
-                "You have found planet {}, and your people could live there, \
+                "You have found {}, and your people could live there, \
                  growing by up to {}% a year.",
-                self.params.get(1).copied().unwrap_or(self.object),
-                self.params.first().copied().unwrap_or(0)
+                planet(self.params.get(1).copied().unwrap_or(self.object)),
+                param(0)
             ),
             id::FOUND_UNKNOWN => format!(
-                "You have found planet {}, but only from afar: whether your people \
+                "You have found {}, but only from afar: whether your people \
                  could live there will stay a mystery until a fleet with better \
                  scanners visits.",
-                self.params.first().copied().unwrap_or(self.object)
+                planet(self.params.first().copied().unwrap_or(self.object))
             ),
             id::FOUND_TERRAFORMABLE => format!(
-                "You have found planet {}, which terraforming could make liveable: \
+                "You have found {}, which terraforming could make liveable: \
                  your people could then grow there by up to {}% a year.",
-                self.params.get(1).copied().unwrap_or(self.object),
-                self.params.first().copied().unwrap_or(0)
+                planet(self.params.get(1).copied().unwrap_or(self.object)),
+                param(0)
             ),
             id::FOUND_CLAIM_ADJUSTER => format!(
-                "You have the measure of planet {}: settled, it could be brought to {}%.",
-                self.params.first().copied().unwrap_or(self.object),
-                self.params.get(1).copied().unwrap_or(0)
+                "You have the measure of {}: settled, it could be brought to {}%.",
+                planet(self.params.first().copied().unwrap_or(self.object)),
+                param(1)
             ),
             id::HOME_PLANET => format!(
-                "Planet {} is your home world. Your people have grown restless and are \
+                "{} is your home world. Your people have grown restless and are \
                  ready to leave the nest: explore the stars around you, find worlds to \
                  settle, and build the ships to take you there.",
-                self.params.first().copied().unwrap_or(self.object)
+                planet(self.params.first().copied().unwrap_or(self.object))
             ),
             other => format!("Message {other}."),
         }

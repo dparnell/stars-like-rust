@@ -100,8 +100,17 @@ fn planet(app: &mut App, ui: &mut egui::Ui) {
     }
 
     // Six rows in whatever is left, each the same height and forced even.
+    // What is left has to hold the gap between the two frames and the
+    // line of scale figures under the mineral bars as well as the rows,
+    // or the foot of the pane is cut off however tall it is dragged: the
+    // original's `dyRow` is measured against the whole pane, and its
+    // overrun is clipped by a window that cannot be scrolled.
     let remaining = ui.available_height();
-    let row = sv::row_height(remaining + line * 4.0 + 2.0, line).max(line + 2.0);
+    let for_rows = (remaining - 6.0 - line).max(0.0);
+    let mut row = sv::row_height(for_rows + line * 4.0 + 2.0, line).max(line + 2.0);
+    while row > line + 2.0 && row * 6.0 + 6.0 + line > remaining {
+        row -= 2.0;
+    }
     let block = row * 3.0;
     let (rect, _) = ui.allocate_exact_size(
         egui::vec2(pane_width, block * 2.0 + 6.0 + line),

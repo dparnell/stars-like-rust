@@ -37,10 +37,14 @@ use crate::research::{add_research, Breakthrough};
 use crate::rng::Rng;
 use crate::{GameState, Player};
 
-/// A step of the original turn pipeline that this crate does not yet perform.
+/// A step of the original turn pipeline that this crate does not yet
+/// perform. Most of the list is history: movement, the things in space,
+/// the build queue, combat and the scores are all in the turn now, and
+/// only the two at the end are still reported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkippedStep {
-    /// Player orders: cargo transfers, waypoint changes, production edits.
+    /// Player orders: cargo transfers, waypoint changes, production edits —
+    /// reported when no order log was replayed into the year.
     Orders,
     /// Fleet movement, fuel and mine-field traversal.
     FleetMovement,
@@ -181,13 +185,7 @@ pub fn generate_turn_with_orders(
     rng: &mut Rng,
 ) -> TurnReport {
     let mut report = TurnReport {
-        skipped: vec![
-            SkippedStep::Orders,
-            SkippedStep::Things,
-            SkippedStep::Combat,
-            SkippedStep::RandomEvents,
-            SkippedStep::Scores,
-        ],
+        skipped: vec![SkippedStep::Orders, SkippedStep::RandomEvents],
         research_spending: vec![0; state.players.len()],
         breakthroughs: vec![Vec::new(); state.players.len()],
         ..TurnReport::default()
