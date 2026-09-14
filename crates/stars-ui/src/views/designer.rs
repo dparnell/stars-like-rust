@@ -503,10 +503,14 @@ fn picture(app: &mut App, ui: &mut egui::Ui, editing: bool) {
             );
             if editing {
                 ui.horizontal(|ui| {
-                    if ui.small_button("◀").clicked() {
+                    let left = ui.small_button("◀");
+                    crate::views::record(app, ui, "picture left", &left);
+                    if left.clicked() {
                         app.designer_next_picture(false);
                     }
-                    if ui.small_button("▶").clicked() {
+                    let right = ui.small_button("▶");
+                    crate::views::record(app, ui, "picture right", &right);
+                    if right.clicked() {
                         app.designer_next_picture(true);
                     }
                 });

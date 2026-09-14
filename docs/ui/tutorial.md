@@ -701,7 +701,7 @@ pane cannot reach.
 
 ### Where the run stops
 
-The walkthrough now plays through page 50 and into 2419, page 51: the
+The walkthrough now plays through page 58 and into 2423, page 59: the
 three pieces that were wanted for the years after 2410 are in — the
 player's own view of the galaxy (`stars_core::visibility`), the
 Berserkers' turn (`../formulas/ai.md`, *The TurinDrone turn*) and
@@ -771,6 +771,17 @@ moment its turns run:
   Scout #2 left, where page 48 names fleet 7; its merge with the Cotton
   Picker is ordered all the same, and happens.
 
+* **Research a level behind.** Page 53's Stargate 100/250 wants
+  Construction 5 and page 57's Frigate Construction 6, with the Mine
+  Dispenser 50 asking Energy 2 and Biotechnology 4; the original's player
+  had them by 2420 and 2422 and this one, Propulsion having run since
+  2413, has not. The designer is opened as the page says and the design
+  left for a year the parts are there.
+* **Teamster #4's fuel.** Page 56 has the freighter take fuel from the
+  Cotton Picker at Prune; here it had already left, and ran dry a light
+  year short of home with the bigger load the Mini-Miner digs — as the
+  page says it would — with nobody beside it to take fuel from.
+
 Where a page's rung cannot be reached in this world the harness
 generates the year anyway (`Shell::generate_anyway`, which says why), and
 the tutor carries on with the year — every page from 35 on waits only on
@@ -794,8 +805,12 @@ its OK had been sharing a spot with the leftover-research checkbox
 underneath (which was page 40's mystery); the Planet Summary Report is
 a window over the map in the shell as on the desktop, its headings and
 sort menu recorded for the ring; and Merge with Fleet picks its fleet
-(`fleet-pane.md`). The test stops at page 51 with an assertion that says
-so.
+(`fleet-pane.md`). 2419 to 2422 added the Customize Zip Orders box's
+widgets and its OK, the report menu's submenus, and a ring for a fuel
+check; and a page whose own task cannot be finished here — page 56's
+fuel — is played around with `Shell::off_the_page`, which lets the bold
+follow what is in hand without the harness calling it a step backward.
+The test stops at page 59 with an assertion that says so.
 
 Two smaller things came out of getting to page 34 all the same: a waypoint
 aimed at a fleet holds the fleet's **full object word**, owner and all,

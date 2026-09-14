@@ -851,7 +851,7 @@ fn menu(app: &mut App, ui: &mut egui::Ui, report: Report) {
                                 _ => String::new(),
                             };
                             let mut inner = index + 2;
-                            ui.menu_button(title, |ui| {
+                            let sub = ui.menu_button(&title, |ui| {
                                 while inner < built.entries.len() {
                                     match &built.entries[inner] {
                                         Entry::Submenu => break,
@@ -870,6 +870,7 @@ fn menu(app: &mut App, ui: &mut egui::Ui, report: Report) {
                                     inner += 1;
                                 }
                             });
+                            crate::views::record(app, ui, &title, &sub.response);
                             while inner < built.entries.len()
                                 && built.entries[inner] != Entry::Submenu
                             {
@@ -882,10 +883,20 @@ fn menu(app: &mut App, ui: &mut egui::Ui, report: Report) {
             });
         });
 
+    // A click outside the menu closes it. The menu's own rectangle is
+    // what counts, not whether it is hovered: a submenu opening under
+    // the pointer takes the hover for itself on the very frame its title
+    // is clicked.
+    let outside = ui.ctx().input(|i| {
+        i.pointer.any_click()
+            && i.pointer
+                .interact_pos()
+                .is_some_and(|p| !area.response.rect.contains(p))
+    });
     if let Some(index) = chose {
         app.reports.choose(report, column, index);
         dismiss = true;
-    } else if ui.ctx().input(|i| i.pointer.any_click()) && !area.response.hovered() {
+    } else if outside {
         dismiss = true;
     }
     if dismiss {

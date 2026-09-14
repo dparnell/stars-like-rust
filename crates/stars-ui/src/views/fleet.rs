@@ -811,7 +811,12 @@ fn zip_diamond(app: &mut App, ui: &mut egui::Ui) {
 /// dialog; here each slot's name carries it.
 fn customize_zip(app: &mut App, ui: &mut egui::Ui, slot: usize) {
     let mut open = true;
+    let mut done = false;
     let mut picked = slot;
+    // Its widgets are recorded under a scope of their own, the fleet tile
+    // behind it having buttons of the same names.
+    let was = app.drawn_scope;
+    app.drawn_scope = "zip";
     egui::Window::new("Customize Zip Orders")
         .open(&mut open)
         .resizable(false)
@@ -823,19 +828,21 @@ fn customize_zip(app: &mut App, ui: &mut egui::Ui, slot: usize) {
                 } else {
                     held
                 };
-                ui.radio_value(&mut picked, index, egui::RichText::new(name).small());
+                let radio = ui.radio_value(&mut picked, index, egui::RichText::new(&name).small());
+                crate::views::record(app, ui, &name, &radio);
             }
             ui.separator();
             ui.horizontal(|ui| {
-                if ui.button("Import").clicked() {
+                let import = ui.button("Import");
+                crate::views::record(app, ui, "Import", &import);
+                if import.clicked() {
                     let name = format!("Custom {}", picked + 1);
                     app.zip_import(picked, &name);
                 }
                 let filled = !app.zip_orders[picked].name.is_empty();
-                if ui
-                    .add_enabled(filled, egui::Button::new("Delete"))
-                    .clicked()
-                {
+                let delete = ui.add_enabled(filled, egui::Button::new("Delete"));
+                crate::views::record(app, ui, "Delete", &delete);
+                if delete.clicked() {
                     app.zip_delete(picked);
                 }
             });
@@ -843,6 +850,13 @@ fn customize_zip(app: &mut App, ui: &mut egui::Ui, slot: usize) {
                 ui.add_space(2.0);
                 ui.text_edit_singleline(&mut app.zip_orders[picked].name);
             }
+            ui.add_space(4.0);
+            let ok = ui.button("OK");
+            crate::views::record(app, ui, "OK", &ok);
+            if ok.clicked() {
+                done = true;
+            }
         });
-    app.zip_dialog = open.then_some(picked);
+    app.drawn_scope = was;
+    app.zip_dialog = (open && !done).then_some(picked);
 }

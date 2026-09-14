@@ -48,6 +48,10 @@ pub struct Shell {
     time: f64,
     /// Where the halo was painted this frame, if anywhere.
     halo: Option<egui::Rect>,
+    /// Whether a press may send the page's bold back up: off by default,
+    /// and on while a page's own task cannot be finished in this world
+    /// and the rest of the year is being played around it.
+    pub off_the_page: bool,
     /// Where each frame goes — a film, or a window watching the run.
     sink: Option<Box<dyn Sink>>,
 }
@@ -82,6 +86,7 @@ impl Shell {
             modifiers: egui::Modifiers::NONE,
             time: 0.0,
             halo: None,
+            off_the_page: false,
             sink,
         }
     }
@@ -172,7 +177,7 @@ impl Shell {
         // step done stays done. Page 14 once sent it back to "Goto 90210"
         // when Teamster #4 was picked.
         let after = (self.page(), self.app.tutor_bold());
-        if after.0 == before.0 {
+        if after.0 == before.0 && !self.off_the_page {
             assert!(
                 after.1 >= before.1,
                 "the bold went back from {:?} to {:?} on page {} after {scope}/{label}",

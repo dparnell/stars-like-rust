@@ -22,6 +22,7 @@ const MOHOLDI: i16 = 0x07;
 const SHAGGY_DOG: i16 = 0x0e;
 const SEA_SQUARED: i16 = 0x11;
 const NEIL: i16 = 0x0b;
+const LA_TE_DA: i16 = 0x06;
 const RED_STORM: i16 = 0x12;
 const BLOOP: i16 = 0x17;
 const KALAMAZOO: i16 = 0x16;
@@ -1363,36 +1364,10 @@ pub fn tutorial(shell: &mut Shell) {
     // Import into the default, which is the slot the box opens on: the
     // page's check reads the player's default queue.
     shell.press("customize", "Import");
-    shell.frame();
-    eprintln!(
-        "DBG ok {:?} box {:?}",
-        shell.app.drawn_button("customize", "OK").map(|w| w.rect),
-        shell
-            .app
-            .drawn_button(
-                "production",
-                "Contribute only leftover resources to research"
-            )
-            .map(|w| w.rect)
-    );
     shell.press("customize", "OK");
-    eprintln!(
-        "DBG after customize ok: {:?}",
-        shell.app.production.as_ref().map(|d| d.no_research)
-    );
     // The page's queue checks read the planet's own queue, which the
     // dialog's OK writes; the year is done with it.
     shell.press("production", "OK");
-    eprintln!(
-        "DBG pending {:?} bold {:?} oxygen {:?}",
-        shell.app.tutor_pending(),
-        shell.app.tutor_bold(),
-        shell.app.game.as_ref().map(|g| g
-            .planets
-            .iter()
-            .find(|p| p.id == OXYGEN)
-            .map(|p| (p.queue.clone(), p.no_research)))
-    );
     assert_eq!(shell.page(), 45, "2414 is done, waiting on the turn");
     assert!(shell.app.tutor_waiting());
     shell.generate();
@@ -1599,4 +1574,435 @@ pub fn tutorial(shell: &mut Shell) {
     assert!(shell.app.tutor_waiting());
     shell.generate();
     assert_eq!(shell.page(), 51);
+
+    // --- 2419 -------------------------------------------------------------
+    // Pages 51 and 52: two freighters set shuttling colonists — Teamster
+    // #12 to Wallaby and the new Teamster to Oxygen, each loading at home
+    // with Repeat Orders on. Teamster #12 was never built here; the new
+    // Teamster of the year is fleet 1 when Stove Top has built it, and
+    // failing that Teamster #7, idle at home since 2416, is given the
+    // Oxygen run.
+    let new_teamster = {
+        let game = shell.app.game.as_ref().expect("a game");
+        game.messages
+            .iter()
+            .filter(|m| m.player == 0 && m.id == stars_core::message::id::SHIP_BUILT)
+            .find_map(|m| match m.goto(&[1]) {
+                stars_core::message::Goto::Fleet(1) => Some(1),
+                _ => None,
+            })
+    };
+    match new_teamster {
+        Some(id) => {
+            shell.next_message_until(stars_core::message::Goto::Fleet(id));
+            shell.press("messages", "Goto");
+        }
+        None => shell.right_click_planet_and_pick(STOVE_TOP, "Teamster #7"),
+    }
+    let shuttle = shell.selected_fleet_id().expect("a Teamster in hand");
+    shell.press("fleet", "Xfer");
+    shell.frame();
+    let gauge = shell
+        .app
+        .drawn_button("xfer", "Colonists gauge")
+        .expect("the colonists gauge")
+        .rect;
+    shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
+    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard[3], 210);
+    shell.press("xfer", "OK");
+    shell.shift_click_planet(OXYGEN);
+    shell.press("fleet", "Waypoint Task");
+    shell.press("fleet", "Transport");
+    shell.press("fleet", "Cargo");
+    shell.press("fleet", "Colonists");
+    shell.press("fleet", "Action");
+    shell.press("fleet", "Unload All");
+    shell.shift_click_planet(STOVE_TOP);
+    shell.right_click("fleet", "blue diamond");
+    shell.press("fleet", "QuikLoad");
+    shell.press("fleet", "Repeat Orders");
+    {
+        let game = shell.app.game.as_ref().expect("a game");
+        let fleet = game
+            .fleets
+            .iter()
+            .find(|f| f.owner == 0 && f.id == shuttle)
+            .expect("the shuttle");
+        assert!(fleet.repeat_orders, "Repeat Orders ticked");
+        assert_eq!(fleet.waypoints.len(), 3, "{:?}", fleet.waypoints);
+        assert_eq!(fleet.waypoints[1].target, Some(OXYGEN as u16));
+        assert_eq!(fleet.waypoints[2].target, Some(STOVE_TOP as u16));
+        assert_eq!(
+            fleet.waypoints[2]
+                .transport
+                .as_ref()
+                .map(|t| t.items[0].action),
+            Some(stars_formats::XferAction::LoadAll)
+        );
+    }
+    // Max Terraform at the foot of 90210's queue.
+    let planet = shell.planet_on_screen(PLANET_90210);
+    shell.click_at(planet);
+    assert_eq!(shell.app.selection.planet, Some(PLANET_90210));
+    shell.press("planet", "Change");
+    {
+        let last = shell
+            .app
+            .production_queue_rows()
+            .last()
+            .map(|(count, name)| format!("{name} up to {count}"))
+            .expect("a queue");
+        shell.press("production", &last);
+    }
+    shell.scroll_to("production", "Max Terraform", "Factory");
+    shell.double_click("production", "Max Terraform");
+    {
+        let dialog = shell.app.production.as_ref().expect("open");
+        let last = dialog.queue.last().expect("the terraforming");
+        assert_eq!(
+            (last.item, last.count),
+            (stars_core::production::item::AUTO_MAX_TERRAFORM, 1),
+            "{:?}",
+            dialog.queue
+        );
+    }
+    shell.press("production", "OK");
+    while shell.app.message_next(false).is_some() {
+        shell.press("messages", "Next");
+    }
+    if shell.app.tutor_waiting() {
+        shell.generate();
+    } else {
+        shell.generate_anyway("Teamster #12 was never built; on to 2420");
+    }
+    assert_eq!(shell.page(), 53, "2420");
+
+    // --- 2420 -------------------------------------------------------------
+    // Page 53: Armed Probe #9, its orders done at Neil, on to La Te Da;
+    // Weapons next; a starbase design — the station copied, a Stargate
+    // 100/250 on its left Orbital slot, named Gater with the next picture
+    // — and one queued at Stove Top.
+    shell.next_message_until(stars_core::message::Goto::Fleet(8));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(8), "Armed Probe #9");
+    shell.shift_click_planet(LA_TE_DA);
+    shell.frame();
+    assert_eq!(shell.app.tutor.as_ref().map(|t| t.bold), Some(417));
+    shell.next_message_until(stars_core::message::Goto::Research);
+    shell.press("messages", "Goto");
+    shell.app.research_dialog.as_mut().expect("the dialog").next =
+        stars_core::research::NextField::Field(1);
+    shell.press("research", "Done");
+    while shell.app.message_next(false).is_some() {
+        shell.press("messages", "Next");
+    }
+    shell.frame();
+    assert_eq!(shell.app.tutor.as_ref().map(|t| t.bold), Some(419));
+    // The Stargate 100/250 wants Construction 5, which the original's
+    // player had by now and this one — Propulsion having been researched
+    // since 2413 — has not: the designer is opened as the page says, and
+    // the design left for a year the part is there.
+    let stargate = {
+        let game = shell.app.game.as_ref().expect("a game");
+        let builder = stars_core::parts::Builder::player(&game.players[0]).designing_starbase(true);
+        stars_core::parts::availability(&builder, stars_core::components::slot::SPECIAL_SB, 1)
+            .is_available()
+    };
+    shell.press("menu", "Commands");
+    shell.press("menu", "Ship Design…");
+    shell.press("designer", "Starbases");
+    if stargate {
+        shell.press("designer", "Copy Selected Design");
+        shell.frame();
+        assert!(
+            shell
+                .app
+                .designer
+                .as_ref()
+                .is_some_and(|d| d.editing.is_some()),
+            "the editor is open on the copy"
+        );
+        shell.press("designer", "Parts");
+        shell.press("designer", "Orbital");
+        fit(shell, "Stargate 100/250", "slot 0");
+        shell.app.designer_rename("Gater");
+        shell.press("designer", "picture right");
+        {
+            let editing = shell
+                .app
+                .designer
+                .as_ref()
+                .and_then(|d| d.editing.as_ref())
+                .expect("the editor");
+            assert_eq!(editing.design.name, "Gater");
+            assert_eq!(
+                editing
+                    .design
+                    .slots
+                    .first()
+                    .and_then(stars_core::design::slot_part)
+                    .map(|p| p.name),
+                Some("Stargate 100/250")
+            );
+        }
+        shell.press("designer", "OK");
+        shell.press("designer", "Done");
+        shell.right_click_planet_and_pick(STOVE_TOP, "Stove Top");
+        shell.press("planet", "Change");
+        shell.scroll_to("production", "Gater", "Factory");
+        shell.double_click("production", "Gater");
+        {
+            let dialog = shell.app.production.as_ref().expect("open");
+            assert!(
+                dialog.queue.iter().any(|q| q.ship && q.item == 0x11),
+                "{:?}",
+                dialog.queue
+            );
+        }
+        shell.press("production", "OK");
+    } else {
+        // Closing takes the page's designer rung back; unchecked.
+        shell.press_unchecked("designer", "Done");
+    }
+    if shell.app.tutor_waiting() {
+        shell.generate();
+    } else {
+        shell.generate_anyway("no Stargate to fit yet; on to 2421");
+    }
+    assert_eq!(shell.page(), 54, "2421");
+
+    // --- 2421 -------------------------------------------------------------
+    // Page 54: Teamster #1, home with its orders done, filled with
+    // colonists and set to unload them at Wallaby; that order saved as
+    // the zip order DropCol through the diamond's Customize; then Stove
+    // Top with Load All Available and Repeat Orders.
+    shell.next_message_until(stars_core::message::Goto::Fleet(0));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(0), "Teamster #1");
+    shell.press("fleet", "Xfer");
+    shell.frame();
+    let gauge = shell
+        .app
+        .drawn_button("xfer", "Colonists gauge")
+        .expect("the colonists gauge")
+        .rect;
+    shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
+    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard[3], 210);
+    shell.press("xfer", "OK");
+    shell.shift_click_planet(WALLABY);
+    shell.press("fleet", "Waypoint Task");
+    shell.press("fleet", "Transport");
+    shell.press("fleet", "Cargo");
+    shell.press("fleet", "Colonists");
+    shell.press("fleet", "Action");
+    shell.press("fleet", "Unload All");
+    shell.frame();
+    assert_eq!(shell.app.tutor.as_ref().map(|t| t.bold), Some(428));
+    shell.right_click("fleet", "blue diamond");
+    shell.press("fleet", "<Customize>");
+    shell.press("zip", "Import");
+    shell.app.zip_orders[0].name = "DropCol".to_string();
+    shell.press("zip", "OK");
+    shell.frame();
+    assert_eq!(shell.app.tutor.as_ref().map(|t| t.bold), Some(430));
+    shell.shift_click_planet(STOVE_TOP);
+    shell.right_click("fleet", "blue diamond");
+    shell.press("fleet", "QuikLoad");
+    shell.press("fleet", "Repeat Orders");
+    shell.frame();
+    assert_eq!(shell.page(), 55, "the shuttle set turns the page");
+
+    // Page 55: the rest of the messages; the Planet Summary Report, its
+    // Min Conc column reverse-sorted on the weighted average.
+    while shell.app.message_next(false).is_some() {
+        shell.press("messages", "Next");
+    }
+    shell.press("menu", "Report");
+    shell.press("menu", "Planets…");
+    // Min Conc lies off the right of the window: scrolled to, as the
+    // report's scrollbar would.
+    shell
+        .app
+        .reports
+        .state_mut(crate::report::Report::Planets)
+        .first_field = 8;
+    shell.frame();
+    shell.press("report", "Min Conc");
+    shell.press("report", "Reverse Sort by Min Conc");
+    shell.press("report", "Weighted Average");
+    shell.frame();
+    {
+        let state = shell.app.reports.state(crate::report::Report::Planets);
+        assert_eq!(
+            (state.sort, state.ascending, state.subsort),
+            (0x0b, false, 3)
+        );
+    }
+    // The sort check reads the open report, so the year is generated
+    // with the report still up — it is modeless — and closed after.
+    assert_eq!(shell.page(), 55, "2421 is done, waiting on the turn");
+    assert!(shell.app.tutor_waiting());
+    shell.generate();
+    assert_eq!(shell.page(), 56, "2422");
+    shell.app.close_report();
+    shell.frame();
+
+    // --- 2422 -------------------------------------------------------------
+    // Page 56: Teamster #4, which ran dry a light year short of home with
+    // the bigger loads the Mini-Miner digs — as the page says it does,
+    // though the original's had not yet left Prune, where the Cotton
+    // Picker's fuel was to be had. Out here there is no fleet to take
+    // fuel from, so the page's gauge is passed over.
+    shell.next_message_until(stars_core::message::Goto::Fleet(3));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(3), "Teamster #4");
+    let alone = {
+        let game = shell.app.game.as_ref().expect("a game");
+        let at = game
+            .fleets
+            .iter()
+            .find(|f| f.owner == 0 && f.id == 3)
+            .map(|f| f.position);
+        game.fleets
+            .iter()
+            .filter(|f| f.owner == 0 && f.id != 3)
+            .all(|f| Some(f.position) != at)
+    };
+    assert!(
+        alone,
+        "Teamster #4 has company: page 56's fuel can be taken — extend the script"
+    );
+    // The tutor stays on the fuel for the rest of the year, its bold
+    // following what is in hand; the pages after it are played anyway.
+    shell.off_the_page = true;
+
+    // Page 57: a Teamster queued; Propulsion next; the messages; the
+    // Frigate mine layer, when the Frigate hull is there to copy — it
+    // wants Construction 6, and the Mine Dispenser 50 Energy 2 and
+    // Biotechnology 4, which this player has not yet reached.
+    shell.right_click_planet_and_pick(STOVE_TOP, "Stove Top");
+    shell.press("planet", "Change");
+    shell.double_click("production", "Teamster");
+    shell.press("production", "OK");
+    shell.next_message_until(stars_core::message::Goto::Research);
+    shell.press("messages", "Goto");
+    shell.app.research_dialog.as_mut().expect("the dialog").next =
+        stars_core::research::NextField::Field(2);
+    shell.press("research", "Done");
+    while shell.app.message_next(false).is_some() {
+        shell.press("messages", "Next");
+    }
+    let frigate = {
+        let game = shell.app.game.as_ref().expect("a game");
+        let builder = stars_core::parts::Builder::player(&game.players[0]);
+        stars_core::parts::availability(&builder, stars_core::components::slot::HULL, 8)
+            .is_available()
+            && stars_core::parts::availability(&builder, stars_core::components::slot::MINES, 1)
+                .is_available()
+    };
+    assert!(
+        !frigate,
+        "the Frigate and the Mine Dispenser 50 are there: page 57's design can be drawn — extend the script"
+    );
+
+    // Page 58: the Berserker fleet by Wallaby, and Stalwart Defender #5
+    // sent after it — where there is one to send it after.
+    let quarry = {
+        let game = shell.app.game.as_ref().expect("a game");
+        let wallaby = game
+            .planets
+            .iter()
+            .find(|p| p.id == WALLABY)
+            .and_then(|p| p.position)
+            .expect("Wallaby");
+        game.fleets
+            .iter()
+            .enumerate()
+            .filter(|(i, f)| f.owner != 0 && shell.app.fleet_in_view(*i))
+            .map(|(_, f)| {
+                #[allow(clippy::cast_possible_truncation)]
+                let d = stars_core::movement::distance(f.position, wallaby) as i64;
+                (f, d)
+            })
+            .filter(|(_, d)| *d <= 60)
+            .min_by_key(|(_, d)| *d)
+            .map(|(f, _)| (f.owner, f.id, f.position))
+    };
+    match quarry {
+        Some((owner, id, at)) => {
+            let pos = shell.point_on_screen(at, WALLABY);
+            shell.click_at(pos);
+            shell.right_click_planet_and_pick(WALLABY, "Stalwart Defender #5");
+            assert_eq!(shell.selected_fleet_id(), Some(4));
+            let pos = shell.point_on_screen(at, WALLABY);
+            shell.modifiers = egui::Modifiers::SHIFT;
+            shell.click_at(pos);
+            shell.modifiers = egui::Modifiers::NONE;
+            shell.frame();
+            let game = shell.app.game.as_ref().expect("a game");
+            let fleet = &game.fleets[shell.app.selection.fleet.expect("in hand")];
+            assert_eq!(
+                fleet.waypoints[1].target,
+                Some((u16::try_from(owner).unwrap_or(0) << 9) | id),
+                "after the Berserker fleet"
+            );
+        }
+        None => {
+            shell.right_click_planet_and_pick(WALLABY, "Stalwart Defender #5");
+            assert_eq!(shell.selected_fleet_id(), Some(4));
+        }
+    }
+    shell.off_the_page = false;
+    if shell.app.tutor_waiting() {
+        shell.generate();
+    } else {
+        shell.generate_anyway("no Frigate to design yet; on to 2423");
+    }
+    assert_eq!(shell.page(), 59, "2423");
+    {
+        let game = shell.app.game.as_ref().expect("a game");
+        for m in game.messages.iter().filter(|m| m.player == 0) {
+            eprintln!(
+                "MSG {} {:?} {:?} -> {}",
+                m.id,
+                m.object,
+                m.params,
+                m.summary()
+            );
+        }
+        for f in game.fleets.iter().filter(|f| f.owner == 0) {
+            eprintln!(
+                "FLEET {} at {:?} orbit {:?} stacks {:?} cargo {:?} next {:?}",
+                f.id,
+                f.position,
+                f.orbiting,
+                f.stacks
+                    .iter()
+                    .map(|s| (s.design, s.count))
+                    .collect::<Vec<_>>(),
+                f.cargo,
+                f.waypoints.get(1).map(|w| (w.target, w.target_class))
+            );
+        }
+        let home = game
+            .planets
+            .iter()
+            .find(|p| p.id == STOVE_TOP)
+            .expect("home");
+        eprintln!(
+            "HOME minerals {:?} pop {} queue {:?}",
+            home.surface_min,
+            home.pop,
+            home.queue
+                .iter()
+                .map(|q| (q.ship, q.item, q.count, q.completion))
+                .collect::<Vec<_>>()
+        );
+        eprintln!(
+            "PAGE {} bold {:?} pending {:?}",
+            shell.page(),
+            shell.app.tutor.as_ref().map(|t| t.bold),
+            shell.app.tutor_pending()
+        );
+    }
 }

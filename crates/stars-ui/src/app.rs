@@ -14002,8 +14002,27 @@ impl App {
                 Some(_) => widget("designer", "Copy Selected Design"),
             },
             // A report: the Report menu opens one; the sort is a click on
-            // its column, which nothing here rings.
+            // its column's heading, and then a pick from the menu that
+            // opens, which is not rung.
             Check::ReportOpen => menu("Planets…", "Report"),
+            Check::ReportSort { column, .. } => match self.open_report_kind() {
+                None => menu("Planets…", "Report"),
+                Some(report) => {
+                    let name = report
+                        .columns()
+                        .get(usize::try_from(*column).unwrap_or(usize::MAX))
+                        .map_or("", |c| c.name);
+                    widget("report", name)
+                }
+            },
+            // Fuel aboard a fleet: the fleet in hand, then the fuel gauge
+            // of the Other Fleets Here tile, dragged.
+            Check::Fuel { fleet, .. } => {
+                if !fleet_selected(*fleet) {
+                    return take_fleet(*fleet);
+                }
+                widget("fleet", "Fuel gauge")
+            }
             // A zip order: the blue diamond in the Waypoint Task tile.
             Check::Zip { .. } => {
                 if self.selection.on_fleet {
