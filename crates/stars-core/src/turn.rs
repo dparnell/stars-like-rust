@@ -100,6 +100,8 @@ pub struct TurnReport {
     pub ai: Vec<(usize, crate::ai::turindrone::Report)>,
     /// The year's battles — see [`crate::combat::do_battles`].
     pub battles: Vec<crate::combat::Outcome>,
+    /// The year's bombings — see [`crate::bombing::do_bombing`].
+    pub bombings: Vec<crate::bombing::Bombing>,
     /// Planets `AutoTerraform` moved this year — Claim Adjusters only.
     pub terraformed: Vec<i16>,
     /// Planets remote terraforming moved, as `(planet id, clicks applied)`.
@@ -531,6 +533,9 @@ pub fn generate_turn_with_orders(
     // --- DoOrders(1) -> DoBattles: fleets that have come to share a place
     // with an enemy fight, before anything lands or unloads.
     report.battles = crate::combat::do_battles(state, rng);
+    // --- DoBombing, straight after the battles: the bombers in orbit of an
+    // enemy planet with no starbase left.
+    report.bombings = crate::bombing::do_bombing(state, rng);
 
     // --- SatisfyOrders after movement: the tasks a fleet performs on arrival.
     // A task is consumed when it executes, which is why every waypoint in a

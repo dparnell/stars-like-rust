@@ -301,6 +301,193 @@ pub fn bomb_planet(
     out
 }
 
+/// What one player's bombers did to one planet this year.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Bombing {
+    /// Who bombed.
+    pub player: i16,
+    /// The planet, by id.
+    pub planet: i16,
+    /// The fleets that took part, by id.
+    pub fleets: Vec<u16>,
+    /// What was destroyed.
+    pub result: BombResult,
+    /// Whether the planet's people were wiped out.
+    pub depopulated: bool,
+}
+
+/// `UninhabitPlanet` (`1048:8732`): a planet whose last colonist has died
+/// — its owner and people gone, its queue emptied, its defences and
+/// scanner gone with them, no starbase; a Claim Adjuster's world returns
+/// to its original environment. Mines and factories stand.
+pub fn uninhabit(planet: &mut Planet, claim_adjuster: bool) {
+    if claim_adjuster {
+        if let Some(orig) = planet.env_orig {
+            planet.env = orig;
+        }
+    }
+    planet.owner = None;
+    planet.pop = 0;
+    planet.delta_pop = 0;
+    planet.queue.clear();
+    planet.defenses = 0;
+    planet.scanner = None;
+    planet.no_research = false;
+    planet.starbase = false;
+    planet.starbase_design = None;
+    planet.starbase_damage = 0;
+    planet.fling_dest = None;
+    planet.fling_warp = 0;
+    planet.route_dest = None;
+}
+
+/// `DoBombing` (`10f0:aefa`), which `DoBattles` runs after the fighting:
+/// every fleet in orbit of somebody else's inhabited planet, with no
+/// starbase left there, whose battle plan attacks that player
+/// (`FAttackPlayer`: enemies, neutrals and enemies, everyone, or the
+/// named one) bombs it. Every fleet of the same player at the planet
+/// bombs together, once (`fBombed`; `fMulti` for the wording): the loads
+/// add, the defences take their share (`CalcPctSurvive`), and
+/// [`bomb_planet`] does the rest. A planet emptied is uninhabited.
+///
+/// The Retro Bombs' undoing of terraforming is not written. The messages
+/// — the original's two dozen wordings by what was destroyed — are one
+/// each way: [`crate::message::id::BOMBED`] to the bomber and
+/// [`crate::message::id::BOMBED_YOU`] to the planet's owner, with the
+/// fleet, the planet, the colonists killed, the installations destroyed
+/// and the defences' stopping share in hundredths of a percent.
+pub fn do_bombing(state: &mut crate::GameState, rng: &mut Rng) -> Vec<Bombing> {
+    use crate::combat::attack_who;
+    use crate::message::{id, Message};
+
+    let mut out = Vec::new();
+    let mut bombed: std::collections::BTreeSet<(i16, u16)> = std::collections::BTreeSet::new();
+    let fleet_count = state.fleets.len();
+    for index in 0..fleet_count {
+        let (owner, fleet_id, orbiting, plan_id) = {
+            let f = &state.fleets[index];
+            (f.owner, f.id, f.orbiting, f.battle_plan)
+        };
+        if bombed.contains(&(owner, fleet_id)) {
+            continue;
+        }
+        let Some(planet_id) = orbiting.and_then(|p| i16::try_from(p).ok()) else {
+            continue;
+        };
+        let Some(planet_index) = state.planets.iter().position(|p| p.id == planet_id) else {
+            continue;
+        };
+        let Ok(player) = usize::try_from(owner) else {
+            continue;
+        };
+        let target_owner = state.planets[planet_index].owner;
+        let Some(target) = target_owner.and_then(|o| usize::try_from(o).ok()) else {
+            continue;
+        };
+        if target == player {
+            continue;
+        }
+        let planet = &state.planets[planet_index];
+        if planet.pop <= 0 || planet.starbase {
+            continue;
+        }
+        // `FAttackPlayer`.
+        let plans = &state.players[player].battle_plans;
+        let Some(plan) = plans
+            .iter()
+            .find(|p| p.plan_id == plan_id && !p.deleted())
+            .or_else(|| plans.first())
+        else {
+            continue;
+        };
+        let relation = state.players[player]
+            .relations
+            .get(target)
+            .copied()
+            .unwrap_or(0);
+        let at_war = match plan.attack_who {
+            attack_who::NOBODY => false,
+            attack_who::ENEMIES => relation == 2,
+            attack_who::NEUTRALS_AND_ENEMIES => relation != 1,
+            attack_who::EVERYONE => true,
+            named => usize::from(named - attack_who::PLAYER_BASE) == target,
+        };
+        if !at_war {
+            continue;
+        }
+        // Everything of this player's at the planet bombs together.
+        let designs = state.designs.get(player).cloned().unwrap_or_default();
+        let together: Vec<usize> = (0..fleet_count)
+            .filter(|&i| {
+                let f = &state.fleets[i];
+                f.owner == owner
+                    && f.orbiting == orbiting
+                    && !bombed.contains(&(owner, f.id))
+                    && bomb_load(&designs, &f.stacks).any()
+            })
+            .collect();
+        if together.is_empty() {
+            continue;
+        }
+        let stacks: Vec<ShipStack> = together
+            .iter()
+            .flat_map(|&i| state.fleets[i].stacks.iter().copied())
+            .collect();
+        let fleet_ids: Vec<u16> = together.iter().map(|&i| state.fleets[i].id).collect();
+        for id in &fleet_ids {
+            bombed.insert((owner, *id));
+        }
+        let load = bomb_load(&designs, &stacks);
+        let their_race = state.players[target].race.clone();
+        let their_tech = state.players[target].research.levels;
+        let survive = pct_survive(&state.planets[planet_index], &their_race, their_tech);
+        let result = bomb_planet(&mut state.planets[planet_index], load, survive, rng);
+        let depopulated = state.planets[planet_index].pop <= 0;
+        if depopulated {
+            let ca = their_race.prt() == Some(crate::race::Prt::Ca);
+            uninhabit(&mut state.planets[planet_index], ca);
+        }
+        let installations = result.factories + result.mines + result.defenses;
+        let stopped = i16::try_from(((1.0 - survive.0) * 10_000.0) as i32).unwrap_or(0);
+        let n = |v: i32| i16::try_from(v).unwrap_or(i16::MAX);
+        let first = i16::try_from(fleet_ids[0]).unwrap_or(0);
+        state.messages.push(Message {
+            player,
+            id: id::BOMBED,
+            object: i16::from_le_bytes((fleet_ids[0] | 0x8000).to_le_bytes()),
+            params: vec![
+                first,
+                planet_id,
+                n(result.colonists),
+                n(installations),
+                stopped,
+                i16::from(fleet_ids.len() > 1),
+            ],
+        });
+        state.messages.push(Message {
+            player: target,
+            id: id::BOMBED_YOU,
+            object: planet_id,
+            params: vec![
+                first,
+                planet_id,
+                n(result.colonists),
+                n(installations),
+                stopped,
+                i16::from(fleet_ids.len() > 1),
+            ],
+        });
+        out.push(Bombing {
+            player: owner,
+            planet: planet_id,
+            fleets: fleet_ids,
+            result,
+            depopulated,
+        });
+    }
+    out
+}
+
 /// Whether a fleet may bomb the planet it orbits.
 ///
 /// Source: the gates at the head of `DoBombing`. The planet must be **owned by

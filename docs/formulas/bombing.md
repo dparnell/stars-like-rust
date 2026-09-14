@@ -127,3 +127,22 @@ So this subsystem is transcribed and unit-tested but unconfirmed, and the
 population formula in particular has an untested rounding rule and an inferred
 smart-bomb conversion. Separating a bombing loss from the other things that move
 population would need a corpus with a known, isolated bombing event.
+
+## The driver — `DoBombing` (`10f0:aefa`)
+
+`DoBattles` runs it after the fighting (see `combat.md`). Every fleet not
+dead and not yet marked `fBombed`, in orbit of a planet owned by somebody
+else and inhabited, with **no starbase** there, whose battle plan attacks
+that player (`FAttackPlayer`, `10f0:2ac6`: attack-who 1 enemies by
+`rgmdRelation == 2`, 2 anyone not a friend, 3 everyone, 4+ the named
+player) bombs it. `FCalcFleetBombDamage` adds up every fleet of the same
+player at the planet (marking them bombed, `fMulti` when more than one),
+`CalcPctSurvive` scales the buckets by what the defences let through, the
+installations and people go as *Bombing a planet* above says, Retro Bombs
+undo terraforming by `pctTerra` less half of what the defences stopped
+(not written), the two players are told (`0x60`/`0x6a` and their
+neighbours, two dozen wordings by what was destroyed; the transcription
+sends one each), and a planet with nobody left is uninhabited
+(`UninhabitPlanet`, `1048:8732`: owner, people, queue, defences, scanner
+and starbase gone, mines and factories left standing, a Claim Adjuster's
+environment restored). `crate::bombing::do_bombing` is the transcription.

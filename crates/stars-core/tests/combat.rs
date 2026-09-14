@@ -184,3 +184,94 @@ fn the_recording_goes_into_the_turn_file() {
         assert_eq!(records[0].actions, outcomes[0].record.actions);
     }
 }
+
+/// `DoBombing`: a bomber in orbit of an enemy planet with no starbase
+/// kills colonists and knocks down installations; over a starbase it
+/// does nothing.
+#[test]
+fn bombers_bomb_an_undefended_planet() {
+    use stars_core::components::slot;
+    use stars_core::design::{DesignSlot, ShipDesign};
+    use stars_core::fleet::ShipStack;
+
+    let mut state = tutorial_world();
+    let mut rng = stars_core::rng::Rng::randomize(3);
+    // A bomber design for the human: two Lady Finger Bombs.
+    state.designs[0].push(ShipDesign {
+        hull_id: 18,
+        slots: vec![
+            DesignSlot {
+                category: slot::ENGINE,
+                item: 1,
+                count: 1,
+            },
+            DesignSlot {
+                category: slot::BOMB,
+                item: 0,
+                count: 2,
+            },
+        ],
+        name: "Firecracker".to_string(),
+        picture: 0,
+        stored_armor: 0,
+        obsolete: false,
+        designed: 0,
+        built: 0,
+    });
+    let bomber_slot = u8::try_from(state.designs[0].len() - 1).expect("a slot");
+    let target = state
+        .planets
+        .iter()
+        .position(|p| p.owner == Some(1))
+        .expect("the Berserkers' home");
+    let at = state.planets[target].position.expect("placed");
+    let target_id = state.planets[target].id;
+    let pop_before = state.planets[target].pop;
+    let mut bomber = state.fleets[0].clone();
+    bomber.id = 20;
+    bomber.owner = 0;
+    bomber.position = at;
+    bomber.orbiting = Some(target_id as u16);
+    bomber.waypoints.truncate(1);
+    bomber.waypoints[0].position = at;
+    bomber.waypoints[0].target = Some(target_id as u16);
+    bomber.stacks = vec![ShipStack {
+        design: bomber_slot,
+        count: 4,
+        damaged_pct: 0,
+        damage_pct: 0,
+    }];
+    state.fleets.push(bomber);
+    for plan in &mut state.players[0].battle_plans {
+        plan.attack_who = combat::attack_who::EVERYONE;
+    }
+
+    // The starbase stands: nothing.
+    assert!(state.planets[target].starbase);
+    let none = stars_core::bombing::do_bombing(&mut state, &mut rng);
+    assert!(none.is_empty(), "{none:?}");
+
+    state.planets[target].starbase = false;
+    let done = stars_core::bombing::do_bombing(&mut state, &mut rng);
+    assert_eq!(done.len(), 1, "{done:?}");
+    assert_eq!(done[0].planet, target_id);
+    assert_eq!(done[0].fleets, vec![20]);
+    assert!(done[0].result.colonists > 0, "{:?}", done[0].result);
+    assert!(state.planets[target].pop < pop_before);
+    assert!(!done[0].depopulated);
+    assert!(state
+        .messages
+        .iter()
+        .any(|m| m.player == 0 && m.id == stars_core::message::id::BOMBED));
+    assert!(state
+        .messages
+        .iter()
+        .any(|m| m.player == 1 && m.id == stars_core::message::id::BOMBED_YOU));
+
+    // A second call in the same year does nothing more: the fleet has
+    // bombed.
+    let pop_after = state.planets[target].pop;
+    let again = stars_core::bombing::do_bombing(&mut state, &mut rng);
+    assert_eq!(again.len(), 1, "a new call is a new year: it bombs again");
+    assert!(state.planets[target].pop < pop_after);
+}

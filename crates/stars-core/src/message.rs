@@ -116,6 +116,14 @@ pub mod id {
     /// at a planet of theirs, without them (`0xfa`; the original uses
     /// `0xf9` for the planet's owner).
     pub const BATTLE_SEEN: u16 = 0xfa;
+    /// The player's fleet bombed a planet (`0x60` and its neighbours in
+    /// `DoBombing`, which words the result two dozen ways): parameters
+    /// the fleet, the planet, the colonists killed (in hundreds), the
+    /// installations destroyed, the defences' stopping share in
+    /// hundredths of a percent, and whether several fleets bombed.
+    pub const BOMBED: u16 = 0x60;
+    /// A planet of the player's was bombed (`0x6a`), the same parameters.
+    pub const BOMBED_YOU: u16 = 0x6a;
     /// `idmCouldntGiveAwayBecauseThereColonistsBoard`: a fleet with colonists
     /// aboard cannot be given away (`10b0:9436`).
     pub const GIFT_HAS_COLONISTS: u16 = 0x149;
@@ -414,6 +422,20 @@ impl Message {
                 self.params.get(5).copied().unwrap_or(0)
             ),
             id::BATTLE_SEEN => format!("A battle took place at {}.", place()),
+            id::BOMBED => format!(
+                "Fleet {} has bombed planet {}, killing {} colonists and destroying {} installations.",
+                fleet(),
+                self.params.get(1).copied().unwrap_or(0),
+                i32::from(self.params.get(2).copied().unwrap_or(0)) * 100,
+                self.params.get(3).copied().unwrap_or(0)
+            ),
+            id::BOMBED_YOU => format!(
+                "Planet {} has been bombed by fleet {}: {} colonists killed and {} installations destroyed.",
+                self.params.get(1).copied().unwrap_or(0),
+                fleet(),
+                i32::from(self.params.get(2).copied().unwrap_or(0)) * 100,
+                self.params.get(3).copied().unwrap_or(0)
+            ),
             id::ORDERS_COMPLETE => format!("Fleet {} has finished its orders.", fleet()),
             id::HAS_LOADED | id::HAS_BEAMED_UP => format!(
                 "Fleet {} has taken {}kT of {} aboard at {}.",
