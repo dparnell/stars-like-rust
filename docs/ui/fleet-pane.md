@@ -173,6 +173,20 @@ original's notices are authored prose.
 | `Colonize` | **warning** with no colonists aboard, otherwise the dismantling note |
 | `Lay Mine Field` | how many mines a year, or a **warning** with no layer aboard |
 
+### Merge, and the Merge Fleets dialog
+
+`rghwndBtn[10]` is **Merge** (`ShipCommandProc`, `1050:2640`): it gathers
+every live fleet of the player's standing where the fleet in hand
+stands, the fleet in hand among them, and raises `MergeFleetsDlg`
+(`1080:3376`) — a list to tick, with a mark on any fleet that has orders
+beyond where it stands, **Select All** and **Select None**, OK and
+Cancel. With exactly two fleets at the spot both start ticked; with more,
+only the fleet in hand. On OK the ticked fleets merge into the fleet in
+hand when it is ticked, otherwise into the first ticked, which is taken
+in hand first; `FFleetMergeAll` (`1038:34d8`) adds their ships, cargo and
+damage into it and deletes them. Fewer than two ticked merges nothing.
+The tile's button is enabled only when there is another fleet to merge.
+
 ### Choosing Merge with Fleet picks the fleet
 
 `ShipCommandProc` (`1050:2640`), on the task dropdown changing: the task

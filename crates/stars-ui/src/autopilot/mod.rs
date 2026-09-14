@@ -231,7 +231,28 @@ impl Shell {
             i16::midpoint(pa.y, pb.y),
         ));
         self.frame();
-        (self.planet_on_screen(a), self.planet_on_screen(b))
+        // Too far apart for the map at this zoom: zoom out until both fit,
+        // as a player would with the toolbar's Zoom.
+        loop {
+            let map = self.app.map_frame.expect("the scanner drew the map");
+            let fits = map.rect.contains(map.to_screen(pa.x, pa.y))
+                && map.rect.contains(map.to_screen(pb.x, pb.y));
+            if fits || self.app.scan_zoom <= -4 {
+                break;
+            }
+            self.app.scan_zoom -= 1;
+            self.frame();
+        }
+        let first = self.planet_on_screen(a);
+        let second = self.planet_on_screen(b);
+        // Bringing the second in may have moved the map; the first is
+        // asked again, where it now is.
+        let first_again = self.planet_on_screen(a);
+        if first_again != first {
+            let second = self.planet_on_screen(b);
+            return (self.planet_on_screen(a), second);
+        }
+        (first, second)
     }
 
     /// Where a planet is on the screen this frame.
@@ -600,6 +621,17 @@ impl Shell {
             | Check::Fuel { fleet, .. }
             | Check::FleetOrders { fleet, .. } => unbuilt(i16::try_from(*fleet).unwrap_or(-1)),
             Check::Summary { class: 8, id: -1 } => no_salvage,
+            // "Not ten fleets any more" is how page 65 sees Split All
+            // done; a world that happens to have ten after the split
+            // cannot show it.
+            Check::FleetCount {
+                count,
+                cmp: crate::tutorial::Cmp::NotExactly,
+            } => self
+                .app
+                .game
+                .as_ref()
+                .is_some_and(|g| g.fleets.iter().filter(|f| f.owner == 0).count() == *count),
             _ => false,
         };
         assert!(

@@ -305,6 +305,16 @@ pub struct SurveyBar {
     pub sum: i32,
 }
 
+/// The Merge Fleets dialog (`MergeFleetsDlg`, `1080:3376`): the fleets
+/// at the spot, and which are ticked.
+#[derive(Debug, Clone, Default)]
+pub struct MergeDialog {
+    /// Indices into the game's fleets.
+    pub fleets: Vec<usize>,
+    /// Which of them are ticked to merge.
+    pub ticked: Vec<bool>,
+}
+
 /// The whole application, minus the drawing.
 #[derive(Default)]
 pub struct App {
@@ -535,6 +545,8 @@ pub struct App {
     /// The Ship Transfer dialog — the same `TransferDlg` in its ship mode,
     /// the **Split** button — while it is open.
     pub split: Option<SplitDialog>,
+    /// The Merge Fleets dialog — the **Merge** button — while it is open.
+    pub merge: Option<MergeDialog>,
     /// Which cargo the Waypoint Task tile's Transport table is showing —
     /// the tile's **second dropdown** — as an index into
     /// [`stars_formats::CARGO_ORDER`]: fuel first, then the four holds.
@@ -1918,6 +1930,10 @@ impl App {
         }
         self.orders.extend(records);
         self.dirty = true;
+        // A split or a merge changes the fleet list — new fleets on the
+        // end, absorbed ones gone and everything after them moved up —
+        // and the view is a set of places in that list.
+        self.refresh_view();
         true
     }
 
@@ -8110,6 +8126,121 @@ impl App {
         self.split_fleet_many(dialog.fleet, &moves);
     }
 
+    /// Whether **Merge** has anything to offer: another live fleet of the
+    /// player's standing where the fleet in hand stands.
+    #[must_use]
+    pub fn can_merge(&self) -> bool {
+        self.merge_candidates().len() > 1
+    }
+
+    /// The fleets the Merge Fleets dialog lists (`ShipCommandProc`,
+    /// `1050:2640`, the `rghwndBtn[10]` branch): every live fleet of the
+    /// player's at the selected fleet's point, the selected one among
+    /// them, in list order.
+    #[must_use]
+    pub fn merge_candidates(&self) -> Vec<usize> {
+        let Some(index) = self.survey_subject().fleet_index() else {
+            return Vec::new();
+        };
+        let Some(game) = self.game.as_ref() else {
+            return Vec::new();
+        };
+        let Some(fleet) = game.fleets.get(index) else {
+            return Vec::new();
+        };
+        if usize::try_from(fleet.owner).is_ok_and(|o| o != self.local_player()) {
+            return Vec::new();
+        }
+        game.fleets
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| {
+                f.owner == fleet.owner && f.position == fleet.position && !f.is_empty()
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// **Merge**: open the Merge Fleets dialog (`MergeFleetsDlg`,
+    /// `1080:3376`). With exactly two fleets at the spot both start
+    /// ticked; with more, only the fleet in hand.
+    pub fn open_merge(&mut self) -> bool {
+        let fleets = self.merge_candidates();
+        if fleets.len() < 2 {
+            return false;
+        }
+        let held = self.survey_subject().fleet_index();
+        let ticked = fleets
+            .iter()
+            .map(|i| fleets.len() == 2 || Some(*i) == held)
+            .collect();
+        self.merge = Some(MergeDialog { fleets, ticked });
+        true
+    }
+
+    /// A row of the Merge Fleets dialog: the fleet's name, and a mark for
+    /// one that has orders beyond where it stands (`cord > 1`).
+    #[must_use]
+    pub fn merge_row(&self, index: usize) -> String {
+        let name = self.fleet_display_name(index);
+        let busy = self
+            .game
+            .as_ref()
+            .and_then(|g| g.fleets.get(index))
+            .is_some_and(|f| f.waypoints.len() > 1);
+        if busy {
+            format!("{name} *")
+        } else {
+            name
+        }
+    }
+
+    /// **OK** on the Merge Fleets dialog: the ticked fleets merge into the
+    /// fleet in hand when it is among them, otherwise into the first
+    /// ticked, which is taken in hand first (`1050:2640`, after the
+    /// dialog). Fewer than two ticked merges nothing.
+    pub fn merge_ok(&mut self) -> bool {
+        let Some(dialog) = self.merge.take() else {
+            return false;
+        };
+        let ticked: Vec<usize> = dialog
+            .fleets
+            .iter()
+            .zip(dialog.ticked.iter())
+            .filter(|(_, on)| **on)
+            .map(|(i, _)| *i)
+            .collect();
+        if ticked.len() < 2 {
+            return false;
+        }
+        let held = self.survey_subject().fleet_index();
+        let survivor = held.filter(|h| ticked.contains(h)).unwrap_or(ticked[0]);
+        let absorbed: Vec<usize> = ticked.iter().copied().filter(|i| *i != survivor).collect();
+        let survivor_id = self
+            .game
+            .as_ref()
+            .and_then(|g| g.fleets.get(survivor))
+            .map(|f| (f.owner, f.id));
+        let merged = self.merge_fleets(survivor, &absorbed);
+        // The absorbed fleets are gone from the list, so the survivor is
+        // found again by number and taken in hand.
+        if let Some((owner, id)) = survivor_id {
+            let index = self
+                .game
+                .as_ref()
+                .and_then(|g| g.fleets.iter().position(|f| f.owner == owner && f.id == id));
+            if let Some(index) = index {
+                self.select_object(ScanObject::Fleet(index));
+            }
+        }
+        merged
+    }
+
+    /// **Cancel** on the Merge Fleets dialog.
+    pub fn merge_cancel(&mut self) {
+        self.merge = None;
+    }
+
     /// **Cancel**: nothing moved.
     pub fn split_cancel(&mut self) {
         self.split = None;
@@ -14000,6 +14131,24 @@ impl App {
                 None => menu("Ship Design…", "Commands"),
                 Some(d) if d.editing.is_some() => widget("designer", &format!("slot {slot}")),
                 Some(_) => widget("designer", "Copy Selected Design"),
+            },
+            // A saved design changed: Edit opens the editor on it, the slot
+            // is where the part goes, and OK writes it back.
+            Check::SavedDesignSlot { slot, .. } => match self.designer.as_ref() {
+                None => menu("Ship Design…", "Commands"),
+                Some(d) if d.editing.is_some() => {
+                    let fitted = d
+                        .editing
+                        .as_ref()
+                        .and_then(|e| e.design.slots.get(*slot))
+                        .is_some_and(|s| s.count > 0);
+                    if fitted {
+                        widget("designer", "OK")
+                    } else {
+                        widget("designer", &format!("slot {slot}"))
+                    }
+                }
+                Some(_) => widget("designer", "Edit Selected Design"),
             },
             // A report: the Report menu opens one; the sort is a click on
             // its column's heading, and then a pick from the menu that

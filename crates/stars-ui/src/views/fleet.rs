@@ -716,7 +716,81 @@ fn split_buttons(app: &mut App, ui: &mut egui::Ui) {
                 app.split_all(index);
             }
         }
+        // `rghwndBtn[10]`, Merge: the Merge Fleets dialog over the fleets
+        // sharing this spot.
+        let can_merge = app.can_merge();
+        if crate::views::flow_button(app, ui, "Merge", mine && can_merge)
+            .on_hover_text("Join other fleets here into this one.")
+            .clicked()
+        {
+            app.open_merge();
+        }
     });
+    if app.merge.is_some() {
+        merge_dialog(app, ui);
+    }
+}
+
+/// `Merge Fleets` (`MergeFleetsDlg`, `1080:3376`): the fleets at the spot
+/// as a list to tick, Select All and Select None, OK and Cancel. A fleet
+/// with orders beyond where it stands is marked.
+fn merge_dialog(app: &mut App, ui: &mut egui::Ui) {
+    let Some(dialog) = app.merge.clone() else {
+        return;
+    };
+    let was = app.drawn_scope;
+    app.drawn_scope = "merge";
+    let mut ticked = dialog.ticked.clone();
+    let mut done: Option<bool> = None;
+    let mut open = true;
+    egui::Window::new("Merge Fleets")
+        .open(&mut open)
+        .resizable(false)
+        .show(ui.ctx(), |ui| {
+            for (row, index) in dialog.fleets.iter().enumerate() {
+                let label = app.merge_row(*index);
+                let on = ticked.get(row).copied().unwrap_or(false);
+                let response = ui.selectable_label(on, egui::RichText::new(&label).small());
+                crate::views::record(app, ui, &label, &response);
+                if response.clicked() {
+                    if let Some(slot) = ticked.get_mut(row) {
+                        *slot = !*slot;
+                    }
+                }
+            }
+            ui.separator();
+            ui.horizontal(|ui| {
+                if crate::views::flow_button(app, ui, "Select All", true).clicked() {
+                    ticked.iter_mut().for_each(|t| *t = true);
+                }
+                if crate::views::flow_button(app, ui, "Select None", true).clicked() {
+                    ticked.iter_mut().for_each(|t| *t = false);
+                }
+            });
+            ui.horizontal(|ui| {
+                if crate::views::flow_button(app, ui, "OK", true).clicked() {
+                    done = Some(true);
+                }
+                if crate::views::flow_button(app, ui, "Cancel", true).clicked() {
+                    done = Some(false);
+                }
+            });
+        });
+    app.drawn_scope = was;
+    if let Some(dialog) = app.merge.as_mut() {
+        dialog.ticked = ticked;
+    }
+    match done {
+        Some(true) => {
+            app.merge_ok();
+        }
+        Some(false) => app.merge_cancel(),
+        None => {
+            if !open {
+                app.merge_cancel();
+            }
+        }
+    }
 }
 
 /// The **blue diamond** beside the Transport cargo table, and the menu it

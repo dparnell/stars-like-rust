@@ -23,6 +23,8 @@ const SHAGGY_DOG: i16 = 0x0e;
 const SEA_SQUARED: i16 = 0x11;
 const NEIL: i16 = 0x0b;
 const LA_TE_DA: i16 = 0x06;
+const SPEED_BUMP: i16 = 0x01;
+const LEVER: i16 = 0x00;
 const RED_STORM: i16 = 0x12;
 const BLOOP: i16 = 0x17;
 const KALAMAZOO: i16 = 0x16;
@@ -1959,6 +1961,421 @@ pub fn tutorial(shell: &mut Shell) {
         shell.generate_anyway("no Frigate to design yet; on to 2423");
     }
     assert_eq!(shell.page(), 59, "2423");
+
+    // --- 2423 -------------------------------------------------------------
+    // Page 59: the first message; Teamster #7, idle at home since 2416;
+    // the report sorted by Population.
+    shell.press("messages", "Next");
+    shell.right_click_planet_and_pick(STOVE_TOP, "Teamster #7");
+    assert_eq!(shell.selected_fleet_id(), Some(6), "Teamster #7");
+    shell.press("menu", "Report");
+    shell.press("menu", "Planets…");
+    // The report keeps the scroll 2421 left it with; back to the left.
+    shell
+        .app
+        .reports
+        .state_mut(crate::report::Report::Planets)
+        .first_field = 0;
+    shell.frame();
+    shell.press("report", "Population");
+    shell.press("report", "Sort by Population");
+    shell.frame();
+    assert_eq!(
+        shell.app.reports.state(crate::report::Report::Planets).sort,
+        2,
+        "sorted on Population"
+    );
+    shell.app.close_report();
+    shell.frame();
+
+    // Page 60: Teamster #7 filled and sent to Sea Squared with DropCol;
+    // then Teamster #4, home from Prune, merged with Teamster #3 through
+    // the Merge Fleets dialog. The page's "new Teamster" is Teamster #3
+    // itself in the original; here Teamster #3 has waited at home since
+    // 2416, and the merge is the same.
+    shell.off_the_page = true;
+    shell.right_click_planet_and_pick(STOVE_TOP, "Teamster #7");
+    shell.press("fleet", "Xfer");
+    shell.frame();
+    let gauge = shell
+        .app
+        .drawn_button("xfer", "Colonists gauge")
+        .expect("the colonists gauge")
+        .rect;
+    shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
+    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard[3], 210);
+    shell.press("xfer", "OK");
+    shell.frame();
+    assert_eq!(shell.page(), 60, "the loaded freighter turns the page");
+    shell.shift_click_planet(SEA_SQUARED);
+    shell.press("fleet", "Waypoint Task");
+    shell.press("fleet", "Transport");
+    shell.right_click("fleet", "blue diamond");
+    shell.press("fleet", "DropCol");
+    {
+        let game = shell.app.game.as_ref().expect("a game");
+        let fleet = &game.fleets[shell.app.selection.fleet.expect("in hand")];
+        assert_eq!(
+            fleet.waypoints[1]
+                .transport
+                .as_ref()
+                .map(|t| t.items[3].action),
+            Some(stars_formats::XferAction::UnloadAll),
+            "DropCol unloads the colonists"
+        );
+    }
+    shell.right_click_planet_and_pick(STOVE_TOP, "Teamster #4");
+    assert_eq!(shell.selected_fleet_id(), Some(3), "Teamster #4");
+    shell.press("fleet", "Merge");
+    shell.press("merge", "Teamster #3");
+    shell.press("merge", "OK");
+    shell.frame();
+    {
+        let game = shell.app.game.as_ref().expect("a game");
+        let merged = game
+            .fleets
+            .iter()
+            .find(|f| f.owner == 0 && f.id == 3)
+            .expect("Teamster #4");
+        assert_eq!(
+            merged.stacks.iter().map(|s| s.count).sum::<i32>(),
+            2,
+            "two Teamsters in the one fleet"
+        );
+        assert!(
+            !game.fleets.iter().any(|f| f.owner == 0 && f.id == 2),
+            "Teamster #3 absorbed"
+        );
+    }
+
+    // Page 61: a Mini-Miner into Stove Top's queue; Armed Probe #9's
+    // waypoint dragged from La Te Da to Speed Bump, then Lever. The Mine
+    // Layer and the Berserker colony ship the page has are not here.
+    shell.right_click_planet_and_pick(STOVE_TOP, "Stove Top");
+    shell.press("planet", "Change");
+    shell.press("production", "Top of the Queue");
+    shell.scroll_to("production", "Mini-Miner", "Factory");
+    shell.double_click("production", "Mini-Miner");
+    shell.press("production", "OK");
+    let probe = shell.fleet_on_screen(8);
+    shell.click_at(probe);
+    assert_eq!(shell.selected_fleet_id(), Some(8), "Armed Probe #9");
+    let (from, to) = shell.two_planets_on_screen(LA_TE_DA, SPEED_BUMP);
+    shell.drag(from, to);
+    shell.frame();
+    {
+        let game = shell.app.game.as_ref().expect("a game");
+        let fleet = &game.fleets[shell.app.selection.fleet.expect("in hand")];
+        assert_eq!(
+            fleet.waypoints.get(1).and_then(|w| w.target),
+            Some(SPEED_BUMP as u16),
+            "{:?}",
+            fleet.waypoints
+        );
+    }
+    shell.shift_click_planet(LEVER);
+    shell.frame();
+    {
+        let game = shell.app.game.as_ref().expect("a game");
+        let fleet = &game.fleets[shell.app.selection.fleet.expect("in hand")];
+        assert_eq!(
+            fleet.waypoints.get(2).and_then(|w| w.target),
+            Some(LEVER as u16)
+        );
+    }
+    shell.off_the_page = false;
+    if shell.app.tutor_waiting() {
+        shell.generate();
+    } else {
+        shell.generate_anyway("no Mine Layer, no Berserker colony ship; on to 2424");
+    }
+    assert_eq!(shell.page(), 62, "2424");
+
+    // --- 2424 -------------------------------------------------------------
+    // Page 62: Stalwart Defender #5 back to Wallaby — it never left here,
+    // having fought the Berserker over Wallaby itself, so that rung is
+    // passed over; Mini-Miner #3, new this year, to Prune to merge; the
+    // messages.
+    shell.off_the_page = true;
+    shell.next_message_until(stars_core::message::Goto::Fleet(2));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(2), "Mini-Miner #3");
+    shell.shift_click_planet(PRUNE);
+    shell.press("fleet", "Waypoint Task");
+    shell.press("fleet", "Merge with Fleet");
+    {
+        let game = shell.app.game.as_ref().expect("a game");
+        let fleet = &game.fleets[shell.app.selection.fleet.expect("in hand")];
+        assert_eq!(fleet.waypoints[1].target, Some(5), "the Cotton Picker");
+    }
+    while shell.app.message_next(false).is_some() {
+        shell.press("messages", "Next");
+    }
+    shell.off_the_page = false;
+    if shell.app.tutor_waiting() {
+        shell.generate();
+    } else {
+        shell.generate_anyway("the destroyer is at Wallaby already; on to 2425");
+    }
+    assert_eq!(shell.page(), 63, "2425");
+
+    // --- 2425 -------------------------------------------------------------
+    // Page 63: the % view; the Santa Maria edited in place — the Long
+    // Hump 6 dragged off into the parts list and a Daddy Long Legs 7
+    // dragged on.
+    for _ in 0..2 {
+        if shell.app.message_next(false).is_some() {
+            shell.press("messages", "Next");
+        }
+    }
+    shell.press("toolbar", "%");
+    shell.press("menu", "Commands");
+    shell.press("menu", "Ship Design…");
+    shell.press("designer", "Designs");
+    shell.press("designer", "Santa Maria");
+    shell.press("designer", "Edit Selected Design");
+    shell.frame();
+    assert!(
+        shell
+            .app
+            .designer
+            .as_ref()
+            .is_some_and(|d| d.editing.is_some()),
+        "the editor is open on the Santa Maria"
+    );
+    {
+        // Off the slot and onto the list: any row of the list is inside
+        // its drop zone.
+        shell.frame();
+        let from = shell
+            .app
+            .drawn_button("designer", "slot 0")
+            .expect("the engine slot")
+            .rect
+            .center();
+        let to = shell
+            .app
+            .drawn_button("designer", "Quick Jump 5")
+            .expect("a row of the parts list")
+            .rect
+            .center();
+        shell.step("designer: the Long Hump 6 off the engine slot");
+        shell.drag(from, to);
+    }
+    fit(shell, "Daddy Long Legs 7", "slot 0");
+    {
+        let editing = shell
+            .app
+            .designer
+            .as_ref()
+            .and_then(|d| d.editing.as_ref())
+            .expect("the editor");
+        assert_eq!(
+            editing
+                .design
+                .slots
+                .first()
+                .and_then(stars_core::design::slot_part)
+                .map(|p| p.name),
+            Some("Daddy Long Legs 7")
+        );
+    }
+    shell.press("designer", "OK");
+    shell.press("designer", "Done");
+    shell.frame();
+    assert_eq!(shell.page(), 64, "the saved design turns the page");
+
+    // Page 64: three of the new Santa Marias at the head of Stove Top's
+    // queue; Max Terraform at the end of Sea Squared's; Construction next;
+    // the rest of the messages.
+    shell.right_click_planet_and_pick(STOVE_TOP, "Stove Top");
+    shell.press("planet", "Change");
+    shell.press("production", "Top of the Queue");
+    for _ in 0..3 {
+        shell.double_click("production", "Santa Maria");
+    }
+    {
+        let dialog = shell.app.production.as_ref().expect("open");
+        assert_eq!(
+            (
+                dialog.queue[0].ship,
+                dialog.queue[0].item,
+                dialog.queue[0].count
+            ),
+            (true, 2, 3),
+            "{:?}",
+            dialog.queue
+        );
+    }
+    shell.press("production", "OK");
+    shell.frame();
+    assert_eq!(shell.app.tutor.as_ref().map(|t| t.bold), Some(507));
+    let sea = shell.planet_on_screen(SEA_SQUARED);
+    shell.click_at(sea);
+    assert_eq!(shell.app.selection.planet, Some(SEA_SQUARED));
+    shell.press("planet", "Change");
+    {
+        let last = shell
+            .app
+            .production_queue_rows()
+            .last()
+            .map(|(count, name)| format!("{name} up to {count}"))
+            .expect("a queue");
+        shell.press("production", &last);
+    }
+    shell.scroll_to("production", "Max Terraform", "Factory");
+    shell.double_click("production", "Max Terraform");
+    shell.double_click("production", "Max Terraform");
+    {
+        let dialog = shell.app.production.as_ref().expect("open");
+        let last = dialog.queue.last().expect("the terraforming");
+        assert_eq!(
+            (dialog.queue.len(), last.item, last.count),
+            (3, stars_core::production::item::AUTO_MAX_TERRAFORM, 2),
+            "{:?}",
+            dialog.queue
+        );
+    }
+    shell.press("production", "OK");
+    shell.next_message_until(stars_core::message::Goto::Research);
+    shell.press("messages", "Goto");
+    shell.app.research_dialog.as_mut().expect("the dialog").next =
+        stars_core::research::NextField::Field(3);
+    shell.press("research", "Done");
+    while shell.app.message_next(false).is_some() {
+        shell.press("messages", "Next");
+    }
+    shell.frame();
+    assert_eq!(shell.page(), 64, "2425 is done, waiting on the turn");
+    assert!(shell.app.tutor_waiting());
+    shell.generate();
+    assert_eq!(shell.page(), 65, "2426");
+
+    // --- 2426 -------------------------------------------------------------
+    // Page 65: the three new Santa Marias — one fleet, fleet 7 here where
+    // the original's was 9 — filled with colonists and sent to settle
+    // Lever, then Split All, and the second and third given Speed Bump
+    // and Bloop instead by dragging their waypoints.
+    shell.off_the_page = true;
+    for _ in 0..4 {
+        if shell.app.message_next(false).is_some() {
+            shell.press("messages", "Next");
+        }
+    }
+    let colonizers = {
+        let game = shell.app.game.as_ref().expect("a game");
+        game.fleets
+            .iter()
+            .find(|f| {
+                f.owner == 0
+                    && f.orbiting == Some(STOVE_TOP as u16)
+                    && f.stacks.iter().any(|s| s.design == 2 && s.count == 3)
+            })
+            .map(|f| f.id)
+            .expect("the three Santa Marias")
+    };
+    shell.next_message_until(stars_core::message::Goto::Fleet(colonizers));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(colonizers));
+    shell.press("fleet", "Xfer");
+    shell.frame();
+    let gauge = shell
+        .app
+        .drawn_button("xfer", "Colonists gauge")
+        .expect("the colonists gauge")
+        .rect;
+    shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
+    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard[3], 75);
+    shell.press("xfer", "OK");
+    shell.shift_click_planet(LEVER);
+    shell.press("fleet", "Waypoint Task");
+    shell.press("fleet", "Colonize");
+    shell.press("fleet", "Split All");
+    shell.frame();
+    let halves: Vec<u16> = {
+        let game = shell.app.game.as_ref().expect("a game");
+        let mut ids: Vec<u16> = game
+            .fleets
+            .iter()
+            .filter(|f| {
+                f.owner == 0
+                    && f.orbiting == Some(STOVE_TOP as u16)
+                    && f.stacks.iter().any(|s| s.design == 2 && s.count == 1)
+            })
+            .map(|f| f.id)
+            .collect();
+        ids.sort_unstable();
+        ids
+    };
+    assert_eq!(halves.len(), 3, "three fleets of one: {halves:?}");
+    for (half, planet) in [(halves[1], SPEED_BUMP), (halves[2], BLOOP)] {
+        let name = format!("Santa Maria #{}", half + 1);
+        shell.right_click_planet_and_pick(STOVE_TOP, &name);
+        assert_eq!(shell.selected_fleet_id(), Some(half), "{name}");
+        let (from, to) = shell.two_planets_on_screen(LEVER, planet);
+        shell.drag(from, to);
+        shell.frame();
+        let game = shell.app.game.as_ref().expect("a game");
+        let fleet = &game.fleets[shell.app.selection.fleet.expect("in hand")];
+        assert_eq!(
+            (
+                fleet.waypoints.get(1).and_then(|w| w.target),
+                fleet.waypoints.get(1).map(|w| w.task)
+            ),
+            (Some(planet as u16), Some(stars_formats::task::COLONIZE)),
+            "{name} bound for {planet:#x} to settle it"
+        );
+    }
+    while shell.app.message_next(false).is_some() {
+        shell.press("messages", "Next");
+    }
+
+    // Page 66: three Teamsters into Stove Top's queue; Stalwart Defender
+    // #5 after the Berserker ship by Wallaby, where there is one.
+    shell.right_click_planet_and_pick(STOVE_TOP, "Stove Top");
+    shell.press("planet", "Change");
+    for _ in 0..3 {
+        shell.double_click("production", "Teamster");
+    }
+    shell.press("production", "OK");
+    let quarry = {
+        let game = shell.app.game.as_ref().expect("a game");
+        let wallaby = game
+            .planets
+            .iter()
+            .find(|p| p.id == WALLABY)
+            .and_then(|p| p.position)
+            .expect("Wallaby");
+        game.fleets
+            .iter()
+            .enumerate()
+            .filter(|(i, f)| f.owner != 0 && shell.app.fleet_in_view(*i))
+            .map(|(_, f)| {
+                #[allow(clippy::cast_possible_truncation)]
+                let d = stars_core::movement::distance(f.position, wallaby) as i64;
+                (f, d)
+            })
+            .filter(|(_, d)| *d <= 60)
+            .min_by_key(|(_, d)| *d)
+            .map(|(f, _)| f.position)
+    };
+    if let Some(at) = quarry {
+        let pos = shell.point_on_screen(at, WALLABY);
+        shell.click_at(pos);
+        shell.right_click_planet_and_pick(WALLABY, "Stalwart Defender #5");
+        assert_eq!(shell.selected_fleet_id(), Some(4));
+        let pos = shell.point_on_screen(at, WALLABY);
+        shell.modifiers = egui::Modifiers::SHIFT;
+        shell.click_at(pos);
+        shell.modifiers = egui::Modifiers::NONE;
+    }
+    shell.off_the_page = false;
+    if shell.app.tutor_waiting() {
+        shell.generate();
+    } else {
+        shell.generate_anyway("the colony ships have other numbers here; on to 2427");
+    }
+    assert_eq!(shell.page(), 67, "2427");
     {
         let game = shell.app.game.as_ref().expect("a game");
         for m in game.messages.iter().filter(|m| m.player == 0) {
@@ -1981,6 +2398,19 @@ pub fn tutorial(shell: &mut Shell) {
                     .map(|s| (s.design, s.count))
                     .collect::<Vec<_>>(),
                 f.cargo,
+                f.waypoints.get(1).map(|w| (w.target, w.target_class))
+            );
+        }
+        for f in game.fleets.iter().filter(|f| f.owner != 0) {
+            eprintln!(
+                "ENEMY {} {} at {:?} stacks {:?} next {:?}",
+                f.owner,
+                f.id,
+                f.position,
+                f.stacks
+                    .iter()
+                    .map(|s| (s.design, s.count))
+                    .collect::<Vec<_>>(),
                 f.waypoints.get(1).map(|w| (w.target, w.target_class))
             );
         }

@@ -701,7 +701,7 @@ pane cannot reach.
 
 ### Where the run stops
 
-The walkthrough now plays through page 58 and into 2423, page 59: the
+The walkthrough now plays through page 66 and into 2427, page 67: the
 three pieces that were wanted for the years after 2410 are in — the
 player's own view of the galaxy (`stars_core::visibility`), the
 Berserkers' turn (`../formulas/ai.md`, *The TurinDrone turn*) and
@@ -782,6 +782,17 @@ moment its turns run:
   year short of home with the bigger load the Mini-Miner digs — as the
   page says it would — with nobody beside it to take fuel from.
 
+* **Stalwart Defender #5's chase.** Pages 62 and 66 send the destroyer
+  after Berserker colony ships bound for No Vacancy and back to Wallaby;
+  here it stayed at Wallaby and fought them there, one in 2424 and one in
+  2426, so it has nowhere to go back to and no ship left to chase.
+* **The ships' numbers from 2423.** The Mini-Miner of 2424 is fleet 2,
+  the three Santa Marias of 2426 fleet 7, split into 2, 7 and 9 — where
+  the pages name 9, 10 and 11 — so the pages' colony-ship rungs are not
+  seen done though the orders are laid; the merge of Teamster #3 into
+  Teamster #4, and the Mini-Miner's into the Cotton Picker, happen as
+  the pages have them.
+
 Where a page's rung cannot be reached in this world the harness
 generates the year anyway (`Shell::generate_anyway`, which says why), and
 the tutor carries on with the year — every page from 35 on waits only on
@@ -810,7 +821,13 @@ widgets and its OK, the report menu's submenus, and a ring for a fuel
 check; and a page whose own task cannot be finished here — page 56's
 fuel — is played around with `Shell::off_the_page`, which lets the bold
 follow what is in hand without the harness calling it a step backward.
-The test stops at page 59 with an assertion that says so.
+2423 to 2426 added the fleet tile's **Merge** button and the Merge
+Fleets dialog (`fleet-pane.md`), a ring for an edited design, the map
+zoomed out when two planets will not both fit on it, and the view of the
+fleets recomputed after an order that changes the fleet list — a merge
+drops fleets from it and every fleet after them moves up, which had left
+the map's idea of what was in view pointing at the wrong fleets. The
+test stops at page 67 with an assertion that says so.
 
 Two smaller things came out of getting to page 34 all the same: a waypoint
 aimed at a fleet holds the fleet's **full object word**, owner and all,
