@@ -55,12 +55,16 @@ pub fn central(app: &mut App, ui: &mut egui::Ui) -> Option<newgame::Action> {
         empty(app, ui);
         return None;
     }
+    // A report is a window over the map (`frame::dialogs`), not a screen
+    // of its own: the scanner goes on drawing behind it.
     match app.screen {
-        Screen::Galaxy => galaxy::view(app, ui),
-        Screen::Planets => report::view(app, ui, crate::report::Report::Planets),
-        Screen::Fleets => report::view(app, ui, crate::report::Report::Fleets),
-        Screen::EnemyFleets => report::view(app, ui, crate::report::Report::EnemyFleets),
-        Screen::Battles => report::view(app, ui, crate::report::Report::Battles),
+        Screen::Galaxy
+        | Screen::Planets
+        | Screen::Fleets
+        | Screen::EnemyFleets
+        | Screen::Battles => {
+            galaxy::view(app, ui);
+        }
         Screen::Players => players::view(app, ui),
     }
     None

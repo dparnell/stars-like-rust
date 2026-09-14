@@ -2205,22 +2205,26 @@ pub static STEPS: &[Step] = &[
         escape: None,
         wait: Some(358),
         stages: &[
-            hint(
-                0x160,
+            // Written the other way up, like page 4 (`10f8:3a0c`): with
+            // Oxygen's queue not yet done, the paragraph follows whichever
+            // planet is in hand — Oxygen, else Sea Squared, else the
+            // first.
+            mark(
+                0x162,
                 Check::Selection {
                     class: grobj::PLANET,
                     id: 0x11,
                 },
             ),
-            hint(
-                0x162,
+            mark(
+                0x164,
                 Check::Selection {
                     class: grobj::PLANET,
                     id: 0x02,
                 },
             ),
             ask(
-                0x164,
+                0x160,
                 Check::QueueLength {
                     planet: 0x02,
                     count: 3,

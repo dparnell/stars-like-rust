@@ -701,7 +701,7 @@ pane cannot reach.
 
 ### Where the run stops
 
-The walkthrough now plays through page 44 and into 2414, page 45: the
+The walkthrough now plays through page 50 and into 2419, page 51: the
 three pieces that were wanted for the years after 2410 are in — the
 player's own view of the galaxy (`stars_core::visibility`), the
 Berserkers' turn (`../formulas/ai.md`, *The TurinDrone turn*) and
@@ -762,6 +762,14 @@ moment its turns run:
   hundred mines; the original's Stove Top had nothing else queued, this
   one still has a Teamster of page 40's on the ways, so the harness moves
   the Mini-Miner up past it with Item Up, as a player would.
+* **The freighters of 2415 to 2417.** Page 46's *Teamster #7* and page
+  47's *Teamster #12* are ships the original's Stove Top had by then;
+  here the Mini-Miner took 2415's ironium and the Teamsters came in
+  2416 — as fleets 6 and 2, *Teamster #7* among them, a year late — so
+  the pages' freighter rungs are passed over and the years generated. The
+  Mini-Miner is fleet 1 here, *Mini-Miner #2* in the number Long Range
+  Scout #2 left, where page 48 names fleet 7; its merge with the Cotton
+  Picker is ordered all the same, and happens.
 
 Where a page's rung cannot be reached in this world the harness
 generates the year anyway (`Shell::generate_anyway`, which says why), and
@@ -778,7 +786,16 @@ finds Armed Probe #9; and "read your last message" (`FCheckMessages`
 with 9999) is done when Next has nowhere to go, filtered messages not
 counting. The designer's editor was also laid out as the original's
 (`ship-design.md`), the parts list having been drawn where the schematic
-needed to be. The test stops at page 45 with an assertion that says so.
+needed to be. 2414 to 2418 brought four more: page 45's arm reads the
+other way up, like page 4's — the paragraph follows whichever of Sea
+Squared and Oxygen is in hand (`10f8:3a0c`); the Customize box is a
+dialog over the production dialog, drawn on a layer of its own, where
+its OK had been sharing a spot with the leftover-research checkbox
+underneath (which was page 40's mystery); the Planet Summary Report is
+a window over the map in the shell as on the desktop, its headings and
+sort menu recorded for the ring; and Merge with Fleet picks its fleet
+(`fleet-pane.md`). The test stops at page 51 with an assertion that says
+so.
 
 Two smaller things came out of getting to page 34 all the same: a waypoint
 aimed at a fleet holds the fleet's **full object word**, owner and all,

@@ -13,7 +13,7 @@
 //! frames go — a film on disk ([`Recorder`]), or a window watching the run
 //! at a human pace (`stars-desktop`'s `autoplay_tutorial` example).
 
-use crate::{App, Screen};
+use crate::App;
 
 pub mod script;
 
@@ -112,7 +112,6 @@ impl Shell {
         };
         let app = &mut self.app;
         app.start_frame();
-        app.screen = Screen::Galaxy;
         let mut halo = None;
         let page_before = app.tutor.as_ref().map(|t| t.page());
         let output = self.ctx.run(input, |ctx| {
@@ -588,6 +587,13 @@ impl Shell {
             Check::Summary { class: 2, id } | Check::Selection { class: 2, id } => {
                 *id >= 0x200 || unbuilt(*id)
             }
+            Check::Cargo { fleet, .. }
+            | Check::TransportWaypoint { fleet, .. }
+            | Check::FleetWaypoint { fleet, .. }
+            | Check::ColonizeWaypoint { fleet, .. }
+            | Check::RepeatOrders { fleet }
+            | Check::Fuel { fleet, .. }
+            | Check::FleetOrders { fleet, .. } => unbuilt(i16::try_from(*fleet).unwrap_or(-1)),
             Check::Summary { class: 8, id: -1 } => no_salvage,
             _ => false,
         };

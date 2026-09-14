@@ -140,6 +140,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui, report: Report) {
         ui.label("No game open.");
         return;
     }
+    app.drawn_scope = "report";
 
     let font = egui::TextStyle::Body.resolve(ui.style());
     let line = ui.text_style_height(&egui::TextStyle::Body);
@@ -214,12 +215,15 @@ pub fn view(app: &mut App, ui: &mut egui::Ui, report: Report) {
         let origin = response.rect.min;
         painter.rect_filled(response.rect, 0.0, face());
 
-        // The header row.
+        // The header row. Each heading is written down under its name,
+        // so the tutor's ring and a test can find the column to click.
         let mut x = origin.x + 2.0;
         let top = origin.y + 2.0;
+        let mut headings: Vec<(String, Rect)> = Vec::new();
         for (index, &c) in drawn.iter().enumerate() {
             let w = widths[index];
             let cell = Rect::from_min_size(Pos2::new(x, top), Vec2::new(w - 1.0, row_height));
+            headings.push((columns[c].name.to_string(), cell));
             raised(&painter, cell);
             if c == 0 {
                 painter.text(
@@ -239,6 +243,10 @@ pub fn view(app: &mut App, ui: &mut egui::Ui, report: Report) {
                 );
             }
             x += w;
+        }
+
+        for (name, cell) in headings {
+            crate::views::note_widget(app, ui, &name, cell, true);
         }
 
         // The rows that fit, from the one the scrollbar has scrolled to.
@@ -342,7 +350,12 @@ pub fn view(app: &mut App, ui: &mut egui::Ui, report: Report) {
         act(app, action, ids.get(row).copied(), pos);
     }
 
-    menu(app, ui, report);
+    // The menu a header click has just opened is drawn from the next
+    // frame: drawn now, the click that opened it would be the click
+    // outside it that closes it.
+    if clicked_header.is_none() {
+        menu(app, ui, report);
+    }
 }
 
 /// `GetSystemMetrics(SM_CXVSCROLL)` and `SM_CYHSCROLL`, which Windows 3.1
@@ -823,7 +836,9 @@ fn menu(app: &mut App, ui: &mut egui::Ui, report: Report) {
                             index += 1;
                         }
                         Entry::Item(text) => {
-                            if ui.button(text).clicked() {
+                            let entry = ui.button(text);
+                            crate::views::record(app, ui, text, &entry);
+                            if entry.clicked() {
                                 chose = Some(index);
                             }
                             index += 1;
@@ -844,7 +859,9 @@ fn menu(app: &mut App, ui: &mut egui::Ui, report: Report) {
                                             ui.separator();
                                         }
                                         Entry::Item(text) => {
-                                            if ui.button(text).clicked() {
+                                            let entry = ui.button(text);
+                                            crate::views::record(app, ui, text, &entry);
+                                            if entry.clicked() {
                                                 chose = Some(inner);
                                                 ui.close_menu();
                                             }

@@ -3746,9 +3746,81 @@ impl App {
         }
         leg.task = task;
         leg.task_data = vec![0; 10];
+        // `ShipCommandProc` (`1050:2640`): Lay Mine Field starts at five
+        // years.
+        if task == stars_formats::task::LAY_MINES {
+            leg.task_data[0] = 5;
+        }
         leg.transport = (task == stars_formats::task::TRANSPORT)
             .then(|| stars_formats::TransportTask::decode(&leg.task_data))
             .flatten();
+        let at = leg.position;
+        let aimed_at_fleet = leg.target_class == stars_core::fleet::grobj::FLEET;
+        // Merge with Fleet on a waypoint that names no fleet picks one
+        // there (`1050:3653`): of the player's own live fleets standing on
+        // the waypoint's point, other than this one, the first that has
+        // ships of this fleet's most numerous design — and the first such
+        // that is going nowhere ends the search — or, failing any, the
+        // first at all, a fleet going nowhere preferred over one with
+        // orders. The waypoint then reads that fleet.
+        if task == stars_formats::task::MERGE && !aimed_at_fleet {
+            if let Some(game) = self.game.as_ref() {
+                let me = &game.fleets[index];
+                let mut most = 0usize;
+                let mut counts = [0i32; 16];
+                for stack in &me.stacks {
+                    if let Some(slot) = counts.get_mut(usize::from(stack.design)) {
+                        *slot += stack.count;
+                    }
+                }
+                for (slot, count) in counts.iter().enumerate().skip(1) {
+                    if *count > counts[most] {
+                        most = slot;
+                    }
+                }
+                let mut chosen: Option<usize> = None;
+                for (i, other) in game.fleets.iter().enumerate() {
+                    if i == index
+                        || other.owner != me.owner
+                        || other.position != at
+                        || other.is_empty()
+                    {
+                        continue;
+                    }
+                    let same_design = other
+                        .stacks
+                        .iter()
+                        .any(|s| usize::from(s.design) == most && s.count > 0);
+                    if same_design {
+                        chosen = Some(i);
+                        if other.waypoints.len() == 1 {
+                            break;
+                        }
+                    } else if chosen.is_none()
+                        || (game.fleets[chosen.unwrap_or(i)].waypoints.len() > 1
+                            && other.waypoints.len() == 1)
+                    {
+                        chosen = Some(i);
+                    }
+                }
+                // The waypoint holds the fleet's full object word, owner
+                // and all.
+                let word = |f: &stars_core::fleet::Fleet| {
+                    (u16::try_from(f.owner).unwrap_or(0) << 9) | (f.id & 0x1ff)
+                };
+                if let Some(target) = chosen.map(|i| word(&game.fleets[i])) {
+                    if let Some(leg) = self
+                        .game
+                        .as_mut()
+                        .and_then(|g| g.fleets.get_mut(index))
+                        .and_then(|f| f.waypoints.get_mut(waypoint))
+                    {
+                        leg.target_class = stars_core::fleet::grobj::FLEET;
+                        leg.target = Some(target);
+                    }
+                }
+            }
+        }
         self.log_waypoint(index, waypoint, false);
         self.dirty = true;
         true
@@ -13834,7 +13906,7 @@ impl App {
                 } else if matches!(goto, Goto::Position(_, _)) {
                     widget("messages", "View")
                 } else {
-                    menu("Battles", "Report")
+                    menu("Battles…", "Report")
                 }
             }
             Check::BattleVcr { open: false } => {

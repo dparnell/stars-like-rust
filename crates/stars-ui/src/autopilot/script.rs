@@ -21,6 +21,7 @@ const CASTLE: i16 = 0x14;
 const MOHOLDI: i16 = 0x07;
 const SHAGGY_DOG: i16 = 0x0e;
 const SEA_SQUARED: i16 = 0x11;
+const NEIL: i16 = 0x0b;
 const RED_STORM: i16 = 0x12;
 const BLOOP: i16 = 0x17;
 const KALAMAZOO: i16 = 0x16;
@@ -1327,4 +1328,275 @@ pub fn tutorial(shell: &mut Shell) {
     assert!(shell.app.tutor_waiting());
     shell.generate();
     assert_eq!(shell.page(), 45);
+
+    // --- 2414 -------------------------------------------------------------
+    // Page 45: the first message's Goto is Sea Squared, the last's Oxygen;
+    // Min Terraform twice into Oxygen's queue, and the default template
+    // imported from it through the blue diamond's Customize.
+    shell.next_message_until(stars_core::message::Goto::Planet(SEA_SQUARED));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.app.selection.planet, Some(SEA_SQUARED));
+    shell.frame();
+    assert_eq!(shell.app.tutor.as_ref().map(|t| t.bold), Some(354));
+    shell.next_message_until(stars_core::message::Goto::Planet(OXYGEN));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.app.selection.planet, Some(OXYGEN));
+    shell.press("planet", "Change");
+    shell.scroll_to("production", "Min Terraform", "Factory");
+    shell.double_click("production", "Min Terraform");
+    shell.double_click("production", "Min Terraform");
+    {
+        let dialog = shell.app.production.as_ref().expect("open");
+        assert_eq!(
+            (dialog.queue[0].item, dialog.queue[0].count),
+            (stars_core::production::item::AUTO_MIN_TERRAFORM, 2),
+            "{:?}",
+            dialog.queue
+        );
+        assert!(
+            dialog.no_research,
+            "the settled planet's leftover-only research"
+        );
+    }
+    shell.right_click("production", "blue diamond");
+    shell.press("production", "Customize");
+    // Import into the default, which is the slot the box opens on: the
+    // page's check reads the player's default queue.
+    shell.press("customize", "Import");
+    shell.frame();
+    eprintln!(
+        "DBG ok {:?} box {:?}",
+        shell.app.drawn_button("customize", "OK").map(|w| w.rect),
+        shell
+            .app
+            .drawn_button(
+                "production",
+                "Contribute only leftover resources to research"
+            )
+            .map(|w| w.rect)
+    );
+    shell.press("customize", "OK");
+    eprintln!(
+        "DBG after customize ok: {:?}",
+        shell.app.production.as_ref().map(|d| d.no_research)
+    );
+    // The page's queue checks read the planet's own queue, which the
+    // dialog's OK writes; the year is done with it.
+    shell.press("production", "OK");
+    eprintln!(
+        "DBG pending {:?} bold {:?} oxygen {:?}",
+        shell.app.tutor_pending(),
+        shell.app.tutor_bold(),
+        shell.app.game.as_ref().map(|g| g
+            .planets
+            .iter()
+            .find(|p| p.id == OXYGEN)
+            .map(|p| (p.queue.clone(), p.no_research)))
+    );
+    assert_eq!(shell.page(), 45, "2414 is done, waiting on the turn");
+    assert!(shell.app.tutor_waiting());
+    shell.generate();
+    assert_eq!(shell.page(), 46);
+
+    // --- 2415 -------------------------------------------------------------
+    // Page 46: Armed Probe #9 to Neil. Here the probe is still on its way
+    // home from Hiho, so it is taken from the map, its Stove Top leg
+    // deleted and Neil shift-clicked in its place.
+    let probe = shell.fleet_on_screen(8);
+    shell.click_at(probe);
+    assert_eq!(shell.selected_fleet_id(), Some(8), "Armed Probe #9");
+    let home = shell.planet_on_screen(STOVE_TOP);
+    shell.click_at(home);
+    assert_eq!(shell.app.selection.waypoint, Some(1), "its leg in hand");
+    assert!(shell.app.delete_current_waypoint());
+    shell.frame();
+    let probe = shell.fleet_on_screen(8);
+    shell.click_at(probe);
+    assert_eq!(shell.selected_fleet_id(), Some(8));
+    shell.shift_click_planet(NEIL);
+    shell.frame();
+    assert_eq!(shell.app.tutor.as_ref().map(|t| t.bold), Some(361));
+
+    // "Goto the new Teamster": none was built this year — Stove Top's
+    // ironium went into the Mini-Miner — so the page's freighter rungs
+    // cannot be reached; the Planet Summary Report is looked at as the
+    // page says, sorted by Value, and closed (Esc is the shell's key).
+    let new_teamster = shell
+        .app
+        .game
+        .as_ref()
+        .expect("a game")
+        .fleets
+        .iter()
+        .any(|f| f.owner == 0 && f.id == 6);
+    assert!(
+        !new_teamster,
+        "Teamster #7 exists: page 46 can be played in full — extend the script"
+    );
+    shell.press("menu", "Report");
+    shell.press("menu", "Planets…");
+    shell.frame();
+    assert!(shell.app.open_report_kind().is_some(), "the report is up");
+    shell.press("report", "Value");
+    shell.press("report", "Sort by Value");
+    shell.frame();
+    assert_eq!(
+        shell.app.reports.state(crate::report::Report::Planets).sort,
+        4,
+        "sorted on Value"
+    );
+    shell.app.close_report();
+    shell.frame();
+
+    // Page 47's Research dialog, opened and shut as the page says; the
+    // remaining messages; Teamster #12 was never built.
+    shell.press("menu", "Commands");
+    shell.press("menu", "Research…");
+    shell.press("research", "Done");
+    while shell.app.message_next(false).is_some() {
+        shell.press("messages", "Next");
+    }
+    shell.generate_anyway("no new Teamster this year; on to 2416");
+    assert_eq!(shell.page(), 48, "2416: the year's pages are counted done");
+
+    // --- 2416 -------------------------------------------------------------
+    // Page 48: Stalwart Defender #5, home with its orders done, to
+    // Wallaby; the new Mini-Miner to Prune to merge with the Cotton
+    // Picker; Stove Top's auto factories raised to sixty with sixty auto
+    // mines behind them; Construction next.
+    shell.next_message_until(stars_core::message::Goto::Fleet(4));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(4), "Stalwart Defender #5");
+    shell.shift_click_planet(WALLABY);
+    shell.frame();
+    assert_eq!(shell.app.tutor.as_ref().map(|t| t.bold), Some(377));
+    // The Mini-Miner is fleet 1 here — Mini-Miner #2, in the number Long
+    // Range Scout #2 left — where the original's was fleet 7, so the
+    // page's merge rung is not seen done; the order is given all the
+    // same.
+    let miner = {
+        let game = shell.app.game.as_ref().expect("a game");
+        game.fleets
+            .iter()
+            .find(|f| f.owner == 0 && f.stacks.iter().any(|s| s.design == 6))
+            .map(|f| f.id)
+            .expect("the Mini-Miner")
+    };
+    shell.next_message_until(stars_core::message::Goto::Fleet(miner));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(miner), "the Mini-Miner");
+    shell.shift_click_planet(PRUNE);
+    shell.press("fleet", "Waypoint Task");
+    shell.press("fleet", "Merge with Fleet");
+    {
+        let game = shell.app.game.as_ref().expect("a game");
+        let fleet = &game.fleets[shell.app.selection.fleet.expect("in hand")];
+        assert_eq!(fleet.waypoints[1].task, stars_formats::task::MERGE);
+        assert_eq!(
+            fleet.waypoints[1].target_class,
+            stars_core::fleet::grobj::FLEET,
+            "the waypoint reads Cotton Picker #6"
+        );
+        assert_eq!(fleet.waypoints[1].target, Some(5));
+    }
+    shell.right_click_planet_and_pick(STOVE_TOP, "Stove Top");
+    shell.press("planet", "Change");
+    shell.scroll_to("production", "Factories", "Factory");
+    shell.press("production", "Factories");
+    shell.press("production", "Factories up to 30");
+    for _ in 0..3 {
+        shell.press_with(egui::Modifiers::SHIFT, "production", "Add ->");
+    }
+    shell.scroll_to("production", "Mines", "Factories");
+    shell.press("production", "Mines");
+    shell.press("production", "Factories up to 60");
+    for _ in 0..6 {
+        shell.press_with(egui::Modifiers::SHIFT, "production", "Add ->");
+    }
+    {
+        let dialog = shell.app.production.as_ref().expect("open");
+        let tail: Vec<(u16, i32)> = dialog
+            .queue
+            .iter()
+            .filter(|q| q.is_auto())
+            .map(|q| (q.item, q.count))
+            .collect();
+        assert_eq!(
+            tail,
+            vec![
+                (stars_core::production::item::AUTO_FACTORY, 60),
+                (stars_core::production::item::AUTO_MINE, 60)
+            ],
+            "{:?}",
+            dialog.queue
+        );
+    }
+    shell.press("production", "OK");
+    shell.next_message_until(stars_core::message::Goto::Research);
+    shell.press("messages", "Goto");
+    shell.app.research_dialog.as_mut().expect("the dialog").next =
+        stars_core::research::NextField::Field(3);
+    shell.press("research", "Done");
+    while shell.app.message_next(false).is_some() {
+        shell.press("messages", "Next");
+    }
+    if shell.app.tutor_waiting() {
+        shell.generate();
+    } else {
+        shell.generate_anyway("the Teamster still building heads Stove Top's queue; on to 2417");
+    }
+    assert_eq!(shell.page(), 49, "2417");
+
+    // --- 2417 -------------------------------------------------------------
+    // Page 49: every message, and Teamster #1 — its colonists put down at
+    // Slime, in a message the filter of page 28 hides — home to Stove Top,
+    // taken from Slime's menu.
+    while shell.app.message_next(false).is_some() {
+        shell.press("messages", "Next");
+    }
+    shell.right_click_planet_and_pick(SLIME, "Teamster #1");
+    assert_eq!(shell.selected_fleet_id(), Some(0), "Teamster #1");
+    shell.shift_click_planet(STOVE_TOP);
+    shell.frame();
+    assert_eq!(shell.page(), 49, "2417 is done, waiting on the turn");
+    assert!(shell.app.tutor_waiting());
+    shell.generate();
+    assert_eq!(shell.page(), 50);
+
+    // --- 2418 -------------------------------------------------------------
+    // Page 50: a Teamster into Stove Top's queue; Goto 90210; the
+    // Research dialog opened and shut; the rest of the messages.
+    shell.right_click_planet_and_pick(STOVE_TOP, "Stove Top");
+    shell.press("planet", "Change");
+    shell.press("production", "Top of the Queue");
+    shell.double_click("production", "Teamster");
+    {
+        let dialog = shell.app.production.as_ref().expect("open");
+        assert_eq!((dialog.queue[0].ship, dialog.queue[0].item), (true, 3));
+    }
+    shell.press("production", "OK");
+    shell.frame();
+    // The page's other rungs are hints and a dialog-shut check, so the
+    // Teamster alone sees the page done; the rest is read all the same.
+    assert!(
+        shell.app.tutor_waiting(),
+        "page 50 is done with the Teamster"
+    );
+    // No message of 2418 points at 90210 here, so it is taken from the map.
+    let planet = shell.planet_on_screen(PLANET_90210);
+    shell.click_at(planet);
+    assert_eq!(shell.app.selection.planet, Some(PLANET_90210));
+    // The dialog open takes the page's last rung back until it is shut,
+    // so the opening press goes unchecked.
+    shell.press("menu", "Commands");
+    shell.press_unchecked("menu", "Research…");
+    shell.press("research", "Done");
+    while shell.app.message_next(false).is_some() {
+        shell.press("messages", "Next");
+    }
+    shell.frame();
+    assert_eq!(shell.page(), 50, "2418 is done, waiting on the turn");
+    assert!(shell.app.tutor_waiting());
+    shell.generate();
+    assert_eq!(shell.page(), 51);
 }

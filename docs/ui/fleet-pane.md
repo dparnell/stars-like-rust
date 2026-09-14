@@ -173,6 +173,23 @@ original's notices are authored prose.
 | `Colonize` | **warning** with no colonists aboard, otherwise the dismantling note |
 | `Lay Mine Field` | how many mines a year, or a **warning** with no layer aboard |
 
+### Choosing Merge with Fleet picks the fleet
+
+`ShipCommandProc` (`1050:2640`), on the task dropdown changing: the task
+is written, the ten payload bytes zeroed — Patrol clears its two words,
+Transfer its one, and **Lay Mine Field starts at five years** — and then,
+for Merge with Fleet on a waypoint that does not already name a fleet
+(`1050:3653`), a fleet is found for it. The design this fleet has most of
+is the key; the player's own live fleets standing on the waypoint's
+point, other than this one, are walked in list order: one with ships of
+that design is taken, and the search ends at the first such that has no
+orders beyond where it stands; failing any, the first fleet at all is
+taken, a fleet with no further orders replacing one that has. The
+waypoint's class becomes *fleet* and its id that fleet's full word, which
+is how page 48's Prune reads *Cotton Picker #6* once the Mini-Miner is
+told to merge there. With nobody there the task stays on the planet
+waypoint, which is the warning above.
+
 ### Where the patrol list parts company
 
 The binary's own list has **twelve** entries: eleven ` within %d l.y.` from 50

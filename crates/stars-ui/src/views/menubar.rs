@@ -20,12 +20,25 @@ fn item(
     caption: &str,
     key: &str,
 ) -> egui::Response {
+    item_named(app, ui, enabled, caption, caption, key)
+}
+
+/// A menu item whose caption carries a mark — a check, or the space one
+/// would take — and which is recorded under its plain name.
+fn item_named(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    enabled: bool,
+    caption: &str,
+    name: &str,
+    key: &str,
+) -> egui::Response {
     let mut button = egui::Button::new(caption);
     if !key.is_empty() {
         button = button.shortcut_text(key);
     }
     let response = ui.add_enabled(enabled, button);
-    record(app, ui, caption, &response);
+    record(app, ui, name, &response);
     response
 }
 
@@ -149,7 +162,7 @@ pub fn game_menus(app: &mut App, ui: &mut egui::Ui) -> Option<String> {
             }
             let open = app.screen == screen;
             let mark = if open { "\u{2713} " } else { "    " };
-            if item(app, ui, playing, &format!("{mark}{caption}"), "F3").clicked() {
+            if item_named(app, ui, playing, &format!("{mark}{caption}"), caption, "F3").clicked() {
                 ui.close_menu();
                 app.choose_report(screen);
             }
@@ -164,7 +177,7 @@ pub fn game_menus(app: &mut App, ui: &mut egui::Ui) -> Option<String> {
         ui.separator();
         let open = app.screen == Screen::Players;
         let mark = if open { "\u{2713} " } else { "    " };
-        if item(app, ui, playing, &format!("{mark}Players"), "")
+        if item_named(app, ui, playing, &format!("{mark}Players"), "Players", "")
             .on_hover_text("This project's own summary screen. Esc closes it.")
             .clicked()
         {

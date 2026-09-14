@@ -563,92 +563,105 @@ fn customize_panel(app: &mut App, ui: &mut egui::Ui) {
         .map(|s| app.production_template_name(s))
         .collect();
 
-    egui::Frame::group(ui.style()).show(ui, |ui| {
-        ui.label(
-            egui::RichText::new("Customize Production Templates")
-                .small()
-                .strong(),
-        );
-        ui.horizontal(|ui| {
-            for (index, name) in names.iter().enumerate() {
-                ui.radio_value(&mut slot, index, egui::RichText::new(name).small());
-            }
-        });
-        app.production_customize_select(slot);
+    // `ZipProdDlg` is a dialog of its own over the production dialog, so
+    // this goes on a layer above it: nothing underneath — the leftover
+    // checkbox, the dialog's own OK — can take a click meant for it.
+    let over = ui.min_rect().left_bottom();
+    egui::Area::new(egui::Id::new("production-customize"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(over)
+        .show(ui.ctx(), |ui| {
+            egui::Frame::group(ui.style())
+                .fill(ui.visuals().window_fill)
+                .show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new("Customize Production Templates")
+                            .small()
+                            .strong(),
+                    );
+                    ui.horizontal(|ui| {
+                        for (index, name) in names.iter().enumerate() {
+                            let radio =
+                                ui.radio_value(&mut slot, index, egui::RichText::new(name).small());
+                            crate::views::record(app, ui, name, &radio);
+                        }
+                    });
+                    app.production_customize_select(slot);
 
-        // What the chosen template holds, and its research setting.
-        let templates = app.production_templates();
-        let queue = templates.get(slot).and_then(|t| t.queue.as_ref());
-        for line in stars_core::production::template_lines(queue) {
-            ui.label(egui::RichText::new(line).small());
-        }
-        ui.label(
-            egui::RichText::new(if queue.is_some_and(|q| q.no_research) {
-                "Don't contribute to research"
-            } else {
-                "Contribute to research"
-            })
-            .small()
-            .weak(),
-        );
+                    // What the chosen template holds, and its research setting.
+                    let templates = app.production_templates();
+                    let queue = templates.get(slot).and_then(|t| t.queue.as_ref());
+                    for line in stars_core::production::template_lines(queue) {
+                        ui.label(egui::RichText::new(line).small());
+                    }
+                    ui.label(
+                        egui::RichText::new(if queue.is_some_and(|q| q.no_research) {
+                            "Don't contribute to research"
+                        } else {
+                            "Contribute to research"
+                        })
+                        .small()
+                        .weak(),
+                    );
 
-        let editable = app.production_template_editable(slot);
-        ui.horizontal(|ui| {
-            let import = ui
-                .button(egui::RichText::new("Import").small())
-                .on_hover_text(
-                    "Takes the auto-build items out of this planet's queue, in order, \
+                    let editable = app.production_template_editable(slot);
+                    ui.horizontal(|ui| {
+                        let import = ui
+                            .button(egui::RichText::new("Import").small())
+                            .on_hover_text(
+                                "Takes the auto-build items out of this planet's queue, in order, \
                      and makes them this template.",
-                );
-            crate::views::record(app, ui, "Import", &import);
-            if import.clicked() {
-                let name = app.production_template_name(slot);
-                app.production_import_template(slot, &name);
-            }
-            let delete = ui
-                .add_enabled(
-                    editable,
-                    egui::Button::new(egui::RichText::new("Delete").small()),
-                )
-                .on_disabled_hover_text(
-                    "The default template cannot be deleted. To empty it, import an \
+                            );
+                        crate::views::record(app, ui, "Import", &import);
+                        if import.clicked() {
+                            let name = app.production_template_name(slot);
+                            app.production_import_template(slot, &name);
+                        }
+                        let delete = ui
+                            .add_enabled(
+                                editable,
+                                egui::Button::new(egui::RichText::new("Delete").small()),
+                            )
+                            .on_disabled_hover_text(
+                                "The default template cannot be deleted. To empty it, import an \
                      empty queue over it.",
-                );
-            crate::views::record(app, ui, "Delete", &delete);
-            if delete.clicked() {
-                app.production_delete_template(slot);
-            }
-            let ok = ui.button(egui::RichText::new("OK").small());
-            crate::views::record(app, ui, "OK", &ok);
-            if ok.clicked() {
-                app.production_customize_close(true);
-            }
-            let cancel = ui
-                .button(egui::RichText::new("Cancel").small())
-                .on_hover_text("Puts every template back as it was.");
-            crate::views::record(app, ui, "Cancel", &cancel);
-            if cancel.clicked() {
-                app.production_customize_close(false);
-            }
-        });
+                            );
+                        crate::views::record(app, ui, "Delete", &delete);
+                        if delete.clicked() {
+                            app.production_delete_template(slot);
+                        }
+                        let ok = ui.button(egui::RichText::new("OK").small());
+                        crate::views::record(app, ui, "OK", &ok);
+                        if ok.clicked() {
+                            app.production_customize_close(true);
+                        }
+                        let cancel = ui
+                            .button(egui::RichText::new("Cancel").small())
+                            .on_hover_text("Puts every template back as it was.");
+                        crate::views::record(app, ui, "Cancel", &cancel);
+                        if cancel.clicked() {
+                            app.production_customize_close(false);
+                        }
+                    });
 
-        // Renaming, for a slot that has one to rename.
-        if editable {
-            let mut name = app.production_template_name(slot);
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Name").small());
-                if ui
-                    .add(
-                        egui::TextEdit::singleline(&mut name)
-                            .desired_width(160.0)
-                            .char_limit(stars_formats::TEMPLATE_NAME_MAX),
-                    )
-                    .changed()
-                {
-                    app.production_rename_template(slot, &name);
-                }
-            });
-        }
-    });
+                    // Renaming, for a slot that has one to rename.
+                    if editable {
+                        let mut name = app.production_template_name(slot);
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("Name").small());
+                            if ui
+                                .add(
+                                    egui::TextEdit::singleline(&mut name)
+                                        .desired_width(160.0)
+                                        .char_limit(stars_formats::TEMPLATE_NAME_MAX),
+                                )
+                                .changed()
+                            {
+                                app.production_rename_template(slot, &name);
+                            }
+                        });
+                    }
+                });
+        });
     app.drawn_scope = was;
 }
