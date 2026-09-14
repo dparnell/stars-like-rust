@@ -786,16 +786,30 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             && app
                 .planet_mass_driver()
                 .is_some_and(|driver| driver.present()));
+    // Control-click with one of your planets in hand **routes** it
+    // (`ScannerWndProc`, `1058:0032`, the `MK_CONTROL` branch): new ships
+    // built there go to the planet clicked, and clicking the planet
+    // itself clears the route.
+    let routing = !aiming
+        && ui.input(|i| i.modifiers.command)
+        && selected_planet
+        && app.selected_planet_is_mine();
     if aiming && response.clicked() {
         if let Some(id) = clicked.and_then(|(_, _, planet, _)| planet) {
             app.aim_mass_driver(id);
+        }
+    } else if routing && response.clicked() {
+        if let Some(id) = clicked.and_then(|(_, _, planet, _)| planet) {
+            app.set_planet_route(id);
         }
     }
     // Giving orders instead of selecting. `ScannerWndProc` (`1058:0ae1`) takes
     // this branch when a **fleet** is selected and either shift is held or Add
     // Way Points mode is on — the two are the same path, and shift is how you
     // lay a course without leaving select mode.
-    else if app.selection.fleet.is_some() && (app.add_waypoints || shift_held) {
+    else if routing {
+        // Nothing else on a control-click.
+    } else if app.selection.fleet.is_some() && (app.add_waypoints || shift_held) {
         if response.clicked() {
             if let Some(p) = response.interact_pointer_pos().filter(|p| on_map(*p)) {
                 let (x, y) = to_galaxy(p);

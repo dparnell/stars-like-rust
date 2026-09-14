@@ -13,8 +13,8 @@
 //! ```
 //!
 //! The game's own pictures and text are used when a copy of the original
-//! is in `binary/`. The run stops where the walkthrough stops (see
-//! `docs/ui/tutorial.md`, *Where the run stops*) and says so.
+//! is in `binary/`. The run plays every page to the tutorial's end (see
+//! `docs/ui/tutorial.md`, *The run, to the end*) and says so.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -152,8 +152,8 @@ fn main() -> eframe::Result<()> {
         });
         let ended = match outcome {
             Ok(page) => format!(
-                "the walkthrough is done — it stops on page {} (docs/ui/tutorial.md, Where the run stops)",
-                page.unwrap_or(0)
+                "the tutorial is over — page {} of 80 was the last, and the game is yours (docs/ui/tutorial.md, The run, to the end)",
+                page.unwrap_or(80)
             ),
             Err(e) => {
                 let why = e

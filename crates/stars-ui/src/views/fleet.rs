@@ -669,7 +669,75 @@ fn waypoints(app: &mut App, ui: &mut egui::Ui) {
     }
     ui.allocate_space(egui::vec2(ui.available_width(), list.height() + 4.0));
 
-    crate::views::planet::grid(ui, "waypoints", &app.fleet_waypoints_tile(), false);
+    // The figures, with the warp drawn as the gauge it is in the original
+    // (`rgrcRef[0]`) rather than as a number: a bar of eleven steps, warp
+    // 0 to 10, that a drag or a click sets the leg in hand to.
+    let rows: Vec<(String, String)> = app
+        .fleet_waypoints_tile()
+        .into_iter()
+        .filter(|(label, _)| label != "Warp Factor")
+        .collect();
+    let (first, rest) = rows.split_at(rows.len().min(1));
+    crate::views::planet::grid(ui, "waypoints-to", first, false);
+    if let Some((waypoint, warp)) = app.task_waypoint().and_then(|w| {
+        let leg = app.task_leg()?;
+        Some((w, leg.warp))
+    }) {
+        let top = ui.cursor().min;
+        let label_width = 64.0;
+        ui.painter().text(
+            top + egui::vec2(0.0, 0.0),
+            egui::Align2::LEFT_TOP,
+            "Warp Factor",
+            egui::TextStyle::Small.resolve(ui.style()),
+            ui.visuals().text_color(),
+        );
+        let bar = egui::Rect::from_min_size(
+            top + egui::vec2(label_width + 4.0, 0.0),
+            egui::vec2((ui.available_width() - label_width - 6.0).max(20.0), line),
+        );
+        let response = ui.interact(
+            bar,
+            ui.id().with("warp-gauge"),
+            if mine {
+                egui::Sense::click_and_drag()
+            } else {
+                egui::Sense::hover()
+            },
+        );
+        crate::views::record(app, ui, "Warp gauge", &response);
+        let painter = ui.painter();
+        painter.rect_filled(bar, 0.0, ui.visuals().extreme_bg_color);
+        let filled = bar.width() * f32::from(warp) / 10.0;
+        painter.rect_filled(
+            egui::Rect::from_min_size(bar.min, egui::vec2(filled, bar.height())),
+            0.0,
+            egui::Color32::from_rgb(0x30, 0x80, 0xd0),
+        );
+        painter.rect_stroke(
+            bar,
+            0.0,
+            egui::Stroke::new(1.0_f32, ui.visuals().widgets.noninteractive.bg_stroke.color),
+        );
+        painter.text(
+            bar.center(),
+            egui::Align2::CENTER_CENTER,
+            format!("Warp {warp}"),
+            egui::TextStyle::Small.resolve(ui.style()),
+            ui.visuals().text_color(),
+        );
+        if mine && (response.dragged() || response.clicked()) {
+            if let Some(p) = response.interact_pointer_pos() {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let chosen = (((p.x - bar.left()) / bar.width()) * 11.0)
+                    .floor()
+                    .clamp(0.0, 10.0) as u8;
+                app.set_waypoint_warp(waypoint, chosen);
+            }
+        }
+        ui.allocate_space(egui::vec2(ui.available_width(), line));
+    }
+    crate::views::planet::grid(ui, "waypoints", rest, false);
 
     // Repeat Orders, along the foot: a line tall, as a Windows checkbox is.
     ui.spacing_mut().interact_size.y = line;

@@ -78,6 +78,14 @@ pub mod id {
     /// `idmRecentBreakthroughHasAlsoTaughtHowBuild2`: planetary items 0 to
     /// 8, the scanners, likewise.
     pub const BREAKTHROUGH_SCANNER: u16 = 0x157;
+    /// `idmColonistsHaveDiedOffLongerControlPlanet`: a planet's people are
+    /// gone and the planet with them — `UpdatePopulations` (`10b8:50a0`),
+    /// when the year's change took the count to nothing; `[planet]`, the
+    /// planet the object. An Alternate Reality race gets the next id.
+    pub const COLONISTS_DIED_OFF: u16 = 0x23;
+    /// `idmColonistsHaveJumpedShipLongerControlPlanet`: the same when the
+    /// count was already nothing — the colonists were taken off, not lost.
+    pub const COLONISTS_JUMPED_SHIP: u16 = 0x40;
     /// `idmHasDismantledKtMineralsWhichHaveDeposited`: a colony ship broke
     /// itself up on arrival. The fifth message the tutorial filters.
     pub const FLEET_DISMANTLED: u16 = 89;
@@ -553,6 +561,14 @@ impl Message {
                     ),
                 }
             }
+            id::COLONISTS_DIED_OFF | 0x24 => format!(
+                "All of your colonists on {} have died off; the planet is no longer yours.",
+                planet(0)
+            ),
+            id::COLONISTS_JUMPED_SHIP | 0x41 => format!(
+                "All of your colonists on {} have left; the planet is no longer yours.",
+                planet(0)
+            ),
             id::HAS_UNLOADED | id::HAS_BEAMED_DOWN => format!(
                 "{} has put {}kT of {} down at {}.",
                 fleet(),

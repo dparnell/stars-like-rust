@@ -566,9 +566,36 @@ pub fn generate_turn_with_orders(
         let Some(race) = owner_race(state, index) else {
             continue;
         };
-        if let Some(change) = update_population(&mut state.planets[index], &race) {
+        let change = update_population(&mut state.planets[index], &race);
+        if let Some(change) = change {
             let id = state.planets[index].id;
             report.population.push((id, change.delta));
+        }
+        // `UpdatePopulations` (`10b8:50a0`): a planet with an owner and
+        // nobody left on it is given up — "died off" when this year's
+        // change took the last of them, "jumped ship" when there were
+        // none to begin with — and `UninhabitPlanet` clears it.
+        let planet = &state.planets[index];
+        if planet.owner.is_some() && planet.pop <= 0 {
+            let id = planet.id;
+            let owner = usize::try_from(planet.owner.unwrap_or(-1)).ok();
+            let died = change.is_some_and(|c| c.delta < 0);
+            let ar = race.prt() == Some(crate::race::Prt::Ar);
+            if let Some(player) = owner {
+                let base = if died {
+                    crate::message::id::COLONISTS_DIED_OFF
+                } else {
+                    crate::message::id::COLONISTS_JUMPED_SHIP
+                };
+                state.messages.push(crate::message::Message {
+                    player,
+                    id: base + u16::from(ar),
+                    object: id,
+                    params: vec![id],
+                });
+            }
+            let ca = race.prt() == Some(crate::race::Prt::Ca);
+            crate::bombing::uninhabit(&mut state.planets[index], ca);
         }
     }
 
@@ -935,7 +962,77 @@ fn add_ships_to_orbiting_fleet(
             task_data: Vec::new(),
         }],
     });
+    let index = state.fleets.len() - 1;
+    auto_route_fleet(state, index, planet);
     Some(id)
+}
+
+/// `AutoRouteFleet` (`1080:1e52`): a ship built at a planet with a
+/// **route** leaves the yard with a leg to the route's end — a Route task,
+/// at a warp found thus: `IFindIdealWarp`'s cruising warp; then, down to
+/// warp 3, the slowest warp that takes no more years over the leg than
+/// that one; then lower still while the tank will not cover the leg. (The
+/// original also jumps the leg through a pair of stargates when both
+/// ends have one and the fleet carries nothing, which this engine does not
+/// model yet.)
+fn auto_route_fleet(state: &mut GameState, index: usize, planet: i16) {
+    let owner = state.fleets[index].owner;
+    let Some(destination) = state
+        .planets
+        .iter()
+        .find(|p| p.id == planet && p.owner == Some(owner))
+        .and_then(|p| p.route_dest)
+        .filter(|to| *to != planet)
+    else {
+        return;
+    };
+    let Some(to) = state
+        .planets
+        .iter()
+        .chain(state.known_planets.iter())
+        .find(|p| p.id == destination)
+        .and_then(|p| p.position)
+    else {
+        return;
+    };
+    let designs = usize::try_from(owner)
+        .ok()
+        .and_then(|o| state.designs.get(o))
+        .cloned()
+        .unwrap_or_default();
+    let ife = usize::try_from(owner)
+        .ok()
+        .and_then(|o| state.players.get(o))
+        .is_some_and(|p| p.race.has_lrt(crate::race::lrt::IFE));
+    let fleet = &state.fleets[index];
+    #[allow(clippy::cast_possible_truncation)]
+    let distance = crate::movement::distance(fleet.position, to).ceil() as i32;
+    let years = |warp: i32| (distance + warp * warp - 1) / (warp * warp);
+    let mut warp = i32::from(crate::movement::ideal_warp(&fleet.stacks, &designs, false));
+    if (1..11).contains(&warp) {
+        let at_ideal = years(warp);
+        while warp >= 3 && years(warp - 1) <= at_ideal {
+            warp -= 1;
+        }
+        while warp > 0
+            && fleet.fuel_use(&designs, u8::try_from(warp).unwrap_or(0), distance, ife)
+                > fleet.cargo.fuel
+        {
+            warp -= 1;
+        }
+    }
+    let warp = u8::try_from(warp.clamp(0, 10)).unwrap_or(0);
+    let fleet = &mut state.fleets[index];
+    fleet.waypoints.push(crate::fleet::Waypoint {
+        position: to,
+        target: u16::try_from(destination).ok(),
+        target_class: crate::fleet::grobj::PLANET,
+        warp,
+        task: stars_formats::task::ROUTE,
+        transport: None,
+        task_data: Vec::new(),
+    });
+    fleet.warp = Some(warp);
 }
 
 /// The waypoint task ordering a fleet to mine from orbit (`grTaskMine`).

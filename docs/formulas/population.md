@@ -104,6 +104,20 @@ agree to the digit is the strongest single confirmation in this spec.
 
 ## Edge cases & clamps
 
+- **A planet with nobody left is given up.** `UpdatePopulations`
+  (`10b8:50a0`), after the year's change: a planet with an owner and a
+  count of zero sends `idmColonistsHaveDiedOffLongerControlPlanet` (`0x23`)
+  when the change was negative and `…HaveJumpedShip…` (`0x40`) when there
+  was nobody to begin with — one more for an Alternate Reality race — and
+  then `UninhabitPlanet` clears it: owner, queue, defences, scanner,
+  starbase, routes, the lot. The tutorial's Wallaby, whose people die off
+  faster than the freighters can bring them, is the worked case; the
+  engine does the same in `generate_turn` after `update_population`.
+- Colonists put down by a **freighter** on a planet that is not the
+  fleet's owner's — an empty one, or another player's — are a landing,
+  settled with the year's colony drops (`resolve_colonist_drops`), not an
+  addition to the count; a Transport's Unload All at a planet that has
+  died is how the tutorial's Wallaby is settled again.
 - A planet within 10 units of capacity neither grows nor shrinks, and the
   accumulator is left untouched.
 - A death or growth computation that rounds to zero is forced to a minimum of

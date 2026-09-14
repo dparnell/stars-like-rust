@@ -305,12 +305,17 @@ pub fn resolve_colonist_drops(state: &mut GameState, drops: &[ColonistDrop]) -> 
         if landings.is_empty() {
             continue;
         }
+        // The colonists that landed were added to the planet's count on
+        // the way down (`move_cargo`), so the defenders are what was there
+        // before them.
+        let landed: i32 = landings.iter().map(|l| l.colonists).sum();
+        let held = state.planets[index].pop - landed;
         let defender = state.planets[index].owner.and_then(|owner| {
             let prt = usize::try_from(owner)
                 .ok()
                 .and_then(|i| state.players.get(i))
                 .and_then(|p| p.race.prt());
-            (state.planets[index].pop > 0).then_some((state.planets[index].pop, prt))
+            (held > 0).then_some((held, prt))
         });
 
         match crate::ground::resolve_landings(defender, &landings) {
@@ -622,9 +627,25 @@ pub fn execute_arrival_tasks_after_moving(
                         if amount == 0 {
                             continue;
                         }
+                        // Colonists put down on a planet that is not the
+                        // fleet's owner's are a **landing** — a settling of
+                        // an empty world, or an invasion — and are settled
+                        // with the year's other drops, not simply added.
+                        let theirs = state
+                            .planets
+                            .iter()
+                            .find(|p| p.id == planet_id)
+                            .is_some_and(|p| p.owner != Some(owner));
                         let went = move_cargo(state, index, planet_id, owner, kind, amount);
                         if went == 0 {
                             continue;
+                        }
+                        if kind == COLONISTS && went < 0 && theirs {
+                            drops.push(ColonistDrop {
+                                planet: planet_id,
+                                player: owner,
+                                colonists: -went,
+                            });
                         }
                         moved = true;
                         // What moved is reported: minerals are loaded and
@@ -1106,7 +1127,22 @@ fn move_cargo(
                 FUEL => i32::MAX,
                 k => p.surface_min[k],
             });
-        amount.min(stock.max(0))
+        // And no more than the fleet has room for: a "load all" of fuel at
+        // a planet asks for everything, and the planet's fuel has no end.
+        let room = {
+            let designs = state
+                .designs
+                .get(usize::try_from(owner).unwrap_or(usize::MAX))
+                .cloned()
+                .unwrap_or_default();
+            let f = &state.fleets[fleet];
+            if kind == FUEL {
+                f.fuel_capacity(&designs) - f.cargo.fuel
+            } else {
+                f.cargo_capacity(&designs) - f.cargo.mass()
+            }
+        };
+        amount.min(stock.max(0)).min(room.max(0))
     } else {
         amount
     };

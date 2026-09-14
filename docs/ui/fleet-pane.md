@@ -173,6 +173,17 @@ original's notices are authored prose.
 | `Colonize` | **warning** with no colonists aboard, otherwise the dismantling note |
 | `Lay Mine Field` | how many mines a year, or a **warning** with no layer aboard |
 
+### The warp gauge
+
+The Fleet Waypoints tile's warp is a **gauge**, not a figure
+(`rgrcRef[0]`, `ClickInShipOrders` `1050:7cda`): a bar of eleven steps
+that a click or a drag sets to the pointer's fraction of its width in
+elevenths, warp 0 to 10, written into the leg in hand; on the first leg it
+is the fleet's own speed. Page 71 has Teamster #4's leg home lowered to
+warp 5 on it. A fleet with no leg has only where it stands, and the tile's
+task is set there — Scrap Fleet, Lay Mine Field — so `task_waypoint` falls
+back to waypoint zero.
+
 ### Merge, and the Merge Fleets dialog
 
 `rghwndBtn[10]` is **Merge** (`ShipCommandProc`, `1050:2640`): it gathers

@@ -448,11 +448,9 @@ pages, through the same calls the panes make, and checks that every task
 turns the page as `AdvanceTutor` would. `tutorial_ui.rs` plays it through
 the panes themselves — every step a press on a button where a pane drew it,
 a pick from a menu or dropdown where it opened, or a click on the map where
-the scanner drew the planet — and so far gets through **2400 to 2410**,
-pages one to thirty-three, and stops where the walkthrough stops; see
-*Through the panes* below. It gets through **2400 to 2410** —
-pages one to thirty-three — and stops on page 34. The first four years took three corrections to
-what was here:
+the scanner drew the planet — from the first page to the last; see
+*Through the panes* and *The run, to the end* below. The first four years
+took three corrections to what was here:
 
 * the five opening messages, above;
 * `FCheckCargo`'s figures, which had been transcribed as 25kT for every
@@ -699,23 +697,29 @@ whenever the page is waiting on something, with two exceptions it names:
 another player's fleet that is not in view, and a fleet of ours that a
 pane cannot reach.
 
-### Where the run stops
+### The run, to the end
 
-The walkthrough now plays through page 66 and into 2427, page 67: the
-three pieces that were wanted for the years after 2410 are in — the
-player's own view of the galaxy (`stars_core::visibility`), the
-Berserkers' turn (`../formulas/ai.md`, *The TurinDrone turn*) and
-`DoBattles` (`../formulas/combat.md`, *The battle around the board*), with
-the Battle VCR drawn under the shared frame and opened by a battle
-message's View (`tests/vcr_ui.rs`) — and a fourth that page 37 turned up,
-a fleet's chase after another (`../formulas/movement.md`, *Chasing a
-fleet*), without which Armed Probe #9 never caught the Berserkers' scout.
+The walkthrough now plays **all eighty pages**, 2400 to 2436, and the
+Generate that ends the tutorial; `crates/stars-ui/tests/tutorial_ui.rs`
+asserts the tutor finished. The pieces that were wanted for the years
+after 2410 are in — the player's own view of the galaxy
+(`stars_core::visibility`), the Berserkers' turn (`../formulas/ai.md`,
+*The TurinDrone turn*), `DoBattles` (`../formulas/combat.md`, *The battle
+around the board*) with the Battle VCR, a fleet's chase after another
+(`../formulas/movement.md`, *Chasing a fleet*), the parts a level of
+research brings (`../formulas/research.md`), the designer's editor laid
+out as the original's (`ship-design.md`), the Merge Fleets dialog, the
+warp gauge and Merge with Fleet's choice of fleet (`fleet-pane.md`), a
+planet's route and the leg a new ship takes from it
+(`../formulas/movement.md`, *A new ship follows its planet's route*), and a
+planet given up when its people are gone (`../formulas/population.md`).
 
-What slows it from 2411 on is not a missing piece but the **world parting
-from the original's**. The tutorial's pages name the ships the original's
-game built, by number, and its computer player's fleets where the
-original's generator put them; this engine's game is its own from the
-moment its turns run:
+What the harness cannot do is make this world the original's. The
+tutorial's pages name the ships the original's game built, by number, and
+its computer player's fleets where the original's generator put them;
+this engine's game is its own from the moment its turns run, and from
+2411 on many a page's rung names a fleet that is not here, or is here
+under another number:
 
 * **Stove Top's ironium.** Page 35 goes on to *Teamster #12* (fleet 11),
   which the original's Stove Top built in 2410 alongside Santa Maria #3.
@@ -793,10 +797,18 @@ moment its turns run:
   Teamster #4, and the Mini-Miner's into the Cotton Picker, happen as
   the pages have them.
 
-Where a page's rung cannot be reached in this world the harness
-generates the year anyway (`Shell::generate_anyway`, which says why), and
-the tutor carries on with the year — every page from 35 on waits only on
-the world. Getting 2413 to play brought four things out of the original:
+Where a page's rung cannot be reached in this world the harness does
+what the page asks all the same, says why, and generates the year anyway
+(`Shell::generate_anyway`), and the tutor carries on with the year — a
+page left standing when the year ends counts as done, which is what the
+original does for a player who generates with a page unfinished. From
+2427 the ships all have other numbers than the pages' — the destroyer is
+the eighth design, not the ninth, the Mine Layer never having been drawn,
+and the bombers the ninth — so the last dozen pages are played by their
+sense: the destroyer to the page's recipe and ten of them to Hacker,
+Teamster #4 slowed to warp 5, Stove Top routed, Teamster #7 scrapped, the
+bomber designed and twenty queued, Wallaby's mines, and every message read
+to the end. Getting 2413 to play brought four things out of the original:
 fleet numbers start at **zero** (`LpflNew`, `1038:300c`), which is how
 the Teamster Stove Top builds in 2413 is *Teamster #1*, in the number
 Armed Probe #1 left; a level of research reports **each part it brings**
@@ -826,8 +838,11 @@ Fleets dialog (`fleet-pane.md`), a ring for an edited design, the map
 zoomed out when two planets will not both fit on it, and the view of the
 fleets recomputed after an order that changes the fleet list — a merge
 drops fleets from it and every fleet after them moves up, which had left
-the map's idea of what was in view pointing at the wrong fleets. The
-test stops at page 67 with an assertion that says so.
+the map's idea of what was in view pointing at the wrong fleets. 2427 to
+2436 added the warp gauge, a planet's route by control-click and the leg
+a new ship takes from it, a task on a fleet's own waypoint, a load of
+fuel capped at the tank, a freighter's colonists put down on a planet not
+its owner's settled as a landing, and a planet with nobody left given up.
 
 Two smaller things came out of getting to page 34 all the same: a waypoint
 aimed at a fleet holds the fleet's **full object word**, owner and all,

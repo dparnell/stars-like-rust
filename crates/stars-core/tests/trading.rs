@@ -513,9 +513,10 @@ fn a_computer_player_trades_from_its_planet() {
         // Fifty light years from where the Trader ends the year: well inside
         // the hundred it reaches.
         planet.position = Some(Point::new(at.x + 50, at.y));
-        // Empty, so that the year's own research does not muddle what the
-        // Trader gave.
-        planet.pop = 0;
+        // Next to empty — a planet with nobody on it is given up before
+        // the Trader is met — so that the year's own research does not
+        // muddle what the Trader gave: a hundred colonists earn nothing.
+        planet.pop = 1;
         planet.surface_min = [minerals / 2, minerals / 4, minerals / 4];
         state.planets = vec![planet];
 

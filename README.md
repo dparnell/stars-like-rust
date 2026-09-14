@@ -120,9 +120,12 @@ dialog, the Ship Designer, research, the technology browser, cargo and
 ship transfer, battle plans, player relations, the reports, the score
 sheet, the Battle VCR, host mode and a new-game wizard with the race
 designer. The **tutorial** is wired up — the original's tutor machine,
-its 46 pages and its world — and a test plays it through the panes,
-pressing what each page names where the pane drew it, as far as page 35
-(`docs/ui/tutorial.md` says where and why it stops).
+all eighty of its pages and its world — and a test plays it through the
+panes from the first page to the last, pressing what each page names
+where the pane drew it; where this engine's game parts from the
+original's (the ships come out under other numbers) the run does what
+the page asks and says so (`docs/ui/tutorial.md`, *The run, to the
+end*).
 
 Verification is differential where a fixture allows it: replaying a year
 of a real game against the file the original engine wrote reproduces the

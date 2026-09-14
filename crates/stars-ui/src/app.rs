@@ -2548,6 +2548,27 @@ impl App {
         true
     }
 
+    /// Whether the planet in hand is the player's own.
+    #[must_use]
+    pub fn selected_planet_is_mine(&self) -> bool {
+        let me = i16::try_from(self.local_player()).ok();
+        self.pane_planet().is_some_and(|p| p.owner == me)
+    }
+
+    /// **Route** the planet in hand to another: a control-click on the map
+    /// (`ScannerWndProc`, `1058:0032`) writes the clicked planet's number
+    /// into the planet's route word, or clears it when the planet clicked
+    /// is the planet itself. New ships built there set out for the route's
+    /// end (`AutoRouteFleet`, `1080:1e52`).
+    pub fn set_planet_route(&mut self, to: i16) -> bool {
+        let Some(planet) = self.selected_planet_mut() else {
+            return false;
+        };
+        planet.route_dest = if planet.id == to { None } else { Some(to) };
+        self.dirty = true;
+        true
+    }
+
     /// The **Production** tile: the queue, in build order.
     #[must_use]
     pub fn planet_production_tile(&self) -> Vec<String> {
@@ -3621,6 +3642,37 @@ impl App {
         true
     }
 
+    /// Set the warp of the leg in hand — the Fleet Waypoints tile's **warp
+    /// gauge**, dragged (`ClickInShipOrders`, `1050:7cda`, `rgrcRef[0]`:
+    /// the value is the pointer's fraction of the gauge in elevenths, 0 to
+    /// 10, written into the waypoint's warp nibble). A change on the first
+    /// leg is the fleet's own speed.
+    pub fn set_waypoint_warp(&mut self, waypoint: usize, warp: u8) -> bool {
+        let Some(index) = self.pane_fleet_index() else {
+            return false;
+        };
+        if waypoint == 0 || !self.own_fleet(index) {
+            return false;
+        }
+        let warp = warp.min(10);
+        let Some(fleet) = self.game.as_mut().and_then(|g| g.fleets.get_mut(index)) else {
+            return false;
+        };
+        let Some(leg) = fleet.waypoints.get_mut(waypoint) else {
+            return false;
+        };
+        if leg.warp == warp {
+            return false;
+        }
+        leg.warp = warp;
+        if waypoint == 1 {
+            fleet.warp = Some(warp);
+        }
+        self.log_waypoint(index, waypoint, false);
+        self.dirty = true;
+        true
+    }
+
     /// Whether a waypoint now sits exactly on the one before or after it.
     ///
     /// `FHandleWayPointDrag` tests this on release and, when it holds, puts
@@ -3722,7 +3774,12 @@ impl App {
     #[must_use]
     pub fn task_waypoint(&self) -> Option<usize> {
         let fleet = self.pane_fleet()?;
-        let held = self.selection.waypoint.unwrap_or(1);
+        // A fleet with no leg has only where it stands, and a task set
+        // there is done where it sits — Scrap Fleet, Lay Mine Field.
+        let held = self
+            .selection
+            .waypoint
+            .unwrap_or(usize::from(fleet.waypoints.len() > 1));
         (held < fleet.waypoints.len()).then_some(held)
     }
 

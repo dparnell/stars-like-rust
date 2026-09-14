@@ -123,6 +123,20 @@ it carries no Transport or Merge, to say where the fleet now is — the
 planet, or a point in space. The engine does the same in
 `settle_where_it_stands` (`turn.rs`), after the `chase` list.
 
+## A new ship follows its planet's route (`AutoRouteFleet`, `1080:1e52`)
+
+A ship built at a planet whose **route** is set (a control-click on the
+map with the planet in hand, `ScannerWndProc` `1058:0032`) leaves the yard
+with a leg to the route's end: a Route task, class planet. Its warp is
+`IFindIdealWarp`'s cruising warp (above), then — down to warp 3 — the
+slowest warp that takes no more years over the leg than that one, and then
+lower still while `EstFuelUse` says the tank will not cover the leg. When
+both ends have a stargate of the owner's and the fleet carries nothing,
+the leg is jumped through the gates instead (`MdCalcStargateDamage`), which
+the engine does not model yet. `auto_route_fleet` in `turn.rs`; the
+tutorial's page 71 routes Stove Top to Hacker and page 74 finds the new
+bombers "already routed".
+
 ## Arriving, and Repeat Orders (`KillUsedWaypoints`, `1080:189a`)
 
 When a fleet stands on its next waypoint, `KillUsedWaypoints` copies that

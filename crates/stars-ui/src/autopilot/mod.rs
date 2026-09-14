@@ -523,7 +523,7 @@ impl Shell {
 
     /// Generate the year without waiting for the page to be done — what a
     /// player does when a page asks for something this world has not got
-    /// (`docs/ui/tutorial.md`, *Where the run stops*). The tutor counts
+    /// (`docs/ui/tutorial.md`, *The run, to the end*). The tutor counts
     /// the year's pages done and goes on to the next year's.
     pub fn generate_anyway(&mut self, why: &str) {
         self.frame();

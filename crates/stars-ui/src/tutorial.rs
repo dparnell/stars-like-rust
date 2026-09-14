@@ -2465,7 +2465,7 @@ pub static STEPS: &[Step] = &[
                     order: 2,
                     id: 0x0d,
                     warp: ANY,
-                    goal: LOAD_ALL,
+                    goal: LOAD_COLONISTS,
                 },
             ),
             // "Click the Repeat Orders checkbox in the Fleet Waypoints
@@ -2513,7 +2513,7 @@ pub static STEPS: &[Step] = &[
                     order: 2,
                     id: 0x0d,
                     warp: ANY,
-                    goal: LOAD_ALL,
+                    goal: LOAD_COLONISTS,
                 },
             ),
             ask(0x19a, Check::RepeatOrders { fleet: 1 }),
@@ -2630,7 +2630,7 @@ pub static STEPS: &[Step] = &[
                     order: 2,
                     id: 0x0d,
                     warp: ANY,
-                    goal: LOAD_ALL,
+                    goal: LOAD_COLONISTS,
                 },
             ),
             ask(0x1af, Check::RepeatOrders { fleet: 0 }),
@@ -3774,7 +3774,17 @@ const UNLOAD_COLONISTS: [stars_formats::XferAction; 5] = [
 
 /// "Load All Available" on every hold, which is what the return leg of a
 /// shuttle run carries.
-const LOAD_ALL: [stars_formats::XferAction; 5] = [stars_formats::XferAction::LoadAll; 5];
+/// "Load All Available" on the colonists alone: the table at `10f8:0fb2`,
+/// `[0, 0, 0, 0x1000, 0]`, which the three freighter-home rungs (pages 51,
+/// 52 and 54) compare with. Not a load of everything — a freighter told to
+/// load all of every hold fills with minerals before any colonists.
+const LOAD_COLONISTS: [stars_formats::XferAction; 5] = [
+    stars_formats::XferAction::None,
+    stars_formats::XferAction::None,
+    stars_formats::XferAction::None,
+    stars_formats::XferAction::LoadAll,
+    stars_formats::XferAction::None,
+];
 
 /// The Lay Mine Field task id.
 const LAY_MINES_TASK: u16 = stars_formats::task::LAY_MINES as u16;
