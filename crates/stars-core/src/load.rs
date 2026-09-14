@@ -441,6 +441,8 @@ impl GameState {
             state.slow_tech = info.flags & stars_formats::game_flag::SLOW_TECH != 0;
             state.ais_band = info.flags & stars_formats::game_flag::AIS_BAND != 0;
             state.galaxy_planets = info.planets;
+            state.galaxy_size = info.size;
+            state.start_distance = info.start_distance;
             state.victory = info.victory_bytes();
         }
 

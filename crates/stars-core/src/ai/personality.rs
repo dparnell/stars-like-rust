@@ -22,6 +22,8 @@ pub enum Shape {
     Basic,
     /// The TurinDrone's full turn (`DoTurinDroneAiTurn`, `1088:3670`).
     TurinDrone,
+    /// The Robotoid's full turn (`DoRobotoidAiTurn`, `1088:0312`).
+    Robotoid,
     /// A personality whose own middle is not yet transcribed: the
     /// TurinDrone's runs for it, under its own research plan and share.
     StandIn,
@@ -105,7 +107,7 @@ impl Profile {
                 personality,
                 plan: ROBOTOID_PLAN,
                 pct: pct_from_ten,
-                shape: Shape::StandIn,
+                shape: Shape::Robotoid,
             },
             AiPersonality::TurinDrone => Self {
                 personality,

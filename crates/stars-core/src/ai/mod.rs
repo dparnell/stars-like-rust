@@ -16,6 +16,7 @@ pub mod dispatch;
 pub mod parts;
 pub mod personality;
 pub mod production;
+pub mod robotoid;
 pub mod ships;
 pub mod turindrone;
 

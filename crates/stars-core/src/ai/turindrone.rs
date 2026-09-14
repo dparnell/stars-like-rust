@@ -205,7 +205,7 @@ pub fn turn_as(
     // slots, made when the tech allows.
     ensure_designs(state, player, rng, &mut report);
 
-    let mut marks = marks(state, player, me, &explored);
+    let mut marks = marks(state, player, me, &explored, profile.personality);
     let anywhere_to_settle = marks.contains(&Mark::Colonisable);
 
     // `CheckAiShdefStatus` over each slot range: how many ships of the
@@ -443,25 +443,7 @@ pub fn turn_as(
         .iter()
         .filter_map(|p| p.position.map(|at| (p.id, at)))
         .collect();
-    // The mineral worth of every unowned scanned planet
-    // (`vlpbAiPlanet[id*16 + 1]`): each concentration halved, capped at 75,
-    // summed, capped at 127 — with the top bit for a planet one of our
-    // miners is at or bound for.
-    let mut worth: Vec<u8> = vec![0; marks.len()];
-    for planet in &state.planets {
-        let Ok(at) = usize::try_from(planet.id) else {
-            continue;
-        };
-        if planet.owner.is_some() || !explored.contains(&planet.id) {
-            continue;
-        }
-        let sum: u32 = planet
-            .min_conc
-            .iter()
-            .map(|c| if *c < 0x43 { u32::from(*c) / 2 } else { 0x4b })
-            .sum();
-        worth[at] = u8::try_from(sum.min(0x7f)).unwrap_or(0x7f);
-    }
+    let mut worth = mineral_worth(state, &explored, marks.len());
     // The first walk over the fleets: stale orders cut, colonists dropped
     // where they would be wanted, and the miners' planets claimed.
     let mut valued = valued_planets(state, player, me);
@@ -745,8 +727,14 @@ pub fn turn_as(
 }
 
 /// The mark on every planet, by id.
-fn marks(state: &GameState, player: usize, me: i16, explored: &BTreeSet<i16>) -> Vec<Mark> {
-    let personality = Some(AiPersonality::TurinDrone);
+pub(crate) fn marks(
+    state: &GameState,
+    player: usize,
+    me: i16,
+    explored: &BTreeSet<i16>,
+    personality: AiPersonality,
+) -> Vec<Mark> {
+    let personality = Some(personality);
     let race = &state.players[player].race;
     let count = state.planets.len().max(
         state
@@ -796,7 +784,7 @@ fn marks(state: &GameState, player: usize, me: i16, explored: &BTreeSet<i16>) ->
 ///
 /// The starbase-design upkeep the routine also does (`EnsureAiStarbase-
 /// Designs`, `IshdefAiSBLatest`, `ValidateStarbaseHistory`) is not here.
-fn ensure_research(state: &mut GameState, player: usize, plan: &[u8], pct: u8) -> usize {
+pub(crate) fn ensure_research(state: &mut GameState, player: usize, plan: &[u8], pct: u8) -> usize {
     use crate::research::NextField;
 
     let Some(p) = state.players.get_mut(player) else {
@@ -825,7 +813,7 @@ fn ensure_research(state: &mut GameState, player: usize, plan: &[u8], pct: u8) -
 
 /// The player's colony-ship design: the personality's slot, while it holds
 /// a live design carrying a colonisation module.
-fn colony_design(state: &GameState, player: usize) -> Option<u8> {
+pub(crate) fn colony_design(state: &GameState, player: usize) -> Option<u8> {
     let designs = state.designs.get(player)?;
     let has_module = |d: &crate::design::ShipDesign| {
         !d.obsolete
@@ -841,7 +829,7 @@ fn colony_design(state: &GameState, player: usize) -> Option<u8> {
 
 /// `FMoveAiFleet` with a fresh order: the fleet's route becomes its own
 /// position and this one leg.
-fn lay_leg(fleet: &mut crate::fleet::Fleet, at: Point, planet: i16, task: u8, warp: u8) {
+pub(crate) fn lay_leg(fleet: &mut crate::fleet::Fleet, at: Point, planet: i16, task: u8, warp: u8) {
     fleet.waypoints.truncate(1);
     if fleet.waypoints.is_empty() {
         fleet.waypoints.push(Waypoint {
@@ -881,7 +869,7 @@ fn lay_leg(fleet: &mut crate::fleet::Fleet, at: Point, planet: i16, task: u8, wa
 /// so fields 1 to 5: Weapons, Propulsion, Construction, Electronics,
 /// Biotechnology. Energy is never asked about.
 fn ensure_designs(state: &mut GameState, player: usize, rng: &mut Rng, report: &mut Report) {
-    use crate::ai::parts::{create_design, fitting, pick_name};
+    use crate::ai::parts::{create_design, fitting};
 
     let me = i16::try_from(player).unwrap_or(-1);
     let levels = state.players[player].research.levels;
@@ -1024,45 +1012,65 @@ fn ensure_designs(state: &mut GameState, player: usize, rng: &mut Rng, report: &
             state.designs[player][usize::from(want.slot)].obsolete = true;
         }
         let who = Builder::player(&state.players[player]);
-        let Some(mut design) = want
+        let Some(design) = want
             .fittings
             .iter()
             .find_map(|f| create_design(want.hull, f, &who))
         else {
             continue;
         };
-        let taken: Vec<String> = state
-            .designs
-            .get(player)
-            .map(|d| {
-                d.iter()
-                    .filter(|d| !d.obsolete)
-                    .map(|d| d.name.clone())
-                    .collect()
-            })
-            .unwrap_or_default();
-        design.name = pick_name(want.hull, &taken, rng);
-        design.picture = crate::components::HULLS
-            .get(usize::try_from(want.hull).unwrap_or(0))
-            .and_then(|h| u8::try_from(h.picture).ok())
-            .unwrap_or(0);
-        let designs = &mut state.designs[player];
-        let at = usize::from(want.slot);
-        while designs.len() <= at {
-            designs.push(crate::design::ShipDesign {
-                hull_id: -1,
-                slots: Vec::new(),
-                name: String::new(),
-                picture: 0,
-                stored_armor: 0,
-                obsolete: true,
-                designed: 0,
-                built: 0,
-            });
-        }
-        designs[at] = design;
-        report.designed.push((want.slot, want.hull));
+        install_design(state, player, want.slot, design, rng, report);
     }
+}
+
+/// `FCreateAiShdef`'s tail (`1090:012c`): the design named and given its
+/// hull's picture by `PickANameAndBmp`, then `FChangeAiShdef`
+/// (`1090:08a2`) stamps it with the year and writes it into the slot,
+/// its counts of built and existing ships at zero.
+pub(crate) fn install_design(
+    state: &mut GameState,
+    player: usize,
+    slot: u8,
+    mut design: crate::design::ShipDesign,
+    rng: &mut Rng,
+    report: &mut Report,
+) {
+    use crate::ai::parts::pick_name;
+
+    let hull = design.hull_id;
+    let taken: Vec<String> = state
+        .designs
+        .get(player)
+        .map(|d| {
+            d.iter()
+                .filter(|d| !d.obsolete)
+                .map(|d| d.name.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    design.name = pick_name(hull, &taken, rng);
+    design.picture = crate::components::HULLS
+        .get(usize::try_from(hull).unwrap_or(0))
+        .and_then(|h| u8::try_from(h.picture).ok())
+        .unwrap_or(0);
+    design.designed = state.turn;
+    design.built = 0;
+    let designs = &mut state.designs[player];
+    let at = usize::from(slot);
+    while designs.len() <= at {
+        designs.push(crate::design::ShipDesign {
+            hull_id: -1,
+            slots: Vec::new(),
+            name: String::new(),
+            picture: 0,
+            stored_armor: 0,
+            obsolete: true,
+            designed: 0,
+            built: 0,
+        });
+    }
+    designs[at] = design;
+    report.designed.push((slot, hull));
 }
 
 /// What `CheckAiShdefStatus` reports of a slot range.
@@ -1079,7 +1087,7 @@ pub struct Status {
 /// years is retired if no ship of it exists, and marked in `old` for
 /// [`split_out_designs`] otherwise.
 #[allow(clippy::too_many_arguments)]
-fn check_status(
+pub(crate) fn check_status(
     state: &mut GameState,
     player: usize,
     me: i16,
@@ -1297,15 +1305,38 @@ fn first_pass(
 /// value (`PctPlanetOptValue`) for us, and which of them a fleet has
 /// claimed this turn (the byte's `0x80`).
 #[derive(Debug, Default)]
-struct Valued {
+pub(crate) struct Valued {
     /// The planets, by id.
-    planets: BTreeSet<i16>,
+    pub(crate) planets: BTreeSet<i16>,
     /// Those a colonist drop is already bound for.
-    claimed: BTreeSet<i16>,
+    pub(crate) claimed: BTreeSet<i16>,
+}
+
+/// The mineral worth of every unowned scanned planet
+/// (`vlpbAiPlanet[id*16 + 1]`): each concentration halved, capped at 75,
+/// summed, capped at 127 — with the top bit for a planet one of our
+/// miners is at or bound for.
+pub(crate) fn mineral_worth(state: &GameState, explored: &BTreeSet<i16>, len: usize) -> Vec<u8> {
+    let mut worth: Vec<u8> = vec![0; len];
+    for planet in &state.planets {
+        let Ok(at) = usize::try_from(planet.id) else {
+            continue;
+        };
+        if planet.owner.is_some() || !explored.contains(&planet.id) || at >= worth.len() {
+            continue;
+        }
+        let sum: u32 = planet
+            .min_conc
+            .iter()
+            .map(|c| if *c < 0x43 { u32::from(*c) / 2 } else { 0x4b })
+            .sum();
+        worth[at] = u8::try_from(sum.min(0x7f)).unwrap_or(0x7f);
+    }
+    worth
 }
 
 /// The planet pass's `vlpbAiPlanet[+3]` marks.
-fn valued_planets(state: &GameState, player: usize, me: i16) -> Valued {
+pub(crate) fn valued_planets(state: &GameState, player: usize, me: i16) -> Valued {
     let race = &state.players[player].race;
     let levels = state.players[player].research.levels;
     Valued {
@@ -1345,7 +1376,7 @@ fn valued_planets(state: &GameState, player: usize, me: i16) -> Valued {
 ///
 /// The original keeps the table in the player's history file; here it
 /// lives with the [`crate::Player`] for the game in hand.
-fn validate_starbase_history(state: &mut GameState, player: usize, me: i16) {
+pub(crate) fn validate_starbase_history(state: &mut GameState, player: usize, me: i16) {
     use crate::ai::StarbaseHistoryEntry;
 
     let personality = match state.players[player].control {
@@ -1507,7 +1538,12 @@ fn validate_starbase_history(state: &mut GameState, player: usize, me: i16) {
 /// than 25,000 people), measured from the fleet's current waypoint. The
 /// leg replaces whatever orders followed (`FMoveAiFleet` with `fAppend`
 /// 0). Answers whether there was one.
-fn move_to_nearest_starbase(state: &mut GameState, me: i16, index: usize, big_ones: bool) -> bool {
+pub(crate) fn move_to_nearest_starbase(
+    state: &mut GameState,
+    me: i16,
+    index: usize,
+    big_ones: bool,
+) -> bool {
     let from = state.fleets[index]
         .waypoints
         .first()
@@ -1553,7 +1589,7 @@ fn move_to_nearest_starbase(state: &mut GameState, me: i16, index: usize, big_on
 /// designs' ships going to a new fleet (`LpflNewSplit`, which copies the
 /// orders) and the cargo following them (`FleetTransferCargoBalance`);
 /// then the search starts over, until no such fleet is left.
-fn split_out_designs(
+pub(crate) fn split_out_designs(
     state: &mut GameState,
     player: usize,
     me: i16,
@@ -1628,7 +1664,11 @@ fn potency(turn: i16) -> [u8; 4] {
 /// `FIsTurinDroneAiAttack`: any hull from the Destroyer to the Dreadnought
 /// aboard — hull ids 4 to 10 in the original's numbering, the Scout and
 /// Frigate included.
-fn is_attack_fleet(state: &GameState, player: usize, fleet: &crate::fleet::Fleet) -> bool {
+pub(crate) fn is_attack_fleet(
+    state: &GameState,
+    player: usize,
+    fleet: &crate::fleet::Fleet,
+) -> bool {
     fleet.stacks.iter().any(|s| {
         s.count > 0
             && state.designs[player]
@@ -1677,7 +1717,7 @@ fn is_attack_fleet(state: &GameState, player: usize, fleet: &crate::fleet::Fleet
 /// aboard for an owned planet with fewer people than home; and to an
 /// owned planet other than home the colonists are unloaded.
 #[allow(clippy::too_many_arguments)]
-fn target_freighter(
+pub(crate) fn target_freighter(
     state: &mut GameState,
     player: usize,
     me: i16,
@@ -1947,7 +1987,7 @@ fn target_freighter(
 /// `MergeAllShdefs` (`1090:5a6c`): every fleet of ours carrying a design of
 /// the slots in `mask` joins the first such fleet found at the same planet
 /// and place; the joined fleet's ships and cargo pass to the survivor.
-fn merge_all(state: &mut GameState, me: i16, mask: u16, report: &mut Report) {
+pub(crate) fn merge_all(state: &mut GameState, me: i16, mask: u16, report: &mut Report) {
     let mut survivors: Vec<(Option<u16>, Point, usize)> = Vec::new();
     let mut gone: Vec<usize> = Vec::new();
     for index in 0..state.fleets.len() {
@@ -2011,7 +2051,7 @@ fn merge_all(state: &mut GameState, me: i16, mask: u16, report: &mut Report) {
 /// nearer breaking a tie, and a score of one is no target. With the
 /// "computer players form alliances" option only human players' planets
 /// are looked at first (`FEnumCalcArmadaHumanDest`, `1088:3406`).
-fn target_armada(
+pub(crate) fn target_armada(
     state: &mut GameState,
     player: usize,
     me: i16,
@@ -2175,7 +2215,7 @@ fn target_armada(
 /// * `FixPlanetsUnderAttack`, which never runs in a tutorial game (flag
 ///   bit 3) and is not written;
 /// * [`add_mines_to_blocked_queues`].
-fn basic_tasks(
+pub(crate) fn basic_tasks(
     state: &mut GameState,
     player: usize,
     me: i16,
@@ -2616,7 +2656,7 @@ fn add_mines_to_blocked_queues(state: &mut GameState, player: usize, me: i16, re
 /// `FillProductionQueue` (`1090:9c1c`): `FFillProdMinesAndFactories` at
 /// every own planet, mines at the front of the queue and factories at
 /// the back.
-fn fill_production_queues(
+pub(crate) fn fill_production_queues(
     state: &mut GameState,
     player: usize,
     me: i16,

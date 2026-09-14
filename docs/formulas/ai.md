@@ -112,7 +112,8 @@ mainly in which ships they build and when they decide to attack.
 
 **Status:** the research plans and shares recovered for all seven; the
 Maid's turn transcribed in full; the TurinDrone's in `turindrone.rs`; the
-other five run the TurinDrone's middle in place of their own.
+Robotoid's in `robotoid.rs` (*The Robotoid's turn*, below); the other
+four run the TurinDrone's middle in place of their own.
 
 Every `Do…AiTurn` opens with `IroEnsureAi(plan, count, &ishdefSBLatest,
 pct)` and closes with `HandleBasicAiTasks` then `FillProductionQueue`.
@@ -146,18 +147,15 @@ the Rototill's and Cyber's), a pass over the planets' queues and a pass
 over the fleets, with their own war tests (`FPotentRobWarFleet`
 `1088:31bc`, `FPotentISWarFleet` `1098:012e`, `FPotentMacWarFleet`
 `10a0:42ec`) and targets (`IdTargetArmada` `1088:288e`,
-`TargetMacArmada` `10a0:4146`, `IdTargetMacFreighter` `10a0:39d9`). What
-has been read of the Robotoid's and the Automitron's says the shape is the
-TurinDrone's — merges by slot mask, `vrgAiArmadaPotency` from the year,
-`CheckAiShdefStatus` over the slot ranges, `SplitOutShdefs`, then the
-queues and the fleets — with the ranges, the thresholds and the designs
-differing: the Robotoid merges from turn 51 with masks `0x6fc`, `1` and
-`0xc000`, rates its armada from 4 rising to 50 after turn 130, keeps its
-colony ships in slot 1 and its scouts in slot 0, and sends a fleet with
-ships in slots 2 to 10 to `IdTargetArmada`; the Automitron merges `0x4000`
-from turn 31 and `0x1e0c`, `0x40` and `0x4000` from 51, rates from 3, and
-counts the planets it could settle before building colony ships. Until
-those are transcribed each runs `turindrone::turn_as` — the TurinDrone's
+`TargetMacArmada` `10a0:4146`, `IdTargetMacFreighter` `10a0:39d9`). The
+shape is the TurinDrone's — merges by slot mask, `vrgAiArmadaPotency`
+from the year, `CheckAiShdefStatus` over the slot ranges,
+`SplitOutShdefs`, then the queues and the fleets — with the ranges, the
+thresholds and the designs differing. The Robotoid's is transcribed
+(*The Robotoid's turn*, below). The Automitron merges `0x4000` from turn
+31 and `0x1e0c`, `0x40` and `0x4000` from 51, rates from 3, and counts
+the planets it could settle before building colony ships. Until the four
+are transcribed each runs `turindrone::turn_as` — the TurinDrone's
 designs, queues and dispatch — under its own research plan and share,
 which is how they play today: not silent, and not yet themselves.
 
@@ -1040,6 +1038,134 @@ waits at its starbase to be merged with bombers; `IdTargetArmada`
 (`1088:288e`) is called only from `DoRobotoidAiTurn`. None of it is
 verified against a corpus turn yet.
 
+### The Robotoid's turn — transcribed
+
+`DoRobotoidAiTurn` (`1088:0312`) is `ai::robotoid::turn`, run for a
+Robotoid player in place of the TurinDrone's. Its skill is bits 10–12
+of the mode word (`Control::skill_bits`). In order:
+
+1. `IroEnsureAi(vrgbRobotoidRes, 36, &ishdefSBLatest, turn < 10 ? 0 :
+   15)`, then `ValidateStarbaseHistory`.
+2. From turn 51, `MergeAllShdefs` with `0x6fc` (slots 2–7, 9, 10), `1`
+   (slot 0) and `0xc000` (14, 15).
+3. The potencies (`1088:0399`): `[0]` = 4, from turn 131 `4 + (turn −
+   120) / 20`, at most 50; `[1]` = half that; `[2]` = 6, from turn 116
+   `6 + (turn − 100) / 22`, at most 12; `[3]` = `min([2]/2 − 1, 3)`.
+   `robotoid::potency`.
+4. `CheckAiShdefStatus` with the recycling period 50 (70 from turn 120,
+   100 from 200): slots 14–15, after which an old Nubian (hull 29) in
+   14 or 15 is unmarked; 11–13; 9–10; 2–5; and 6–7 at one and a half
+   times the period. From turn 81, `SplitOutShdefs` for the old designs,
+   then slot 0, then slot 1, then slots 11–13.
+5. `EnsureRobotoidShdefs` (`1088:20ae`), below.
+6. `FShouldWeBuildColonizers` (`1090:476a`): skill 0 builds none in odd
+   years; before turn 30 always; then with no live colony-ship design
+   (hull 14 or 15) none; with more colony fleets than `20 × size + 10`
+   (`mdSize`, `GameState::galaxy_size`) none; with colony fleets plus
+   every player's planets past four fifths of the galaxy none; else yes
+   when the colony ships built so far exceed that sum by under 26, or
+   with under five colony fleets one roll in two.
+7. Other players' planets are marked worth `min(pop/250 + 1, 6)`, plus
+   one for a starbase (`vlpbAiPlanet[+10]`), with `[+9] = 1`.
+8. **The planet pass**, over own planets with a starbase and at least
+   20,000 people that have no ship queued (`robotoid.rs`, *The planet
+   pass*):
+   - cruisers (newest of 11–13): while under eight tenths of
+     `max(4 × history entries, owned/8)`, or under all of it one roll
+     in three, one;
+   - colony ships (slot 1), when `FShouldWeBuildColonizers` said yes or
+     under 26 colony fleets exist and `Random(8 × history entries)` is
+     zero, from turn 5: two before turn 21, one after, plus one where
+     `pop × pct_true_max_growth > 2300` and the planet makes over 35
+     resources at skill 1 or more, plus another past 3,600 and 50 at
+     skill 2 or more;
+   - mine layers (a Frigate in slot 0), one roll in four: four, when the
+     fleet of them here is under ten (under seventeen one roll in ten)
+     and `Random(2 × count + 1)` is zero;
+   - bombers (newest of 9–10): where an own fleet here passes
+     `FPotentRobWarFleet` (ships in 2–5 plus twice those in 6–7 at least
+     `potency[0]`) and holds under `potency[2]` bombers, four — six on
+     a rich planet (every surface mineral at 5,000 kT or more) — and
+     the planet is done;
+   - warships (newest of 2–5, or one roll in two the newest of 6–7):
+     skipped one roll in two once `planets/7 + 6` of the newest exist;
+     the queue's cost is taken from the planet's resources and a
+     shortfall ends the planet; three fifths of the design's cost is
+     taken next and a shortfall skips to the armada; else five on a rich
+     planet, one otherwise;
+   - armada ships (newest of 14–15), while under `planets/12 + 8`
+     exist: up to five paid for in full out of what is left.
+9. **The first fleet pass**: a leg to a space object (`grobj` 8) over
+   200 light years off is cut. A fleet of slot-0 ships from turn 41 with
+   no leg is a mine layer: one with over six, one roll in five, wanders
+   to `IdRandomPlanetNearby(pt, 105, avoid starbases)` (`1090:5f54`, a
+   reservoir draw, redrawn up to twice when it lands on a starbase) at
+   warp 4; the rest set Lay Mines on their current waypoint. Otherwise
+   an attack fleet (`FIsAiAttack` `1090:4a72`: hull 5–10, or a Meta
+   Morph or Nubian with under 500 kT of cargo) loses a Lay Mines task
+   and, with ships in 2–7, claims the planet it is bound for or sits at
+   (`[+10] |= 0x80`); a transport (`FIsAiTransport`) with nothing aboard
+   bound for a planet not ours has its orders blown away. Then: before
+   turn 21 a fleet with slot-0 ships is scrapped (the starting scouts);
+   a colony ship (slot 1) with no leg, from turn 5 (at once when
+   `mdStartDist` is 0), at somebody else's non-AR planet with colonists
+   aboard and skill over 1 unloads them as an invasion (a Transport task
+   on its current waypoint) and heads for the nearest own starbase;
+   otherwise it takes a thousand colonists from the own planet it sits
+   at (`XferAiSupply(…, 10)`) and goes to colonise the nearest
+   colonisable planet, or is scrapped where it sits when there is none.
+10. **The haulers**, once an own starbase exists: every transport with
+    no leg is put on battle plan 4 and sent by `IdTargetFreighter` from
+    its starbase-history planet.
+11. **The last pass**: a fleet whose ships are all old is scrapped at an
+    own planet (one roll in five at one without a starbase), or sent to
+    the nearest starbase. A fleet with ships in 2–10 goes to
+    `IdTargetArmada`. An attack fleet not chasing a fleet, with over
+    seventy armada fleets about (fifty from turn 121), or over sixty
+    (forty) one roll in three, joins a buddy by `FFindBuddyAndJoinUp(14,
+    15, 36, 72)` (`1090:9d18`: the nearest other own fleet with 14/15
+    ships, within 36 ly, or 72 one roll in two, at warp 6) — unless it
+    already holds twenty of the newest armada ship and rolls nineteen in
+    twenty; else `IdTargetAttack` (`1090:1ffe`): the nearest of the
+    other players' fleets (a computer player's passed over when the
+    computer players band together, `ais_band`) not too many of ours
+    are after (one already chased is passed over one roll in three, one
+    chased by five times our ships one in fifteen), the target when
+    within 180 ly; further off, a fleet under half fuel goes home to a
+    starbase, else the nearest planet to that fleet none of ours is
+    bound for; with no enemy fleet in view, the nearest planet of
+    somebody else's, the nearest nobody holds, or one at random. The leg
+    is laid at warp 4 (`FMoveAiFleet`).
+12. `HandleBasicAiTasks`, `FillProductionQueue`.
+
+#### The Robotoid's design slots
+
+`EnsureRobotoidShdefs` draws into a slot that is free — empty or retired
+— when the tech allows (`rgTech` 0–5 = Energy, Weapons, Propulsion,
+Construction, Electronics, Biotechnology), some slots only so many years
+after the one before was designed. Each is five tries of
+`FCreateAiShdef` at a fitting drawn by `Random`; the fittings are the
+part-class bytes at `1088:1f80` by the offsets at `1088:1f34`
+(`robotoid::fitting`). `FChangeAiShdef` (`1090:08a2`) stamps the new
+design with the year (`turindrone::install_design`).
+
+| slot | role | hull | needs |
+|-----:|------|------|-------|
+| 0 | mine layer | Frigate (5), `[24,26,25,10]` | skill > 1, no ship of the slot left, the slot's design not a Frigate, Bio > 3, Elec > 4, Con > 5, Prop > 5, Energy > 5 — the old design retired first |
+| 1 | colony ship | never redrawn | |
+| 2–5 | warships | Meta Morph (31), fittings 0–3 for the even slots and 4–7 for the odd | Weap > 9, Con > 9, Prop > 8, Energy > 5; slots 3–5 twelve years after the one before |
+| 6–7 | battleships | Battleship (9), fittings 27–30 for 6 and 31–34 for 7 | Bio > 3, Elec > 9, Con > 11, Prop > 11, Energy > 5, Weap > 14; slot 7 twenty years after 6 |
+| 9–10 | bombers | Battleship, `[8,13,10,33,33,33,33,33,17,20,19]` (`1088:2095`), else B-52 (19) fitting 24 or 25 | Weap > 13; slot 10 fifteen years after 9 |
+| 11–13 | cruisers (haulers) | Privateer (11) fitting 14 (slot 11) or 15 while Con < 10, else Meta Morph fittings 8–13 | Prop > 1, Con ≥ 4, 7, 10 in turn; 12 and 13 fifteen years after the one before |
+| 14 | armada | Nubian (29) `[8,10,10,7,5,20,20,4,4,19,4,2,3]` (`1088:20a0`), else Destroyer (6) fittings 16–19 | Weap > 4, Elec > 5, Con > 5, Prop > 5, Energy > 1 |
+| 15 | armada | Nubian, else Destroyer fittings 20–23 | Elec > 9, Con > 7, Prop > 8, Weap > 13 |
+
+`tests/robotoid.rs` runs it in the Berserkers' seat on the tutorial's
+world: the starting scouts scrapped, colony ships queued two at a time
+and sent out, nothing scouting, the designs drawn on the hulls the table
+names. Not verified against a corpus turn: the Robotoid games in
+`fixtures/` are being read for that.
+
 ### Other queue sources
 
 Eighteen functions call `AddItemToQueue`. Besides the two above, the AI-side
@@ -1056,6 +1182,11 @@ which is why Cyber's always-1 terraform entries have no known source yet.
 
 - `DoAiTurn` (`1088:0000`) — dispatch table and turn preparation.
 - `DoTurinDroneAiTurn` (`1088:3670`) — the worked example above.
+- `DoRobotoidAiTurn` (`1088:0312`), `EnsureRobotoidShdefs` (`1088:20ae`),
+  `FPotentRobWarFleet` (`1088:31bc`), `FShouldWeBuildColonizers`
+  (`1090:476a`), `IdTargetAttack` (`1090:1ffe`), `FFindBuddyAndJoinUp`
+  (`1090:9d18`), `IdRandomPlanetNearby` (`1090:5f54`), `FChangeAiShdef`
+  (`1090:08a2`).
 - `FillProductionQueue` (`10a8:2ce2`), `FFillProdMinesAndFactories`
   (`10a8:2d72`), `AddItemToQueue` (`1090:3e50`).
 - `FQueueAiTerraforming` (`1090:8d28`) and `HandleBasicAiTasks` (`1090:95a4`).

@@ -360,6 +360,12 @@ pub struct GameState {
     /// "owns a percentage of all planets" victory condition is measured
     /// against. Zero when the file did not say.
     pub galaxy_planets: i16,
+    /// The galaxy's size setting (`GAME.mdSize`, 0 tiny to 4 huge), which the
+    /// computer players size their colony-ship fleets by.
+    pub galaxy_size: i16,
+    /// How far apart the players started (`GAME.mdStartDist`, 0 close to 3
+    /// farther), which the Robotoid reads for its first years.
+    pub start_distance: i16,
     /// The game's victory conditions, exactly as `GAME.rgvc` holds them. Read
     /// through [`stars_formats::GameInfo`]; see [`crate::victory`].
     pub victory: [u8; stars_formats::victory::COUNT],
@@ -425,6 +431,8 @@ impl GameState {
             self.tutorial_game = info.flags & stars_formats::game_flag::TUTORIAL != 0;
             self.single_player = info.flags & stars_formats::game_flag::SINGLE_PLAYER != 0;
             self.galaxy_planets = info.planets;
+            self.galaxy_size = info.size;
+            self.start_distance = info.start_distance;
             self.victory = info.victory_bytes();
         }
         let resolved = universe.planets_resolved();
@@ -464,6 +472,8 @@ impl GameState {
             tutorial_game: false,
             host_password: 0,
             galaxy_planets: 0,
+            galaxy_size: 0,
+            start_distance: 0,
             victory: [0; stars_formats::victory::COUNT],
             messages: Vec::new(),
             minefields: Vec::new(),

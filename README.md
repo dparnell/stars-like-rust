@@ -112,9 +112,11 @@ The **computer players** are in: `DoAiTurn` and the TurinDrone personality
 — its research plan, its ship designs from the AI part tables, its queue
 pass, its scouts, colony ships, miners, haulers, mine layers and armadas,
 and its housekeeping (`docs/formulas/ai.md`). All seven personalities
-play: each researches by its own recovered plan and share, the Maid's
-turn is its own, and the other five run the TurinDrone's designs, queues
-and dispatch in place of their own until those are transcribed
+play: each researches by its own recovered plan and share; the Maid's
+turn is its own, and so is the Robotoid's — its Frigate mine layers,
+Meta Morph and Battleship warships, Nubian armadas and its hunt for the
+other players' fleets; the other four run the TurinDrone's designs,
+queues and dispatch in place of their own until those are transcribed
 (`docs/formulas/ai.md`, *The seven personalities*).
 
 Step 5, the frontend, is a playable game: the scanner with its views and
