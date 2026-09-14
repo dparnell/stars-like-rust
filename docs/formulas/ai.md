@@ -114,8 +114,9 @@ mainly in which ships they build and when they decide to attack.
 Maid's turn transcribed in full; the TurinDrone's in `turindrone.rs`; the
 Robotoid's in `robotoid.rs` (*The Robotoid's turn*, below); the
 Automitron's in `automitron.rs` (*The Automitron's turn*); the
-Cybertron's in `cyber.rs` (*The Cybertron's turn*); the Rototill and the
-Macinti run the TurinDrone's middle in place of their own.
+Cybertron's in `cyber.rs` (*The Cybertron's turn*); the Rototill's in
+`rototill.rs` (*The Rototill's turn*); the Macinti runs the TurinDrone's
+middle in place of its own.
 
 Every `Do…AiTurn` opens with `IroEnsureAi(plan, count, &ishdefSBLatest,
 pct)` and closes with `HandleBasicAiTasks` then `FillProductionQueue`.
@@ -153,11 +154,11 @@ over the fleets, with their own war tests (`FPotentRobWarFleet`
 shape is the TurinDrone's — merges by slot mask, `vrgAiArmadaPotency`
 from the year, `CheckAiShdefStatus` over the slot ranges,
 `SplitOutShdefs`, then the queues and the fleets — with the ranges, the
-thresholds and the designs differing. The Robotoid's, the Automitron's
-and the Cybertron's are transcribed (below). Until the Rototill's and the
-Macinti's are, each runs `turindrone::turn_as` — the TurinDrone's
-designs, queues and dispatch — under its own research plan and share,
-which is how they play today: not silent, and not yet themselves.
+thresholds and the designs differing. The Robotoid's, the Automitron's,
+the Cybertron's and the Rototill's are transcribed (below). Until the
+Macinti's is, it runs `turindrone::turn_as` — the TurinDrone's designs,
+queues and dispatch — under its own research plan and share, which is
+how it plays today: not silent, and not yet itself.
 
 ### Production
 
@@ -1497,6 +1498,55 @@ second planet: its colony ship finds nothing colonisable in scanner
 range in year 0 and marks the homeworld as having nowhere to send one,
 its scouts are scrapped, and no packet flies to scan for it.
 
+### The Rototill's turn — transcribed
+
+`DoRototillAiTurn` (`1098:1e22`) is `ai::rototill::turn`, the simplest
+of the five middles. It hands `IroEnsureAi` no plan and 15 % from turn
+20; its `EnsureCAShdefs` (`1098:3020`) is an empty routine — the
+Rototill **never designs a ship** and builds only what the player began
+with; it merges nothing, rates no armada and recycles nothing. In order:
+
+1. `IroEnsureAi`, `EnsureCAShdefs`, and `ValidateStarbaseHistory` (run
+   for it by `IroEnsureAi`).
+2. The planets that could be settled are counted (unowned, scanned, opt
+   value positive), and the planet marks made: unowned scanned planets
+   get their mineral worth (`vlpbAiPlanet[+1]`); an own planet hostile
+   as it stands is marked `[+2] = 1` and passed over; somebody else's
+   planet is marked `[+10]` (1, 2 with a starbase) and `[+3] = 1` when
+   its opt value is positive.
+3. **The planet pass**, in planet order: an own planet with a starbase
+   and over 99,900 people (`rgwtMin[3] > 999`) that has no ship — nor
+   the first starbase design (`item < 0x11`) — queued builds two scouts
+   (slot 0) in year 0; after that one colony ship (slot 1) at the first
+   such planet each year, while none exist or the ships plus one are
+   fewer than the planets to settle.
+4. **The first fleet pass**, the Automitron's (`automitron::drop_pass`)
+   with `FIsTurinDroneAiAttack` listing the attack fleets, the miners
+   (slots 7, 8) with orders left to their own rung: in deep space with a
+   leg the leg's planet is claimed (`[+1] |= 0x80`); at an unowned
+   planet that one; at an owned planet the orders are blown away.
+5. **The second fleet pass**: miners at a planet worth under four move
+   to the best of the rest (`FEnumCalcMinerDest`, `1088:5f32`: a
+   claimed planet passed over three times in four) and dig there at warp
+   6 (`0x1163`). With no leg: a colony ship (slot 1) — empty and away
+   from an own planet of 5,000 people, at an own starbase it waits, else
+   it goes to the nearest own starbase (only when its engine is not one
+   of the first two) or is scrapped; otherwise `IdNearestColonizablePlanet`,
+   2,500 colonists from the own planet it sits at (`XferAiSupply(…, 3,
+   0x19)`), `FColonizeAiFleet` and the planet claimed — with nowhere to
+   go the routine would try a wormhole (`FGotoWormholeAiFleet`), not
+   kept; a transport: `IdTargetFreighter` from the starbase-history
+   planet, else the first own starbase (with none, the rest of the
+   fleets are left); bombers aboard (13, 14): the armada at warp 4, in
+   deep space from the first own starbase planet, waiting at an own
+   starbase while under two of either bomber, by `FEnumCalcArmadaDest`;
+   scouts (slot 0): on the Quick Jump 5 with under 2 mg of fuel,
+   scrapped; else `IdTargetScout`.
+6. `HandleBasicAiTasks`, `FillProductionQueue`.
+
+`tests/rototill.rs` runs it in the Berserkers' seat: no design drawn in
+forty years, scouts out, colony ships settling and replaced.
+
 ### Other queue sources
 
 Eighteen functions call `AddItemToQueue`. Besides the two above, the AI-side
@@ -1513,6 +1563,8 @@ which is why Cyber's always-1 terraform entries have no known source yet.
 
 - `DoAiTurn` (`1088:0000`) — dispatch table and turn preparation.
 - `DoTurinDroneAiTurn` (`1088:3670`) — the worked example above.
+- `DoRototillAiTurn` (`1098:1e22`), `EnsureCAShdefs` (`1098:3020`),
+  `FEnumCalcMinerDest` (`1088:5f32`).
 - `DoCyberAiTurn` (`10a8:002a`), `EnsureCyberAiShdefs` (`10a8:4826`),
   `TargetCyberArmada` (`10a8:51a4`), `DoCyberFreighter` (`10a8:37b0`),
   `DoCyberPackets` (`10a8:1a78`), `iAddAttackFleet` (`10a8:4eba`),

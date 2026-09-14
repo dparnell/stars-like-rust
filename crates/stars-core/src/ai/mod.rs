@@ -19,6 +19,7 @@ pub mod parts;
 pub mod personality;
 pub mod production;
 pub mod robotoid;
+pub mod rototill;
 pub mod ships;
 pub mod turindrone;
 

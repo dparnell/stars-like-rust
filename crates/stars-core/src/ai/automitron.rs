@@ -28,7 +28,7 @@ use crate::ai::turindrone::{
     armada_dest, basic_tasks, check_status, ensure_research, fill_production_queues,
     install_design, lay_leg, marks, merge_all, mineral_worth, move_to_nearest_starbase,
     split_out_designs, target_armada_as, target_freighter, validate_starbase_history,
-    valued_planets, ArmadaRule, Report,
+    valued_planets, ArmadaRule, Report, Valued,
 };
 use crate::ai::AiPersonality;
 use crate::fleet::grobj;
@@ -479,114 +479,25 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng, profile: &Profi
         }
     }
 
-    // --- The first fleet pass: the attack fleets listed, and stale
-    // orders cut. A colony freighter or a transport whose destination —
-    // the planet it sits at with no leg, else its next waypoint's planet
-    // — is somebody else's has its orders blown away, unless that planet
-    // is one worth settling and colonists are aboard (and its owner is not
-    // Alternate Reality): then they are dropped there, a Transport order
-    // unloading them all.
+    // --- The first fleet pass: `drop_pass`, with `FIsAiAttack` listing
+    // the attack fleets.
+    let attack_fleets = drop_pass(
+        state,
+        player,
+        me,
+        &mut valued,
+        &[],
+        &|state, player, fleet| is_attack_fleet(state, player, fleet),
+        &mut report,
+    );
+
+    // --- The second fleet pass: every fleet of ours.
     let positions: Vec<(i16, Point)> = state
         .planets
         .iter()
         .filter_map(|p| p.position.map(|at| (p.id, at)))
         .collect();
     let position_of = |id: i16| positions.iter().find(|(p, _)| *p == id).map(|(_, at)| *at);
-    let mut attack_fleets: Vec<u16> = Vec::new();
-    for index in 0..state.fleets.len() {
-        let fleet = state.fleets[index].clone();
-        if fleet.owner != me || fleet.is_empty() {
-            continue;
-        }
-        if is_attack_fleet(state, player, &fleet) {
-            attack_fleets.push(fleet.id);
-        }
-        let transport = is_transport(state, player, &fleet);
-        let colony = fleet
-            .stacks
-            .iter()
-            .any(|s| s.design == COLONY_SLOT && s.count > 0);
-        if !transport && !colony {
-            continue;
-        }
-        let has_leg = fleet.waypoints.len() > 1;
-        let dest = if !has_leg {
-            fleet.orbiting.and_then(|p| i16::try_from(p).ok())
-        } else if fleet.waypoints[1].target_class == grobj::PLANET {
-            fleet.waypoints[1]
-                .target
-                .and_then(|t| i16::try_from(t).ok())
-        } else {
-            None
-        };
-        let Some(dest) = dest else {
-            continue;
-        };
-        let planet = state.planets.iter().find(|p| p.id == dest).cloned();
-        let theirs = planet
-            .as_ref()
-            .is_none_or(|p| p.owner.is_some_and(|o| o != me));
-        // A colony freighter bound for their planet is only looked at
-        // when the planet is worth settling.
-        if !theirs || (!transport && !valued.planets.contains(&dest)) {
-            continue;
-        }
-        let drop = valued.planets.contains(&dest)
-            && fleet.cargo.colonists > 0
-            && planet.as_ref().is_some_and(|p| {
-                p.owner
-                    .and_then(|o| usize::try_from(o).ok())
-                    .and_then(|o| state.players.get(o))
-                    .is_some_and(|p| p.race.prt() != Some(crate::race::Prt::Ar))
-            });
-        if drop {
-            use stars_formats::{ItemAction, TransportTask, XferAction};
-            let mut items = [ItemAction {
-                quantity: 0,
-                action: XferAction::None,
-            }; 5];
-            items[3] = ItemAction {
-                quantity: 0,
-                action: XferAction::UnloadAll,
-            };
-            // The order goes on the leg to the planet, or on the current
-            // waypoint when the fleet stands there.
-            let f = &mut state.fleets[index];
-            let at = if has_leg && f.waypoints[1].target == u16::try_from(dest).ok() {
-                1
-            } else if !has_leg {
-                0
-            } else {
-                let at = position_of(dest).unwrap_or(f.position);
-                f.waypoints.truncate(2);
-                f.waypoints.push(crate::fleet::Waypoint {
-                    position: at,
-                    target: u16::try_from(dest).ok(),
-                    target_class: grobj::PLANET,
-                    warp: 1,
-                    task: stars_formats::task::NONE,
-                    transport: None,
-                    task_data: Vec::new(),
-                });
-                2
-            };
-            let w = &mut f.waypoints[at];
-            w.task = stars_formats::task::TRANSPORT;
-            w.transport = Some(TransportTask { items });
-            w.task_data = Vec::new();
-            valued.claimed.insert(dest);
-            report.dropping.push((fleet.id, dest));
-        } else {
-            let f = &mut state.fleets[index];
-            f.waypoints.truncate(1);
-            f.waypoints[0].task = stars_formats::task::NONE;
-            f.waypoints[0].task_data = Vec::new();
-            f.waypoints[0].transport = None;
-            report.cleaned.push(fleet.id);
-        }
-    }
-
-    // --- The second fleet pass: every fleet of ours.
     let worth = mineral_worth(state, &explored, marks.len());
     let designs = state.designs.get(player).cloned().unwrap_or_default();
     let scout_engine_no_scoop = designs
@@ -793,6 +704,138 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng, profile: &Profi
     report
 }
 
+/// The first fleet pass the Automitron and the Rototill share
+/// (`1098:0d5d`–`1098:1075`, `1098:2308`–`1098:2402`): the attack fleets
+/// listed by `is_attack`, and stale orders cut. A colony ship (slot 1)
+/// or a transport (`FIsAiTransport`) whose destination — the planet it
+/// sits at with no leg, else its next waypoint's planet — is somebody
+/// else's has its orders blown away, unless that planet is one worth
+/// settling (`vlpbAiPlanet[+3]`) and colonists are aboard (and its owner
+/// is not Alternate Reality): then they are dropped there, a Transport
+/// order unloading them all, and the planet claimed. A colony ship bound
+/// for somebody else's planet not so marked has its orders blown away
+/// too. Fleets carrying a design in `skip_with_orders` that have orders
+/// are the caller's business.
+pub(crate) fn drop_pass(
+    state: &mut GameState,
+    player: usize,
+    me: i16,
+    valued: &mut Valued,
+    skip_with_orders: &[u8],
+    is_attack: &dyn Fn(&GameState, usize, &crate::fleet::Fleet) -> bool,
+    report: &mut Report,
+) -> Vec<u16> {
+    let positions: Vec<(i16, Point)> = state
+        .planets
+        .iter()
+        .filter_map(|p| p.position.map(|at| (p.id, at)))
+        .collect();
+    let position_of = |id: i16| positions.iter().find(|(p, _)| *p == id).map(|(_, at)| *at);
+    let mut attack_fleets: Vec<u16> = Vec::new();
+    for index in 0..state.fleets.len() {
+        let fleet = state.fleets[index].clone();
+        if fleet.owner != me || fleet.is_empty() {
+            continue;
+        }
+        if is_attack(state, player, &fleet) {
+            attack_fleets.push(fleet.id);
+        }
+        let skipped = fleet
+            .stacks
+            .iter()
+            .any(|s| skip_with_orders.contains(&s.design) && s.count > 0)
+            && !fleet.waypoints.is_empty()
+            && fleet.waypoints.len() > 1;
+        if skipped {
+            continue;
+        }
+        let transport = is_transport(state, player, &fleet);
+        let colony = fleet
+            .stacks
+            .iter()
+            .any(|s| s.design == COLONY_SLOT && s.count > 0);
+        if !transport && !colony {
+            continue;
+        }
+        let has_leg = fleet.waypoints.len() > 1;
+        let dest = if !has_leg {
+            fleet.orbiting.and_then(|p| i16::try_from(p).ok())
+        } else if fleet.waypoints[1].target_class == grobj::PLANET {
+            fleet.waypoints[1]
+                .target
+                .and_then(|t| i16::try_from(t).ok())
+        } else {
+            None
+        };
+        let Some(dest) = dest else {
+            continue;
+        };
+        let planet = state.planets.iter().find(|p| p.id == dest).cloned();
+        let theirs = planet
+            .as_ref()
+            .is_none_or(|p| p.owner.is_some_and(|o| o != me));
+        // A colony freighter bound for their planet is only looked at
+        // when the planet is worth settling.
+        if !theirs || (!transport && !valued.planets.contains(&dest)) {
+            continue;
+        }
+        let drop = valued.planets.contains(&dest)
+            && fleet.cargo.colonists > 0
+            && planet.as_ref().is_some_and(|p| {
+                p.owner
+                    .and_then(|o| usize::try_from(o).ok())
+                    .and_then(|o| state.players.get(o))
+                    .is_some_and(|p| p.race.prt() != Some(crate::race::Prt::Ar))
+            });
+        if drop {
+            use stars_formats::{ItemAction, TransportTask, XferAction};
+            let mut items = [ItemAction {
+                quantity: 0,
+                action: XferAction::None,
+            }; 5];
+            items[3] = ItemAction {
+                quantity: 0,
+                action: XferAction::UnloadAll,
+            };
+            // The order goes on the leg to the planet, or on the current
+            // waypoint when the fleet stands there.
+            let f = &mut state.fleets[index];
+            let at = if has_leg && f.waypoints[1].target == u16::try_from(dest).ok() {
+                1
+            } else if !has_leg {
+                0
+            } else {
+                let at = position_of(dest).unwrap_or(f.position);
+                f.waypoints.truncate(2);
+                f.waypoints.push(crate::fleet::Waypoint {
+                    position: at,
+                    target: u16::try_from(dest).ok(),
+                    target_class: grobj::PLANET,
+                    warp: 1,
+                    task: stars_formats::task::NONE,
+                    transport: None,
+                    task_data: Vec::new(),
+                });
+                2
+            };
+            let w = &mut f.waypoints[at];
+            w.task = stars_formats::task::TRANSPORT;
+            w.transport = Some(TransportTask { items });
+            w.task_data = Vec::new();
+            valued.claimed.insert(dest);
+            report.dropping.push((fleet.id, dest));
+        } else {
+            let f = &mut state.fleets[index];
+            f.waypoints.truncate(1);
+            f.waypoints[0].task = stars_formats::task::NONE;
+            f.waypoints[0].task_data = Vec::new();
+            f.waypoints[0].transport = None;
+            report.cleaned.push(fleet.id);
+        }
+    }
+    attack_fleets
+}
+
 /// `IdTargetScout` (`1090:61de`): where a scout fleet goes.
 ///
 /// An armed fleet (`FFleetMightHaveTeeth`) first looks for the nearest of
@@ -810,7 +853,7 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng, profile: &Profi
 ///
 /// Answers the target's id — a planet's, or the fleet word of a fleet —
 /// when a leg was laid.
-fn target_scout(
+pub(crate) fn target_scout(
     state: &mut GameState,
     player: usize,
     me: i16,

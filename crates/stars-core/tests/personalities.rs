@@ -1,9 +1,9 @@
 //! The seven computer opponents on the tutorial's world — each in the
 //! Berserkers' seat in turn. See `docs/formulas/ai.md`, *The seven
 //! personalities*: every one researches by its own plan and share, the
-//! Maid's, the Robotoid's, the Automitron's and the Cybertron's turns are
-//! their own, and the Rototill and the Macinti borrow the TurinDrone's
-//! middle until theirs are transcribed.
+//! Maid's, the Robotoid's, the Automitron's, the Cybertron's and the
+//! Rototill's turns are their own, and the Macinti borrows the
+//! TurinDrone's middle until its own is transcribed.
 
 use stars_core::ai::personality::{Profile, Shape};
 use stars_core::ai::{AiPersonality, Control};
