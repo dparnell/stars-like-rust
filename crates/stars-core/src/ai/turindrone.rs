@@ -108,6 +108,63 @@ pub struct Report {
 /// year is generated. The orders it gives are written straight into the
 /// state, which is what replaying the AI's log would do.
 pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
+    turn_as(
+        state,
+        player,
+        rng,
+        &crate::ai::personality::Profile::of(AiPersonality::TurinDrone),
+    )
+}
+
+/// `DoMaidAiTurn` (`1098:0000`), which is the shape every personality's
+/// turn shares with nothing of its own between: `IroEnsureAi` with no plan,
+/// `HandleBasicAiTasks` and `FillProductionQueue`. The Maid designs no
+/// ships and sends no fleets; its planets build mines and factories, and
+/// whatever `HandleBasicAiTasks` does for anyone — scanners, defences,
+/// mineral packets, mines in front of blocked queues.
+pub fn basic_turn(
+    state: &mut GameState,
+    player: usize,
+    rng: &mut Rng,
+    profile: &crate::ai::personality::Profile,
+) -> Report {
+    let mut report = Report::default();
+    let Some(me) = i16::try_from(player).ok() else {
+        return report;
+    };
+    if state.players.get(player).is_none_or(|p| p.dead) {
+        return report;
+    }
+    let seen = crate::visibility::view(state, player).planets;
+    state.players[player].explored.extend(seen);
+    report.research = ensure_research(
+        state,
+        player,
+        profile.plan,
+        profile.research_pct(state.turn),
+    );
+    basic_tasks(
+        state,
+        player,
+        me,
+        &[],
+        profile.personality,
+        rng,
+        &mut report,
+    );
+    fill_production_queues(state, player, me, profile.personality, rng, &mut report);
+    report
+}
+
+/// The TurinDrone's turn run for a personality — its own, or one whose
+/// middle is not yet transcribed and borrows this one under its own
+/// research plan and share (`crate::ai::personality::Shape::StandIn`).
+pub fn turn_as(
+    state: &mut GameState,
+    player: usize,
+    rng: &mut Rng,
+    profile: &crate::ai::personality::Profile,
+) -> Report {
     let mut report = Report::default();
     let Some(me) = i16::try_from(player).ok() else {
         return report;
@@ -125,7 +182,12 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
 
     // `IroEnsureAi(vrgbTurinDroneRes, 31, &ishdefSBLatest, 15)`: the field
     // under study, from the personality's plan.
-    report.research = ensure_research(state, player, RESEARCH_PLAN, RESEARCH_PCT);
+    report.research = ensure_research(
+        state,
+        player,
+        profile.plan,
+        profile.research_pct(state.turn),
+    );
     // `ValidateStarbaseHistory`, which `IroEnsureAi` runs for the
     // personality: the planets the haulers work from.
     validate_starbase_history(state, player, me);
@@ -668,8 +730,16 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
         }
     }
     // `HandleBasicAiTasks`, then `FillProductionQueue`.
-    basic_tasks(state, player, me, &worth, rng, &mut report);
-    fill_production_queues(state, player, me, rng, &mut report);
+    basic_tasks(
+        state,
+        player,
+        me,
+        &worth,
+        profile.personality,
+        rng,
+        &mut report,
+    );
+    fill_production_queues(state, player, me, profile.personality, rng, &mut report);
 
     report
 }
@@ -2110,6 +2180,7 @@ fn basic_tasks(
     player: usize,
     me: i16,
     worth: &[u8],
+    personality: AiPersonality,
     rng: &mut Rng,
     report: &mut Report,
 ) {
@@ -2141,7 +2212,7 @@ fn basic_tasks(
         .max_by_key(|(_, d)| d.designed)
         .and_then(|(i, _)| u8::try_from(i - usize::from(crate::startup::FIRST_STARBASE_SLOT)).ok());
     let ctx = crate::ai::production::Context {
-        personality: Some(AiPersonality::TurinDrone),
+        personality: Some(personality),
         research_pct: state.players[player].research_pct,
         tech: state.players[player].research.levels,
         turn: i32::from(state.turn),
@@ -2549,12 +2620,13 @@ fn fill_production_queues(
     state: &mut GameState,
     player: usize,
     me: i16,
+    personality: AiPersonality,
     rng: &mut Rng,
     report: &mut Report,
 ) {
     let race = state.players[player].race.clone();
     let ctx = crate::ai::production::Context {
-        personality: Some(AiPersonality::TurinDrone),
+        personality: Some(personality),
         research_pct: state.players[player].research_pct,
         tech: state.players[player].research.levels,
         turn: i32::from(state.turn),

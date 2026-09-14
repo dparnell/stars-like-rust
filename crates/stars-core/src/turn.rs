@@ -198,21 +198,30 @@ pub fn generate_turn_with_orders(
     state.messages.clear();
     state.battles.clear();
 
-    // --- DoAiTurn, for each computer player: the host plays their turn
-    // before the year runs, as if they had submitted orders. Only the
-    // TurinDrone is written so far, and only in part (`ai::turindrone`).
+    // --- DoAiTurn (`1088:0000`), for each computer player: the host plays
+    // their turn before the year runs, as if they had submitted orders.
+    // Each personality researches by its own plan and share; the Maid's
+    // turn is its own, the TurinDrone's is transcribed, and the other
+    // five run the TurinDrone's middle until theirs are
+    // (`ai::personality`).
     for player in 0..state.players.len() {
-        let turindrone = matches!(
-            state.players[player].control,
+        let personality = match state.players[player].control {
             crate::ai::Control::Computer {
-                personality: Some(crate::ai::AiPersonality::TurinDrone),
+                personality: Some(personality),
                 ..
+            } => personality,
+            _ => continue,
+        };
+        let profile = crate::ai::personality::Profile::of(personality);
+        let did = match profile.shape {
+            crate::ai::personality::Shape::Basic => {
+                crate::ai::turindrone::basic_turn(state, player, rng, &profile)
             }
-        );
-        if turindrone {
-            let did = crate::ai::turindrone::turn(state, player, rng);
-            report.ai.push((player, did));
-        }
+            crate::ai::personality::Shape::TurinDrone | crate::ai::personality::Shape::StandIn => {
+                crate::ai::turindrone::turn_as(state, player, rng, &profile)
+            }
+        };
+        report.ai.push((player, did));
     }
 
     // --- DoOrders(0): the recorded cargo transfers, before anything moves or

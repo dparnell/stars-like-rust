@@ -14,6 +14,7 @@
 pub mod colonise;
 pub mod dispatch;
 pub mod parts;
+pub mod personality;
 pub mod production;
 pub mod ships;
 pub mod turindrone;

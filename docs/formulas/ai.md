@@ -108,6 +108,59 @@ Only `EnsureTurinDroneShdefs` and `FIsTurinDroneAiAttack` are specific to this
 personality; the rest are shared, which suggests the seven opponents differ
 mainly in which ships they build and when they decide to attack.
 
+### The seven personalities — what is each one's own
+
+**Status:** the research plans and shares recovered for all seven; the
+Maid's turn transcribed in full; the TurinDrone's in `turindrone.rs`; the
+other five run the TurinDrone's middle in place of their own.
+
+Every `Do…AiTurn` opens with `IroEnsureAi(plan, count, &ishdefSBLatest,
+pct)` and closes with `HandleBasicAiTasks` then `FillProductionQueue`.
+The plan is a byte table in the personality's own code segment — a field
+in the top three bits, a level in the low five — and the share is a
+constant, most of them zero for the first years:
+
+| Personality | Routine | Plan | Share |
+|-------------|---------|------|-------|
+| Robotoid | `1088:0312` | 36 bytes at `1088:02ee` | 15 % from turn 10 |
+| TurinDrone | `1088:3670` | 31 bytes at `1088:3650` | 15 % |
+| Automitron | `1098:01e0` | 18 bytes at `1098:01ce` | 20 % from turn 10 |
+| Rototill | `1098:1e22` | none — the lowest field | 15 % from turn 20 |
+| Cyber | `10a8:002a` | 42 bytes at `10a8:0000` | 17 % |
+| Macinti | `10a0:0008` | 8 bytes at `10a0:0000` | 15 % |
+| Maid | `1098:0000` | none | 15 % from turn 20 |
+
+`crates/stars-core/src/ai/personality.rs` holds the tables (`Profile::of`)
+and `tests/personalities.rs` runs each in the Berserkers' seat.
+
+**The Maid** (`DoMaidAiTurn`) is nothing but the frame: `IroEnsureAi`
+with no plan, `fMarkedPlanets = 0`, `HandleBasicAiTasks(iroCur, rgprod,
+-1, …)`, `FillProductionQueue`. It designs no ships and gives no fleet an
+order; its planets build mines and factories and whatever the basic tasks
+queue for anyone. `turindrone::basic_turn` is it.
+
+**The other five** have a middle of their own of the TurinDrone's size —
+a design table (`EnsureRobotoidShdefs` `1088:20ae`, `EnsureISShdefs`
+`1098:1af2` for the Automitron, `EnsureMacintiShdefs` `10a0:2e9c`, and
+the Rototill's and Cyber's), a pass over the planets' queues and a pass
+over the fleets, with their own war tests (`FPotentRobWarFleet`
+`1088:31bc`, `FPotentISWarFleet` `1098:012e`, `FPotentMacWarFleet`
+`10a0:42ec`) and targets (`IdTargetArmada` `1088:288e`,
+`TargetMacArmada` `10a0:4146`, `IdTargetMacFreighter` `10a0:39d9`). What
+has been read of the Robotoid's and the Automitron's says the shape is the
+TurinDrone's — merges by slot mask, `vrgAiArmadaPotency` from the year,
+`CheckAiShdefStatus` over the slot ranges, `SplitOutShdefs`, then the
+queues and the fleets — with the ranges, the thresholds and the designs
+differing: the Robotoid merges from turn 51 with masks `0x6fc`, `1` and
+`0xc000`, rates its armada from 4 rising to 50 after turn 130, keeps its
+colony ships in slot 1 and its scouts in slot 0, and sends a fleet with
+ships in slots 2 to 10 to `IdTargetArmada`; the Automitron merges `0x4000`
+from turn 31 and `0x1e0c`, `0x40` and `0x4000` from 51, rates from 3, and
+counts the planets it could settle before building colony ships. Until
+those are transcribed each runs `turindrone::turn_as` — the TurinDrone's
+designs, queues and dispatch — under its own research plan and share,
+which is how they play today: not silent, and not yet themselves.
+
 ### Production
 
 `FillProductionQueue` (`10a8:2ce2`) is short and fully legible: for each planet
