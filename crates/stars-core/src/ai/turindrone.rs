@@ -156,9 +156,8 @@ pub fn basic_turn(
     report
 }
 
-/// The TurinDrone's turn run for a personality — its own, or one whose
-/// middle is not yet transcribed and borrows this one under its own
-/// research plan and share (`crate::ai::personality::Shape::StandIn`).
+/// The TurinDrone's turn run under a personality's profile — its own
+/// research plan and share.
 pub fn turn_as(
     state: &mut GameState,
     player: usize,
@@ -2372,7 +2371,11 @@ pub(crate) fn basic_tasks(
                     design_turn: i32::from(starbase_design(current).map_or(0, |d| d.designed)),
                     // The sideways move wants a live design two above.
                     sideways_design_free: starbase_design(current + 2).is_some(),
-                    ..crate::ai::ships::UpgradeInputs::default()
+                    recycle: state.players[player].mac_starbase_recycle,
+                    capacity_pct: i16::try_from(crate::ai::macinti::pct_planet_capacity(
+                        &planet, &race,
+                    ))
+                    .unwrap_or(999),
                 };
                 if let Some(slot) =
                     crate::ai::ships::upgrade_ai_starbase(&planet, &ctx, &inputs, rng)

@@ -15,6 +15,7 @@ pub mod automitron;
 pub mod colonise;
 pub mod cyber;
 pub mod dispatch;
+pub mod macinti;
 pub mod parts;
 pub mod personality;
 pub mod production;

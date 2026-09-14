@@ -218,6 +218,11 @@ pub struct Player {
     /// by planet id. See [`ai::cyber`]. Empty for everyone else; like the
     /// starbase history it lives only for the game in hand.
     pub cyber_words: Vec<u16>,
+    /// The Macinti's starbase recycling table (`vAiMacRecycleSB`,
+    /// `EnsureMacintiStarbaseDesigns` `1090:7688`), by starbase design
+    /// slot, which its starbase upgrades consult — see
+    /// [`ai::macinti`]. Zeros for everyone else.
+    pub mac_starbase_recycle: [u8; 10],
 }
 
 /// The five battle plans a new game gives every player.
@@ -293,6 +298,7 @@ impl Player {
             explored: std::collections::BTreeSet::new(),
             starbase_history: Vec::new(),
             cyber_words: Vec::new(),
+            mac_starbase_recycle: [0; 10],
         }
     }
 }

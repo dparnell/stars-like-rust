@@ -200,9 +200,8 @@ pub fn generate_turn_with_orders(
 
     // --- DoAiTurn (`1088:0000`), for each computer player: the host plays
     // their turn before the year runs, as if they had submitted orders.
-    // Each personality researches by its own plan and share; every turn
-    // but the Macinti's is transcribed, and the Macinti runs the
-    // TurinDrone's middle until its own is (`ai::personality`).
+    // Each personality researches by its own plan and share, and every
+    // personality's turn is transcribed (`ai::personality`).
     for player in 0..state.players.len() {
         let personality = match state.players[player].control {
             crate::ai::Control::Computer {
@@ -216,7 +215,7 @@ pub fn generate_turn_with_orders(
             crate::ai::personality::Shape::Basic => {
                 crate::ai::turindrone::basic_turn(state, player, rng, &profile)
             }
-            crate::ai::personality::Shape::TurinDrone | crate::ai::personality::Shape::StandIn => {
+            crate::ai::personality::Shape::TurinDrone => {
                 crate::ai::turindrone::turn_as(state, player, rng, &profile)
             }
             crate::ai::personality::Shape::Robotoid => {
@@ -230,6 +229,9 @@ pub fn generate_turn_with_orders(
             }
             crate::ai::personality::Shape::Rototill => {
                 crate::ai::rototill::turn(state, player, rng, &profile)
+            }
+            crate::ai::personality::Shape::Macinti => {
+                crate::ai::macinti::turn(state, player, rng, &profile)
             }
         };
         report.ai.push((player, did));

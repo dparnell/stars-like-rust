@@ -1,9 +1,7 @@
 //! The seven computer opponents on the tutorial's world — each in the
 //! Berserkers' seat in turn. See `docs/formulas/ai.md`, *The seven
-//! personalities*: every one researches by its own plan and share, the
-//! Maid's, the Robotoid's, the Automitron's, the Cybertron's and the
-//! Rototill's turns are their own, and the Macinti borrows the
-//! TurinDrone's middle until its own is transcribed.
+//! personalities*: every one researches by its own plan and share, and
+//! every one's turn is its own.
 
 use stars_core::ai::personality::{Profile, Shape};
 use stars_core::ai::{AiPersonality, Control};
@@ -96,11 +94,10 @@ fn the_maid_keeps_house_and_no_more() {
     assert_eq!(Profile::of(AiPersonality::Maid).shape, Shape::Basic);
 }
 
-/// A stand-in personality plays the TurinDrone's turn under its own plan:
-/// the Cyber's first study is Construction 4, where the TurinDrone's is
-/// Propulsion 2.
+/// Each personality researches by its own plan: the Cyber's first study
+/// is Construction 4, where the TurinDrone's is Propulsion 2.
 #[test]
-fn a_stand_in_researches_its_own_way() {
+fn each_personality_researches_its_own_way() {
     let mut cyber = tutorial_world(AiPersonality::Cyber);
     let mut drone = tutorial_world(AiPersonality::TurinDrone);
     let mut rng = stars_core::rng::Rng::randomize(3);

@@ -509,21 +509,26 @@ fn move_fleet(
 }
 
 /// `FShouldPlanetBuildColonizer` (`1090:9f30`): always before turn 60;
-/// then by the nearest planet whose mark (`vlpbAiPlanet[+13]`, read here
-/// as the colonisable mark) is clear: within 350 light years always;
+/// then by the nearest planet whose `vlpbAiPlanet[+13]` is clear —
+/// `is_candidate` says which those are — within 350 light years always;
 /// within 300 one time in two; else within 250 one time in two of that.
-fn should_build_colonizer(state: &GameState, from: Point, marks: &[Mark], rng: &mut Rng) -> bool {
+/// The Cybertron never sets that byte, so for it every planet is a
+/// candidate, the planet asking included, and the answer is always yes;
+/// the Macinti marks its own planets, so it asks about the nearest planet
+/// not its own.
+pub(crate) fn should_build_colonizer(
+    state: &GameState,
+    from: Point,
+    is_candidate: &dyn Fn(&crate::planet::Planet) -> bool,
+    rng: &mut Rng,
+) -> bool {
     if state.turn < 60 {
         return true;
     }
     let mut best: i64 = 10_000_000;
     for planet in &state.planets {
         let Some(at) = planet.position else { continue };
-        let colonisable = usize::try_from(planet.id)
-            .ok()
-            .and_then(|i| marks.get(i))
-            .is_some_and(|m| *m == Mark::Colonisable);
-        if !colonisable {
+        if !is_candidate(planet) {
             continue;
         }
         best = best.min(d2(at, from));
@@ -1124,7 +1129,7 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng, profile: &Profi
                 let built = may
                     && planet
                         .position
-                        .is_some_and(|at| should_build_colonizer(state, at, &marks, rng));
+                        .is_some_and(|at| should_build_colonizer(state, at, &|_| true, rng));
                 if built {
                     added.push((COLONY_SLOT, 1));
                     state.players[player].cyber_words[idx] |= lasting::COLONIZER;
@@ -1475,7 +1480,11 @@ fn cyber_freighter(
 /// deep space heads for the nearest of the other players' planets within
 /// 450 light years of its next waypoint, else the nearest planet of any
 /// kind, at warp 4.
-fn move_to_nearest_planet_or_enemy(state: &mut GameState, me: i16, index: usize) -> Option<i16> {
+pub(crate) fn move_to_nearest_planet_or_enemy(
+    state: &mut GameState,
+    me: i16,
+    index: usize,
+) -> Option<i16> {
     let fleet = state.fleets[index].clone();
     let from = fleet
         .waypoints
@@ -1544,6 +1553,38 @@ fn target_cyber_armada(
     skill: u8,
     rng: &mut Rng,
 ) -> Option<i16> {
+    let fleet = &state.fleets[index];
+    let count = |slot: u8| -> i32 {
+        fleet
+            .stacks
+            .iter()
+            .filter(|s| s.design == slot)
+            .map(|s| s.count)
+            .sum()
+    };
+    let weight = count(6) + count(7) + count(8) * 2 + count(10) + count(11) + count(12) * 2;
+    let bombers = count(9) + count(13);
+    target_potent_armada(
+        state, player, me, index, potency, skill, weight, bombers, rng,
+    )
+}
+
+/// The armada dispatch the Cybertron and the Macinti share
+/// (`TargetCyberArmada` `10a8:51a4`, `TargetMacArmada` `10a0:4146`), given
+/// the fleet's weight of war and its bombers as each personality counts
+/// them.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn target_potent_armada(
+    state: &mut GameState,
+    player: usize,
+    me: i16,
+    index: usize,
+    potency: &[u8; 4],
+    skill: u8,
+    weight: i32,
+    bombers: i32,
+    rng: &mut Rng,
+) -> Option<i16> {
     let fleet = state.fleets[index].clone();
     if fleet.waypoints.len() > 1 {
         let next = &fleet.waypoints[1];
@@ -1569,16 +1610,6 @@ fn target_cyber_armada(
             }
         }
     }
-    let count = |slot: u8| -> i32 {
-        fleet
-            .stacks
-            .iter()
-            .filter(|s| s.design == slot)
-            .map(|s| s.count)
-            .sum()
-    };
-    let weight = count(6) + count(7) + count(8) * 2 + count(10) + count(11) + count(12) * 2;
-    let bombers = count(9) + count(13);
     let p0 = i32::from(potency[0]);
     let Some(here) = fleet
         .orbiting

@@ -110,13 +110,13 @@ mainly in which ships they build and when they decide to attack.
 
 ### The seven personalities — what is each one's own
 
-**Status:** the research plans and shares recovered for all seven; the
-Maid's turn transcribed in full; the TurinDrone's in `turindrone.rs`; the
-Robotoid's in `robotoid.rs` (*The Robotoid's turn*, below); the
-Automitron's in `automitron.rs` (*The Automitron's turn*); the
-Cybertron's in `cyber.rs` (*The Cybertron's turn*); the Rototill's in
-`rototill.rs` (*The Rototill's turn*); the Macinti runs the TurinDrone's
-middle in place of its own.
+**Status:** the research plans and shares recovered for all seven, and
+every turn transcribed: the Maid's in `turindrone::basic_turn`; the
+TurinDrone's in `turindrone.rs`; the Robotoid's in `robotoid.rs` (*The
+Robotoid's turn*, below); the Automitron's in `automitron.rs` (*The
+Automitron's turn*); the Cybertron's in `cyber.rs` (*The Cybertron's
+turn*); the Rototill's in `rototill.rs` (*The Rototill's turn*); the
+Macinti's in `macinti.rs` (*The Macinti's turn*).
 
 Every `Do…AiTurn` opens with `IroEnsureAi(plan, count, &ishdefSBLatest,
 pct)` and closes with `HandleBasicAiTasks` then `FillProductionQueue`.
@@ -154,11 +154,7 @@ over the fleets, with their own war tests (`FPotentRobWarFleet`
 shape is the TurinDrone's — merges by slot mask, `vrgAiArmadaPotency`
 from the year, `CheckAiShdefStatus` over the slot ranges,
 `SplitOutShdefs`, then the queues and the fleets — with the ranges, the
-thresholds and the designs differing. The Robotoid's, the Automitron's,
-the Cybertron's and the Rototill's are transcribed (below). Until the
-Macinti's is, it runs `turindrone::turn_as` — the TurinDrone's designs,
-queues and dispatch — under its own research plan and share, which is
-how it plays today: not silent, and not yet itself.
+thresholds and the designs differing. All five are transcribed, below.
 
 ### Production
 
@@ -1547,6 +1543,173 @@ with; it merges nothing, rates no armada and recycles nothing. In order:
 `tests/rototill.rs` runs it in the Berserkers' seat: no design drawn in
 forty years, scouts out, colony ships settling and replaced.
 
+### The Macinti's turn — transcribed
+
+`DoMacintiAiTurn` (`10a0:0008`) is `ai::macinti::turn`. The Macinti is
+the Alternate Reality opponent: its colony ships carry an Orbital
+Construction Module (part class 40), which only an Alternate Reality race
+may build — run under any other race it cannot draw them at all — and its
+haulers move people between its planets by the resources they would make
+there. In order:
+
+1. `IroEnsureAi(vrgbMacintiRes, 8, &ishdefSBLatest, 15)`; no starbase
+   history.
+2. **Slot 7** holds a second colony-ship design for the first forty
+   years, or while a live colony design sits there; once the Enigma
+   Pulsar (engine 15) can be built and no ship of it is left it is
+   retired for a warship (`local_66` = "early colony"; `local_38` = the
+   last warship slot, 6 or 7).
+3. `MergeAllShdefs` with `0x37c` (2–6, 8, 9) or `0x3fc` (2–9), then
+   `1`, `0xc000` (the miners) and `0x3000` (the Destroyers).
+4. The potencies (`10a0:0138`): 6, from turn 131 `6 + (turn − 120)/20`,
+   at most 50; half; 6, from turn 116 `6 + (turn − 100)/22`, at most 12;
+   half less one, at most 3 — written to the shared `vrgAiArmadaPotency`.
+5. The recycling period 50/70/100. `CheckAiShdefStatus` over 12–13 (an
+   old Nubian unmarked), 14–15 (period 5000: the miners never go old),
+   10–11, 8–9, 2–4 and 5 to the last warship slot. Once mining robot 6
+   can be built and slot 15 is live, the older miner design — 15 when
+   14 already carries robot 6 (unless 15 does too, the Enigma Pulsar
+   cannot be built, or 14 has it), else 14 — is retired when no ship of
+   it is left, so that `EnsureMacintiShdefs` redraws it. From turn 81,
+   `SplitOutShdefs` for the old designs, then slots 0, 1, {14, 15} and
+   {10, 11}.
+6. `EnsureMacintiShdefs` (`10a0:2e9c`), below; `EnsureMacintiStarbase-
+   Designs` (`1090:7688`) — only its recycling table is kept
+   (`Player::mac_starbase_recycle`), which the starbase upgrade reads,
+   with `PctPlanetCapacity` (`1048:6b2c`: `(max/2 + pop × 100)/max`, at
+   most 999; 0 for an Alternate Reality race, whose maximum is not
+   modelled). `FShouldWeBuildColonizers`. The colony slot is 1 when its
+   design has the Enigma Pulsar, else 7 while it holds a live colony
+   design, else 1; with slot 1 chosen while slot 7 is still the early
+   colony slot and slot 1's design is over five years old, the old
+   slot-7 ships under way are sent home.
+7. **The counts**: fleets with miners (14, 15), mine layers (0),
+   Destroyers (12, 13), freighters (10, 11 — one under way to a planet
+   with colonists marks it bound, `vlpbAiPlanet[+14] |= 1`), and
+   warships (2–9). Own planets are marked `[+13] = 1` (what
+   `FShouldPlanetBuildColonizer` steps over). From turn 121, with the
+   Genesis Device buildable, `owned/20` of them (at most ten) may be
+   queued this year. Other players' planets get their worth
+   (`min(popguess/250 + 1, 6)`, plus one for a starbase).
+8. **The planet pass**, over own planets in AI order with a starbase,
+   over 19,900 people, a starbase design not in slot 0 (nor slot 1 from
+   turn 26), and a queue under 24 long holding no ship:
+   - **packets**, from turn 121 at a driver of warp 10 or more and a
+     million people, one roll in four, with no packet queued: the first
+     mineral over 5,000 kT from a random start round the three goes to
+     the own planet with the least of it (under 100,000) that has such a
+     driver within 302 light years — a fifth of the stock, at most
+     20,000 kT, in hundred-kT packets at warp 11 — and the planet is
+     done;
+   - a freighter (newest of 10, 11), one roll in three, under 64 fleets
+     and under a quarter of the planets owned;
+   - a colony ship when `FShouldWeBuildColonizers` says so (unless over
+     40 fleets carry one past turn 120 or over 100 carry one), else
+     eight times in a hundred; never over 49 fleets past turn 120; every
+     mineral at 30 kT or the planet is done; then by
+     `FShouldPlanetBuildColonizer` (over the planets not ours): one,
+     from turn 5 one more past 2,300 growth and 35 resources at skill 1
+     or more, a third past 3,600 and 50 at skill 2 or more;
+   - a miner (newest of 14, 15), one roll in two, under sixty miner
+     fleets and 5,000 ships, where the miners here dig 1,000 mines'
+     worth or less (`CMineFromLpfl`): where three times the
+     concentrations summed is over what they dig and at least 151, one;
+     else under thirty fleets, nine rolls in ten;
+   - mine layers, four, one roll in four, under sixty layer fleets and —
+     the routine's own slip — under 7,500 ships of the newest *miner*
+     design, the fleet here under ten (under seventeen one in ten), and
+     `Random(2 × here + 1)` zero;
+   - "rich", as the routine tests it (`local_9c`): the *first* mineral
+     under 5,000 kT is germanium;
+   - bombers (newest of 8, 9): under 140 warship fleets and (under sixty,
+     or over 2,000 resources): past 110 fleets one roll in three; else
+     where a `FPotentMacWarFleet` here holds under `potency[2]` bombers
+     — twelve on a rich planet, four otherwise — and the planet is done;
+   - a Genesis Device with 75 terraforming steps, at a million people
+     with none queued, unless germanium is the first mineral under
+     2,000 kT, by the concentrations less 12 summed: under 15 always,
+     under 30 two rolls in three, under 60 four in five;
+   - Cruisers (newest of 2–4), or one roll in three the newest
+     Battleship: from turn 21, under 130 warship fleets and (under
+     fifty, or over 2,000 resources), on a planet not rich only one roll
+     in three; ten on a rich planet (and the planet is done), two
+     otherwise;
+   - Destroyers (newest of 12, 13), up to twenty paid for in full, under
+     eighty fleets (sixty from turn 120) and 2,000 ships.
+9. **The first fleet pass**: a leg to a space object over 200 light years
+   off is blown away (the routine does this to every fleet in the game;
+   here to our own). Mine layers from turn 41: a buddy
+   (`FFindBuddyAndJoinUp(0, 0, 72, 108)`) over 55 layer fleets (over 40,
+   two rolls in three), a wander one in five, else Lay Mines; under way
+   a current task is cleared. Otherwise, with no miners (or under way):
+   attack fleets (`FIsAiAttack`) are listed and a warship claims its
+   planet; an empty transport bound for a planet not ours has its orders
+   blown away. Miners with no leg: Remote Mining where they are; a buddy
+   (`14, 15, 72, 108`) over 58 miner fleets (over 48, two in three); at
+   an own planet whose concentrations sum under 30 (under 60 one in
+   three), `FRetargetMiner` (`10a0:3e7e`: the own planet within 80 light
+   years worth the most — ironium × 8, boranium × 10, germanium × 7 —
+   when over six fifths of the one they sit at, at warp 6); else one
+   roll in ten. The tail: before turn 11 the starting scouts and slot-2
+   ships are scrapped; a colony ship with no leg is scrapped at a planet
+   once slot 1 is the colony design while slot 7 still is one; at skill
+   2 or more at an unowned planet it settles there with colonists, or
+   goes home without, and at a small foreign planet waits; else it
+   takes `pop/10` colonists (at most 25) from the own planet it sits at
+   and goes to the nearest colonisable planet, or is scrapped at a
+   planet when there is none; the old slot-7 colony ships under way are
+   sent home when due.
+10. **The haulers**: every transport with no leg, on battle plan 4, by
+    `IdTargetMacFreighter` (`10a0:39d9`): at an own planet over a quarter
+    full and over 99,900 people it weighs `pop/20` colonists against
+    every own planet within 200 light years no hauler is bound for — the
+    resources gained there by the colonists that arrive (3 % lost within
+    50 light years, 6 within 100, 9 within 150, 12 within 200) against
+    the resources lost here — and goes when the gain beats the loss by 5
+    (10 from turn 81, 15 from turn 161); failing that a fifth of a
+    mineral over 2,499 kT here goes to the own planet within 200 light
+    years with the least of it, under 200 kT; failing that the fullest
+    own planet within 200 light years (capacity less 2, 4, 6 past 50,
+    100, 150 light years) with a score over zero. The leg is at warp 4,
+    unloading everything.
+11. **The last pass**: old ships scrapped at an own planet (one in five
+    without a starbase) or sent home; a fleet with warships (2–9, slot 7
+    excepted while it is a colony slot): with 101 warship fleets or
+    more (91, one roll in three) a buddy (`2, 9, 100, 200`) when
+    `Random(100)` beats the ships aboard less ten, else one roll in
+    twenty; else `TargetMacArmada` (`10a0:4146`, `TargetCyberArmada`'s
+    twin with `FPotentMacWarFleet` — ships in 2–4 plus twice 5–7, and
+    twice the Battleships in 8–9 when short — and the bombers in 8–9);
+    an attack fleet not chasing a fleet joins a buddy (`12, 13, 36, 72`)
+    over 70 Destroyer fleets (50 from turn 121; 60/40 one roll in three),
+    unless it holds twenty of the newest Destroyer and rolls nineteen in
+    twenty; else `IdTargetAttack`.
+12. `HandleBasicAiTasks`, `FillProductionQueue`.
+
+#### The Macinti's design slots
+
+`EnsureMacintiShdefs` (`10a0:2e9c`); the fittings are the part-class
+bytes at `10a0:2a44` by the word offsets at `10a0:2a06`
+(`macinti::fitting`).
+
+| slot | role | hull | fitting | when |
+|-----:|------|------|---------|------|
+| 0 | mine layer | Frigate (5) | 10 | skill 2+, no ship of a non-Frigate design left, Bio > 3, Elec > 4, Con > 5, Prop > 5, Energy > 5 |
+| 1 | colony ship | Colony Ship (15) | 20: `[8,40]` | retired and redrawn once the Enigma Pulsar can be built, no ship is left and its engine is not the Pulsar |
+| 2 (early) | starting design | — | — | retired before turn 20 once no ship is left |
+| 2–4 | cruisers | Cruiser (7) | 25–28, five tries | retired; each twenty years after the one before |
+| 5–7 | warships | Nubian (29) two in three, else Battleship (9) | 29; 11–14 (slot 5), 15–18 (6), either (7), five tries | retired; each twenty years after the one before |
+| 7 (early) | colony ship | Colony Ship (15) | 20 | before turn 40 while retired |
+| 8, 9 | bombers | Battleship bomber, else B-52 (19) | 19; 8 / 9 | Weapons > 13; 9 fifteen years after 8 |
+| 10, 11 | freighters | Large Freighter (2), slot 10 else Medium (1) | 24 | retired |
+| 12, 13 | escorts | Nubian, else Destroyer (6) | 30; 0–3 / 4–7, five tries | Weapons > 4 & Prop > 5; Weapons > 9 & Prop > 8 |
+| 14, 15 | miners | Ultra-Miner (24) at skill 2+ (15 past Con 14), else Maxi-Miner (23); 14 falls back to Miner (22) / Mini-Miner (21) | 22 / 21; 22 / 23 | retired |
+
+`tests/macinti.rs` runs it in the Berserkers' seat — no Alternate
+Reality race, so no colony ship can be drawn: the starting scouts and
+miners scrapped, the recycling table kept, the designs on the hulls the
+table names.
+
 ### Other queue sources
 
 Eighteen functions call `AddItemToQueue`. Besides the two above, the AI-side
@@ -1563,6 +1726,11 @@ which is why Cyber's always-1 terraform entries have no known source yet.
 
 - `DoAiTurn` (`1088:0000`) — dispatch table and turn preparation.
 - `DoTurinDroneAiTurn` (`1088:3670`) — the worked example above.
+- `DoMacintiAiTurn` (`10a0:0008`), `EnsureMacintiShdefs` (`10a0:2e9c`),
+  `EnsureMacintiStarbaseDesigns` (`1090:7688`), `FPotentMacWarFleet`
+  (`10a0:42ec`), `TargetMacArmada` (`10a0:4146`), `IdTargetMacFreighter`
+  (`10a0:39d9`), `FRetargetMiner` (`10a0:3e7e`), `PctPlanetCapacity`
+  (`1048:6b2c`).
 - `DoRototillAiTurn` (`1098:1e22`), `EnsureCAShdefs` (`1098:3020`),
   `FEnumCalcMinerDest` (`1088:5f32`).
 - `DoCyberAiTurn` (`10a8:002a`), `EnsureCyberAiShdefs` (`10a8:4826`),

@@ -119,8 +119,9 @@ players' fleets — and so is the Automitron's, which colonises by Medium
 Freighter and whose scouts chase the enemy — and so is the Cybertron's,
 which spreads its people by freighter, builds warship groups and throws
 mineral packets at its enemies — and the Rototill's, which never designs
-a ship and lives on what it started with; only the Macinti still runs
-the TurinDrone's designs, queues and dispatch in place of its own
+a ship and lives on what it started with — and the Macinti's, the
+Alternate Reality opponent that moves its people between its starbases
+by the resources they would make there. All seven are transcribed
 (`docs/formulas/ai.md`, *The seven personalities*).
 
 Step 5, the frontend, is a playable game: the scanner with its views and

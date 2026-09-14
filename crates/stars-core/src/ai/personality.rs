@@ -30,9 +30,8 @@ pub enum Shape {
     Cyber,
     /// The Rototill's full turn (`DoRototillAiTurn`, `1098:1e22`).
     Rototill,
-    /// A personality whose own middle is not yet transcribed: the
-    /// TurinDrone's runs for it, under its own research plan and share.
-    StandIn,
+    /// The Macinti's full turn (`DoMacintiAiTurn`, `10a0:0008`).
+    Macinti,
 }
 
 /// One opponent's recovered constants.
@@ -145,7 +144,7 @@ impl Profile {
                 personality,
                 plan: MACINTI_PLAN,
                 pct: pct_fifteen,
-                shape: Shape::StandIn,
+                shape: Shape::Macinti,
             },
             // `DoMaidAiTurn` (`1098:0000`): no plan, and 15 % from turn 20.
             AiPersonality::Maid => Self {
