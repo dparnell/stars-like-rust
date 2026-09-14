@@ -46,6 +46,17 @@ fn year_zero_sends_the_scouts_out() {
         1,
         "one scout for twenty-four planets"
     );
+    // The two Potato Bugs are merged (`MergeAllShdefs` over the miners'
+    // slots) and then scrapped at year 0, as the routine has it.
+    assert_eq!(report.merged, vec![(3, 2)]);
+    assert_eq!(report.scrapped, vec![2]);
+    let miners = state
+        .fleets
+        .iter()
+        .find(|f| f.owner == 1 && f.id == 2)
+        .expect("the miners");
+    assert_eq!(miners.stacks[0].count, 2);
+    assert_eq!(miners.waypoints[0].task, stars_formats::task::SCRAP);
 }
 
 /// The turn runs inside the year: after a few years the Berserkers' scouts
@@ -196,4 +207,227 @@ fn designs_come_as_the_tech_arrives() {
     let report = turindrone::turn(&mut state, 1, &mut rng);
     assert_eq!(report.designed, vec![(1, 15), (0, 5)]);
     assert_eq!(state.designs[1][0].hull_id, 5);
+}
+
+/// `CheckAiShdefStatus`: a design older than the recycling period with no
+/// ship of it left is retired; one with ships is kept (for
+/// `SplitOutShdefs`, when that is written).
+#[test]
+fn old_designs_are_recycled() {
+    let mut state = tutorial_world();
+    let mut rng = stars_core::rng::Rng::randomize(4);
+    // Make the Berserkers' miner design ancient and remove its ships, and
+    // give the scout the same age but keep its ship.
+    state.turn = 60;
+    state.designs[1][2].designed = 0;
+    state.designs[1][0].designed = 0;
+    state
+        .fleets
+        .retain(|f| !(f.owner == 1 && f.stacks[0].design == 2));
+    // Construction 7 is what makes the miner range looked at.
+    state.players[1].research.levels[3] = 7;
+    turindrone::turn(&mut state, 1, &mut rng);
+    assert!(
+        state.designs[1][2].obsolete,
+        "the Potato Bug, sixty years old and gone"
+    );
+    assert!(!state.designs[1][0].obsolete, "the Peeping Tom still flies");
+}
+
+/// `IdTargetFreighter`: a hauler at home goes to collect what a miner has
+/// dug — an unowned planet a miner of ours claims, scored by its mineral
+/// worth over the distance — with Load All on the three minerals.
+#[test]
+fn a_hauler_goes_to_the_miners_planet() {
+    use stars_core::design::{DesignSlot, ShipDesign};
+    use stars_core::fleet::ShipStack;
+    let mut state = tutorial_world();
+    let mut rng = stars_core::rng::Rng::randomize(5);
+    state.turn = 3;
+    // A Small Freighter design in the haulers' slot 8.
+    while state.designs[1].len() < 9 {
+        let last = state.designs[1].last().expect("a design").clone();
+        state.designs[1].push(last);
+    }
+    state.designs[1][8] = ShipDesign {
+        hull_id: 0,
+        slots: vec![
+            DesignSlot {
+                category: stars_core::components::slot::ENGINE,
+                item: 1,
+                count: 1,
+            },
+            DesignSlot {
+                category: stars_core::components::slot::SCANNER,
+                item: 0,
+                count: 1,
+            },
+            DesignSlot {
+                category: stars_core::components::slot::SPECIAL_M,
+                item: 2,
+                count: 1,
+            },
+        ],
+        name: "Boxcar".to_string(),
+        picture: 0,
+        stored_armor: 0,
+        obsolete: false,
+        designed: 1,
+        built: 1,
+    };
+    // The miner (fleet 2) sits at an unowned planet the Berserkers know.
+    let home = state
+        .planets
+        .iter()
+        .find(|p| p.owner == Some(1))
+        .expect("home")
+        .clone();
+    let mined = state
+        .planets
+        .iter()
+        .find(|p| p.owner.is_none() && p.position.is_some())
+        .expect("an unowned planet")
+        .clone();
+    state.players[1].explored.insert(mined.id);
+    let miner = state
+        .fleets
+        .iter()
+        .position(|f| f.owner == 1 && f.id == 2)
+        .expect("a miner");
+    state.fleets[miner].position = mined.position.expect("placed");
+    state.fleets[miner].orbiting = Some(mined.id as u16);
+    state.fleets[miner].waypoints[0].position = mined.position.expect("placed");
+    state.fleets[miner].waypoints[0].target = Some(mined.id as u16);
+    // And a hauler at home.
+    let mut hauler = state.fleets[0].clone();
+    hauler.id = 9;
+    hauler.owner = 1;
+    hauler.position = home.position.expect("placed");
+    hauler.orbiting = Some(home.id as u16);
+    hauler.waypoints.truncate(1);
+    hauler.waypoints[0].position = hauler.position;
+    hauler.waypoints[0].target = Some(home.id as u16);
+    hauler.stacks = vec![ShipStack {
+        design: 8,
+        count: 1,
+        damaged_pct: 0,
+        damage_pct: 0,
+    }];
+    hauler.cargo = stars_core::fleet::Cargo::default();
+    state.fleets.push(hauler);
+
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert_eq!(report.hauling, vec![(9, mined.id)]);
+    let hauler = state
+        .fleets
+        .iter()
+        .find(|f| f.owner == 1 && f.id == 9)
+        .expect("the hauler");
+    let leg = &hauler.waypoints[1];
+    assert_eq!(leg.task, stars_formats::task::TRANSPORT);
+    let orders = leg.transport.expect("orders");
+    for kind in 0..3 {
+        assert_eq!(
+            orders.items[kind].action,
+            stars_formats::XferAction::LoadAll
+        );
+    }
+    assert_eq!(orders.items[3].action, stars_formats::XferAction::None);
+}
+
+/// `MergeAllShdefs` and the armada: two bomber fleets at home join into
+/// one; the armada waits while it is short of the potency, and once it has
+/// the bombers and the battleships it goes for the best of the other
+/// players' planets — the human home world, the only one the Berserkers
+/// know of.
+#[test]
+fn bombers_gather_and_then_go() {
+    use stars_core::fleet::ShipStack;
+    let mut state = tutorial_world();
+    let mut rng = stars_core::rng::Rng::randomize(6);
+    state.turn = 5;
+    // Bomber and battleship designs in their slots (any hull will do for
+    // the fleet pass, which goes by the slot).
+    while state.designs[1].len() < 14 {
+        let last = state.designs[1].last().expect("a design").clone();
+        state.designs[1].push(last);
+    }
+    let home = state
+        .planets
+        .iter()
+        .find(|p| p.owner == Some(1))
+        .expect("home")
+        .clone();
+    let mut make = |id: u16, slot: u8, count: i32| {
+        let mut fleet = state.fleets[0].clone();
+        fleet.id = id;
+        fleet.owner = 1;
+        fleet.position = home.position.expect("placed");
+        fleet.orbiting = Some(home.id as u16);
+        fleet.waypoints.truncate(1);
+        fleet.waypoints[0].position = fleet.position;
+        fleet.waypoints[0].target = Some(home.id as u16);
+        fleet.stacks = vec![ShipStack {
+            design: slot,
+            count,
+            damaged_pct: 0,
+            damage_pct: 0,
+        }];
+        state.fleets.push(fleet);
+    };
+    make(20, 13, 3);
+    make(21, 13, 2);
+    make(22, 4, 1);
+    // The human home world is known to them.
+    let target = state
+        .planets
+        .iter()
+        .find(|p| p.owner == Some(0))
+        .expect("the human home")
+        .id;
+    state.players[1].explored.insert(target);
+
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert!(report.merged.contains(&(21, 20)), "{:?}", report.merged);
+    assert!(report.merged.contains(&(22, 20)), "{:?}", report.merged);
+    let armada = state
+        .fleets
+        .iter()
+        .find(|f| f.owner == 1 && f.stacks.iter().any(|s| s.design == 13))
+        .expect("the armada");
+    assert_eq!(
+        armada
+            .stacks
+            .iter()
+            .filter(|s| s.design == 13)
+            .map(|s| s.count)
+            .sum::<i32>(),
+        5
+    );
+    // Six bombers and three battleships are wanted at year 5: it waits.
+    assert!(report.attacking.is_empty());
+    assert_eq!(armada.waypoints.len(), 1);
+
+    let armada = armada.id;
+    let index = state
+        .fleets
+        .iter()
+        .position(|f| f.owner == 1 && f.id == armada)
+        .expect("it");
+    state.fleets[index].stacks = vec![
+        ShipStack {
+            design: 13,
+            count: 6,
+            damaged_pct: 0,
+            damage_pct: 0,
+        },
+        ShipStack {
+            design: 4,
+            count: 3,
+            damaged_pct: 0,
+            damage_pct: 0,
+        },
+    ];
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert_eq!(report.attacking, vec![(armada, target)]);
 }

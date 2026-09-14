@@ -792,12 +792,47 @@ Santa Maria and Teamster.
 
 #### What `ai::turindrone` does so far
 
-`EnsureTurinDroneShdefs` with every slot's tech and fittings; the year-0
-scouts, scouting to unknown planets, and colony ships to the nearest
-colonisable planet, with the marks table above, from the personality's
-own slots. Not yet: the rest of the queue pass, the war fleets,
-`IdTargetFreighter`, `HandleBasicAiTasks`, `CheckAiShdefStatus`'s
-recycling, `MergeAllShdefs`, the scrap at turn 0. None of it is verified
+`EnsureTurinDroneShdefs` with every slot's tech and fittings;
+`CheckAiShdefStatus` over each range (`ai::turindrone::check_status`:
+the count, the newest by `ShipDesign::designed`, and a design past the
+recycling period retired when no ship of it is left); the whole queue
+pass in the order above, with the armada potencies, the cruiser and
+mine-layer rolls, and the four paid-for classes costed against
+`resources_available − queue_cost` and each ship's `true_cost`; scouting
+to unknown planets, and colony ships to the nearest colonisable planet,
+with the marks table above, from the personality's own slots; the scrap
+at year 0 (the miners, and any idle cruiser); the miners' moves — at a
+planet worth under four, to the best-worth planet by `FEnumCalcMinerDest`
+(a claimed one passed over three times in four), with the Remote Mining
+task at warp 6; a lone mine layer's Lay Mines for ever; and the haulers
+(slots 8 and 9) by the heart of `IdTargetFreighter` (`1090:2b2e`) —
+every planet scored, the best winning: an unowned planet a miner of ours
+claims at its worth × 500 over `d/25 + 24`, home when the hold is over a
+third full (25,000 when full), an own planet without a starbase and
+without a ship in its queue at 25,000 when it is hostile and we are at
+home, else what it holds of the two minerals home is shortest of as a
+share of the hold, capped by the room left, × 100 over the distance;
+Load All of the minerals outward to a mined planet, Unload All to an own
+planet with the colonists too — a thousand kT taken aboard at home when
+home has 1,200 kT and the planet fewer — and home. `MergeAllShdefs`
+(`1090:5a6c`) four times over — the armada classes (slots 4–7, 13–15),
+the mine layers, the destroyers, the miners — each fleet of ours joining
+the first of its kind at the same place, cargo following the ships; and
+the **armadas**, fleets with bombers aboard: at an own starbase they wait
+until they hold `potency[2]` bombers and `potency[1]` battleships, at
+somebody else's planet they stay unless one of their warships is there
+too, and otherwise go for the best planet by `FEnumCalcArmadaDest`
+(`1088:3286`) — a foreign planet's 1, or 2 with a starbase, plus 7, 5, 4,
+3, 2 or 1 for lying within 50, 100, 150, 200, 300 or 500 light years of
+the base, a planet another armada claims counting one time in four, the
+nearer of equals winning and a score of one no target; with the "computer
+players form alliances" option (`GameState::ais_band`, flag bit 4) the
+human players' planets are tried first (`FEnumCalcArmadaHumanDest`,
+`1088:3406`). Not yet: salvage and the drops onto enemy planets in the
+freighter's scoring, `SplitOutShdefs`, the first pass that clears stale
+orders and `det` bit 15, the AI's own tally that widens the cruiser limit
+(`vlpbAiData`, the haulers' assignments), the battle fleets without
+bombers (`IdTargetArmada`), `HandleBasicAiTasks`. None of it is verified
 against a corpus turn yet.
 
 ### Other queue sources

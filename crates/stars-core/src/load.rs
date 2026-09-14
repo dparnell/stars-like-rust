@@ -439,6 +439,7 @@ impl GameState {
             .and_then(|b| stars_formats::GameInfo::decode(&b.data).ok())
         {
             state.slow_tech = info.flags & stars_formats::game_flag::SLOW_TECH != 0;
+            state.ais_band = info.flags & stars_formats::game_flag::AIS_BAND != 0;
             state.galaxy_planets = info.planets;
             state.victory = info.victory_bytes();
         }

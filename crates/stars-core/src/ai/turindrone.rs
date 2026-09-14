@@ -46,6 +46,18 @@ pub struct Report {
     pub queued: Vec<(i16, u8, i32)>,
     /// Designs made this turn, as `(slot, hull)`.
     pub designed: Vec<(u8, i16)>,
+    /// Fleets given the Scrap task, by fleet id.
+    pub scrapped: Vec<u16>,
+    /// Miners sent to dig, by fleet id, and where.
+    pub mining: Vec<(u16, i16)>,
+    /// Mine layers told to lay, by fleet id.
+    pub laying: Vec<u16>,
+    /// Haulers sent, by fleet id, and where.
+    pub hauling: Vec<(u16, i16)>,
+    /// Fleets merged into another at the same place, as `(gone, into)`.
+    pub merged: Vec<(u16, u16)>,
+    /// Armadas sent, by fleet id, and where.
+    pub attacking: Vec<(u16, i16)>,
 }
 
 /// Run the personality's turn for `player`, as the host does before the
@@ -67,6 +79,13 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
     state.players[player].explored.extend(seen);
     let explored = state.players[player].explored.clone();
 
+    // `MergeAllShdefs`, four times: the armada classes together (slots 4
+    // to 7 and 13 to 15), the mine layers, the destroyers and the miners —
+    // each fleet of ours at a place joining the first of its kind there.
+    for mask in [0xe0f0u16, 0x1000, 0x0c00, 0x000c] {
+        merge_all(state, me, mask, &mut report);
+    }
+
     // `EnsureTurinDroneShdefs`: the designs the personality wants in its
     // slots, made when the tech allows.
     ensure_designs(state, player, rng, &mut report);
@@ -74,24 +93,53 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
     let marks = marks(state, player, me, &explored);
     let anywhere_to_settle = marks.contains(&Mark::Colonisable);
 
+    // `CheckAiShdefStatus` over each slot range: how many ships of the
+    // range exist, the newest design in it, and the recycling of old ones.
+    let recycle: i16 = if state.turn < 120 {
+        50
+    } else if state.turn < 200 {
+        70
+    } else {
+        100
+    };
+    let freighters = check_status(state, player, me, 6, 7, recycle);
+    let cruisers = check_status(state, player, me, 8, 9, recycle);
+    let bombers = check_status(state, player, me, 13, 14, recycle);
+    let battleships = check_status(state, player, me, 4, 5, recycle);
+    let _mine_layers = check_status(state, player, me, 12, 12, recycle);
+    let fifteens = check_status(state, player, me, 15, 15, recycle);
+    let _miners = if state.players[player].research.levels[3] < 7 {
+        Status::default()
+    } else {
+        check_status(state, player, me, 2, 3, recycle)
+    };
+    let destroyers = check_status(state, player, me, 10, 11, recycle);
+
     // --- The planet pass: the queue at every planet with a starbase and
-    // people enough. Only the year-0 scouts and the colony ships so far.
+    // people enough.
     let colony_design = colony_design(state, player);
-    let colony_ships: i32 = state
-        .fleets
-        .iter()
-        .filter(|f| f.owner == me)
-        .flat_map(|f| f.stacks.iter())
-        .filter(|s| Some(s.design) == colony_design)
-        .map(|s| s.count)
-        .sum();
+    let ships_of = |state: &GameState, slot: u8| -> i32 {
+        state
+            .fleets
+            .iter()
+            .filter(|f| f.owner == me)
+            .flat_map(|f| f.stacks.iter())
+            .filter(|s| s.design == slot)
+            .map(|s| s.count)
+            .sum()
+    };
+    let colony_ships = colony_design.map_or(0, |d| ships_of(state, d));
     let scout_design = state
         .designs
         .get(player)
         .and_then(|d| d.get(usize::from(SCOUT_SLOT)))
         .filter(|d| d.hull().is_some() && !d.obsolete)
-        .map(|_| SCOUT_SLOT);
+        .cloned();
     let planet_count = i32::try_from(state.planets.len()).unwrap_or(0);
+    let owned =
+        i32::try_from(state.planets.iter().filter(|p| p.owner == Some(me)).count()).unwrap_or(0);
+    let levels = state.players[player].research.levels;
+    let potency = potency(state.turn);
     for index in 0..state.planets.len() {
         let planet = &state.planets[index];
         if planet.owner != Some(me) || !planet.starbase || planet.pop < QUEUE_MIN_POP {
@@ -106,19 +154,152 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
         if state.turn == 0 {
             // One scout per thirty planets, per hundred past a hundred and
             // ninety: `for (n = cPlanMax; n > 0; n -= n < 191 ? 30 : 100)`.
-            if let Some(scout) = scout_design {
+            if scout_design.is_some() {
                 let mut left = planet_count;
                 let mut scouts = 0;
                 while left > 0 {
                     scouts += 1;
                     left -= if left < 191 { 30 } else { 100 };
                 }
-                added.push((scout, scouts));
+                added.push((SCOUT_SLOT, scouts));
+            }
+        } else if let Some(scout) = scout_design.as_ref().filter(|d| d.hull_id == 5) {
+            // A Frigate scout, while fewer than `min(cPlanMax/4, 32)` exist
+            // and ten times the built count is under the existing count.
+            let limit = (planet_count / 4).min(32);
+            let existing = ships_of(state, SCOUT_SLOT);
+            if existing < limit && i64::from(scout.built) * 10 < i64::from(existing) {
+                added.push((SCOUT_SLOT, 1));
+            }
+        }
+        // A cruiser: Weapons past 4, and fewer than the larger of a tenth of
+        // the planets owned and twice the AI's own tally (which has nothing
+        // in it yet), or under ten sevenths of that with one roll in four.
+        let want_cruisers = (owned / 10).max(0);
+        if levels[1] > 4 {
+            if let Some(latest) = cruisers.latest {
+                let count = cruisers.count;
+                if count < want_cruisers || (count < want_cruisers * 10 / 7 && rng.random(4) == 0) {
+                    added.push((latest, 1));
+                }
             }
         }
         if anywhere_to_settle && colony_ships < 2 {
             if let Some(design) = colony_design {
                 added.push((design, 4));
+            }
+        }
+        // Mine layers: slot 12 live, one roll in three, the fleet of them
+        // here under ten (under seventeen with one in eight), and a roll of
+        // `2 × count + 1` coming up zero — three at a time.
+        let layer_live = state.designs[player]
+            .get(12)
+            .is_some_and(|d| d.hull().is_some() && !d.obsolete);
+        if layer_live && rng.random(3) == 0 {
+            let here = state
+                .fleets
+                .iter()
+                .find(|f| {
+                    f.owner == me
+                        && f.orbiting == Some(u16::try_from(id).unwrap_or(u16::MAX))
+                        && f.stacks.iter().any(|s| s.design == 12 && s.count > 0)
+                })
+                .map_or(0, |f| {
+                    f.stacks
+                        .iter()
+                        .filter(|s| s.design == 12)
+                        .map(|s| s.count)
+                        .sum::<i32>()
+                });
+            if (here < 10 || (here < 17 && rng.random(8) == 0))
+                && rng.random(i16::try_from(here * 2 + 1).unwrap_or(i16::MAX)) == 0
+            {
+                added.push((12, 3));
+            }
+        }
+        // A bomber when a war fleet here already holds `potency[2]` of them.
+        if let Some(latest) = bombers.latest {
+            let armada_here = state.fleets.iter().any(|f| {
+                f.owner == me
+                    && f.orbiting == Some(u16::try_from(id).unwrap_or(u16::MAX))
+                    && is_attack_fleet(state, player, f)
+                    && f.stacks
+                        .iter()
+                        .filter(|s| s.design == 13 || s.design == 14)
+                        .map(|s| s.count)
+                        .sum::<i32>()
+                        >= i32::from(potency[2])
+            });
+            if armada_here {
+                added.push((latest, 1));
+            }
+        }
+        // Then the classes paid for out of what is left: up to five of each
+        // while fewer than the limit exist, stopping at the first that
+        // cannot be paid, and stopping the whole pass there.
+        let mut paid = true;
+        for (status, limit) in [
+            (&battleships, planet_count / 24 + 4),
+            (&freighters, planet_count / 12 + 8),
+            (&destroyers, planet_count / 4 + 12),
+            (&fifteens, planet_count / 12 + 8),
+        ] {
+            if !paid {
+                break;
+            }
+            let Some(latest) = status.latest else {
+                continue;
+            };
+            if status.count >= limit {
+                continue;
+            }
+            let race = state.players[player].race.clone();
+            let mut left = crate::ai::production::resources_available(
+                &state.planets[index],
+                &race,
+                state.players[player].research_pct,
+                i16::from(levels[0]),
+            );
+            let committed = crate::ai::production::queue_cost(&state.planets[index].queue, &race);
+            for (have, spent) in left.iter_mut().zip(committed.iter()) {
+                *have -= spent;
+                if *have < 0 {
+                    paid = false;
+                }
+            }
+            if !paid {
+                break;
+            }
+            let who = Builder::player(&state.players[player]);
+            let Some(cost) = state.designs[player]
+                .get(usize::from(latest))
+                .and_then(|d| d.true_cost(&who))
+            else {
+                continue;
+            };
+            let mut n = 0;
+            for _ in 0..5 {
+                let each = [
+                    cost.minerals[0],
+                    cost.minerals[1],
+                    cost.minerals[2],
+                    cost.resources,
+                ];
+                let mut ok = true;
+                for (have, spent) in left.iter_mut().zip(each.iter()) {
+                    *have -= spent;
+                    if *have < 0 {
+                        ok = false;
+                    }
+                }
+                if !ok {
+                    paid = false;
+                    break;
+                }
+                n += 1;
+            }
+            if n > 0 {
+                added.push((latest, n));
             }
         }
         for (design, count) in added {
@@ -140,9 +321,125 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
         .iter()
         .filter_map(|p| p.position.map(|at| (p.id, at)))
         .collect();
+    // The mineral worth of every unowned scanned planet
+    // (`vlpbAiPlanet[id*16 + 1]`): each concentration halved, capped at 75,
+    // summed, capped at 127 — with the top bit for a planet one of our
+    // miners is at or bound for.
+    let mut worth: Vec<u8> = vec![0; marks.len()];
+    for planet in &state.planets {
+        let Ok(at) = usize::try_from(planet.id) else {
+            continue;
+        };
+        if planet.owner.is_some() || !explored.contains(&planet.id) {
+            continue;
+        }
+        let sum: u32 = planet
+            .min_conc
+            .iter()
+            .map(|c| if *c < 0x43 { u32::from(*c) / 2 } else { 0x4b })
+            .sum();
+        worth[at] = u8::try_from(sum.min(0x7f)).unwrap_or(0x7f);
+    }
+    for fleet in state.fleets.iter().filter(|f| f.owner == me) {
+        let is_miner = fleet
+            .stacks
+            .iter()
+            .any(|s| (s.design == 2 || s.design == 3) && s.count > 0);
+        if !is_miner {
+            continue;
+        }
+        let claimed = if fleet.waypoints.len() > 1 {
+            fleet.waypoints[1].target
+        } else {
+            fleet.orbiting
+        };
+        if let Some(at) = claimed.map(usize::from) {
+            if let Some(w) = worth.get_mut(at) {
+                *w |= 0x80;
+            }
+        }
+    }
     for index in 0..state.fleets.len() {
         let fleet = &state.fleets[index];
-        if fleet.owner != me || fleet.waypoints.len() > 1 || fleet.is_empty() {
+        if fleet.owner != me || fleet.is_empty() {
+            continue;
+        }
+        let fleet_id = fleet.id;
+        let carries = |slot: u8| fleet.stacks.iter().any(|s| s.design == slot && s.count > 0);
+        let has_miners = carries(2) || carries(3);
+        let has_orders = fleet.waypoints.len() > 1;
+
+        // At year 0 the starting miners, and any cruiser standing idle, are
+        // recycled: the Berserkers scrap their Potato Bugs.
+        if state.turn == 0 && (has_miners || (!has_orders && (carries(8) || carries(9)))) {
+            let fleet = &mut state.fleets[index];
+            fleet.waypoints.truncate(1);
+            if let Some(first) = fleet.waypoints.first_mut() {
+                first.task = stars_formats::task::SCRAP;
+            }
+            report.scrapped.push(fleet_id);
+            continue;
+        }
+
+        // Miners: at a planet worth less than four, move to the best of the
+        // rest (`LpplFindBestEnum` over `FEnumCalcMinerDest`) and dig
+        // there; a claimed planet is passed over three times in four.
+        if has_miners {
+            let Some(here) = fleet.orbiting.and_then(|p| i16::try_from(p).ok()) else {
+                continue;
+            };
+            let here_worth = usize::try_from(here)
+                .ok()
+                .and_then(|i| worth.get(i).copied())
+                .unwrap_or(0);
+            if here_worth >= 4 {
+                continue;
+            }
+            let from = fleet.position;
+            let mut best: Option<(u8, i64, i16, Point)> = None;
+            for (id, at) in &positions {
+                if *id == here {
+                    continue;
+                }
+                let w = usize::try_from(*id)
+                    .ok()
+                    .and_then(|i| worth.get(i).copied())
+                    .unwrap_or(0);
+                let score = if w == 0 || (rng.random(100) > 0x18 && w & 0x80 != 0) {
+                    0
+                } else {
+                    w
+                };
+                if score <= 1 {
+                    continue;
+                }
+                let dx = i64::from(at.x) - i64::from(from.x);
+                let dy = i64::from(at.y) - i64::from(from.y);
+                let d2 = dx * dx + dy * dy;
+                if best.is_none_or(|(s, d, _, _)| score > s || (score == s && d2 < d)) {
+                    best = Some((score, d2, *id, *at));
+                }
+            }
+            if let Some((_, _, target, at)) = best {
+                // `0x1163`: the Remote Mining task, at warp 6.
+                lay_leg(
+                    &mut state.fleets[index],
+                    at,
+                    target,
+                    stars_formats::task::REMOTE_MINING,
+                    6,
+                );
+                if let Some(w) = usize::try_from(target).ok().and_then(|i| worth.get_mut(i)) {
+                    *w |= 0x80;
+                }
+                if let Some(w) = usize::try_from(here).ok().and_then(|i| worth.get_mut(i)) {
+                    *w &= 0x80;
+                }
+                report.mining.push((fleet_id, target));
+            }
+            continue;
+        }
+        if has_orders {
             continue;
         }
         let designs = state.designs.get(player).cloned().unwrap_or_default();
@@ -213,9 +510,37 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
             continue;
         }
 
-        // The scouts and the destroyers (slots 0, 10 and 11) scout; every
-        // other idle fleet — the starting miner and freighter among them —
-        // is left where it is until its part of the pass is written.
+        // A mine layer on its own, with no task: lay mines for ever.
+        let only_layers = fleet.stacks.iter().all(|s| s.design == 12);
+        if only_layers && carries(12) {
+            let fleet = &mut state.fleets[index];
+            if fleet.waypoints.len() == 1 && fleet.waypoints[0].task == stars_formats::task::NONE {
+                fleet.waypoints[0].task = stars_formats::task::LAY_MINES;
+                fleet.waypoints[0].task_data = vec![5, 0];
+                report.laying.push(fleet_id);
+            }
+            continue;
+        }
+        // An armada — bombers aboard (slots 13, 14): waits at an own
+        // starbase until it holds `potency[2]` bombers and `potency[1]`
+        // battleships, stays at a foreign planet unless an enemy warship
+        // is there too, and otherwise goes for the best of the other
+        // players' planets by `FEnumCalcArmadaDest`.
+        if carries(13) || carries(14) {
+            if let Some(target) = target_armada(state, player, me, index, &potency, rng) {
+                report.attacking.push((fleet_id, target));
+            }
+            continue;
+        }
+        // The haulers (slots 8 and 9): `IdTargetFreighter`.
+        if carries(8) || carries(9) {
+            if let Some(target) = target_freighter(state, player, me, index, &worth, rng) {
+                report.hauling.push((fleet_id, target));
+            }
+            continue;
+        }
+        // The scouts and the destroyers (slots 0, 10 and 11) scout; the
+        // bombers (13, 14) wait for their part of the pass to be written.
         let is_scout = fleet
             .stacks
             .iter()
@@ -551,4 +876,485 @@ fn ensure_designs(state: &mut GameState, player: usize, rng: &mut Rng, report: &
         designs[at] = design;
         report.designed.push((want.slot, want.hull));
     }
+}
+
+/// What `CheckAiShdefStatus` reports of a slot range.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Status {
+    /// Ships of the range's live designs, capped at 32,000.
+    pub count: i32,
+    /// The newest live design in the range, by the year it was made.
+    pub latest: Option<u8>,
+}
+
+/// `CheckAiShdefStatus` (`1090:9b70`): count the ships of the live designs
+/// in a slot range and find the newest; a design older than `recycle`
+/// years is retired if no ship of it exists, and marked for
+/// `SplitOutShdefs` otherwise (the split is not written yet).
+fn check_status(
+    state: &mut GameState,
+    player: usize,
+    me: i16,
+    from: u8,
+    to: u8,
+    recycle: i16,
+) -> Status {
+    let mut status = Status::default();
+    let mut total: i64 = 0;
+    for slot in from..=to {
+        let live = state.designs[player]
+            .get(usize::from(slot))
+            .is_some_and(|d| d.hull().is_some() && !d.obsolete);
+        if !live {
+            continue;
+        }
+        let existing: i64 = state
+            .fleets
+            .iter()
+            .filter(|f| f.owner == me)
+            .flat_map(|f| f.stacks.iter())
+            .filter(|s| s.design == slot)
+            .map(|s| i64::from(s.count))
+            .sum();
+        total += existing;
+        let designed = state.designs[player][usize::from(slot)].designed;
+        let newer = status
+            .latest
+            .is_none_or(|l| state.designs[player][usize::from(l)].designed < designed);
+        if newer {
+            status.latest = Some(slot);
+        }
+        // Past the recycling period: retired when none is left, and
+        // otherwise marked for `SplitOutShdefs` (not written yet).
+        if state.turn - designed > recycle && existing == 0 {
+            state.designs[player][usize::from(slot)].obsolete = true;
+        }
+    }
+    status.count = i32::try_from(total.min(32_000)).unwrap_or(32_000);
+    status
+}
+
+/// The armada potencies for the year — `vrgAiArmadaPotency`, four figures
+/// the personality sizes its fleets by.
+fn potency(turn: i16) -> [u8; 4] {
+    let a = if turn > 130 { 3 + (turn - 120) / 20 } else { 3 }.min(50);
+    let c = if turn > 115 { 6 + (turn - 100) / 22 } else { 6 }.min(12);
+    let d = if c / 2 - 1 < 4 { (c / 2 - 1).max(0) } else { 3 };
+    [
+        u8::try_from(a).unwrap_or(50),
+        u8::try_from(a / 2).unwrap_or(25),
+        u8::try_from(c).unwrap_or(12),
+        u8::try_from(d).unwrap_or(3),
+    ]
+}
+
+/// `FIsTurinDroneAiAttack`: any hull from the Destroyer to the Dreadnought
+/// aboard — hull ids 4 to 10 in the original's numbering, the Scout and
+/// Frigate included.
+fn is_attack_fleet(state: &GameState, player: usize, fleet: &crate::fleet::Fleet) -> bool {
+    fleet.stacks.iter().any(|s| {
+        s.count > 0
+            && state.designs[player]
+                .get(usize::from(s.design))
+                .is_some_and(|d| (4..=10).contains(&d.hull_id))
+    })
+}
+
+/// `IdTargetFreighter` (`1090:2b2e`), the part of it a hauler needs: where
+/// to go next, and what to move when it gets there. The freighter's home
+/// is the personality's first planet with a starbase.
+///
+/// Every other planet is scored, and the best score wins with the nearer
+/// planet breaking a tie; distance enters as `d/25 + 24` light years:
+///
+/// * an unowned planet one of our miners has claimed: its mineral worth
+///   times 500, over the distance — go and collect what was dug;
+/// * home, when the hold is more than a third full: 25,000 when full, else
+///   the fill times twenty over the distance — bring it back;
+/// * an own planet without a starbase that has no ship in its queue: when
+///   its desirability is negative and we are at home, 25,000 — people are
+///   wanted there; otherwise what it holds of the minerals home is short
+///   of, as a share of the hold, capped at what the hold has room for, times
+///   a hundred over the distance;
+/// * a planet already another hauler's, or the one we are at: nothing.
+///
+/// The orders: out to a mined planet, load all three minerals; to an own
+/// planet, unload all three and any colonists (with a thousand kT of
+/// colonists taken aboard at home first when home has 1,200 kT or more and
+/// the planet has fewer than home); back home, unload all. Salvage, the
+/// drops onto enemy planets and the finer loading rules are not written.
+fn target_freighter(
+    state: &mut GameState,
+    player: usize,
+    me: i16,
+    index: usize,
+    worth: &[u8],
+    rng: &mut Rng,
+) -> Option<i16> {
+    let _ = rng;
+    let designs = state.designs.get(player).cloned().unwrap_or_default();
+    let home = state
+        .planets
+        .iter()
+        .find(|p| p.owner == Some(me) && p.starbase)?
+        .clone();
+    let fleet = state.fleets[index].clone();
+    let here = fleet.orbiting.and_then(|p| i16::try_from(p).ok());
+    let at_home = here == Some(home.id);
+    let capacity = fleet.cargo_capacity(&designs);
+    if capacity <= 0 {
+        return None;
+    }
+    let held: i32 = fleet.cargo.minerals.iter().sum::<i32>() + fleet.cargo.colonists;
+    let fill = 100 - (capacity - held) * 100 / capacity;
+    // The minerals home is shortest of, by how much of each is on hand.
+    let mut order: Vec<usize> = (0..3).collect();
+    order.sort_by_key(|k| home.surface_min[*k]);
+    let scarce = order[0];
+    // Planets another hauler is already bound for.
+    let taken: BTreeSet<u16> = state
+        .fleets
+        .iter()
+        .filter(|f| f.owner == me && f.id != fleet.id && f.waypoints.len() > 1)
+        .filter(|f| {
+            f.stacks
+                .iter()
+                .any(|s| (s.design == 8 || s.design == 9) && s.count > 0)
+        })
+        .filter_map(|f| f.waypoints[1].target)
+        .collect();
+
+    let from = fleet.position;
+    let distance = |at: Point| -> i64 {
+        let dx = i64::from(at.x) - i64::from(from.x);
+        let dy = i64::from(at.y) - i64::from(from.y);
+        let d = ((dx * dx + dy * dy) as f64).sqrt() as i64;
+        (d / 25 + 24).max(1)
+    };
+    let mut best: Option<(i64, i16, Point, bool)> = None;
+    for planet in &state.planets {
+        let Some(at) = planet.position else {
+            continue;
+        };
+        if Some(planet.id) == here || taken.contains(&u16::try_from(planet.id).unwrap_or(u16::MAX))
+        {
+            continue;
+        }
+        let worth_here = usize::try_from(planet.id)
+            .ok()
+            .and_then(|i| worth.get(i).copied())
+            .unwrap_or(0);
+        let (score, load) = if planet.owner.is_none() && worth_here & 0x80 != 0 {
+            (i64::from(worth_here & 0x7f) * 500 / distance(at), true)
+        } else if planet.owner != Some(me) {
+            continue;
+        } else if planet.id == home.id {
+            if fill <= 34 {
+                continue;
+            }
+            if fill == 100 {
+                (25_000, false)
+            } else {
+                (i64::from(fill) * 20 / distance(at), false)
+            }
+        } else if planet.starbase || planet.queue.iter().any(|q| q.ship) {
+            continue;
+        } else if at_home
+            && crate::hab::pct_planet_desirability(planet, &state.players[player].race) < 0
+        {
+            (25_000, false)
+        } else {
+            // What it needs of the minerals home is short of: the sum of
+            // its holdings of them, as a share of the hold.
+            let have: i64 = order
+                .iter()
+                .take(2)
+                .map(|k| i64::from(planet.surface_min[*k]))
+                .sum();
+            if have <= 9 {
+                continue;
+            }
+            let share = (have * 100 / i64::from(capacity)).min(i64::from(100 - fill));
+            (share * 100 / distance(at), false)
+        };
+        if score <= 0 {
+            continue;
+        }
+        if best.is_none_or(|(b, _, _, _)| score > b) {
+            best = Some((score, planet.id, at, load));
+        }
+    }
+    let (_, target, at, load) = best?;
+
+    // Colonists aboard at home for an own planet with fewer than home.
+    let stacks: Vec<(&crate::design::ShipDesign, i32)> = fleet
+        .stacks
+        .iter()
+        .filter_map(|s| designs.get(usize::from(s.design)).map(|d| (d, s.count)))
+        .collect();
+    let warp = ideal_warp(&stacks, false);
+    let to_own = state
+        .planets
+        .iter()
+        .find(|p| p.id == target)
+        .is_some_and(|p| p.owner == Some(me));
+    if at_home && to_own && target != home.id {
+        let target_pop = state
+            .planets
+            .iter()
+            .find(|p| p.id == target)
+            .map_or(0, |p| p.pop);
+        if home.pop >= 1200 && target_pop < home.pop {
+            let room = (capacity - held).max(0);
+            let take = 1000.min(room).min(home.pop);
+            if let Some(h) = state.planets.iter_mut().find(|p| p.id == home.id) {
+                h.pop -= take;
+            }
+            state.fleets[index].cargo.colonists += take;
+        }
+    }
+    use stars_formats::{ItemAction, TransportTask, XferAction};
+    let mineral = if load {
+        XferAction::LoadAll
+    } else {
+        XferAction::UnloadAll
+    };
+    let mut items = [ItemAction {
+        quantity: 0,
+        action: XferAction::None,
+    }; 5];
+    for item in items.iter_mut().take(3) {
+        item.action = mineral;
+    }
+    if to_own {
+        items[3].action = XferAction::UnloadAll;
+    }
+    let _ = scarce;
+    lay_leg(
+        &mut state.fleets[index],
+        at,
+        target,
+        stars_formats::task::TRANSPORT,
+        warp,
+    );
+    if let Some(leg) = state.fleets[index].waypoints.get_mut(1) {
+        leg.transport = Some(TransportTask { items });
+        leg.task_data = TransportTask { items }.encode();
+    }
+    Some(target)
+}
+
+/// `MergeAllShdefs` (`1090:5a6c`): every fleet of ours carrying a design of
+/// the slots in `mask` joins the first such fleet found at the same planet
+/// and place; the joined fleet's ships and cargo pass to the survivor.
+fn merge_all(state: &mut GameState, me: i16, mask: u16, report: &mut Report) {
+    let mut survivors: Vec<(Option<u16>, Point, usize)> = Vec::new();
+    let mut gone: Vec<usize> = Vec::new();
+    for index in 0..state.fleets.len() {
+        let fleet = &state.fleets[index];
+        if fleet.owner != me || fleet.is_empty() {
+            continue;
+        }
+        let in_mask = fleet
+            .stacks
+            .iter()
+            .any(|s| s.count > 0 && s.design < 16 && mask & (1 << s.design) != 0);
+        if !in_mask {
+            continue;
+        }
+        let key = (fleet.orbiting, fleet.position);
+        if let Some((_, _, into)) = survivors.iter().find(|(o, p, _)| (*o, *p) == key).copied() {
+            // `Merge2Fleets`: the ships move, and the cargo follows them.
+            let before_into = state.fleets[into].stacks.clone();
+            let before_gone = state.fleets[index].stacks.clone();
+            let stacks = std::mem::take(&mut state.fleets[index].stacks);
+            for stack in stacks {
+                match state.fleets[into]
+                    .stacks
+                    .iter_mut()
+                    .find(|s| s.design == stack.design)
+                {
+                    Some(s) => s.count += stack.count,
+                    None => state.fleets[into].stacks.push(stack),
+                }
+            }
+            let designs = state
+                .designs
+                .get(usize::try_from(me).unwrap_or(usize::MAX))
+                .cloned()
+                .unwrap_or_default();
+            let (low, high) = (into.min(index), into.max(index));
+            let (head, tail) = state.fleets.split_at_mut(high);
+            let (a, b) = if into < index {
+                (&mut head[low], &mut tail[0])
+            } else {
+                (&mut tail[0], &mut head[low])
+            };
+            crate::fleet::balance_cargo([a, b], [&before_into, &before_gone], &designs);
+            report
+                .merged
+                .push((state.fleets[index].id, state.fleets[into].id));
+            gone.push(index);
+        } else if survivors.len() < 32 {
+            survivors.push((key.0, key.1, index));
+        }
+    }
+    if !gone.is_empty() {
+        state.fleets.retain(|f| !f.is_empty());
+    }
+}
+
+/// `FEnumCalcArmadaDest` (`1088:3286`) over every planet, from `base`:
+/// a foreign planet's mark — 1, or 2 with a starbase — plus 7, 5, 4, 3, 2
+/// or 1 for lying within 50, 100, 150, 200, 300 or 500 light years, a
+/// claimed planet counting only one time in four; the best score wins, the
+/// nearer breaking a tie, and a score of one is no target. With the
+/// "computer players form alliances" option only human players' planets
+/// are looked at first (`FEnumCalcArmadaHumanDest`, `1088:3406`).
+fn target_armada(
+    state: &mut GameState,
+    player: usize,
+    me: i16,
+    index: usize,
+    potency: &[u8; 4],
+    rng: &mut Rng,
+) -> Option<i16> {
+    let fleet = state.fleets[index].clone();
+    let here = fleet
+        .orbiting
+        .and_then(|p| i16::try_from(p).ok())
+        .and_then(|id| state.planets.iter().find(|p| p.id == id).cloned());
+    let base = match &here {
+        None => state
+            .planets
+            .iter()
+            .find(|p| p.owner == Some(me) && p.starbase)?
+            .clone(),
+        Some(planet) if planet.owner == Some(me) => {
+            if planet.starbase {
+                let bombers: i32 = fleet
+                    .stacks
+                    .iter()
+                    .filter(|s| s.design == 13 || s.design == 14)
+                    .map(|s| s.count)
+                    .sum();
+                let battleships: i32 = fleet
+                    .stacks
+                    .iter()
+                    .filter(|s| s.design == 4 || s.design == 5)
+                    .map(|s| s.count)
+                    .sum();
+                if bombers < i32::from(potency[2]) || battleships < i32::from(potency[1]) {
+                    return None;
+                }
+            }
+            planet.clone()
+        }
+        Some(planet) if planet.owner.is_some() => {
+            // At somebody else's planet: stay, unless one of their warships
+            // is here too.
+            let contested = state.fleets.iter().any(|f| {
+                f.owner != me
+                    && f.position == fleet.position
+                    && usize::try_from(f.owner).is_ok_and(|o| {
+                        let hulls: Vec<(u8, i32)> = f
+                            .stacks
+                            .iter()
+                            .filter_map(|s| {
+                                state
+                                    .designs
+                                    .get(o)
+                                    .and_then(|d| d.get(usize::from(s.design)))
+                                    .and_then(|d| u8::try_from(d.hull_id).ok())
+                                    .map(|h| (h, s.count))
+                            })
+                            .collect();
+                        crate::ai::dispatch::is_attack_fleet_simple(&hulls)
+                    })
+            });
+            if !contested {
+                return None;
+            }
+            planet.clone()
+        }
+        Some(planet) => planet.clone(),
+    };
+    let from = base.position?;
+    let explored = state.players[player].explored.clone();
+    let claimed: BTreeSet<u16> = state
+        .fleets
+        .iter()
+        .filter(|f| f.owner == me && f.id != fleet.id && f.waypoints.len() > 1)
+        .filter(|f| {
+            f.stacks
+                .iter()
+                .any(|s| (s.design == 13 || s.design == 14) && s.count > 0)
+        })
+        .filter_map(|f| f.waypoints[1].target)
+        .collect();
+    let human = |owner: i16| {
+        usize::try_from(owner)
+            .ok()
+            .and_then(|o| state.players.get(o))
+            .is_some_and(|p| !p.control.is_computer())
+    };
+    let pick = |only_humans: bool, rng: &mut Rng| -> Option<(i16, Point)> {
+        let mut best: Option<(u8, i64, i16, Point)> = None;
+        for planet in &state.planets {
+            let (Some(owner), Some(at)) = (planet.owner, planet.position) else {
+                continue;
+            };
+            if owner == me || planet.id == base.id || !explored.contains(&planet.id) {
+                continue;
+            }
+            if only_humans && !human(owner) {
+                continue;
+            }
+            let mut score: u8 = if planet.starbase { 2 } else { 1 };
+            let dx = i64::from(at.x) - i64::from(from.x);
+            let dy = i64::from(at.y) - i64::from(from.y);
+            let d2 = dx * dx + dy * dy;
+            score += match d2 {
+                d if d < 2_500 => 7,
+                d if d < 10_000 => 5,
+                d if d < 22_500 => 4,
+                d if d < 40_000 => 3,
+                d if d < 90_000 => 2,
+                d if d < 250_000 => 1,
+                _ => 0,
+            };
+            if claimed.contains(&u16::try_from(planet.id).unwrap_or(u16::MAX)) && rng.random(4) != 0
+            {
+                continue;
+            }
+            if score <= 1 {
+                continue;
+            }
+            if best.is_none_or(|(s, d, _, _)| score > s || (score == s && d2 < d)) {
+                best = Some((score, d2, planet.id, at));
+            }
+        }
+        best.map(|(_, _, id, at)| (id, at))
+    };
+    let target = if state.ais_band {
+        pick(true, rng).or_else(|| pick(false, rng))
+    } else {
+        pick(false, rng)
+    };
+    let (target, at) = target?;
+    let designs = state.designs.get(player).cloned().unwrap_or_default();
+    let stacks: Vec<(&crate::design::ShipDesign, i32)> = fleet
+        .stacks
+        .iter()
+        .filter_map(|s| designs.get(usize::from(s.design)).map(|d| (d, s.count)))
+        .collect();
+    let warp = ideal_warp(&stacks, false);
+    lay_leg(
+        &mut state.fleets[index],
+        at,
+        target,
+        stars_formats::task::NONE,
+        warp,
+    );
+    Some(target)
 }

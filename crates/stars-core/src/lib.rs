@@ -310,6 +310,9 @@ pub struct GameState {
     pub designs: Vec<Vec<crate::design::ShipDesign>>,
     /// The game's "slower tech advances" option, which doubles research costs.
     pub slow_tech: bool,
+    /// The game's "computer players form alliances" option, bit 4 of the
+    /// flag word, which sends their armadas at the human players first.
+    pub ais_band: bool,
     /// The game's "one human player" option (`GAME.fSinglePlr`).
     ///
     /// Read by the Mystery Trader, which withholds its late-game bonus of
@@ -404,6 +407,7 @@ impl GameState {
         // A `.hst` or `.mN` carries none of them.
         if let Ok(info) = universe.game() {
             self.slow_tech = info.flags & stars_formats::game_flag::SLOW_TECH != 0;
+            self.ais_band = info.flags & stars_formats::game_flag::AIS_BAND != 0;
             self.tutorial_game = info.flags & stars_formats::game_flag::TUTORIAL != 0;
             self.single_player = info.flags & stars_formats::game_flag::SINGLE_PLAYER != 0;
             self.galaxy_planets = info.planets;
@@ -440,6 +444,7 @@ impl GameState {
             fleets: Vec::new(),
             designs: Vec::new(),
             slow_tech: false,
+            ais_band: false,
             single_player: false,
             tutorial: false,
             tutorial_game: false,

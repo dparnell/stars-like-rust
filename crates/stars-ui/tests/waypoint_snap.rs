@@ -103,7 +103,17 @@ fn add_our_fleet(app: &mut App, at: Point) -> usize {
         task_data: Vec::new(),
     });
     game.fleets.push(fleet);
-    game.fleets.len() - 1
+    let index = game.fleets.len() - 1;
+    on_the_map(app);
+    index
+}
+
+/// A fleet the map draws is one the player can snap a waypoint to: every
+/// fleet in the game is put in view, as a fleet placed by hand next to the
+/// player's own would be seen by its scanner.
+fn on_the_map(app: &mut App) {
+    let count = app.game.as_ref().map_or(0, |g| g.fleets.len());
+    app.in_view.fleets = (0..count).collect();
 }
 
 /// The last waypoint of a fleet.
@@ -177,6 +187,7 @@ fn a_waypoint_near_a_fleet_snaps_to_the_fleet() {
         game.fleets.push(a_fleet(id, 1, target_at));
         id
     };
+    on_the_map(&mut app);
     let start = empty_spot(&app, 60.0);
     // `empty_spot` is deterministic, so the mover would land on top of the
     // target; move it well clear first.
@@ -186,7 +197,9 @@ fn a_waypoint_near_a_fleet_snaps_to_the_fleet() {
     assert!(app.add_waypoint(target_at.x + 2, target_at.y + 2, 20.0));
     let leg = last_leg(&app, fleet);
     assert_eq!(leg.position, target_at);
-    assert_eq!(leg.target, Some(target_id));
+    // A fleet is named by its whole word, the owner above the number, as
+    // the original's `FLEET.id` has it.
+    assert_eq!(leg.target, Some((1 << 9) | target_id));
     assert_eq!(leg.target_class, grobj::FLEET);
 }
 
@@ -572,6 +585,7 @@ fn the_log_records_what_the_waypoint_landed_on() {
         let game = app.game.as_mut().expect("a game");
         game.fleets.push(a_fleet(41, 1, target_at));
     }
+    on_the_map(&mut app);
     let start = Point::new(target_at.x, target_at.y + 90);
     our_fleet_at(&mut app, start);
 
@@ -583,7 +597,7 @@ fn the_log_records_what_the_waypoint_landed_on() {
         .as_waypoint()
         .expect("a waypoint order");
     assert_eq!(order.grobj, grobj::FLEET, "a fleet, not a planet");
-    assert_eq!(order.target_id, 41);
+    assert_eq!(order.target_id, (1 << 9) | 41, "player 1's fleet 41");
 }
 
 // --- Taking one back off -------------------------------------------------

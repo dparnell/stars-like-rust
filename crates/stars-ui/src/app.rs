@@ -10606,7 +10606,11 @@ impl App {
         let player = self.game.as_ref()?.players.get(me)?;
         let race = &player.race;
         let adjuster = race.prt() == Some(stars_core::race::Prt::Ca);
-        let known = self.planet_known(planet.id);
+        // `DrawScanner` reads the record's detail: a planet the player has
+        // no scan of shows no value. In a hosted game the record is the
+        // host's, so the player's own knowledge is asked as well.
+        let known =
+            self.planet_known(planet.id) && planet.detail >= stars_core::planet::Detail::Scanned;
         // What the planet would be worth terraformed, which is what
         // `PctPlanetOptValue` measures: the environment moved as far toward the
         // race's ideal as this player's technology reaches.
