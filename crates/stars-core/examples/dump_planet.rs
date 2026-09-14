@@ -10,9 +10,10 @@ fn main() {
     for p in state.planets.iter().chain(state.known_planets.iter()) {
         if p.owner.is_some() || p.id < 2 {
             println!(
-                "planet {} home {} owner {:?} pop {} mines {} fact {} conc {:?} surface {:?} queue {:?}",
+                "planet {} home {} orig {:?} owner {:?} pop {} mines {} fact {} conc {:?} surface {:?} queue {:?}",
                 p.id,
                 p.homeworld,
+                p.env_orig,
                 p.owner,
                 p.pop,
                 p.mines,

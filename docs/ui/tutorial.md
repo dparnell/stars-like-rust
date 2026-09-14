@@ -717,10 +717,12 @@ turns run:
   count times rating, and the Mini-Miner rates 4), seven kilotonnes a
   year, which Teamster #4 brings home fourteen at a time — and nothing
   the fixtures hold reaches past 2403. The three kilotonnes of 2403 are
-  the mining rolls: ironium's 2.5 a year (no floor lifts a home world's
-  25 to 30 in the fixture, or the figure would be 393) rolled short all
-  three years and germanium's 8.4 rolled long, which is what a fixed seed
-  can do.
+  themselves a small puzzle: with the home-world floor of 30 on the yield
+  (`../formulas/mining.md`) ironium comes at 3.0 a year, no roll, which
+  makes 393 and not the fixture's 390; germanium's 8.4 would have to roll
+  long all three years for 609. Read without the floor, ironium's 2.5
+  rolled short three times fits — but the manual, the mineral popup's
+  own wording and the corpus all say there is a floor, so it stays.
 * **The red triangle below Hiho.** Page 34's enemy scout is thirteen light
   years short of Hiho here, still on its way, so the fight page 37 asks
   to watch has not happened in 2411. `DoBattles` fights it when the two
