@@ -828,12 +828,22 @@ the base, a planet another armada claims counting one time in four, the
 nearer of equals winning and a score of one no target; with the "computer
 players form alliances" option (`GameState::ais_band`, flag bit 4) the
 human players' planets are tried first (`FEnumCalcArmadaHumanDest`,
-`1088:3406`). Not yet: salvage and the drops onto enemy planets in the
-freighter's scoring, `SplitOutShdefs`, the first pass that clears stale
-orders and `det` bit 15, the AI's own tally that widens the cruiser limit
-(`vlpbAiData`, the haulers' assignments), the battle fleets without
-bombers (`IdTargetArmada`), `HandleBasicAiTasks`. None of it is verified
-against a corpus turn yet.
+`1088:3406`). And `HandleBasicAiTasks` from the pieces
+already here: `KeepFleetsMoving` re-speeding every fleet with orders to
+`IFindIdealWarp`'s warp, `QueueAiStarbases` by `ai::ships::
+queue_ai_starbase`, then for every own planet with 60 kT of people (or
+one that is hostile) whose queue's minerals are covered, a starbase
+upgrade by `ai::ships::upgrade_ai_starbase` or else terraforming by
+`ai::production::queue_ai_terraforming`; and `FillProductionQueue`, the
+mines-and-factories fill at every own planet, mines at the front of the
+queue and factories at the back. Not yet: `FAIFling`, `FQueueAiScanner`,
+`FQueueAiDefenses` and `AddMinesToBlockedQueues` inside the housekeeping
+(`FixPlanetsUnderAttack` never runs in a tutorial game, flag bit 3);
+salvage and the drops onto enemy planets in the freighter's scoring;
+`SplitOutShdefs`; the first pass that clears stale orders and `det` bit
+15; the AI's own tally that widens the cruiser limit (`vlpbAiData`, the
+haulers' assignments); the battle fleets without bombers
+(`IdTargetArmada`). None of it is verified against a corpus turn yet.
 
 ### Other queue sources
 

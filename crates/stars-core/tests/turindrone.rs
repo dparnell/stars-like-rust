@@ -431,3 +431,36 @@ fn bombers_gather_and_then_go() {
     let report = turindrone::turn(&mut state, 1, &mut rng);
     assert_eq!(report.attacking, vec![(armada, target)]);
 }
+
+/// `FillProductionQueue`: the Berserkers' home world queues mines and
+/// factories every year, mines at the front and factories at the back —
+/// the mines-and-factories fill of `docs/formulas/ai.md`, now run from
+/// the personality's turn.
+#[test]
+fn the_home_world_queues_mines_and_factories() {
+    let mut state = tutorial_world();
+    let mut rng = stars_core::rng::Rng::randomize(7);
+    state.turn = 1;
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    let home = state
+        .planets
+        .iter()
+        .find(|p| p.owner == Some(1))
+        .expect("home");
+    assert_eq!(report.filled.len(), 1, "{:?}", report.filled);
+    let (planet, mines, factories) = report.filled[0];
+    assert_eq!(planet, home.id);
+    assert!(
+        mines > 0 && factories > 0,
+        "mines {mines}, factories {factories}"
+    );
+    let items: Vec<(u16, bool)> = home.queue.iter().map(|q| (q.item, q.ship)).collect();
+    assert_eq!(
+        items.first(),
+        Some(&(stars_core::production::item::MINE, false))
+    );
+    assert_eq!(
+        items.last(),
+        Some(&(stars_core::production::item::FACTORY, false))
+    );
+}

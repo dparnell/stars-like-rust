@@ -58,6 +58,11 @@ pub struct Report {
     pub merged: Vec<(u16, u16)>,
     /// Armadas sent, by fleet id, and where.
     pub attacking: Vec<(u16, i16)>,
+    /// Starbases queued, by planet.
+    pub starbases: Vec<i16>,
+    /// Mines and factories queued by `FillProductionQueue`, as
+    /// `(planet, mines, factories)`.
+    pub filled: Vec<(i16, i32, i32)>,
 }
 
 /// Run the personality's turn for `player`, as the host does before the
@@ -596,6 +601,10 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
             report.scouted.push((fleet_id, id));
         }
     }
+    // `HandleBasicAiTasks`, then `FillProductionQueue`.
+    basic_tasks(state, player, me, &worth, rng, &mut report);
+    fill_production_queues(state, player, me, rng, &mut report);
+
     report
 }
 
@@ -1357,4 +1366,193 @@ fn target_armada(
         warp,
     );
     Some(target)
+}
+
+/// `HandleBasicAiTasks` (`1090:95a4`) and the two calls around it.
+///
+/// * `KeepFleetsMoving`: every fleet of ours with orders is re-speeded
+///   (`SetAiFleetIdealSpeed`) — here to `IFindIdealWarp`'s warp;
+/// * `QueueAiStarbases`: the newest starbase design queued at every planet
+///   without one, by [`crate::ai::ships::queue_ai_starbase`];
+/// * then for every own planet with 60 kT of people or more (or one marked
+///   hostile), whose queue's minerals are already covered: a starbase
+///   upgrade by [`crate::ai::ships::upgrade_ai_starbase`], else terraforming
+///   by [`crate::ai::production::queue_ai_terraforming`]. `FAIFling`, the
+///   scanner and the defences (`FQueueAiScanner`, `FQueueAiDefenses`) and
+///   `AddMinesToBlockedQueues` are not written yet; `FixPlanetsUnderAttack`
+///   never runs in a tutorial game (flag bit 3).
+fn basic_tasks(
+    state: &mut GameState,
+    player: usize,
+    me: i16,
+    worth: &[u8],
+    rng: &mut Rng,
+    report: &mut Report,
+) {
+    let _ = worth;
+    // KeepFleetsMoving.
+    let designs = state.designs.get(player).cloned().unwrap_or_default();
+    for fleet in state.fleets.iter_mut().filter(|f| f.owner == me) {
+        if fleet.waypoints.len() < 2 {
+            continue;
+        }
+        let stacks: Vec<(&crate::design::ShipDesign, i32)> = fleet
+            .stacks
+            .iter()
+            .filter_map(|s| designs.get(usize::from(s.design)).map(|d| (d, s.count)))
+            .collect();
+        let warp = ideal_warp(&stacks, false);
+        if warp > 0 {
+            fleet.waypoints[1].warp = warp;
+            fleet.warp = Some(warp);
+        }
+    }
+
+    // QueueAiStarbases: the newest starbase design, by the year it was made.
+    let latest_starbase: Option<u8> = designs
+        .iter()
+        .enumerate()
+        .skip(usize::from(crate::startup::FIRST_STARBASE_SLOT))
+        .filter(|(_, d)| d.hull().is_some() && !d.obsolete)
+        .max_by_key(|(_, d)| d.designed)
+        .and_then(|(i, _)| u8::try_from(i - usize::from(crate::startup::FIRST_STARBASE_SLOT)).ok());
+    let ctx = crate::ai::production::Context {
+        personality: Some(AiPersonality::TurinDrone),
+        research_pct: state.players[player].research_pct,
+        tech: state.players[player].research.levels,
+        turn: i32::from(state.turn),
+        terraform_steps: 0,
+        factories_cost_all_minerals: state.tutorial,
+    };
+    let race = state.players[player].race.clone();
+    let owned: Vec<usize> = (0..state.planets.len())
+        .filter(|&i| state.planets[i].owner == Some(me))
+        .collect();
+    for &index in &owned {
+        let planet = &state.planets[index];
+        if let Some(slot) = crate::ai::ships::queue_ai_starbase(
+            planet,
+            &ctx,
+            latest_starbase,
+            crate::ai::ships::PlanetTask::default(),
+        ) {
+            let id = planet.id;
+            state.planets[index]
+                .queue
+                .push(crate::ai::ships::starbase_entry(slot));
+            report.starbases.push(id);
+        }
+    }
+
+    // The planets, in the AI's shuffled order.
+    let ids: Vec<i16> = owned.iter().map(|&i| state.planets[i].id).collect();
+    let order = crate::ai::planet_order(&ids, rng, true);
+    for id in order {
+        let Some(index) = state.planets.iter().position(|p| p.id == id) else {
+            continue;
+        };
+        let planet = state.planets[index].clone();
+        let hostile = crate::hab::pct_planet_desirability(&planet, &race) < 0;
+        if planet.pop < 60 && !hostile {
+            continue;
+        }
+        let available = crate::ai::production::resources_available(
+            &planet,
+            &race,
+            ctx.research_pct,
+            i16::from(ctx.tech[0]),
+        );
+        let committed = crate::ai::production::queue_cost(&planet.queue, &race);
+        if (0..3).any(|k| available[k] < committed[k]) {
+            continue;
+        }
+        let mut written = false;
+        if !hostile {
+            if let (Some(latest), Some(current)) = (latest_starbase, planet.starbase_design) {
+                let current_design = designs
+                    .get(usize::from(crate::startup::FIRST_STARBASE_SLOT) + usize::from(current));
+                let inputs = crate::ai::ships::UpgradeInputs {
+                    latest,
+                    latest_orbital_fort: latest,
+                    design_turn: i32::from(current_design.map_or(0, |d| d.designed)),
+                    sideways_design_free: true,
+                    ..crate::ai::ships::UpgradeInputs::default()
+                };
+                if let Some(slot) =
+                    crate::ai::ships::upgrade_ai_starbase(&planet, &ctx, &inputs, rng)
+                {
+                    state.planets[index]
+                        .queue
+                        .push(crate::ai::ships::starbase_entry(slot));
+                    report.starbases.push(id);
+                    written = true;
+                }
+            }
+        }
+        if !written {
+            let steps = crate::ai::production::queue_ai_terraforming(&planet, &race, &ctx);
+            if steps > 0 {
+                state.planets[index].queue.insert(
+                    0,
+                    QueueItem {
+                        count: steps,
+                        item: crate::production::item::TERRAFORM,
+                        ship: false,
+                        completion: 0,
+                    },
+                );
+            }
+        }
+    }
+}
+
+/// `FillProductionQueue` (`1090:9c1c`): `FFillProdMinesAndFactories` at
+/// every own planet, mines at the front of the queue and factories at
+/// the back.
+fn fill_production_queues(
+    state: &mut GameState,
+    player: usize,
+    me: i16,
+    rng: &mut Rng,
+    report: &mut Report,
+) {
+    let race = state.players[player].race.clone();
+    let ctx = crate::ai::production::Context {
+        personality: Some(AiPersonality::TurinDrone),
+        research_pct: state.players[player].research_pct,
+        tech: state.players[player].research.levels,
+        turn: i32::from(state.turn),
+        terraform_steps: 0,
+        factories_cost_all_minerals: state.tutorial,
+    };
+    let ids: Vec<i16> = state
+        .planets
+        .iter()
+        .filter(|p| p.owner == Some(me))
+        .map(|p| p.id)
+        .collect();
+    for id in crate::ai::planet_order(&ids, rng, true) {
+        let Some(index) = state.planets.iter().position(|p| p.id == id) else {
+            continue;
+        };
+        let decision = crate::ai::production::fill_prod_mines_and_factories(
+            &state.planets[index],
+            &race,
+            &ctx,
+        );
+        if !decision.changed() {
+            continue;
+        }
+        let (mines, factories) = (decision.mines, decision.factories);
+        for entry in decision.entries() {
+            if entry.item == crate::production::item::FACTORY
+                || entry.item == crate::production::item::ALCHEMY
+            {
+                state.planets[index].queue.push(entry);
+            } else {
+                state.planets[index].queue.insert(0, entry);
+            }
+        }
+        report.filled.push((id, mines, factories));
+    }
 }
