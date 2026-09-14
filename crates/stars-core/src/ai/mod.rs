@@ -161,6 +161,16 @@ impl Control {
     }
 }
 
+/// One entry of a computer player's starbase history (`vlpbAiData`,
+/// twenty bytes: the planet, a count, and room for eight fleet ids).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StarbaseHistoryEntry {
+    /// The planet the haulers work from.
+    pub planet: i16,
+    /// The haulers assigned to it, by fleet id — at most eight.
+    pub fleets: Vec<u16>,
+}
+
 /// One step of an AI player's turn, in the order `DoAiTurn` runs them.
 ///
 /// `DoAiTurn` reloads the game from disk as the AI player, prepares the shared

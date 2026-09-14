@@ -203,6 +203,13 @@ pub struct Player {
     /// players, whose turns are run from the host's state and who must not
     /// see what they have not scanned. Not written to any file.
     pub explored: std::collections::BTreeSet<i16>,
+    /// The computer player's **starbase history** (`vlpbAiData`): the
+    /// planets its haulers work from and which haulers each has, kept up
+    /// by `ValidateStarbaseHistory` (`1090:4cf0`) — see
+    /// [`ai::turindrone::validate_starbase_history`]. The original carries
+    /// it in the player's history file; here it lives only for the game in
+    /// hand and is rebuilt from the fleets when it is empty.
+    pub starbase_history: Vec<ai::StarbaseHistoryEntry>,
 }
 
 /// The five battle plans a new game gives every player.
@@ -276,6 +283,7 @@ impl Player {
             crippled: false,
             battle_plans: default_battle_plans(0),
             explored: std::collections::BTreeSet::new(),
+            starbase_history: Vec::new(),
         }
     }
 }

@@ -126,6 +126,11 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
     // `IroEnsureAi(vrgbTurinDroneRes, 31, &ishdefSBLatest, 15)`: the field
     // under study, from the personality's plan.
     report.research = ensure_research(state, player, RESEARCH_PLAN, RESEARCH_PCT);
+    // `ValidateStarbaseHistory`, which `IroEnsureAi` runs for the
+    // personality: the planets the haulers work from.
+    validate_starbase_history(state, player, me);
+    let history_count =
+        i32::try_from(state.players[player].starbase_history.len()).unwrap_or(i32::MAX);
 
     // `MergeAllShdefs`, four times: the armada classes together (slots 4
     // to 7 and 13 to 15), the mine layers, the destroyers and the miners —
@@ -226,11 +231,12 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
                 added.push((SCOUT_SLOT, 1));
             }
         }
-        // A cruiser: Weapons past 4, and fewer than the larger of a tenth of
-        // the planets owned and twice the AI's own tally (which has nothing
-        // in it yet), or under ten sevenths of that with one roll in four.
-        let want_cruisers = (owned / 10).max(0);
-        if levels[1] > 4 {
+        // A cruiser: Propulsion past 4 (`rgTech + 2`), and fewer than the
+        // larger of a tenth of the planets owned and twice the starbase
+        // history's entries, or under ten sevenths of that with one roll
+        // in four.
+        let want_cruisers = (owned / 10).max(history_count * 2);
+        if levels[2] > 4 {
             if let Some(latest) = cruisers.latest {
                 let count = cruisers.count;
                 if count < want_cruisers || (count < want_cruisers * 10 / 7 && rng.random(4) == 0) {
@@ -396,7 +402,8 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
     }
     // The first walk over the fleets: stale orders cut, colonists dropped
     // where they would be wanted, and the miners' planets claimed.
-    first_pass(state, player, me, &mut worth, &mut report);
+    let valued = valued_planets(state, player, me);
+    first_pass(state, player, me, &valued, &mut worth, &mut report);
     for index in 0..state.fleets.len() {
         let fleet = &state.fleets[index];
         if fleet.owner != me || fleet.is_empty() {
@@ -572,7 +579,25 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
         }
         // The haulers (slots 8 and 9): `IdTargetFreighter`.
         if carries(8) || carries(9) {
-            if let Some(target) = target_freighter(state, player, me, index, &worth, rng) {
+            // Its home: the history entry it is listed under, else the
+            // first own planet with a starbase — and with none of those
+            // the routine leaves the rest of the fleets alone.
+            let Some(first_starbase) = state
+                .planets
+                .iter()
+                .find(|p| p.owner == Some(me) && p.starbase)
+                .map(|p| p.id)
+            else {
+                break;
+            };
+            let home = state.players[player]
+                .starbase_history
+                .iter()
+                .find(|e| e.fleets.contains(&fleet_id))
+                .map_or(first_starbase, |e| e.planet);
+            if let Some(target) =
+                target_freighter(state, player, me, index, &worth, home, &valued, rng)
+            {
                 report.hauling.push((fleet_id, target));
             }
             continue;
@@ -776,9 +801,10 @@ fn lay_leg(fleet: &mut crate::fleet::Fleet, at: Point, planet: i16, task: u8, wa
 /// reaches Construction 6 for the Frigate. The fittings are
 /// [`crate::ai::parts::fitting`].
 ///
-/// The tech thresholds are the routine's own comparisons, `tech[f] > n`,
-/// in the order Energy, Weapons, Propulsion, Construction, Electronics,
-/// Biotechnology.
+/// The tech thresholds are the routine's own comparisons, `rgTech[f] > n`
+/// — the bytes at `rgplr + 0x1b` to `0x1f`, `rgTech` starting at `0x1a`,
+/// so fields 1 to 5: Weapons, Propulsion, Construction, Electronics,
+/// Biotechnology. Energy is never asked about.
 fn ensure_designs(state: &mut GameState, player: usize, rng: &mut Rng, report: &mut Report) {
     use crate::ai::parts::{create_design, fitting, pick_name};
 
@@ -820,7 +846,7 @@ fn ensure_designs(state: &mut GameState, player: usize, rng: &mut Rng, report: &
             slot: 8,
             hull: 12,
             fittings: vec![fitting::ROGUE],
-            needs: above(1, 4) && above(3, 7),
+            needs: above(2, 4) && above(3, 7),
             retire_first: false,
             when_none_exist: false,
         },
@@ -828,7 +854,7 @@ fn ensure_designs(state: &mut GameState, player: usize, rng: &mut Rng, report: &
             slot: 9,
             hull: 13,
             fittings: vec![fitting::GALLEON],
-            needs: above(1, 6) && above(3, 10),
+            needs: above(2, 6) && above(3, 10),
             retire_first: false,
             when_none_exist: false,
         },
@@ -836,7 +862,7 @@ fn ensure_designs(state: &mut GameState, player: usize, rng: &mut Rng, report: &
             slot: 10,
             hull: 6,
             fittings: vec![fitting::DESTROYER],
-            needs: above(0, 4) && above(4, 4) && above(3, 3) && above(1, 4),
+            needs: above(1, 4) && above(4, 4) && above(3, 3) && above(2, 4),
             retire_first: false,
             when_none_exist: false,
         },
@@ -876,7 +902,7 @@ fn ensure_designs(state: &mut GameState, player: usize, rng: &mut Rng, report: &
             slot: 13,
             hull: 18,
             fittings: vec![fitting::STEALTH_BOMBER],
-            needs: above(0, 7) && above(4, 6) && above(3, 5),
+            needs: above(1, 7) && above(4, 6) && above(3, 5),
             retire_first: false,
             when_none_exist: false,
         },
@@ -884,7 +910,7 @@ fn ensure_designs(state: &mut GameState, player: usize, rng: &mut Rng, report: &
             slot: 14,
             hull: 18,
             fittings: vec![fitting::STEALTH_BOMBER],
-            needs: above(0, 10) && above(4, 11) && above(3, 14) && above(1, 8),
+            needs: above(1, 10) && above(4, 11) && above(3, 14) && above(2, 8),
             retire_first: false,
             when_none_exist: false,
         },
@@ -895,7 +921,7 @@ fn ensure_designs(state: &mut GameState, player: usize, rng: &mut Rng, report: &
             fittings: (0..4)
                 .map(|i| fitting::BATTLESHIPS[(battleship_pick + i) % 4])
                 .collect(),
-            needs: above(0, 4) && above(4, 5) && above(3, 12) && above(1, 6),
+            needs: above(1, 4) && above(4, 5) && above(3, 12) && above(2, 6),
             retire_first: false,
             when_none_exist: false,
         },
@@ -903,7 +929,7 @@ fn ensure_designs(state: &mut GameState, player: usize, rng: &mut Rng, report: &
             slot: 15,
             hull: 12,
             fittings: vec![fitting::ROGUE],
-            needs: above(0, 4) && above(4, 5) && above(3, 12) && above(1, 6),
+            needs: above(1, 4) && above(4, 5) && above(3, 12) && above(2, 6),
             retire_first: false,
             when_none_exist: false,
         },
@@ -1061,27 +1087,14 @@ fn first_pass(
     state: &mut GameState,
     player: usize,
     me: i16,
+    valued: &BTreeSet<i16>,
     worth: &mut [u8],
     report: &mut Report,
 ) {
     use crate::race::Prt;
     use stars_formats::{task, ItemAction, TransportTask, XferAction};
 
-    // `vlpbAiPlanet[+3]`: another player's planet with a positive opt
-    // value.
-    let race = state.players[player].race.clone();
-    let levels = state.players[player].research.levels;
-    let valued: BTreeSet<i16> = state
-        .planets
-        .iter()
-        .filter(|p| p.owner.is_some_and(|o| o != me))
-        .filter(|p| {
-            let reach = crate::terraform::optimal_env(p, &race, levels);
-            pct_planet_opt_value(p, &race, reach) > 0
-        })
-        .map(|p| p.id)
-        .collect();
-    let we_are_ar = race.prt() == Some(Prt::Ar);
+    let we_are_ar = state.players[player].race.prt() == Some(Prt::Ar);
 
     for index in 0..state.fleets.len() {
         let fleet = state.fleets[index].clone();
@@ -1200,6 +1213,201 @@ fn first_pass(
             *w |= 0x80;
         }
     }
+}
+
+/// `vlpbAiPlanet[+3]`, from the planet pass: the other players' planets
+/// with a positive opt value (`PctPlanetOptValue`) for us.
+fn valued_planets(state: &GameState, player: usize, me: i16) -> BTreeSet<i16> {
+    let race = &state.players[player].race;
+    let levels = state.players[player].research.levels;
+    state
+        .planets
+        .iter()
+        .filter(|p| p.owner.is_some_and(|o| o != me))
+        .filter(|p| {
+            let reach = crate::terraform::optimal_env(p, race, levels);
+            pct_planet_opt_value(p, race, reach) > 0
+        })
+        .map(|p| p.id)
+        .collect()
+}
+
+/// `ValidateStarbaseHistory` (`1090:4cf0`), which `IroEnsureAi` runs for
+/// every personality but the Cybertron and the Macinti, from turn 20: the
+/// **starbase history** in `vlpbAiData` — up to 64 entries of a planet and
+/// the haulers (at most eight) assigned to it.
+///
+/// 1. Entries whose planet is no longer ours are dropped, and a count out
+///    of range reset.
+/// 2. Every own planet with a starbase not yet listed is added.
+/// 3. Every own planet without one that has 8,000 people or more, mines
+///    and factories both past nineteen, and minerals worth 7,000 kT —
+///    each surface stock plus the square of its concentration over four
+///    — is added too, unless (the Robotoid only) it lies within fifty
+///    light years of a listed planet.
+/// 4. Every own transport (`FIsAiTransport`: a hull from the Small
+///    Freighter to the Super Freighter, or the Privateer, Rogue or
+///    Galleon) listed nowhere is assigned to the nearest listed planet
+///    with room.
+/// 5. An entry with fewer than four haulers takes the last hauler of the
+///    first entry with at least two more than it.
+///
+/// The original keeps the table in the player's history file; here it
+/// lives with the [`crate::Player`] for the game in hand.
+fn validate_starbase_history(state: &mut GameState, player: usize, me: i16) {
+    use crate::ai::StarbaseHistoryEntry;
+
+    let personality = match state.players[player].control {
+        crate::ai::Control::Computer { personality, .. } => personality,
+        crate::ai::Control::Human => None,
+    };
+    if matches!(
+        personality,
+        Some(AiPersonality::Cyber) | Some(AiPersonality::Macinti)
+    ) {
+        return;
+    }
+    if state.turn < 20 {
+        return;
+    }
+    let mut history = std::mem::take(&mut state.players[player].starbase_history);
+    history.truncate(64);
+
+    // 1. Only planets still ours.
+    history.retain(|e| {
+        state
+            .planets
+            .iter()
+            .any(|p| p.id == e.planet && p.owner == Some(me))
+    });
+    for entry in &mut history {
+        entry.fleets.truncate(8);
+    }
+
+    // 2. Every starbase of ours.
+    for planet in state
+        .planets
+        .iter()
+        .filter(|p| p.owner == Some(me) && p.starbase)
+    {
+        if history.len() >= 64 {
+            break;
+        }
+        if !history.iter().any(|e| e.planet == planet.id) {
+            history.push(StarbaseHistoryEntry {
+                planet: planet.id,
+                fleets: Vec::new(),
+            });
+        }
+    }
+
+    // 3. Grown planets without one.
+    for planet in state
+        .planets
+        .iter()
+        .filter(|p| p.owner == Some(me) && !p.starbase)
+    {
+        if history.len() >= 64 {
+            break;
+        }
+        if planet.pop < 80 || planet.mines <= 19 || planet.factories <= 19 {
+            continue;
+        }
+        let minerals: i64 = (0..3)
+            .map(|k| {
+                let conc = i64::from(planet.min_conc[k]);
+                i64::from(planet.surface_min[k]) + conc * conc / 4
+            })
+            .sum();
+        if minerals < 7000 {
+            continue;
+        }
+        if history.iter().any(|e| e.planet == planet.id) {
+            continue;
+        }
+        if personality == Some(AiPersonality::Robotoid) {
+            let near = history.iter().any(|e| {
+                let (Some(a), Some(b)) = (
+                    planet.position,
+                    state
+                        .planets
+                        .iter()
+                        .find(|p| p.id == e.planet)
+                        .and_then(|p| p.position),
+                ) else {
+                    return false;
+                };
+                let dx = i64::from(a.x) - i64::from(b.x);
+                let dy = i64::from(a.y) - i64::from(b.y);
+                dx * dx + dy * dy < 2500
+            });
+            if near {
+                continue;
+            }
+        }
+        history.push(StarbaseHistoryEntry {
+            planet: planet.id,
+            fleets: Vec::new(),
+        });
+    }
+
+    // 4. Every transport of ours listed nowhere goes to the nearest entry
+    //    with room.
+    let designs = state.designs.get(player).cloned().unwrap_or_default();
+    let is_transport = |fleet: &crate::fleet::Fleet| {
+        fleet.stacks.iter().any(|s| {
+            s.count > 0
+                && designs
+                    .get(usize::from(s.design))
+                    .is_some_and(|d| matches!(d.hull_id, 0..=3 | 11..=13))
+        })
+    };
+    for fleet in state
+        .fleets
+        .iter()
+        .filter(|f| f.owner == me && !f.is_empty())
+    {
+        if !is_transport(fleet) || history.iter().any(|e| e.fleets.contains(&fleet.id)) {
+            continue;
+        }
+        let mut best: Option<(i64, usize)> = None;
+        for (i, entry) in history.iter().enumerate() {
+            if entry.fleets.len() >= 8 {
+                continue;
+            }
+            let Some(at) = state
+                .planets
+                .iter()
+                .find(|p| p.id == entry.planet)
+                .and_then(|p| p.position)
+            else {
+                continue;
+            };
+            let dx = i64::from(at.x) - i64::from(fleet.position.x);
+            let dy = i64::from(at.y) - i64::from(fleet.position.y);
+            let d2 = dx * dx + dy * dy;
+            if d2 < 10_000_000 && best.is_none_or(|(b, _)| d2 < b) {
+                best = Some((d2, i));
+            }
+        }
+        if let Some((_, i)) = best {
+            history[i].fleets.push(fleet.id);
+        }
+    }
+
+    // 5. Evening out.
+    for i in 0..history.len() {
+        if history[i].fleets.len() >= 4 {
+            continue;
+        }
+        let want = history[i].fleets.len() + 2;
+        if let Some(j) = history.iter().position(|e| e.fleets.len() >= want) {
+            if let Some(fleet) = history[j].fleets.pop() {
+                history[i].fleets.push(fleet);
+            }
+        }
+    }
+    state.players[player].starbase_history = history;
 }
 
 /// `FMoveToNearestStarbase` (`1090:6f7e`): a leg at `0x1140` — warp 4, no
@@ -1338,44 +1546,60 @@ fn is_attack_fleet(state: &GameState, player: usize, fleet: &crate::fleet::Fleet
     })
 }
 
-/// `IdTargetFreighter` (`1090:2b2e`), the part of it a hauler needs: where
-/// to go next, and what to move when it gets there. The freighter's home
-/// is the personality's first planet with a starbase.
+/// `IdTargetFreighter` (`1090:286c`): where a hauler goes next, and what
+/// it moves when it gets there. `home` is the planet the hauler works
+/// from — its starbase-history entry's, else the first with a starbase.
 ///
-/// Every other planet is scored, and the best score wins with the nearer
-/// planet breaking a tie; distance enters as `d/25 + 24` light years:
+/// Home's **scarcity** is read first: its least-stocked mineral is the
+/// *scarce* one, and the scarcity is 2 when that stock is under a quarter
+/// of the next-least, 1 under a half, else 0. What a planet "has" of use
+/// is then its stock of the scarce mineral alone at scarcity 2, or the
+/// sum of the three with the other two halved at scarcity 1.
 ///
-/// * an unowned planet one of our miners has claimed: its mineral worth
-///   times 500, over the distance — go and collect what was dug;
-/// * home, when the hold is more than a third full: 25,000 when full, else
-///   the fill times twenty over the distance — bring it back;
-/// * an own planet without a starbase that has no ship in its queue: when
-///   its desirability is negative and we are at home, 25,000 — people are
-///   wanted there; otherwise what it holds of the minerals home is short
-///   of, as a share of the hold, capped at what the hold has room for, times
-///   a hundred over the distance;
-/// * a planet already another hauler's, or the one we are at: nothing.
+/// Every planet but the one we are at and those another hauler of the
+/// same design is bound for is scored, the best score winning; distance
+/// enters as `(d + 24) / 25`, at least 1:
 ///
-/// The orders: out to a mined planet, load all three minerals; to an own
-/// planet, unload all three and any colonists (with a thousand kT of
-/// colonists taken aboard at home first when home has 1,200 kT or more and
-/// the planet has fewer than home); back home, unload all. Salvage, the
-/// drops onto enemy planets and the finer loading rules are not written.
+/// * an unowned planet a miner of ours has claimed: its mineral worth
+///   times 500 over the distance;
+/// * home, when the hold is more than a third full: 25,000 when full,
+///   else the fill times twenty over the distance;
+/// * an own planet without a starbase and without a starbase at the head
+///   of its queue: 25,000 when it is hostile to us and we are at home;
+///   else what it has, over nine, as a share of the hold capped at the
+///   room left, times a hundred over the distance;
+/// * another player's planet, for the TurinDrone: only one worth
+///   settling (`vlpbAiPlanet[+3]`) while we are at home, scored like an
+///   own planet — the colonists aboard are dropped on it;
+/// * salvage (`FSalvageTargetFreighter2`, `1090:395a`): a stationary
+///   packet within 200 light years, scored like a planet on what it has;
+///   one at our own position is emptied into the hold on the spot, and a
+///   hold that is then full sends us home.
+///
+/// The orders (`0x1041`, Transport at warp 4, re-speeded afterwards): to
+/// home, unload all three minerals; anywhere else, load all three — or,
+/// when home is short, only the scarce one, unless the planet is owned
+/// and holds less of it than the hold has room for, when all three are
+/// loaded to 66 % (the scarce) and 33 % — and no task at all to salvage.
+/// At home with 12,000 people or more, a thousand kT of colonists come
+/// aboard for an owned planet with fewer people than home; and to an
+/// owned planet other than home the colonists are unloaded.
+#[allow(clippy::too_many_arguments)]
 fn target_freighter(
     state: &mut GameState,
     player: usize,
     me: i16,
     index: usize,
     worth: &[u8],
+    home: i16,
+    valued: &BTreeSet<i16>,
     rng: &mut Rng,
 ) -> Option<i16> {
+    use stars_formats::{ItemAction, TransportTask, XferAction};
+
     let _ = rng;
     let designs = state.designs.get(player).cloned().unwrap_or_default();
-    let home = state
-        .planets
-        .iter()
-        .find(|p| p.owner == Some(me) && p.starbase)?
-        .clone();
+    let home = state.planets.iter().find(|p| p.id == home)?.clone();
     let fleet = state.fleets[index].clone();
     let here = fleet.orbiting.and_then(|p| i16::try_from(p).ok());
     let at_home = here == Some(home.id);
@@ -1384,12 +1608,34 @@ fn target_freighter(
         return None;
     }
     let held: i32 = fleet.cargo.minerals.iter().sum::<i32>() + fleet.cargo.colonists;
-    let fill = 100 - (capacity - held) * 100 / capacity;
-    // The minerals home is shortest of, by how much of each is on hand.
+    let free = (capacity - held).max(0);
+    let fill = 100 - free * 100 / capacity;
+
+    // Home's scarcity.
     let mut order: Vec<usize> = (0..3).collect();
     order.sort_by_key(|k| home.surface_min[*k]);
     let scarce = order[0];
-    // Planets another hauler is already bound for.
+    let least = i64::from(home.surface_min[order[0]]);
+    let next = i64::from(home.surface_min[order[1]]);
+    let scarcity = i32::from(least < next >> 1) + i32::from(least < next >> 2);
+    let useful = |stock: [i64; 3]| -> i64 {
+        if scarcity == 2 {
+            stock[scarce]
+        } else {
+            (0..3)
+                .map(|k| {
+                    if scarcity == 0 || k == scarce {
+                        stock[k]
+                    } else {
+                        stock[k] >> 1
+                    }
+                })
+                .sum()
+        }
+    };
+
+    // Planets another hauler of the same design is already bound for.
+    let design = fleet.stacks.iter().find(|s| s.count > 0).map(|s| s.design);
     let taken: BTreeSet<u16> = state
         .fleets
         .iter()
@@ -1397,19 +1643,23 @@ fn target_freighter(
         .filter(|f| {
             f.stacks
                 .iter()
-                .any(|s| (s.design == 8 || s.design == 9) && s.count > 0)
+                .any(|s| Some(s.design) == design && s.count > 0)
         })
+        .filter(|f| f.waypoints[1].target_class == grobj::PLANET)
         .filter_map(|f| f.waypoints[1].target)
+        .filter(|t| Some(*t) != u16::try_from(home.id).ok())
         .collect();
 
     let from = fleet.position;
     let distance = |at: Point| -> i64 {
         let dx = i64::from(at.x) - i64::from(from.x);
         let dy = i64::from(at.y) - i64::from(from.y);
+        #[allow(clippy::cast_possible_truncation)]
         let d = ((dx * dx + dy * dy) as f64).sqrt() as i64;
-        (d / 25 + 24).max(1)
+        ((d + 24) / 25).max(1)
     };
-    let mut best: Option<(i64, i16, Point, bool)> = None;
+    let race = state.players[player].race.clone();
+    let mut best: Option<(i64, i16, Point)> = None;
     for planet in &state.planets {
         let Some(at) = planet.position else {
             continue;
@@ -1422,80 +1672,130 @@ fn target_freighter(
             .ok()
             .and_then(|i| worth.get(i).copied())
             .unwrap_or(0);
-        let (score, load) = if planet.owner.is_none() && worth_here & 0x80 != 0 {
-            (i64::from(worth_here & 0x7f) * 500 / distance(at), true)
-        } else if planet.owner != Some(me) {
+        let score = if planet.owner.is_none() && worth_here & 0x80 != 0 {
+            i64::from(worth_here & 0x7f) * 500 / distance(at)
+        } else if planet.owner.is_none()
+            || (planet.owner != Some(me) && !(valued.contains(&planet.id) && at_home))
+        {
+            // Unowned and unclaimed, or somebody else's that is not worth
+            // settling from home.
             continue;
         } else if planet.id == home.id {
             if fill <= 34 {
                 continue;
             }
             if fill == 100 {
-                (25_000, false)
+                25_000
             } else {
-                (i64::from(fill) * 20 / distance(at), false)
+                i64::from(fill) * 20 / distance(at)
             }
-        } else if planet.starbase || planet.queue.iter().any(|q| q.ship) {
-            continue;
-        } else if at_home
-            && crate::hab::pct_planet_desirability(planet, &state.players[player].race) < 0
+        } else if planet.starbase
+            || planet
+                .queue
+                .first()
+                .is_some_and(|q| q.ship && q.item >= u16::from(crate::startup::FIRST_STARBASE_SLOT))
         {
-            (25_000, false)
+            continue;
+        } else if planet.owner == Some(me)
+            && at_home
+            && crate::hab::pct_planet_desirability(planet, &race) < 0
+        {
+            25_000
         } else {
-            // What it needs of the minerals home is short of: the sum of
-            // its holdings of them, as a share of the hold.
-            let have: i64 = order
-                .iter()
-                .take(2)
-                .map(|k| i64::from(planet.surface_min[*k]))
-                .sum();
+            let have = useful([
+                i64::from(planet.surface_min[0]),
+                i64::from(planet.surface_min[1]),
+                i64::from(planet.surface_min[2]),
+            ]);
             if have <= 9 {
                 continue;
             }
             let share = (have * 100 / i64::from(capacity)).min(i64::from(100 - fill));
-            (share * 100 / distance(at), false)
+            share * 100 / distance(at)
         };
         if score <= 0 {
             continue;
         }
-        if best.is_none_or(|(b, _, _, _)| score > b) {
-            best = Some((score, planet.id, at, load));
+        if best.is_none_or(|(b, _, _)| score > b) {
+            best = Some((score, planet.id, at));
         }
     }
-    let (_, target, at, load) = best?;
 
-    // Colonists aboard at home for an own planet with fewer than home.
+    // Salvage: a stationary packet.
+    let mut salvage: Option<(u16, Point)> = None;
+    let mut took = false;
+    for p in 0..state.packets.len() {
+        if state.packets[p].warp != 0 {
+            continue;
+        }
+        let at = state.packets[p].position;
+        if at == from {
+            let take = |k: usize, state: &mut GameState| {
+                let room = (capacity - state.fleets[index].cargo.mass()).max(0);
+                let amount = i32::from(state.packets[p].minerals[k]).min(room);
+                if amount > 0 {
+                    state.packets[p].minerals[k] -= i16::try_from(amount).unwrap_or(0);
+                    state.fleets[index].cargo.minerals[k] += amount;
+                }
+            };
+            if scarcity != 0 {
+                take(scarce, state);
+            }
+            if scarcity != 2 {
+                for k in 0..3 {
+                    take(k, state);
+                }
+            }
+            took = true;
+            continue;
+        }
+        let dx = (i64::from(at.x) - i64::from(from.x)).abs();
+        let dy = (i64::from(at.y) - i64::from(from.y)).abs();
+        if dx.max(dy) > 200 {
+            continue;
+        }
+        let stock = state.packets[p].minerals.map(i64::from);
+        let have = useful(stock);
+        if have <= 9 {
+            continue;
+        }
+        let share = (have * 100 / i64::from(capacity)).min(i64::from(100 - fill));
+        let score = share * 100 / distance(at);
+        if best.is_none_or(|(b, _, _)| score > b) {
+            best = Some((score, -1, at));
+            salvage = Some((state.packets[p].id, at));
+        }
+    }
+    let held: i32 = state.fleets[index].cargo.mass();
+    if took && capacity - held <= 0 {
+        best = Some((25_000, home.id, home.position?));
+        salvage = None;
+    }
+    let (_, target, at) = best?;
+
     let stacks: Vec<(&crate::design::ShipDesign, i32)> = fleet
         .stacks
         .iter()
         .filter_map(|s| designs.get(usize::from(s.design)).map(|d| (d, s.count)))
         .collect();
     let warp = ideal_warp(&stacks, false);
-    let to_own = state
-        .planets
-        .iter()
-        .find(|p| p.id == target)
-        .is_some_and(|p| p.owner == Some(me));
-    if at_home && to_own && target != home.id {
-        let target_pop = state
-            .planets
-            .iter()
-            .find(|p| p.id == target)
-            .map_or(0, |p| p.pop);
-        if home.pop >= 1200 && target_pop < home.pop {
-            let room = (capacity - held).max(0);
-            let take = 1000.min(room).min(home.pop);
-            if let Some(h) = state.planets.iter_mut().find(|p| p.id == home.id) {
-                h.pop -= take;
-            }
-            state.fleets[index].cargo.colonists += take;
+    if let Some((id, at)) = salvage {
+        let fleet = &mut state.fleets[index];
+        lay_leg(fleet, at, 0, stars_formats::task::NONE, warp);
+        if let Some(leg) = fleet.waypoints.get_mut(1) {
+            leg.target = Some(id);
+            leg.target_class = grobj::THING;
         }
+        return Some(-1);
     }
-    use stars_formats::{ItemAction, TransportTask, XferAction};
-    let mineral = if load {
-        XferAction::LoadAll
-    } else {
+
+    let to_home = target == home.id;
+    let target_planet = state.planets.iter().find(|p| p.id == target).cloned();
+    let target_owned = target_planet.as_ref().is_some_and(|p| p.owner.is_some());
+    let mineral = if to_home {
         XferAction::UnloadAll
+    } else {
+        XferAction::LoadAll
     };
     let mut items = [ItemAction {
         quantity: 0,
@@ -1504,10 +1804,37 @@ fn target_freighter(
     for item in items.iter_mut().take(3) {
         item.action = mineral;
     }
-    if to_own {
+    // The TurinDrone's colonists.
+    if at_home && home.pop > 1200 && target_owned {
+        let target_pop = target_planet.as_ref().map_or(0, |p| p.pop);
+        if target_pop < home.pop {
+            let room = (capacity - held).max(0);
+            let take = 1000.min(room).min(home.pop);
+            if let Some(h) = state.planets.iter_mut().find(|p| p.id == home.id) {
+                h.pop -= take;
+            }
+            state.fleets[index].cargo.colonists += take;
+        }
+    }
+    if target_owned && !to_home {
         items[3].action = XferAction::UnloadAll;
     }
-    let _ = scarce;
+    // Home's scarcity shapes the loading.
+    if !to_home && scarcity != 0 {
+        let their_scarce = target_planet.as_ref().map_or(0, |p| p.surface_min[scarce]);
+        if scarcity != 2 && their_scarce < free && target_owned {
+            for (k, item) in items.iter_mut().take(3).enumerate() {
+                item.action = XferAction::FillPercent;
+                item.quantity = if k == scarce { 66 } else { 33 };
+            }
+        } else {
+            for (k, item) in items.iter_mut().take(3).enumerate() {
+                if k != scarce {
+                    item.action = XferAction::None;
+                }
+            }
+        }
+    }
     lay_leg(
         &mut state.fleets[index],
         at,

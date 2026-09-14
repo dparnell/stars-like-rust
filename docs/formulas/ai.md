@@ -629,20 +629,25 @@ slots, and `EnsureTurinDroneShdefs` (`1088:58ba`) fills a slot with
 `FCreateAiShdef(slot, hull, parts)` when it is empty or obsolete (`det`
 bit 9) and the tech allows:
 
+The tech bytes it compares are `rgplr + 0x1b` to `0x1f`; `rgTech` starts
+at `0x1a`, so they are Weapons, Propulsion, Construction, Electronics and
+Biotechnology (an earlier reading of this table had Energy and Weapons
+where Weapons and Propulsion belong).
+
 | slot | role | hull | needs |
 |-----:|------|------|-------|
 | 0 | scout | Frigate (5) | — (the starting Scout design is scrapped once Construction > 5) |
 | 1 | colony ship | Colony Ship (15) | — (a starting design here that is not a Privateer is obsoleted first) |
 | 2–3 | remote miners | Miner (22) | Con > 6, Elec > 3 |
-| 4–5 | battleships | Battleship (9), one of four fittings at random | Ener > 4, Elec > 5, Con > 12, Weap > 6 |
+| 4–5 | battleships | Battleship (9), one of four fittings at random | Weap > 4, Elec > 5, Con > 12, Prop > 6 |
 | 6–7 | freighters (counted in the queue pass as `cPlanMax/12 + 8`) | | |
-| 8 | cruisers | Rogue (12) | Weap > 4, Con > 7 |
-| 9 | cruisers | Galleon (13) | Weap > 6, Con > 10 |
-| 10–11 | destroyers | Destroyer (6), one of two fittings | Ener > 4, Elec > 4, Con > 3, Weap > 4 |
+| 8 | cruisers | Rogue (12) | Prop > 4, Con > 7 |
+| 9 | cruisers | Galleon (13) | Prop > 6, Con > 10 |
+| 10–11 | destroyers | Destroyer (6), one of two fittings | Weap > 4, Elec > 4, Con > 3, Prop > 4 |
 | 12 | mine layer | Privateer (11) | Con > 3, Bio > 3 |
-| 13 | bomber | Stealth Bomber (18) | Ener > 7, Elec > 6, Con > 5 |
-| 14 | bomber | Stealth Bomber (18) | Ener > 10, Elec > 11, Con > 14, Weap > 8 |
-| 15 | | Rogue (12) | Ener > 4, Elec > 5, Con > 12, Weap > 6 |
+| 13 | bomber | Stealth Bomber (18) | Weap > 7, Elec > 6, Con > 5 |
+| 14 | bomber | Stealth Bomber (18) | Weap > 10, Elec > 11, Con > 14, Prop > 8 |
+| 15 | | Rogue (12) | Weap > 4, Elec > 5, Con > 12, Prop > 6 |
 
 The fittings are byte strings of **AI part classes**, one per hull slot,
 in the personality's own segment (`1088:35c2`, reached through a table of
@@ -743,9 +748,10 @@ this order:
 2. otherwise, while slot 0 is a Frigate and not obsolete: a scout when
    fewer than `min(cPlanMax/4, 32)` exist and ten times the built count is
    under the existing count;
-3. a **cruiser** (slots 8–9) when Weapons > 4 and the count is under
-   `max(planets/10, 2 × the AI's own tally)`, or under ten sevenths of
-   that with a one-in-four roll;
+3. a **cruiser** (slots 8–9) when Propulsion > 4 and the count is under
+   `max(planets/10, 2 × the starbase history's entries)` (see *The
+   starbase history* below), or under ten sevenths of that with a
+   one-in-four roll;
 4. **four colony ships** when there is anywhere to settle and fewer than
    two exist;
 5. **three mine layers** with a one-in-three roll, when the fleet of them
@@ -845,16 +851,39 @@ at year 0 (the miners, and any idle cruiser); the miners' moves — at a
 planet worth under four, to the best-worth planet by `FEnumCalcMinerDest`
 (a claimed one passed over three times in four), with the Remote Mining
 task at warp 6; a lone mine layer's Lay Mines for ever; and the haulers
-(slots 8 and 9) by the heart of `IdTargetFreighter` (`1090:2b2e`) —
-every planet scored, the best winning: an unowned planet a miner of ours
-claims at its worth × 500 over `d/25 + 24`, home when the hold is over a
-third full (25,000 when full), an own planet without a starbase and
-without a ship in its queue at 25,000 when it is hostile and we are at
-home, else what it holds of the two minerals home is shortest of as a
-share of the hold, capped by the room left, × 100 over the distance;
-Load All of the minerals outward to a mined planet, Unload All to an own
-planet with the colonists too — a thousand kT taken aboard at home when
-home has 1,200 kT and the planet fewer — and home. `MergeAllShdefs`
+(slots 8 and 9) by `IdTargetFreighter(lpfl, lpplHome)` (`1090:286c`),
+`lpplHome` being the planet of the hauler's starbase-history entry (see
+*The starbase history* below), else the first own planet with a starbase
+— with none of those the fleet pass stops there. Home's **scarcity** is
+read first: its least-stocked mineral is the *scarce* one, and the
+scarcity is 2 when that stock is under a quarter of the next-least, 1
+under a half, else 0; what a planet "has" of use is its stock of the
+scarce mineral alone at scarcity 2, or the sum of the three with the
+other two halved at scarcity 1. Every planet but the one we are at and
+those another hauler of the same design is bound for is scored, the best
+winning, distance entering as `(d + 24) / 25` (at least 1): an unowned
+planet a miner of ours claims at its worth × 500 over the distance; home
+when the hold is over a third full (25,000 when full, else the fill × 20
+over the distance); an own planet without a starbase and without a
+starbase at the head of its queue at 25,000 when it is hostile and we are
+at home, else what it has, over nine, as a share of the hold capped by
+the room left, × 100 over the distance; and, for the TurinDrone, another
+player's planet worth settling (`vlpbAiPlanet[+3]`) while we are at
+home, scored like an own planet. Then salvage
+(`FSalvageTargetFreighter2`, `1090:395a`): every stationary packet
+(`ith` 1, warp 0) within 200 light years scored like a planet on what it
+has; one at our own position is emptied into the hold on the spot — the
+scarce mineral, then all three unless the scarcity is 2 — and a hold
+that is then full sends us home. The orders (`0x1041`, Transport at
+warp 4): to home, Unload All of the three minerals; anywhere else, Load
+All — or, when home is short, only the scarce one, unless the planet is
+owned and holds less of it than the hold has room for, when all three
+are loaded to 66 % (the scarce) and 33 % — and no task at all to salvage
+(the order's `grobj` 8). At home with 12,000 people or more, a thousand
+kT of colonists come aboard for an owned planet with fewer people than
+home; and to an owned planet other than home the colonists are unloaded
+— which is how the TurinDrone's haulers drop settlers on a neighbour's
+planet. `MergeAllShdefs`
 (`1090:5a6c`) four times over — the armada classes (slots 4–7, 13–15),
 the mine layers, the destroyers, the miners — each fleet of ours joining
 the first of its kind at the same place, cargo following the ships; and
@@ -916,12 +945,34 @@ queue and factories at the back. Of those:
   the transcription keeps them only when the head's date comes forward
   and does not write the count trim).
 
+#### The starbase history
+
+`vlpbAiData` is the personality's own table, kept in the player's
+history file (`FWriteHistFile`, `1048:d637`): a size word, an entry
+count, and up to 64 entries of twenty bytes — a planet, a hauler count,
+and room for eight hauler ids. `ValidateStarbaseHistory` (`1090:4cf0`),
+run from `IroEnsureAi` for every personality but the Cybertron and the
+Macinti, from turn 20, keeps it: entries whose planet is no longer ours
+are dropped; every own planet with a starbase not yet listed is added;
+so is every own planet without one that has 8,000 people or more, mines
+and factories both past nineteen, and minerals worth 7,000 kT — each
+surface stock plus the square of its concentration over four
+(`1090:50b1`) — unless (the Robotoid only) it lies within fifty light
+years of a listed planet; every own transport (`FIsAiTransport`,
+`1090:4c08`: a hull from the Small Freighter to the Super Freighter, or
+the Privateer, Rogue or Galleon) listed nowhere is assigned to the
+nearest listed planet with room; and an entry with fewer than four
+haulers takes the last hauler of the first entry with at least two more
+than it. The TurinDrone reads it twice: the cruiser limit is
+`max(planets/10, 2 × entries)`, and a hauler's home is its entry's
+planet. `Player::starbase_history` holds it for the game in hand; the
+history file's copy is not read or written.
+
 Not yet: `FixPlanetsUnderAttack`, which never runs in a tutorial game
-(flag bit 3); salvage and the drops onto enemy planets in the freighter's
-scoring; the `det` bit 15 the first pass clears and the colonise and
-armada targeting set (nothing in the TurinDrone's turn reads it); the
-AI's own tally that widens the cruiser limit (`vlpbAiData`, the haulers'
-assignments). A fleet of battleships or Rogues with no bombers
+(flag bit 3); the `det` bit 15 the first pass clears and the colonise
+and armada targeting set (nothing in the TurinDrone's turn reads it);
+the `0x80` claim on `vlpbAiPlanet[+2]` and `[+3]`. A fleet of
+battleships or Rogues with no bombers
 aboard is given nothing by the TurinDrone — its ladder of `rgcsh` tests
 (`1088:4932`–`1088:4eb0`: miners, orders pending, colony ships, freighters,
 bombers, scouts and destroyers, mine layers) has no rung for one, and it

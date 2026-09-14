@@ -813,3 +813,173 @@ fn colonists_are_dropped_on_a_neighbours_new_colony() {
     // Laid at warp 4, and then re-speeded by `KeepFleetsMoving`.
     assert!(fleet.waypoints[1].warp > 0);
 }
+
+/// A Small Freighter design in the Berserkers' haulers' slot 8, and a
+/// hauler of it at home with the given fleet id.
+fn a_hauler_at_home(state: &mut stars_core::GameState, id: u16) -> stars_core::planet::Planet {
+    use stars_core::design::{DesignSlot, ShipDesign};
+    use stars_core::fleet::ShipStack;
+    while state.designs[1].len() < 9 {
+        let last = state.designs[1].last().expect("a design").clone();
+        state.designs[1].push(last);
+    }
+    state.designs[1][8] = ShipDesign {
+        hull_id: 0,
+        slots: vec![
+            DesignSlot {
+                category: stars_core::components::slot::ENGINE,
+                item: 1,
+                count: 1,
+            },
+            DesignSlot {
+                category: stars_core::components::slot::SCANNER,
+                item: 0,
+                count: 1,
+            },
+            DesignSlot {
+                category: stars_core::components::slot::SPECIAL_M,
+                item: 2,
+                count: 1,
+            },
+        ],
+        name: "Boxcar".to_string(),
+        picture: 0,
+        stored_armor: 0,
+        obsolete: false,
+        designed: 1,
+        built: 1,
+    };
+    let home = state
+        .planets
+        .iter()
+        .find(|p| p.owner == Some(1))
+        .expect("home")
+        .clone();
+    let mut hauler = state.fleets[0].clone();
+    hauler.id = id;
+    hauler.owner = 1;
+    hauler.position = home.position.expect("placed");
+    hauler.orbiting = Some(home.id as u16);
+    hauler.waypoints.truncate(1);
+    hauler.waypoints[0].position = hauler.position;
+    hauler.waypoints[0].target = Some(home.id as u16);
+    hauler.stacks = vec![ShipStack {
+        design: 8,
+        count: 1,
+        damaged_pct: 0,
+        damage_pct: 0,
+    }];
+    hauler.cargo = stars_core::fleet::Cargo::default();
+    state.fleets.push(hauler);
+    home
+}
+
+/// `ValidateStarbaseHistory`: from turn 20 the Berserkers' home world,
+/// with its starbase, is listed, and their hauler is assigned to it;
+/// before then the table stays empty.
+#[test]
+fn the_starbase_history_lists_the_haulers() {
+    use stars_core::ai::StarbaseHistoryEntry;
+
+    let mut state = tutorial_world();
+    let mut rng = stars_core::rng::Rng::randomize(5);
+    state.turn = 19;
+    let home = a_hauler_at_home(&mut state, 9);
+    turindrone::turn(&mut state, 1, &mut rng);
+    assert!(state.players[1].starbase_history.is_empty());
+
+    state.turn = 20;
+    turindrone::turn(&mut state, 1, &mut rng);
+    assert_eq!(
+        state.players[1].starbase_history,
+        vec![StarbaseHistoryEntry {
+            planet: home.id,
+            fleets: vec![9],
+        }]
+    );
+
+    // A planet lost is dropped from the table.
+    let index = state
+        .planets
+        .iter()
+        .position(|p| p.id == home.id)
+        .expect("home");
+    state.planets[index].owner = Some(0);
+    turindrone::turn(&mut state, 1, &mut rng);
+    assert!(state.players[1].starbase_history.is_empty());
+}
+
+/// `FSalvageTargetFreighter2`: a hauler at home with nothing else to do
+/// goes for salvage — a stationary packet — within 200 light years, and
+/// one sitting on top of salvage empties it into its hold.
+#[test]
+fn a_hauler_collects_salvage() {
+    use stars_core::fleet::grobj;
+    use stars_core::movement::Point;
+    use stars_core::packet::Packet;
+
+    let mut state = tutorial_world();
+    let mut rng = stars_core::rng::Rng::randomize(5);
+    state.turn = 3;
+    let home = a_hauler_at_home(&mut state, 9);
+    let at = home.position.expect("placed");
+    let nearby = Point::new(at.x + 60, at.y);
+    state.packets.push(Packet {
+        id: 3,
+        owner: 0,
+        position: nearby,
+        target: 0,
+        warp: 0,
+        minerals: [120, 40, 0],
+        decay_rate: 0,
+        moved: false,
+        include: true,
+        turn: 0,
+    });
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert_eq!(report.hauling, vec![(9, -1)], "{:?}", report.hauling);
+    let hauler = state
+        .fleets
+        .iter()
+        .find(|f| f.owner == 1 && f.id == 9)
+        .expect("the hauler");
+    assert_eq!(hauler.waypoints.len(), 2);
+    assert_eq!(hauler.waypoints[1].target_class, grobj::THING);
+    assert_eq!(hauler.waypoints[1].target, Some(3));
+    assert_eq!(hauler.waypoints[1].position, nearby);
+    assert_eq!(hauler.waypoints[1].task, stars_formats::task::NONE);
+
+    // On top of it: the minerals come aboard — all of them, home being
+    // short of none in particular (with one mineral scarce, only that one
+    // would be taken).
+    let mut state = tutorial_world();
+    state.turn = 3;
+    let home = a_hauler_at_home(&mut state, 9);
+    let at = home.position.expect("placed");
+    let index = state
+        .planets
+        .iter()
+        .position(|p| p.id == home.id)
+        .expect("home");
+    state.planets[index].surface_min = [500, 500, 500];
+    state.packets.push(Packet {
+        id: 3,
+        owner: 0,
+        position: at,
+        target: 0,
+        warp: 0,
+        minerals: [60, 40, 0],
+        decay_rate: 0,
+        moved: false,
+        include: true,
+        turn: 0,
+    });
+    turindrone::turn(&mut state, 1, &mut rng);
+    let hauler = state
+        .fleets
+        .iter()
+        .find(|f| f.owner == 1 && f.id == 9)
+        .expect("the hauler");
+    assert_eq!(hauler.cargo.minerals, [60, 40, 0], "a 120 kT hold");
+    assert_eq!(state.packets[0].minerals, [0, 0, 0]);
+}
