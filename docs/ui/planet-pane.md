@@ -243,6 +243,18 @@ the tiles in the table's own order and offers no way to move them, so a
 file arranged in the original keeps its order and columns through a round
 trip rather than being flattened to this one's.
 
+### The pane's width
+
+Two columns of tiles at a pitch of `0xc6`, each `0xbe` wide, four in from
+the edge: **392 pixels** (`tiles::PANE_WIDTH`), whatever the Window Layout
+— the layout changes the tiles' heights, never the columns. The frame's
+left panel (`views::frame::panes`) is that wide plus its own margins and
+its scroll bar, and no narrower: the tiles are laid out in pixels, and a
+pane squeezed below its table scales the tile frames down but not the
+buttons and text inside them, which then run past the frames' edges and
+are clipped. The desktop's Medium and Large layouts did exactly that until
+the tutorial's film showed the location tile's Xfer button cut off.
+
 ### The small layout
 
 `fSmallTiles` is not about the screen. `FrameWndProc` (`1020:072d`) asks

@@ -510,6 +510,9 @@ pub struct App {
     pub zip_dialog: Option<usize>,
     /// The notice `Hide` puts up the first time, while it is showing.
     pub tutor_notice: Option<String>,
+    /// What the tutor's ring is after, as of the start of this frame — so
+    /// a pane drawing that widget out of view can scroll to it.
+    pub tutor_focus: Option<TutorTarget>,
     /// Whether the tutor's `Panic!` dialog is up.
     pub tutor_panic: bool,
     /// The tutorial, while it is running — the original's `tutor` global.
@@ -13946,6 +13949,8 @@ impl App {
     /// Forget what the last frame drew. The shell calls this at the top of
     /// every frame, and so does a test that drives the interface.
     pub fn start_frame(&mut self) {
+        // From last frame's drawing, before it is forgotten.
+        self.tutor_focus = self.tutor_target();
         self.drawn.clear();
         self.drawn_scope = "";
         self.map_frame = None;

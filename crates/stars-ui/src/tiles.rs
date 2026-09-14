@@ -27,6 +27,10 @@ pub const COLUMN_LEFT: f32 = 4.0;
 pub const TILE_WIDTH: f32 = 0xbe as f32;
 /// The gap above the first tile and between one tile and the next.
 pub const TILE_GAP: f32 = 4.0;
+/// How wide the pane is: two columns of tiles at their pitch, and the
+/// margin before the first — `4 + 0xc6 + 0xbe`, 392 pixels. The Window
+/// Layout changes the tiles' heights, never this.
+pub const PANE_WIDTH: f32 = COLUMN_LEFT + COLUMN_PITCH + TILE_WIDTH;
 /// What the title bar adds to a line of text.
 pub const TITLE_EXTRA: f32 = 2.0;
 /// What a **closed** tile stands at, title bar and frame and nothing else.

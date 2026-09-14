@@ -102,62 +102,18 @@ impl Shell {
         let mut halo = None;
         let page_before = app.tutor.as_ref().map(|t| t.page());
         let output = self.ctx.run(input, |ctx| {
-            // The menu bar's game menus, as the desktop draws them: the
-            // pages name Generate on the Turn menu and Research on the
-            // Commands menu.
+            // The menu bar's game menus, then the game screen exactly as
+            // the desktop draws it — `views::frame` — so the panes, the
+            // dialogs and the tutor's window are where a player has them.
             egui::TopBottomPanel::top("menubar").show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     stars_ui::views::menubar::game_menus(app, ui);
                 });
             });
-            egui::TopBottomPanel::bottom("messages")
-                .show(ctx, |ui| stars_ui::views::messages::view(app, ui));
-            egui::SidePanel::left("planet")
-                .exact_width(420.0)
-                .show(ctx, |ui| stars_ui::views::planet::view(app, ui));
-            egui::SidePanel::left("fleet")
-                .exact_width(420.0)
-                .show(ctx, |ui| stars_ui::views::fleet::view(app, ui));
-            egui::SidePanel::left("survey")
-                .exact_width(200.0)
-                .show(ctx, |ui| stars_ui::views::survey::view(app, ui));
-            egui::CentralPanel::default().show(ctx, |ui| stars_ui::views::central(app, ui));
-            // The tutor window sits where the shell first puts it, in the
-            // corner the map does not use.
-            if app.tutor.as_ref().is_some_and(|t| !t.hidden) {
-                egui::Window::new("Stars! Tutor")
-                    .default_pos(egui::pos2(1700.0, 40.0))
-                    .show(ctx, |ui| stars_ui::views::tutorial::view(app, ui));
-            }
-            // The Research and Production dialogs, where the shell puts
-            // them: over the map.
-            if app.research_dialog.is_some() {
-                egui::Window::new("Research")
-                    .current_pos(egui::pos2(900.0, 100.0))
-                    .show(ctx, |ui| stars_ui::views::research::view(app, ui));
-            }
-            if app.production.is_some() {
-                egui::Window::new("Production")
-                    .current_pos(egui::pos2(900.0, 100.0))
-                    .default_width(700.0)
-                    .show(ctx, |ui| stars_ui::views::production::view(app, ui));
-            }
-            if app.xfer.is_some() {
-                egui::Window::new("Cargo Transfer")
-                    .current_pos(egui::pos2(900.0, 100.0))
-                    .default_width(stars_ui::dialog::TRANSFER.pixels().x)
-                    .show(ctx, |ui| stars_ui::views::transfer::view(app, ui));
-            }
-            if app.split.is_some() {
-                egui::Window::new("Ship Transfer")
-                    .current_pos(egui::pos2(900.0, 100.0))
-                    .default_width(stars_ui::dialog::TRANSFER.pixels().x)
-                    .show(ctx, |ui| stars_ui::views::split::view(app, ui));
-            }
-            halo = stars_ui::views::tutorial::halo(app, ctx);
+            let (_, ring) = stars_ui::views::frame::game_screen(app, ctx);
+            halo = ring;
         });
         self.halo = halo;
-        app.advance_tutor();
         if let Some(recorder) = self.recorder.as_mut() {
             let page = app.tutor.as_ref().map(|t| t.page());
             let primitives = self.ctx.tessellate(output.shapes, output.pixels_per_point);
@@ -582,18 +538,30 @@ impl Shell {
 
     /// The halo rings the widget named — the thing the page wants pressed.
     fn assert_halo_on(&mut self, scope: &str, label: &str) {
-        self.frame();
+        // A pane scrolls a ringed widget into view on the frame after it
+        // finds it out of view, so give it a couple.
+        for _ in 0..3 {
+            self.frame();
+            if self
+                .app
+                .drawn_button(scope, label)
+                .is_some_and(|w| w.visible)
+            {
+                break;
+            }
+        }
         let widget = self
             .app
             .drawn_button(scope, label)
             .unwrap_or_else(|| panic!("no {label:?} in the {scope} pane"))
-            .rect;
+            .clone();
         let halo = self.halo.unwrap_or_else(|| {
             panic!(
-                "no halo, but {scope}'s {label:?} is what the page wants; target {:?}",
+                "no halo, but {scope}'s {label:?} is what the page wants; target {:?}; widget {widget:?}",
                 self.app.tutor_target()
             )
         });
+        let widget = widget.rect;
         assert!(
             halo.contains_rect(widget),
             "the halo {halo:?} is not around {scope}'s {label:?} at {widget:?}"

@@ -10,6 +10,7 @@ pub mod battles;
 pub mod browser;
 pub mod designer;
 pub mod fleet;
+pub mod frame;
 pub mod galaxy;
 pub mod host;
 pub mod menubar;
@@ -392,8 +393,7 @@ pub(crate) fn tile_pane(
     // The pane is drawn at the table's own width. With less room than that the
     // columns are scaled down together rather than clipped, so the proportions
     // stay the original's.
-    let full = crate::tiles::COLUMN_PITCH + crate::tiles::TILE_WIDTH + crate::tiles::COLUMN_LEFT;
-    let scale = (ui.available_width() / full).clamp(0.25, 1.0);
+    let scale = (ui.available_width() / crate::tiles::PANE_WIDTH).clamp(0.25, 1.0);
     let (rect, _) = ui.allocate_exact_size(
         egui::vec2(ui.available_width(), height * scale),
         egui::Sense::hover(),
@@ -511,13 +511,7 @@ pub(crate) fn placed_button_named(
     name: &str,
     enabled: bool,
 ) -> egui::Response {
-    app.drawn.push(crate::app::DrawnWidget {
-        scope: app.drawn_scope,
-        label: name.to_string(),
-        rect,
-        enabled,
-        visible: ui.clip_rect().contains_rect(rect),
-    });
+    note(app, ui, name, rect, enabled);
     ui.put(
         rect,
         egui::Button::new(egui::RichText::new(caption).small()).sense(if enabled {
@@ -531,12 +525,36 @@ pub(crate) fn placed_button_named(
 /// Record any widget the way the buttons are recorded, so a test can find a
 /// list row by its text and click it where it was drawn.
 pub(crate) fn record(app: &mut App, ui: &egui::Ui, label: &str, response: &egui::Response) {
+    note(app, ui, label, response.rect, response.enabled());
+}
+
+/// Write a widget down — and, when it is the one the tutor's ring is
+/// after and it lies out of view, bring it into view.
+///
+/// The original's panes hold every tile at once; this frontend's pane is a
+/// scroll area, and a page that wants the Xfer button pressed is no help
+/// if the button is below the fold with nothing to say so. The ring
+/// cannot be drawn on what is clipped, so the pane scrolls to it instead,
+/// as a player would have to. `App::tutor_focus` is the target as of the
+/// start of the frame.
+fn note(app: &mut App, ui: &egui::Ui, label: &str, rect: egui::Rect, enabled: bool) {
+    let visible = ui.clip_rect().contains_rect(rect);
+    if !visible {
+        let wanted = matches!(
+            app.tutor_focus.as_ref(),
+            Some(crate::app::TutorTarget::Widget { scope, label: want })
+                if *scope == app.drawn_scope && want == label
+        );
+        if wanted {
+            ui.scroll_to_rect(rect, Some(egui::Align::Center));
+        }
+    }
     app.drawn.push(crate::app::DrawnWidget {
         scope: app.drawn_scope,
         label: label.to_string(),
-        rect: response.rect,
-        enabled: response.enabled(),
-        visible: ui.clip_rect().contains_rect(response.rect),
+        rect,
+        enabled,
+        visible,
     });
 }
 
@@ -551,13 +569,7 @@ pub(crate) fn flow_button(
         enabled,
         egui::Button::new(egui::RichText::new(label).small()),
     );
-    app.drawn.push(crate::app::DrawnWidget {
-        scope: app.drawn_scope,
-        label: label.to_string(),
-        rect: response.rect,
-        enabled,
-        visible: ui.clip_rect().contains_rect(response.rect),
-    });
+    note(app, ui, label, response.rect, enabled);
     response
 }
 

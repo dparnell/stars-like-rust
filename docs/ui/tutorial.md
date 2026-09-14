@@ -624,6 +624,21 @@ told the reader they were getting anywhere. A rung can now be **held**
 (`mark`): emboldened while its check holds, gating nothing and asking for
 nothing.
 
+### The screen the test sees
+
+`views::frame::game_screen` draws the game screen — the panes down the
+left, the dialogs over the map, the map, and the tutor's ring last, once
+everything that records a widget has drawn — and both the desktop and
+`tutorial_ui.rs` call it, so what the test presses is what the player
+sees. The harness used to lay the panes out its own way, with the planet
+and fleet panes side by side and wider than the desktop's one pane, and
+so could see and press things a player could not: the first film made
+that plain. Two things came of drawing the real screen: the pane's width
+(`planet-pane.md`, *The pane's width*), and a pane that **scrolls to the
+ringed widget** when it is drawn out of view (`views::note`) — the
+original's panes hold every tile at once, and a page that wants Xfer
+pressed is no help with Xfer below the fold and nothing to say so.
+
 ### Filming the run
 
 The same harness can film itself. With `STARS_TUTORIAL_VIDEO=<path>` set,
