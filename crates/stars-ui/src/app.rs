@@ -10546,34 +10546,22 @@ impl App {
     /// `GetFleetScannerRange` (`1038:4fb8`) walks the sixteen design slots and
     /// keeps the maximum of each range — the fourth-root combination applies
     /// **within** a design, between its own scanners, and not across the
-    /// designs in a fleet.
+    /// designs in a fleet. The race counts too: a Jack of All Trades' Scout,
+    /// Destroyer and Frigate hulls carry a scanner of their own, penetrating
+    /// half as far as it sees, and No Advanced Scanners doubles the normal
+    /// range and takes the penetration away — which is why the map's
+    /// coverage comes from the same routine the fog of war uses
+    /// (`stars_core::visibility::fleet_scan`). Read from the design alone,
+    /// the tutorial's Armed Probe drew no penetrating disc at all.
     #[must_use]
     pub fn fleet_scan_range(
         &self,
         fleet: &stars_core::fleet::Fleet,
     ) -> stars_core::scanning::ScannerRange {
-        let mut out = stars_core::scanning::ScannerRange::default();
-        let Some(game) = self.game.as_ref() else {
-            return out;
-        };
-        let Some(designs) = usize::try_from(fleet.owner)
-            .ok()
-            .and_then(|owner| game.designs.get(owner))
-        else {
-            return out;
-        };
-        for stack in &fleet.stacks {
-            if stack.count <= 0 {
-                continue;
-            }
-            let Some(design) = designs.get(usize::from(stack.design)) else {
-                continue;
-            };
-            let range = design.scanner_range();
-            out.normal = out.normal.max(range.normal);
-            out.penetrating = out.penetrating.max(range.penetrating);
+        match self.game.as_ref() {
+            Some(game) => stars_core::visibility::fleet_scan(game, fleet),
+            None => stars_core::scanning::ScannerRange::default(),
         }
-        out
     }
 
     /// A coverage radius after the toolbar's percentage is applied.

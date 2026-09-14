@@ -598,7 +598,13 @@ yellow either way — and draws the penetrating ranges over the top:
   penetrating scanner's deep range is half its normal one by construction. An
   AR planet penetrates only when its starbase hull is better than `0x22`, the
   Space Station;
-* a **fleet**'s is the penetrating range itself;
+* a **fleet**'s is the penetrating range itself — with the race counted:
+  a Jack of All Trades' Scout, Destroyer and Frigate carry a scanner of
+  their own that penetrates half as far as it sees (`GetShdefScannerRange`,
+  `../formulas/scanning.md`), so the tutorial's Armed Probe draws a
+  twenty-light-year disc inside its fifty-four. The map takes both ranges
+  from `visibility::fleet_scan`, the same routine as the fog of war; read
+  from the design alone the probe drew no penetrating disc at all;
 * and for a **Packet Physics** race, each of this player's **mineral packets**
   under way adds a disc of its own, radius `(stored warp + 4)²`. The stored
   nibble is the warp less four, so that is the square of the real warp — which

@@ -180,3 +180,42 @@ fn the_penetrating_discs_come_last() {
         );
     }
 }
+
+/// The two kinds of coverage: a normal range in dark red and a penetrating
+/// one in dark yellow over it. The tutorial's Armed Probe — a Rhino on a
+/// Jack of All Trades' Scout hull, whose built-in scanner penetrates twenty
+/// — draws both; the home world's Scoper 150 draws the red disc alone.
+#[test]
+fn a_penetrating_scanner_draws_its_own_disc() {
+    let mut app = App::new();
+    app.create_tutor_world(1024).expect("the tutorial's world");
+    app.scan_overlays.scanner_coverage = true;
+    let discs = app.scanner_coverage();
+    let game = app.game.as_ref().expect("a game");
+    let probe = game
+        .fleets
+        .iter()
+        .find(|f| f.owner == 0 && f.id == 0)
+        .expect("Armed Probe #1");
+    let at_probe: Vec<_> = discs
+        .iter()
+        .filter(|d| d.position == probe.position)
+        .collect();
+    assert!(
+        at_probe.iter().any(|d| !d.penetrating && d.radius == 54),
+        "a normal disc of fifty-four: {at_probe:?}"
+    );
+    assert!(
+        at_probe.iter().any(|d| d.penetrating && d.radius == 20),
+        "and a penetrating one of twenty: {at_probe:?}"
+    );
+    // The penetrating discs are painted after every normal one, so they lie
+    // on top, in their own colour.
+    let first_deep = discs
+        .iter()
+        .position(|d| d.penetrating)
+        .expect("a deep disc");
+    assert!(discs[..first_deep].iter().all(|d| !d.penetrating));
+    assert!(discs[first_deep..].iter().all(|d| d.penetrating));
+    assert_ne!(stars_ui::COVERAGE_NORMAL, stars_ui::COVERAGE_PENETRATING);
+}
