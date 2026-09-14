@@ -707,9 +707,8 @@ designs into fleets of their own from turn 60.
   En 4, Weap 5, Prop 6, Con 6, Weap 8, En 6, Elec 6, Prop 9, Bio 7,
   Con 8, Elec 8, Bio 5 (a no-op by then), Con 9, En 7, Elec 10, Weap 10,
   Prop 12, Con 11, En 10, Weap 12, Elec 13, Prop 16, Weap 14, Con 15,
-  Elec 14, Bio 10, Weap 16, En 14. The tutorial's Berserkers, who start
-  with `[0, 0, 0, 0, 5, 0]`, need the Biotechnology this brings before
-  any planet near home is worth a colony ship to them.
+  Elec 14, Bio 10, Weap 16, En 14. The tutorial's Berserkers start with
+  `[0, 0, 0, 0, 5, 0]`.
 * `MergeAllShdefs` merges fleets of the same slot at the same place for
   the bombers (13), the mine layers (12), the destroyers (10, 11) and the
   miners (2, 3).
@@ -846,17 +845,60 @@ pieces already here: `KeepFleetsMoving` re-speeding every fleet with orders to
 `IFindIdealWarp`'s warp, `QueueAiStarbases` by `ai::ships::
 queue_ai_starbase`, then for every own planet with 60 kT of people (or
 one that is hostile) whose queue's minerals are covered, a starbase
-upgrade by `ai::ships::upgrade_ai_starbase` or else terraforming by
-`ai::production::queue_ai_terraforming`; and `FillProductionQueue`, the
+upgrade by `ai::ships::upgrade_ai_starbase`, else `FAIFling`, else
+`FQueueAiScanner`, else `FQueueAiDefenses`, and when none of them wrote,
+terraforming by `ai::production::queue_ai_terraforming`; then
+`AddMinesToBlockedQueues`; and `FillProductionQueue`, the
 mines-and-factories fill at every own planet, mines at the front of the
-queue and factories at the back. Not yet: `FAIFling`, `FQueueAiScanner`,
-`FQueueAiDefenses` and `AddMinesToBlockedQueues` inside the housekeeping
-(`FixPlanetsUnderAttack` never runs in a tutorial game, flag bit 3);
-salvage and the drops onto enemy planets in the freighter's scoring;
+queue and factories at the back. Of those:
+
+* `FQueueAiScanner` (`1090:90d6`) never queues anything: it searches the
+  queue and the inventory for a planetary item numbered 18 to 26 — the
+  individual scanners — but `InitProduction` (`10d0:015e`) offers a
+  scanner only as the generic item 27, so it always answers 0.
+* `FQueueAiDefenses` (`1090:939a`): a planet of 160,000 people or more
+  wants one defence per 8,000; short of that and with none queued, up
+  to four go on the back of the queue, limited by `CMaxDefenses` less
+  those built. Resources are not checked.
+* `FAIFling` (`1090:7dd6`): for a player of skill 2 or more (bits 10–12
+  of the player's `det`), not the Cybertron, with no packet already
+  queued: a planet with a starbase whose mass driver reaches warp 10
+  (`IWarpMAFromLppl`), more than 3,000 kT of minerals available and a
+  one-in-four roll picks, one-in-*n*, another player's planet seen
+  within two years within 84 light years (225 with a pair of drivers;
+  the squares 7056 and 50625 at `1090:7dce`, tripled when a surface
+  mineral tops 12,500 kT) whose defence guess is under 14 or population
+  guess under 750 (a quarter of the population — under 300,000 people),
+  not Alternate Reality, and not Packet Physics if it has a starbase. The
+  driver is aimed at it at warp 13 and the packets queued: eighty
+  germanium at 649 resources and a two-in-three roll; then thirty mixed
+  at 3,001 / 4,001 / 3,001 kT of ironium / boranium / germanium, fifteen
+  at 1,501 / 2,251 / 1,501, else per mineral over 1,250 kT (boranium
+  2,500) one packet of it per 200 kT over, one to twenty-five.
+* `AddMinesToBlockedQueues` (`1090:1792`): at every own planet whose
+  queue's head is not a mine, alchemy or terraforming and is not due
+  next year (`PszProductionETA`; "as needed" is taken as 600 years),
+  when the planet's resources after the research share over the years
+  until it is due would cover its resource cost — so it is waiting on
+  minerals — mines go in front of it: the resources divided by the
+  race's mine cost, at most the operable deficit; none affordable puts
+  one auto alchemy in front instead. The mines are then re-estimated
+  and taken out again when they do not help (`1090:1b7c`–`1090:1c41`;
+  the transcription keeps them only when the head's date comes forward
+  and does not write the count trim).
+
+Not yet: `FixPlanetsUnderAttack`, which never runs in a tutorial game
+(flag bit 3); salvage and the drops onto enemy planets in the freighter's
+scoring;
 `SplitOutShdefs`; the first pass that clears stale orders and `det` bit
 15; the AI's own tally that widens the cruiser limit (`vlpbAiData`, the
-haulers' assignments); the battle fleets without bombers
-(`IdTargetArmada`). None of it is verified against a corpus turn yet.
+haulers' assignments). A fleet of battleships or Rogues with no bombers
+aboard is given nothing by the TurinDrone — its ladder of `rgcsh` tests
+(`1088:4932`–`1088:4eb0`: miners, orders pending, colony ships, freighters,
+bombers, scouts and destroyers, mine layers) has no rung for one, and it
+waits at its starbase to be merged with bombers; `IdTargetArmada`
+(`1088:288e`) is called only from `DoRobotoidAiTurn`. None of it is
+verified against a corpus turn yet.
 
 ### Other queue sources
 

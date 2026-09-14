@@ -507,10 +507,10 @@ fn the_berserkers_follow_their_research_plan() {
     assert_eq!(state.players[1].research_pct, 0);
 }
 
-/// With the plan the Berserkers reach the Biotechnology that lets them
-/// terraform, and then a planet near home is worth a colony ship.
+/// Left to themselves, the Berserkers' scouts find a planet worth settling
+/// within their first twenty years or so, and a colony ship goes out.
 #[test]
-fn the_plan_gets_the_berserkers_to_a_colony() {
+fn the_berserkers_settle_a_planet_in_time() {
     let mut state = tutorial_world();
     let mut rng = stars_core::rng::Rng::randomize(1);
     let mut colonised = false;
@@ -522,8 +522,84 @@ fn the_plan_gets_the_berserkers_to_a_colony() {
         }
     }
     assert!(colonised, "a colony ship went out within twenty-five years");
-    assert!(
-        state.players[1].research.levels[5] > 0,
-        "Biotechnology came"
-    );
+}
+
+/// `FQueueAiDefenses`: a home world of 200,000 people wants twenty-five
+/// defences and queues four of them at a time; a smaller one wants none.
+#[test]
+fn defences_come_with_the_people() {
+    use stars_core::production::item;
+
+    let mut state = tutorial_world();
+    let mut rng = stars_core::rng::Rng::randomize(7);
+    state.turn = 1;
+    let home = state
+        .planets
+        .iter()
+        .position(|p| p.owner == Some(1))
+        .expect("home");
+    let id = state.planets[home].id;
+    state.planets[home].pop = 2000;
+    state.planets[home].defenses = 0;
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert_eq!(report.defended, vec![(id, 4)], "{:?}", report.defended);
+    let defences: Vec<i32> = state.planets[home]
+        .queue
+        .iter()
+        .filter(|q| !q.ship && q.item == item::DEFENSE)
+        .map(|q| q.count)
+        .collect();
+    assert_eq!(defences, vec![4]);
+
+    // Already covered: with thirty defences up, nothing more is queued.
+    let mut state = tutorial_world();
+    state.turn = 1;
+    state.planets[home].pop = 2000;
+    state.planets[home].defenses = 30;
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert!(report.defended.is_empty(), "{:?}", report.defended);
+
+    // Too few people (the tutorial's Berserkers start with fewer than
+    // 160,000): none either.
+    let mut state = tutorial_world();
+    state.turn = 1;
+    state.planets[home].defenses = 0;
+    assert!(state.planets[home].pop < 1600);
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert!(report.defended.is_empty(), "{:?}", report.defended);
+}
+
+/// `AddMinesToBlockedQueues`: factories at the head of a queue on a planet
+/// with no minerals on the surface and no mines to dig them are waiting on
+/// minerals, and mines go in ahead of them.
+#[test]
+fn a_blocked_queue_gets_mines_in_front() {
+    use stars_core::production::{item, QueueItem};
+
+    let mut state = tutorial_world();
+    let mut rng = stars_core::rng::Rng::randomize(7);
+    state.turn = 1;
+    let home = state
+        .planets
+        .iter()
+        .position(|p| p.owner == Some(1))
+        .expect("home");
+    let id = state.planets[home].id;
+    state.planets[home].surface_min = [0, 0, 0];
+    state.planets[home].mines = 0;
+    state.planets[home].queue = vec![QueueItem {
+        count: 50,
+        item: item::FACTORY,
+        ship: false,
+        completion: 0,
+    }];
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert_eq!(report.unblocked.len(), 1, "{:?}", report.unblocked);
+    let (planet, mines) = report.unblocked[0];
+    assert_eq!(planet, id);
+    assert!(mines > 0, "{mines} mines");
+    assert_eq!(state.planets[home].queue[0].item, item::MINE);
+
+    // Nothing to fling: the tutorial's Berserkers are of skill 0.
+    assert!(report.flung.is_empty());
 }

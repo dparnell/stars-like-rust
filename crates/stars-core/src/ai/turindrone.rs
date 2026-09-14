@@ -88,6 +88,13 @@ pub struct Report {
     /// Mines and factories queued by `FillProductionQueue`, as
     /// `(planet, mines, factories)`.
     pub filled: Vec<(i16, i32, i32)>,
+    /// Defences queued by `FQueueAiDefenses`, as `(planet, count)`.
+    pub defended: Vec<(i16, i32)>,
+    /// Mass drivers aimed by `FAIFling`, as `(planet, target)`.
+    pub flung: Vec<(i16, i16)>,
+    /// Queues unblocked by `AddMinesToBlockedQueues`, as `(planet, mines)`
+    /// — `0` mines is auto alchemy put in front instead.
+    pub unblocked: Vec<(i16, i32)>,
 }
 
 /// Run the personality's turn for `player`, as the host does before the
@@ -573,8 +580,11 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
             }
             continue;
         }
-        // The scouts and the destroyers (slots 0, 10 and 11) scout; the
-        // bombers (13, 14) wait for their part of the pass to be written.
+        // The scouts and the destroyers (slots 0, 10 and 11) scout. A
+        // fleet of battleships (4, 5) or Rogues (15) with no bombers gets
+        // nothing here — the routine's own ladder of `rgcsh` tests ends
+        // at the mine layer — and waits to be merged with bombers
+        // (`MergeAllShdefs(0xe0f0)`); `IdTargetArmada` is the Robotoid's.
         let is_scout = fleet
             .stacks
             .iter()
@@ -1446,11 +1456,14 @@ fn target_armada(
 ///   without one, by [`crate::ai::ships::queue_ai_starbase`];
 /// * then for every own planet with 60 kT of people or more (or one marked
 ///   hostile), whose queue's minerals are already covered: a starbase
-///   upgrade by [`crate::ai::ships::upgrade_ai_starbase`], else terraforming
-///   by [`crate::ai::production::queue_ai_terraforming`]. `FAIFling`, the
-///   scanner and the defences (`FQueueAiScanner`, `FQueueAiDefenses`) and
-///   `AddMinesToBlockedQueues` are not written yet; `FixPlanetsUnderAttack`
-///   never runs in a tutorial game (flag bit 3).
+///   upgrade by [`crate::ai::ships::upgrade_ai_starbase`], or a mass driver
+///   aimed and packets queued by [`ai_fling`], or a scanner by
+///   `FQueueAiScanner` — which never queues one, see [`queue_ai_scanner`] —
+///   or defences by [`queue_ai_defenses`]; and when none of those wrote,
+///   terraforming by [`crate::ai::production::queue_ai_terraforming`];
+/// * `FixPlanetsUnderAttack`, which never runs in a tutorial game (flag
+///   bit 3) and is not written;
+/// * [`add_mines_to_blocked_queues`].
 fn basic_tasks(
     state: &mut GameState,
     player: usize,
@@ -1539,6 +1552,7 @@ fn basic_tasks(
         let mut written = false;
         if !hostile {
             if let (Some(latest), Some(current)) = (latest_starbase, planet.starbase_design) {
+                // `FUpgradeAiStarbase`.
                 let starbase_design = |index: u8| {
                     designs
                         .get(usize::from(crate::startup::FIRST_STARBASE_SLOT) + usize::from(index))
@@ -1562,6 +1576,24 @@ fn basic_tasks(
                     written = true;
                 }
             }
+            if !written {
+                written = ai_fling(state, player, me, index, &available, rng, report);
+            }
+            if !written {
+                written = queue_ai_scanner(&state.planets[index]);
+            }
+            if !written {
+                if let Some(count) = queue_ai_defenses(&state.planets[index], &race) {
+                    state.planets[index].queue.push(QueueItem {
+                        count,
+                        item: crate::production::item::DEFENSE,
+                        ship: false,
+                        completion: 0,
+                    });
+                    report.defended.push((id, count));
+                    written = true;
+                }
+            }
         }
         if !written {
             let steps = crate::ai::production::queue_ai_terraforming(&planet, &race, &ctx);
@@ -1577,6 +1609,295 @@ fn basic_tasks(
                 );
             }
         }
+    }
+
+    add_mines_to_blocked_queues(state, player, me, report);
+}
+
+/// `FQueueAiScanner` (`1090:90d6`): a planetary scanner for a planet without
+/// one — which **never** queues anything. The routine looks through the
+/// queue and then the production inventory for a planetary item numbered
+/// 18 to 26 (`0x11 < iItem < 0x1b` at `1090:912c`–`1090:9199`), the ids
+/// of the individual scanners, but `InitProduction` (`10d0:015e`) offers a
+/// scanner only as the generic item 27, so the search always comes up
+/// empty and the routine answers 0. Kept as the no-op it is, so the order
+/// of the housekeeping reads as the original's.
+fn queue_ai_scanner(planet: &crate::planet::Planet) -> bool {
+    let _ = planet;
+    false
+}
+
+/// `FQueueAiDefenses` (`1090:939a`): a planet of 160,000 people or more
+/// (`rgwtMin[3] > 0x63f`) wants one defence per 8,000 (`pop / 80`); with
+/// fewer than that, and no defences already in the queue, it queues as
+/// many as the inventory offers (`CMaxDefenses` less those built), at most
+/// four, at the back. The resources are not looked at.
+fn queue_ai_defenses(planet: &crate::planet::Planet, race: &crate::race::Race) -> Option<i32> {
+    use crate::production::item;
+    if planet.pop < 1600 {
+        return None;
+    }
+    let wanted = planet.pop / 80;
+    if wanted <= i32::from(planet.defenses) {
+        return None;
+    }
+    if planet
+        .queue
+        .iter()
+        .any(|e| !e.ship && e.item == item::DEFENSE)
+    {
+        return None;
+    }
+    let room = i32::from(crate::resources::max_defenses(planet, race)) - i32::from(planet.defenses);
+    if room <= 0 {
+        return None;
+    }
+    Some(room.min(4))
+}
+
+/// `FAIFling` (`1090:7dd6`): a mass driver aimed at a neighbour, and packets
+/// queued to throw at them. Only for a player of skill 2 or more (bits 10
+/// to 12 of the player's `det`), never for the Cybertron, and not while a
+/// packet (items 14 to 17) is already queued. The planet must have a
+/// starbase whose driver flings at warp 10 or better (`IWarpMAFromLppl`),
+/// more than 3,000 kT of minerals available between the three, and win a
+/// one-in-four roll.
+///
+/// The target is drawn, one-in-*n* reservoir fashion, from the other
+/// players' planets seen within the last two years within 84 light years
+/// (a pair of drivers, 225; the squares at `1090:7dce`, tripled when a
+/// surface mineral tops 12,500 kT) whose defences guess is under 14 or
+/// whose population guess is under 750 — `uPopGuess` is a quarter of the
+/// population, so under 300,000 people; the guess nibble is not kept here
+/// — and whose owner is not Alternate Reality, nor Packet Physics if the
+/// planet has a starbase. The driver is set to warp 13 (stored as 9) and
+/// the packets follow: eighty germanium ones when 649 resources are to
+/// hand and a two-in-three roll comes up; then thirty mixed at 3,001 /
+/// 4,001 / 3,001 kT of ironium / boranium / germanium, fifteen at 1,501 /
+/// 2,251 / 1,501, or otherwise, per mineral over 1,250 kT (boranium
+/// 2,500), one packet of it per 200 kT over, one to twenty-five.
+#[allow(clippy::too_many_arguments)]
+fn ai_fling(
+    state: &mut GameState,
+    player: usize,
+    me: i16,
+    index: usize,
+    available: &[i32; 4],
+    rng: &mut Rng,
+    report: &mut Report,
+) -> bool {
+    use crate::production::item;
+    use crate::race::Prt;
+
+    let planet = state.planets[index].clone();
+    let control = state.players[player].control;
+    let (personality, skill) = match control {
+        crate::ai::Control::Computer {
+            personality,
+            skill_bits,
+        } => (personality, skill_bits),
+        crate::ai::Control::Human => (None, 0),
+    };
+    if personality == Some(AiPersonality::Cyber) {
+        return false;
+    }
+    if planet
+        .queue
+        .iter()
+        .any(|e| !e.ship && (item::PACKET_IRONIUM..=item::PACKET_MIXED).contains(&e.item))
+    {
+        return false;
+    }
+    if skill < 2 {
+        return false;
+    }
+    if i64::from(available[0]) + i64::from(available[1]) + i64::from(available[2]) <= 3000 {
+        return false;
+    }
+    if !planet.starbase {
+        return false;
+    }
+    let designs = state.designs.get(player).cloned().unwrap_or_default();
+    let driver = crate::production::mass_driver(&planet, &designs);
+    if driver.warp < 10 || rng.random(4) != 0 {
+        return false;
+    }
+    let Some(from) = planet.position else {
+        return false;
+    };
+    let mut range2: i64 = if driver.paired { 50_625 } else { 7_056 };
+    if planet.surface_min.iter().any(|&m| m > 12_500) {
+        range2 *= 3;
+    }
+    let mut seen = 0i16;
+    let mut target: Option<i16> = None;
+    for other in &state.planets {
+        let (Some(owner), Some(at)) = (other.owner, other.position) else {
+            continue;
+        };
+        if owner == me {
+            continue;
+        }
+        let Some(their_race) = usize::try_from(owner)
+            .ok()
+            .and_then(|o| state.players.get(o))
+            .map(|p| &p.race)
+        else {
+            continue;
+        };
+        if other.pop / 4 >= 750 {
+            continue;
+        }
+        if their_race.prt() == Some(Prt::Ar) {
+            continue;
+        }
+        if other.starbase && their_race.prt() == Some(Prt::Pp) {
+            continue;
+        }
+        let dx = i64::from(from.x) - i64::from(at.x);
+        let dy = i64::from(from.y) - i64::from(at.y);
+        if dx * dx + dy * dy > range2 {
+            continue;
+        }
+        seen = seen.saturating_add(1);
+        if rng.random(seen) == 0 {
+            target = Some(other.id);
+        }
+    }
+    let Some(target) = target else {
+        return false;
+    };
+    let planet = &mut state.planets[index];
+    planet.fling_dest = Some(target);
+    planet.fling_warp = 13 - 4;
+    let mut queue = |item: u16, count: i32| {
+        planet.queue.push(QueueItem {
+            count,
+            item,
+            ship: false,
+            completion: 0,
+        });
+    };
+    if available[3] >= 649 && rng.random(3) != 0 {
+        queue(item::PACKET_GERMANIUM, 80);
+    }
+    let [ir, bo, ge, _] = *available;
+    if ir >= 3001 && bo >= 4001 && ge >= 3001 {
+        queue(item::PACKET_MIXED, 30);
+    } else if ir >= 1501 && bo >= 2251 && ge >= 1501 {
+        queue(item::PACKET_MIXED, 15);
+    } else {
+        for (i, &amount) in available.iter().take(3).enumerate() {
+            let over = if i == 1 { 2500 } else { 1250 };
+            if amount > over {
+                let count = ((amount - over) / 200).clamp(1, 25);
+                queue(item::PACKET_IRONIUM + u16::try_from(i).unwrap_or(0), count);
+            }
+        }
+    }
+    report.flung.push((planet.id, target));
+    true
+}
+
+/// `AddMinesToBlockedQueues` (`1090:1792`): at every own planet whose
+/// queue's first item is neither a mine, alchemy (auto or plain) nor
+/// terraforming, and is not due next year (`PszProductionETA`; "as needed"
+/// counts as 600 years), the planet's resources — less the research share
+/// — over the years until it is due are compared with the item's resource
+/// cost: when they would cover it, the item is waiting on minerals, and
+/// mines go in front of it — as many as the resources buy at the race's
+/// mine cost, capped at what the planet could operate over what it has —
+/// or, when that is none, one auto alchemy.
+///
+/// The original then re-estimates (`1090:1b7c`–`1090:1c41`) and takes the
+/// mines out again when the item's date has not come forward and the
+/// mines themselves take longer than the item did, or trims their count
+/// otherwise. Here the mines stay only when the item's date comes
+/// forward; the trim is not written.
+fn add_mines_to_blocked_queues(state: &mut GameState, player: usize, me: i16, report: &mut Report) {
+    use crate::production::{eta, item, planetary_item_cost, QueueItem};
+    use crate::race::RaceStat;
+
+    let race = state.players[player].race.clone();
+    let research_pct = state.players[player].research_pct;
+    let designs = state.designs.get(player).cloned().unwrap_or_default();
+    let energy = i16::from(state.players[player].research.levels[0]);
+    let who = Builder::player(&state.players[player]);
+    for index in 0..state.planets.len() {
+        let planet = state.planets[index].clone();
+        if planet.owner != Some(me) {
+            continue;
+        }
+        let Some(head) = planet.queue.first().copied() else {
+            continue;
+        };
+        if !head.ship
+            && matches!(
+                head.item,
+                item::MINE | item::AUTO_ALCHEMY | item::ALCHEMY | item::TERRAFORM
+            )
+        {
+            continue;
+        }
+        let due = eta(&planet, &who, research_pct, &designs, 0).first;
+        if due == 1 {
+            continue;
+        }
+        let due = i64::from(if due == -1 { 600 } else { due });
+        let cost = if head.ship {
+            designs
+                .get(usize::from(head.item))
+                .and_then(|d| d.true_cost(&who))
+                .map(|c| c.resources)
+        } else {
+            planetary_item_cost(head.item, &race, state.tutorial).map(|c| c.resources)
+        };
+        let Some(cost) = cost else {
+            continue;
+        };
+        let mut resources =
+            i64::from(crate::resources::resources_at_planet(&planet, &race, energy).unwrap_or(0));
+        if !planet.no_research {
+            resources -= resources * i64::from(research_pct) / 100;
+        }
+        if i64::from(cost) > resources * (due - 1) {
+            continue;
+        }
+        let room = (i64::from(crate::resources::max_operable_mines(&planet, &race, false))
+            - i64::from(planet.mines))
+        .max(0);
+        let each = i64::from(race.stat(RaceStat::MineBuild)).max(1);
+        let mines = room.min(resources / each);
+        if mines < 1 {
+            state.planets[index].queue.insert(
+                0,
+                QueueItem {
+                    count: 1,
+                    item: item::AUTO_ALCHEMY,
+                    ship: false,
+                    completion: 0,
+                },
+            );
+            report.unblocked.push((planet.id, 0));
+            continue;
+        }
+        let mines = i32::try_from(mines).unwrap_or(i32::MAX);
+        state.planets[index].queue.insert(
+            0,
+            QueueItem {
+                count: mines,
+                item: item::MINE,
+                ship: false,
+                completion: 0,
+            },
+        );
+        let after = eta(&state.planets[index], &who, research_pct, &designs, 1).first;
+        let after = i64::from(if after == -1 { 600 } else { after });
+        if due <= after {
+            state.planets[index].queue.remove(0);
+            continue;
+        }
+        report.unblocked.push((planet.id, mines));
     }
 }
 
