@@ -5125,6 +5125,15 @@ impl App {
     /// The battle recorded at a place, for a message that points at one.
     #[must_use]
     pub fn battle_at(&self, x: i16, y: i16) -> Option<usize> {
+        // A battle at a planet is named by the planet: the message carries
+        // `-1` and the planet id in place of the coordinates.
+        if x == -1 {
+            let planet = u16::try_from(y).unwrap_or(u16::MAX);
+            return self
+                .battles
+                .iter()
+                .position(|battle| battle.planet == planet);
+        }
         self.battles
             .iter()
             .position(|battle| battle.position == (x, y))
@@ -5343,6 +5352,12 @@ impl App {
         self.playing = false;
         // `VCRDlg` (`10e8:1879`) tells the tutor a battle was watched.
         self.tutor_note_seen();
+    }
+
+    /// Close the VCR — its Done button, or the window's close box.
+    pub fn close_battle(&mut self) {
+        self.vcr = None;
+        self.playing = false;
     }
 
     /// The planetary items the selected planet's owner may build.
@@ -13776,6 +13791,24 @@ impl App {
             Check::ResearchDialog { open: false } => {
                 if self.research_dialog.is_some() {
                     widget("research", "Done")
+                } else {
+                    None
+                }
+            }
+            // The Battle VCR: the message whose button reads View, or the
+            // Battles report; and its Done once it is up.
+            Check::BattleVcr { open: true } => {
+                if self.vcr.is_some() {
+                    widget("vcr", "Done")
+                } else if matches!(goto, Goto::Position(_, _)) {
+                    widget("messages", "View")
+                } else {
+                    menu("Battles", "Report")
+                }
+            }
+            Check::BattleVcr { open: false } => {
+                if self.vcr.is_some() {
+                    widget("vcr", "Done")
                 } else {
                     None
                 }

@@ -17,7 +17,7 @@ use crate::App;
 
 /// Draw the VCR, which shows whichever recording is open.
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
-    let Some(vcr) = app.vcr.as_mut() else {
+    let Some(vcr) = app.vcr.as_ref() else {
         ui.label("Choose a battle.");
         return;
     };
@@ -28,67 +28,82 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     // three forward ones until the last frame.
     let back = vcr.can_rewind();
     let on = vcr.can_advance();
+    let (position_now, last) = (vcr.position(), vcr.len());
     let caption = |id: u16| {
         crate::dialog::BATTLE_VCR
             .control(id)
             .map_or(String::new(), crate::dialog::Control::label)
     };
+    // The buttons are recorded under the "vcr" scope, so the tutor can ring
+    // Done and a test can press the transport.
+    app.drawn_scope = "vcr";
+    let mut action: Option<u16> = None;
+    let mut seek: Option<usize> = None;
     ui.horizontal(|ui| {
-        if ui
-            .add_enabled(back, egui::Button::new(caption(0xa1)))
-            .on_hover_text("back to the start")
-            .clicked()
-        {
-            vcr.rewind();
-            app.playing = false;
-        }
-        if ui
-            .add_enabled(back, egui::Button::new(caption(0xa2)))
-            .on_hover_text("step back")
-            .clicked()
-        {
-            vcr.back();
-            app.playing = false;
-        }
+        let mut button = |ui: &mut egui::Ui, id: u16, enabled: bool, tip: &str| {
+            let label = caption(id);
+            let response = ui
+                .add_enabled(enabled, egui::Button::new(&label))
+                .on_hover_text(tip);
+            crate::views::note_widget(app, ui, &label, response.rect, enabled);
+            if response.clicked() {
+                action = Some(id);
+            }
+        };
+        button(ui, 0xa1, back, "back to the start");
+        button(ui, 0xa2, back, "step back");
         // `>/||` is one button that plays and pauses, which is what the
         // caption says.
-        if ui
-            .add_enabled(on, egui::Button::new(caption(0xa3)))
-            .on_hover_text("play, or pause")
-            .clicked()
-        {
-            app.playing = !app.playing;
-        }
-        if ui
-            .add_enabled(on, egui::Button::new(caption(0xa4)))
-            .on_hover_text("step")
-            .clicked()
-        {
-            vcr.step();
-            app.playing = false;
-        }
-        if ui
-            .add_enabled(on, egui::Button::new(caption(0xa5)))
-            .on_hover_text("to the end")
-            .clicked()
-        {
-            vcr.end();
-            app.playing = false;
-        }
+        button(ui, 0xa3, on, "play, or pause");
+        button(ui, 0xa4, on, "step");
+        button(ui, 0xa5, on, "to the end");
+        button(ui, 0x1, true, "close the VCR");
         ui.separator();
-        let mut position = vcr.position();
-        let last = vcr.len();
+        let mut position = position_now;
         if ui
             .add(egui::Slider::new(&mut position, 0..=last).text("frame"))
             .changed()
         {
-            vcr.seek(position);
-            app.playing = false;
+            seek = Some(position);
         }
     });
+    let Some(vcr) = app.vcr.as_mut() else {
+        return;
+    };
+    if let Some(position) = seek {
+        vcr.seek(position);
+        app.playing = false;
+    }
+    match action {
+        Some(0xa1) => {
+            vcr.rewind();
+            app.playing = false;
+        }
+        Some(0xa2) => {
+            vcr.back();
+            app.playing = false;
+        }
+        Some(0xa3) => app.playing = !app.playing,
+        Some(0xa4) => {
+            vcr.step();
+            app.playing = false;
+        }
+        Some(0xa5) => {
+            vcr.end();
+            app.playing = false;
+        }
+        Some(0x1) => {
+            app.close_battle();
+            return;
+        }
+        _ => {}
+    }
+    let Some(vcr) = app.vcr.as_mut() else {
+        return;
+    };
     // Playing to the end stops there, as the forward buttons dying says it
     // should.
-    if !on {
+    if !vcr.can_advance() {
         app.playing = false;
     }
 

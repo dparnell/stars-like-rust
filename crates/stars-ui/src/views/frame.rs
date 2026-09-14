@@ -133,6 +133,21 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
         }
     }
 
+    // `BattleVCR` (`hwndVCRDlg`) is a window over the Battle Summary
+    // Report, not a screen. Closing it is what lets another recording be
+    // opened — the original will not swap one for another either.
+    if app.vcr.is_some() {
+        let mut open = true;
+        egui::Window::new(crate::dialog::BATTLE_VCR.caption)
+            .open(&mut open)
+            .resizable(true)
+            .default_width(420.0)
+            .show(ctx, |ui| crate::views::battles::view(app, ui));
+        if !open {
+            app.close_battle();
+        }
+    }
+
     if app.relations_dialog.is_some() {
         let mut open = true;
         egui::Window::new(crate::dialog::RELATIONS.caption)

@@ -537,6 +537,18 @@ pub(crate) fn record(app: &mut App, ui: &egui::Ui, label: &str, response: &egui:
 /// cannot be drawn on what is clipped, so the pane scrolls to it instead,
 /// as a player would have to. `App::tutor_focus` is the target as of the
 /// start of the frame.
+/// Record a widget a view drew itself, so the tutor can ring it and a
+/// test can find it — [`note`] for a widget outside this module.
+pub(crate) fn note_widget(
+    app: &mut App,
+    ui: &egui::Ui,
+    label: &str,
+    rect: egui::Rect,
+    enabled: bool,
+) {
+    note(app, ui, label, rect, enabled);
+}
+
 fn note(app: &mut App, ui: &egui::Ui, label: &str, rect: egui::Rect, enabled: bool) {
     let visible = ui.clip_rect().contains_rect(rect);
     if !visible {
