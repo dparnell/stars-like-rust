@@ -464,3 +464,66 @@ fn the_home_world_queues_mines_and_factories() {
         Some(&(stars_core::production::item::FACTORY, false))
     );
 }
+
+/// `IroEnsureAi`: the Berserkers research down their plan — Propulsion 2
+/// first, at fifteen percent — and line up the next field when a level is
+/// one away; with everything at 24 they stop, and past the plan they study
+/// whatever is lowest.
+#[test]
+fn the_berserkers_follow_their_research_plan() {
+    use stars_core::research::NextField;
+
+    let mut state = tutorial_world();
+    let mut rng = stars_core::rng::Rng::randomize(1);
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert_eq!(report.research, 0, "the plan's first entry");
+    assert_eq!(state.players[1].research.current_field, 2, "Propulsion");
+    assert_eq!(state.players[1].research_pct, turindrone::RESEARCH_PCT);
+    assert_eq!(state.players[1].research.next_field, NextField::Same);
+
+    // One level short of Propulsion 2: Construction is lined up after it.
+    state.players[1].research.levels[2] = 1;
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert_eq!(report.research, 0);
+    assert_eq!(state.players[1].research.current_field, 2);
+    assert_eq!(state.players[1].research.next_field, NextField::Field(3));
+
+    // Propulsion 2 reached: on to Construction 4.
+    state.players[1].research.levels[2] = 2;
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert_eq!(report.research, 1);
+    assert_eq!(state.players[1].research.current_field, 3);
+
+    // Past the plan, with Weapons the lowest.
+    state.players[1].research.levels = [20, 17, 20, 20, 20, 20];
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert_eq!(report.research, turindrone::PLAN_DONE);
+    assert_eq!(state.players[1].research.current_field, 1);
+    assert_eq!(state.players[1].research_pct, turindrone::RESEARCH_PCT);
+
+    // Everything at 24: nothing more to spend on.
+    state.players[1].research.levels = [24; 6];
+    turindrone::turn(&mut state, 1, &mut rng);
+    assert_eq!(state.players[1].research_pct, 0);
+}
+
+/// With the plan the Berserkers reach the Biotechnology that lets them
+/// terraform, and then a planet near home is worth a colony ship.
+#[test]
+fn the_plan_gets_the_berserkers_to_a_colony() {
+    let mut state = tutorial_world();
+    let mut rng = stars_core::rng::Rng::randomize(1);
+    let mut colonised = false;
+    for _ in 0..25 {
+        let report = stars_core::generate_turn(&mut state, &mut rng);
+        if report.ai.iter().any(|(_, r)| !r.colonising.is_empty()) {
+            colonised = true;
+            break;
+        }
+    }
+    assert!(colonised, "a colony ship went out within twenty-five years");
+    assert!(
+        state.players[1].research.levels[5] > 0,
+        "Biotechnology came"
+    );
+}

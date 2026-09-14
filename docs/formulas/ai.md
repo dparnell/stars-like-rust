@@ -696,8 +696,20 @@ designs into fleets of their own from turn 60.
 
 #### Before the planets
 
-* `IroEnsureAi` sets the research field to the first of a list of wanted
-  levels not yet reached, or the lowest field.
+* `IroEnsureAi(lpbRes, cRes, &ishdefSBLatest, pct)` (`1090:425a`), called
+  at `1088:36a4` with the thirty-one bytes at `1088:3650` and `pct = 15`:
+  the research share becomes `pct`, or 0 when every field is at 24 or
+  more; the field becomes that of the first entry (`field = b >> 5`,
+  `level = b & 0x1f`) whose level is not yet reached, and when the level
+  is one away the *next* field is set from the entry after it; past the
+  end of the list the lowest field (first on a tie) is studied and the
+  routine answers `0x39e`. The TurinDrone's plan: Prop 2, Con 4, Bio 4,
+  En 4, Weap 5, Prop 6, Con 6, Weap 8, En 6, Elec 6, Prop 9, Bio 7,
+  Con 8, Elec 8, Bio 5 (a no-op by then), Con 9, En 7, Elec 10, Weap 10,
+  Prop 12, Con 11, En 10, Weap 12, Elec 13, Prop 16, Weap 14, Con 15,
+  Elec 14, Bio 10, Weap 16, En 14. The tutorial's Berserkers, who start
+  with `[0, 0, 0, 0, 5, 0]`, need the Biotechnology this brings before
+  any planet near home is worth a colony ship to them.
 * `MergeAllShdefs` merges fleets of the same slot at the same place for
   the bombers (13), the mine layers (12), the destroyers (10, 11) and the
   miners (2, 3).
@@ -828,8 +840,9 @@ the base, a planet another armada claims counting one time in four, the
 nearer of equals winning and a score of one no target; with the "computer
 players form alliances" option (`GameState::ais_band`, flag bit 4) the
 human players' planets are tried first (`FEnumCalcArmadaHumanDest`,
-`1088:3406`). And `HandleBasicAiTasks` from the pieces
-already here: `KeepFleetsMoving` re-speeding every fleet with orders to
+`1088:3406`). The research plan (`IroEnsureAi`, above; the starbase
+design upkeep it also does is not). And `HandleBasicAiTasks` from the
+pieces already here: `KeepFleetsMoving` re-speeding every fleet with orders to
 `IFindIdealWarp`'s warp, `QueueAiStarbases` by `ai::ships::
 queue_ai_starbase`, then for every own planet with 60 kT of people (or
 one that is hostile) whose queue's minerals are covered, a starbase

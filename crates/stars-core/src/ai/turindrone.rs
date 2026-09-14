@@ -35,9 +35,34 @@ pub const COLONISTS_ABOARD: i32 = 25;
 /// of colonists (`rgwtMin[3] < 200` is skipped).
 pub const QUEUE_MIN_POP: i32 = 200;
 
+/// The personality's research plan, `vrgbTurinDroneRes` — the thirty-one
+/// bytes at `1088:3650` that `DoTurinDroneAiTurn` hands `IroEnsureAi`
+/// (`1088:36a4`). Each is a field in its top three bits and a level in its
+/// low five: Propulsion 2, Construction 4, Biotechnology 4, Energy 4,
+/// Weapons 5, Propulsion 6, Construction 6, Weapons 8, Energy 6,
+/// Electronics 6, Propulsion 9, Biotechnology 7, Construction 8,
+/// Electronics 8, Biotechnology 5 (already passed by then — the table's
+/// own quirk), Construction 9, Energy 7, Electronics 10, Weapons 10,
+/// Propulsion 12, Construction 11, Energy 10, Weapons 12, Electronics 13,
+/// Propulsion 16, Weapons 14, Construction 15, Electronics 14,
+/// Biotechnology 10, Weapons 16, Energy 14.
+pub const RESEARCH_PLAN: &[u8] = &[
+    0x42, 0x64, 0xa4, 0x04, 0x25, 0x46, 0x66, 0x28, 0x06, 0x86, 0x49, 0xa7, 0x68, 0x88, 0xa5, 0x69,
+    0x07, 0x8a, 0x2a, 0x4c, 0x6b, 0x0a, 0x2c, 0x8d, 0x50, 0x2e, 0x6f, 0x8e, 0xaa, 0x30, 0x0e,
+];
+/// The share of resources the personality puts into research: the `0xf`
+/// pushed for `IroEnsureAi`'s `pct` at `1088:36a4`.
+pub const RESEARCH_PCT: u8 = 15;
+/// What `IroEnsureAi` returns once every level of the plan is reached
+/// (`1090:425a`).
+pub const PLAN_DONE: usize = 0x39e;
+
 /// What the turn did, for a test to look at.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Report {
+    /// Where the research plan stands: the index of the entry being worked
+    /// toward, or [`PLAN_DONE`].
+    pub research: usize,
     /// Fleets given a scouting leg, by fleet id, and where to.
     pub scouted: Vec<(u16, i16)>,
     /// Fleets sent to settle, by fleet id, and where.
@@ -83,6 +108,10 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
     let seen = crate::visibility::view(state, player).planets;
     state.players[player].explored.extend(seen);
     let explored = state.players[player].explored.clone();
+
+    // `IroEnsureAi(vrgbTurinDroneRes, 31, &ishdefSBLatest, 15)`: the field
+    // under study, from the personality's plan.
+    report.research = ensure_research(state, player, RESEARCH_PLAN, RESEARCH_PCT);
 
     // `MergeAllShdefs`, four times: the armada classes together (slots 4
     // to 7 and 13 to 15), the mine layers, the destroyers and the miners —
@@ -628,7 +657,10 @@ fn marks(state: &GameState, player: usize, me: i16, explored: &BTreeSet<i16>) ->
         if !explored.contains(&planet.id) && planet.owner != Some(me) {
             continue;
         }
-        let value = pct_planet_opt_value(planet, race, planet.env);
+        // `PctPlanetOptValue`: the planet as terraforming could leave it.
+        let reach =
+            crate::terraform::optimal_env(planet, race, state.players[player].research.levels);
+        let value = pct_planet_opt_value(planet, race, reach);
         marks[at] = mark_planet(planet, me, personality, value);
     }
     // A planet one of our colony fleets is already bound for is claimed.
@@ -644,6 +676,44 @@ fn marks(state: &GameState, player: usize, me: i16, explored: &BTreeSet<i16>) ->
         }
     }
     marks
+}
+
+/// `IroEnsureAi` (`1090:425a`): the research settings for the year. The
+/// share goes to `pct`; a player at level 24 or more in every field stops
+/// researching instead. The field is the one of the first entry of `plan`
+/// whose level is not yet reached, and when that level is only one away
+/// the *next* field is the following entry's, so the change is queued
+/// rather than lost when the level comes. Past the end of the plan the
+/// player studies whichever field is lowest (the first, on a tie), and the
+/// routine answers [`PLAN_DONE`].
+///
+/// The starbase-design upkeep the routine also does (`EnsureAiStarbase-
+/// Designs`, `IshdefAiSBLatest`, `ValidateStarbaseHistory`) is not here.
+fn ensure_research(state: &mut GameState, player: usize, plan: &[u8], pct: u8) -> usize {
+    use crate::research::NextField;
+
+    let Some(p) = state.players.get_mut(player) else {
+        return PLAN_DONE;
+    };
+    p.research_pct = pct;
+    if p.research.levels.iter().all(|&l| l > 23) {
+        p.research_pct = 0;
+    }
+    let decode = |entry: u8| -> (usize, u8) { (usize::from(entry >> 5).min(5), entry & 0x1f) };
+    for (i, &entry) in plan.iter().enumerate() {
+        let (field, level) = decode(entry);
+        let have = p.research.levels[field];
+        if have < level {
+            p.research.current_field = field;
+            if i + 1 < plan.len() && have + 1 == level {
+                p.research.next_field = NextField::Field(decode(plan[i + 1]).0);
+            }
+            return i;
+        }
+    }
+    let lowest = (0..6).min_by_key(|&f| p.research.levels[f]).unwrap_or(0);
+    p.research.current_field = lowest;
+    PLAN_DONE
 }
 
 /// The player's colony-ship design: the personality's slot, while it holds
@@ -1469,13 +1539,17 @@ fn basic_tasks(
         let mut written = false;
         if !hostile {
             if let (Some(latest), Some(current)) = (latest_starbase, planet.starbase_design) {
-                let current_design = designs
-                    .get(usize::from(crate::startup::FIRST_STARBASE_SLOT) + usize::from(current));
+                let starbase_design = |index: u8| {
+                    designs
+                        .get(usize::from(crate::startup::FIRST_STARBASE_SLOT) + usize::from(index))
+                        .filter(|d| d.hull().is_some() && !d.obsolete)
+                };
                 let inputs = crate::ai::ships::UpgradeInputs {
                     latest,
                     latest_orbital_fort: latest,
-                    design_turn: i32::from(current_design.map_or(0, |d| d.designed)),
-                    sideways_design_free: true,
+                    design_turn: i32::from(starbase_design(current).map_or(0, |d| d.designed)),
+                    // The sideways move wants a live design two above.
+                    sideways_design_free: starbase_design(current + 2).is_some(),
                     ..crate::ai::ships::UpgradeInputs::default()
                 };
                 if let Some(slot) =
