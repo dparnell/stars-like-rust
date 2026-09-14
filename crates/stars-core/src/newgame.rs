@@ -378,6 +378,15 @@ pub fn generate(config: &NewGame, rng: &mut Rng) -> Result<Created, NewGameError
     state.players = state_players;
     state.fleets = fleets;
     state.designs = designs;
+    // `CreateTutorWorld` (`1078:5e5e`) does not run the starting-tech rule
+    // for the Berserkers: `tutorial.hst` holds them at Electronics 5 and
+    // nothing else, one short of the Propulsion their Improved Fuel
+    // Efficiency would give a race in an ordinary new game.
+    if config.tutorial_game {
+        for player in state.players.iter_mut().filter(|p| p.control.is_computer()) {
+            player.research.levels = [0, 0, 0, 0, 5, 0];
+        }
+    }
     opening_messages(&mut state, &homes);
 
     let universe = build_universe(config, &positions, &names)?;
@@ -1435,6 +1444,23 @@ fn build_universe(
 /// home planets start with 100,000 colonists rather than 25,000; see
 /// [`NewGame::accelerated`].
 #[must_use]
+/// The Berserkers' race, as `tutorial.hst` records it: not one of the
+/// wizard's presets but the world's own — a Humanoid with a few points
+/// moved, the lesser traits `0x2045`, a narrower habitable range and 14%
+/// growth. With it the new game gives them what the host file gives them:
+/// a Smaugarian Peeping Tom, a Santa Maria and two Potato Bugs (ARM).
+#[must_use]
+pub fn berserker() -> Race {
+    Race {
+        attrs: [10, 9, 10, 9, 9, 5, 8, 0, 1, 0, 1, 1, 1, 0, 1, 0],
+        lrt_bits: 0x2045,
+        env_center: [58, 35, 65],
+        env_min: [27, 7, 35],
+        env_max: [89, 63, 95],
+        pct_ideal_growth: 14,
+    }
+}
+
 pub fn tutorial() -> (NewGame, u32) {
     let config = NewGame {
         name: "Tutorial Game".to_string(),
@@ -1460,7 +1486,7 @@ pub fn tutorial() -> (NewGame, u32) {
                 plural_name: "Humanoids".to_string(),
             },
             NewPlayer {
-                race: Race::humanoid(),
+                race: berserker(),
                 // `tutorial.hst` gives the Berserkers `0x27`: a TurinDrone.
                 control: Control::Computer {
                     personality: Some(crate::ai::AiPersonality::TurinDrone),

@@ -50,6 +50,22 @@ fn main() {
             p.id, p.owner, p.detail, p.env
         );
     }
+    for (i, designs) in state.designs.iter().enumerate() {
+        for (slot, d) in designs.iter().enumerate() {
+            println!(
+                "DESIGNS player {i} slot {slot} {:?} hull {:?} slots {:?}",
+                d.name,
+                d.hull().map(|h| h.name),
+                d.slots
+                    .iter()
+                    .map(|s| (s.category, s.item, s.count))
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+    for (i, pl) in state.players.iter().enumerate() {
+        println!("RACE player {i} {:?}", pl.race);
+    }
     for (i, pl) in state.players.iter().enumerate() {
         println!(
             "player {i} levels {:?} control {:?}",

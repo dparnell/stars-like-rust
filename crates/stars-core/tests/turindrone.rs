@@ -72,3 +72,29 @@ fn the_berserkers_explore_as_the_years_go_by() {
         "and seen more of the galaxy"
     );
 }
+
+/// The new game gives the Berserkers what `tutorial.hst` gives them: three
+/// designs — a Smaugarian Peeping Tom, a Santa Maria, a Potato Bug — and
+/// four fleets, one scout, one colony ship and two miners.
+#[test]
+fn the_berserkers_start_as_the_host_file_has_them() {
+    let state = tutorial_world();
+    let designs = &state.designs[1];
+    let names: Vec<&str> = designs.iter().take(3).map(|d| d.name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["Smaugarian Peeping Tom", "Santa Maria", "Potato Bug"]
+    );
+    assert!(designs
+        .get(3)
+        .is_none_or(|d| d.hull().is_none() || d.is_starbase()));
+    let mut fleets: Vec<(u16, u8)> = state
+        .fleets
+        .iter()
+        .filter(|f| f.owner == 1)
+        .map(|f| (f.id, f.stacks[0].design))
+        .collect();
+    fleets.sort_unstable();
+    assert_eq!(fleets, [(0, 0), (1, 1), (2, 2), (3, 2)]);
+    assert_eq!(state.players[1].research.levels, [0, 0, 0, 0, 5, 0]);
+}
