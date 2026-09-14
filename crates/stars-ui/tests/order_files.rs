@@ -13,14 +13,19 @@ use stars_ui::App;
 
 /// A generated two-player game, saved to a temporary directory.
 fn a_saved_game(name: &str) -> (App, std::path::PathBuf) {
+    a_saved_game_against(
+        name,
+        opponents::opponent(1, 1).expect("Turindrones").as_player(),
+    )
+}
+
+/// The same, with the second player as given.
+fn a_saved_game_against(name: &str, second: NewPlayer) -> (App, std::path::PathBuf) {
     let mut app = App::new();
     let config = NewGame {
         name: name.to_string(),
         size: Size::Small,
-        players: vec![
-            NewPlayer::human(Race::humanoid()),
-            opponents::opponent(1, 1).expect("Turindrones").as_player(),
-        ],
+        players: vec![NewPlayer::human(Race::humanoid()), second],
         ..NewGame::default()
     };
     app.new_game(&config).expect("creates the game");
@@ -201,7 +206,9 @@ fn the_log_covers_one_turn() {
 /// disk, replaying it, and carrying it into the turn.
 #[test]
 fn a_submitted_turn_reaches_the_host() {
-    let (_, host) = a_saved_game("relay");
+    // Player 2 is human: a computer player's turn would, as in the
+    // original, set its own research share over anything submitted.
+    let (_, host) = a_saved_game_against("relay", NewPlayer::human(Race::humanoid()));
     let directory = host.parent().expect("a directory").to_path_buf();
 
     // Player 2 opens their turn file and gives orders.
