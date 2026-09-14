@@ -603,3 +603,213 @@ fn a_blocked_queue_gets_mines_in_front() {
     // Nothing to fling: the tutorial's Berserkers are of skill 0.
     assert!(report.flung.is_empty());
 }
+
+/// `SplitOutShdefs`: from turn 61, a fleet carrying both an old design and
+/// a current one is split, the old design's ships going to a fleet of
+/// their own with their share of the cargo.
+#[test]
+fn old_designs_are_split_into_their_own_fleets() {
+    use stars_core::fleet::ShipStack;
+
+    let mut state = tutorial_world();
+    let mut rng = stars_core::rng::Rng::randomize(4);
+    state.turn = 70;
+    // The scout design again in the destroyers' slot 10, made at turn 0:
+    // seventy years old, with ships still flying.
+    while state.designs[1].len() < 11 {
+        let last = state.designs[1].last().expect("a design").clone();
+        state.designs[1].push(last);
+    }
+    let mut old = state.designs[1][0].clone();
+    old.designed = 0;
+    state.designs[1][10] = old;
+    let scout = state
+        .fleets
+        .iter()
+        .position(|f| f.owner == 1 && f.id == 0)
+        .expect("a scout");
+    state.fleets[scout].stacks = vec![
+        ShipStack {
+            design: 10,
+            count: 2,
+            damaged_pct: 0,
+            damage_pct: 0,
+        },
+        ShipStack {
+            design: 0,
+            count: 1,
+            damaged_pct: 0,
+            damage_pct: 0,
+        },
+    ];
+    state.fleets[scout].cargo.fuel = 300;
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert_eq!(report.split.len(), 1, "{:?}", report.split);
+    let (from, to) = report.split[0];
+    assert_eq!(from, 0);
+    let kept = state
+        .fleets
+        .iter()
+        .find(|f| f.owner == 1 && f.id == from)
+        .expect("the old fleet");
+    let split = state
+        .fleets
+        .iter()
+        .find(|f| f.owner == 1 && f.id == to)
+        .expect("the new fleet");
+    assert_eq!(
+        kept.stacks,
+        vec![ShipStack {
+            design: 0,
+            count: 1,
+            damaged_pct: 0,
+            damage_pct: 0,
+        }]
+    );
+    assert_eq!(
+        split.stacks,
+        vec![ShipStack {
+            design: 10,
+            count: 2,
+            damaged_pct: 0,
+            damage_pct: 0,
+        }]
+    );
+    assert_eq!(split.position, kept.position);
+    assert_eq!(
+        split.cargo.fuel, 200,
+        "two thirds of the fuel went with them"
+    );
+    assert_eq!(kept.cargo.fuel, 100);
+
+    // Before turn 61 nothing is split.
+    let mut state = tutorial_world();
+    state.turn = 60;
+    let mut old = state.designs[1][0].clone();
+    old.designed = 0;
+    while state.designs[1].len() < 11 {
+        let last = state.designs[1].last().expect("a design").clone();
+        state.designs[1].push(last);
+    }
+    state.designs[1][10] = old;
+    state.fleets[scout].stacks = vec![
+        ShipStack {
+            design: 10,
+            count: 2,
+            damaged_pct: 0,
+            damage_pct: 0,
+        },
+        ShipStack {
+            design: 0,
+            count: 1,
+            damaged_pct: 0,
+            damage_pct: 0,
+        },
+    ];
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert!(report.split.is_empty());
+}
+
+/// The first pass over the fleets: a colony ship bound for a planet
+/// another player has since taken has its orders cut — the planet has a
+/// starbase, so no colonists are dropped — and a miner at a planet
+/// somebody owns likewise.
+#[test]
+fn stale_orders_are_cut() {
+    use stars_core::fleet::{grobj, Waypoint};
+    use stars_formats::task;
+
+    let mut state = tutorial_world();
+    let mut rng = stars_core::rng::Rng::randomize(4);
+    state.turn = 5;
+    let theirs = state
+        .planets
+        .iter()
+        .find(|p| p.owner == Some(0))
+        .expect("the human's home")
+        .clone();
+    assert!(theirs.starbase);
+    let colony = state
+        .fleets
+        .iter()
+        .position(|f| f.owner == 1 && f.id == 1)
+        .expect("the Santa Maria");
+    state.fleets[colony].waypoints.push(Waypoint {
+        position: theirs.position.expect("placed"),
+        target: Some(theirs.id as u16),
+        target_class: grobj::PLANET,
+        warp: 6,
+        task: task::COLONIZE,
+        transport: None,
+        task_data: Vec::new(),
+    });
+    // The miners, with Remote Mining ordered at the planet they orbit —
+    // which is home, and owned.
+    let miner = state
+        .fleets
+        .iter()
+        .position(|f| f.owner == 1 && f.id == 2)
+        .expect("the miners");
+    state.fleets[miner].waypoints[0].task = task::REMOTE_MINING;
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert!(report.cleaned.contains(&1), "{:?}", report.cleaned);
+    assert!(report.cleaned.contains(&2), "{:?}", report.cleaned);
+    assert!(report.dropping.is_empty());
+    let miner = state
+        .fleets
+        .iter()
+        .find(|f| f.owner == 1 && f.id == 2)
+        .expect("the miners");
+    assert_eq!(miner.waypoints[0].task, task::NONE);
+}
+
+/// `LCheckForColDrop`: a colony ship with colonists aboard, sitting at a
+/// planet another player took that is worth something to us and has no
+/// starbase, is told to drop the colonists there and go home.
+#[test]
+fn colonists_are_dropped_on_a_neighbours_new_colony() {
+    use stars_formats::{task, XferAction};
+
+    let mut state = tutorial_world();
+    let mut rng = stars_core::rng::Rng::randomize(4);
+    state.turn = 5;
+    // Planet 14 is habitable to the Berserkers; the human has just taken
+    // it.
+    let taken = state
+        .planets
+        .iter()
+        .position(|p| p.id == 14)
+        .expect("planet 14");
+    state.planets[taken].owner = Some(0);
+    state.planets[taken].pop = 25;
+    state.planets[taken].starbase = false;
+    let at = state.planets[taken].position.expect("placed");
+    let home = state
+        .planets
+        .iter()
+        .find(|p| p.owner == Some(1))
+        .expect("home")
+        .clone();
+    let colony = state
+        .fleets
+        .iter()
+        .position(|f| f.owner == 1 && f.id == 1)
+        .expect("the Santa Maria");
+    let fleet = &mut state.fleets[colony];
+    fleet.position = at;
+    fleet.orbiting = Some(14);
+    fleet.waypoints.truncate(1);
+    fleet.waypoints[0].position = at;
+    fleet.waypoints[0].target = Some(14);
+    fleet.cargo.colonists = 25;
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert_eq!(report.dropping, vec![(1, 14)]);
+    let fleet = &state.fleets[colony];
+    assert_eq!(fleet.waypoints.len(), 2);
+    assert_eq!(fleet.waypoints[0].task, task::TRANSPORT);
+    let orders = fleet.waypoints[0].transport.expect("a transport order");
+    assert_eq!(orders.items[3].action, XferAction::UnloadAll);
+    assert_eq!(fleet.waypoints[1].target, Some(home.id as u16));
+    // Laid at warp 4, and then re-speeded by `KeepFleetsMoving`.
+    assert!(fleet.waypoints[1].warp > 0);
+}

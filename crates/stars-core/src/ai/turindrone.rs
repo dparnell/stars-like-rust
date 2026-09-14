@@ -95,6 +95,13 @@ pub struct Report {
     /// Queues unblocked by `AddMinesToBlockedQueues`, as `(planet, mines)`
     /// — `0` mines is auto alchemy put in front instead.
     pub unblocked: Vec<(i16, i32)>,
+    /// Fleets split by `SplitOutShdefs`, as `(fleet, new fleet)`.
+    pub split: Vec<(u16, u16)>,
+    /// Fleets whose stale orders the first pass cut, by fleet id.
+    pub cleaned: Vec<u16>,
+    /// Fleets sent to drop their colonists on somebody's planet and head
+    /// for the nearest starbase, as `(fleet, planet)`.
+    pub dropping: Vec<(u16, i16)>,
 }
 
 /// Run the personality's turn for `player`, as the host does before the
@@ -143,18 +150,24 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
     } else {
         100
     };
-    let freighters = check_status(state, player, me, 6, 7, recycle);
-    let cruisers = check_status(state, player, me, 8, 9, recycle);
-    let bombers = check_status(state, player, me, 13, 14, recycle);
-    let battleships = check_status(state, player, me, 4, 5, recycle);
-    let _mine_layers = check_status(state, player, me, 12, 12, recycle);
-    let fifteens = check_status(state, player, me, 15, 15, recycle);
+    let mut old = [false; 16];
+    let freighters = check_status(state, player, me, 6, 7, recycle, &mut old);
+    let cruisers = check_status(state, player, me, 8, 9, recycle, &mut old);
+    let bombers = check_status(state, player, me, 13, 14, recycle, &mut old);
+    let battleships = check_status(state, player, me, 4, 5, recycle, &mut old);
+    let _mine_layers = check_status(state, player, me, 12, 12, recycle, &mut old);
+    let fifteens = check_status(state, player, me, 15, 15, recycle, &mut old);
     let _miners = if state.players[player].research.levels[3] < 7 {
         Status::default()
     } else {
-        check_status(state, player, me, 2, 3, recycle)
+        check_status(state, player, me, 2, 3, recycle, &mut old)
     };
-    let destroyers = check_status(state, player, me, 10, 11, recycle);
+    let destroyers = check_status(state, player, me, 10, 11, recycle, &mut old);
+    // `SplitOutShdefs` from turn 61: the old designs into fleets of their
+    // own.
+    if state.turn > 60 {
+        split_out_designs(state, player, me, &old, &mut report);
+    }
 
     // --- The planet pass: the queue at every planet with a starbase and
     // people enough.
@@ -381,25 +394,9 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng) -> Report {
             .sum();
         worth[at] = u8::try_from(sum.min(0x7f)).unwrap_or(0x7f);
     }
-    for fleet in state.fleets.iter().filter(|f| f.owner == me) {
-        let is_miner = fleet
-            .stacks
-            .iter()
-            .any(|s| (s.design == 2 || s.design == 3) && s.count > 0);
-        if !is_miner {
-            continue;
-        }
-        let claimed = if fleet.waypoints.len() > 1 {
-            fleet.waypoints[1].target
-        } else {
-            fleet.orbiting
-        };
-        if let Some(at) = claimed.map(usize::from) {
-            if let Some(w) = worth.get_mut(at) {
-                *w |= 0x80;
-            }
-        }
-    }
+    // The first walk over the fleets: stale orders cut, colonists dropped
+    // where they would be wanted, and the miners' planets claimed.
+    first_pass(state, player, me, &mut worth, &mut report);
     for index in 0..state.fleets.len() {
         let fleet = &state.fleets[index];
         if fleet.owner != me || fleet.is_empty() {
@@ -978,8 +975,9 @@ pub struct Status {
 
 /// `CheckAiShdefStatus` (`1090:9b70`): count the ships of the live designs
 /// in a slot range and find the newest; a design older than `recycle`
-/// years is retired if no ship of it exists, and marked for
-/// `SplitOutShdefs` otherwise (the split is not written yet).
+/// years is retired if no ship of it exists, and marked in `old` for
+/// [`split_out_designs`] otherwise.
+#[allow(clippy::too_many_arguments)]
 fn check_status(
     state: &mut GameState,
     player: usize,
@@ -987,6 +985,7 @@ fn check_status(
     from: u8,
     to: u8,
     recycle: i16,
+    old: &mut [bool; 16],
 ) -> Status {
     let mut status = Status::default();
     let mut total: i64 = 0;
@@ -1014,13 +1013,303 @@ fn check_status(
             status.latest = Some(slot);
         }
         // Past the recycling period: retired when none is left, and
-        // otherwise marked for `SplitOutShdefs` (not written yet).
-        if state.turn - designed > recycle && existing == 0 {
-            state.designs[player][usize::from(slot)].obsolete = true;
+        // otherwise marked for `SplitOutShdefs`.
+        if state.turn - designed > recycle {
+            if existing == 0 {
+                state.designs[player][usize::from(slot)].obsolete = true;
+            } else if let Some(mark) = old.get_mut(usize::from(slot)) {
+                *mark = true;
+            }
         }
     }
     status.count = i32::try_from(total.min(32_000)).unwrap_or(32_000);
     status
+}
+
+/// The first walk over every fleet of ours (`1088:4932`–`1088:4a70` and
+/// the labels `LBlowAwayOrders` and `LCheckForColDrop`). The attack-fleet
+/// chain it builds (`FIsTurinDroneAiAttack`) and the `det` bit 15 it
+/// clears are not kept — the fleets are scanned where they are wanted.
+/// For a fleet with no miners aboard, or whose last order has no task:
+///
+/// * a **colony ship** (slot 1, no freighters): its destination — the
+///   planet it orbits with no orders, else its next waypoint's planet —
+///   is looked at when somebody else's planet with a positive opt value
+///   (`vlpbAiPlanet[+3]`) as below; a destination taken by another player
+///   otherwise has the orders blown away;
+/// * a **freighter** (slots 8, 9): with no destination, a next waypoint
+///   on a bare point has the orders blown away; a destination that is
+///   gone or another player's has them blown away too — unless it is a
+///   valued planet of theirs, the fleet carries colonists, we are not
+///   Alternate Reality and the planet has no starbase, in which case the
+///   colonists are **dropped** there: at the planet, the current waypoint
+///   gets a Transport task unloading all colonists (`0x1101`, the item
+///   word `0x2000`), and the fleet then heads for the nearest starbase
+///   (`FMoveToNearestStarbase`, at `0x1140`); away from it, the drop
+///   order the routine writes into the next waypoint is overwritten by
+///   that same move, so the fleet only heads for the starbase.
+///
+/// Blowing the orders away (`LBlowAwayOrders`) cuts them to the current
+/// waypoint and clears its task (`ClearAiCurrentTask`).
+///
+/// A fleet **with miners** and a task on its last order: in deep space
+/// with a next waypoint, that waypoint's task becomes Remote Mining and
+/// its planet is claimed (`vlpbAiPlanet[+1] |= 0x80`); at a planet that
+/// is unowned the planet is claimed, and at one that is owned the orders
+/// are blown away.
+fn first_pass(
+    state: &mut GameState,
+    player: usize,
+    me: i16,
+    worth: &mut [u8],
+    report: &mut Report,
+) {
+    use crate::race::Prt;
+    use stars_formats::{task, ItemAction, TransportTask, XferAction};
+
+    // `vlpbAiPlanet[+3]`: another player's planet with a positive opt
+    // value.
+    let race = state.players[player].race.clone();
+    let levels = state.players[player].research.levels;
+    let valued: BTreeSet<i16> = state
+        .planets
+        .iter()
+        .filter(|p| p.owner.is_some_and(|o| o != me))
+        .filter(|p| {
+            let reach = crate::terraform::optimal_env(p, &race, levels);
+            pct_planet_opt_value(p, &race, reach) > 0
+        })
+        .map(|p| p.id)
+        .collect();
+    let we_are_ar = race.prt() == Some(Prt::Ar);
+
+    for index in 0..state.fleets.len() {
+        let fleet = state.fleets[index].clone();
+        if fleet.owner != me || fleet.is_empty() {
+            continue;
+        }
+        let carries = |slot: u8| fleet.stacks.iter().any(|s| s.design == slot && s.count > 0);
+        let has_orders = fleet.waypoints.len() > 1;
+        let no_miners = !carries(2) && !carries(3);
+        let last_task_none = fleet.waypoints.last().is_none_or(|w| w.task == task::NONE);
+        let blow_away = |state: &mut GameState, report: &mut Report| {
+            let fleet = &mut state.fleets[index];
+            fleet.waypoints.truncate(1);
+            if let Some(first) = fleet.waypoints.first_mut() {
+                first.task = task::NONE;
+            }
+            fleet.warp = None;
+            report.cleaned.push(fleet.id);
+        };
+        let planet_of = |id: i16| state.planets.iter().find(|p| p.id == id).cloned();
+
+        if no_miners || last_task_none {
+            let dest: Option<i16> = if !has_orders {
+                fleet.orbiting.and_then(|p| i16::try_from(p).ok())
+            } else if fleet.waypoints[1].target_class == grobj::PLANET {
+                fleet.waypoints[1]
+                    .target
+                    .and_then(|p| i16::try_from(p).ok())
+            } else {
+                None
+            };
+            let freighter = carries(8) || carries(9);
+            if !freighter {
+                if !carries(1) {
+                    continue;
+                }
+                let Some(dest) = dest else {
+                    continue;
+                };
+                if !valued.contains(&dest) {
+                    if planet_of(dest).is_some_and(|p| p.owner.is_some_and(|o| o != me)) {
+                        blow_away(state, report);
+                    }
+                    continue;
+                }
+            }
+            // `LCheckForColDrop`.
+            let Some(dest) = dest else {
+                if has_orders && fleet.waypoints[1].target_class == grobj::POSITION {
+                    blow_away(state, report);
+                }
+                continue;
+            };
+            let planet = planet_of(dest);
+            let gone_or_theirs = planet
+                .as_ref()
+                .is_none_or(|p| p.owner.is_some_and(|o| o != me));
+            if !gone_or_theirs {
+                continue;
+            }
+            let drop = valued.contains(&dest)
+                && fleet.cargo.colonists > 0
+                && !we_are_ar
+                && planet.as_ref().is_some_and(|p| !p.starbase);
+            if !drop {
+                blow_away(state, report);
+                continue;
+            }
+            let at_planet = !has_orders
+                && fleet.waypoints.first().is_some_and(|w| {
+                    w.target_class == grobj::PLANET && w.target == u16::try_from(dest).ok()
+                });
+            if at_planet {
+                let mut items = [ItemAction {
+                    quantity: 0,
+                    action: XferAction::None,
+                }; 5];
+                items[3] = ItemAction {
+                    quantity: 0,
+                    action: XferAction::UnloadAll,
+                };
+                let first = &mut state.fleets[index].waypoints[0];
+                first.task = task::TRANSPORT;
+                first.transport = Some(TransportTask { items });
+                first.task_data = Vec::new();
+            }
+            report.dropping.push((fleet.id, dest));
+            move_to_nearest_starbase(state, me, index, false);
+            continue;
+        }
+
+        // Miners with a task on their last order.
+        let claimed: Option<i16> = match fleet.orbiting {
+            None => {
+                if !has_orders {
+                    continue;
+                }
+                state.fleets[index].waypoints[1].task = task::REMOTE_MINING;
+                fleet.waypoints[1]
+                    .target
+                    .and_then(|p| i16::try_from(p).ok())
+            }
+            Some(here) => {
+                let here = i16::try_from(here).ok();
+                if here.and_then(planet_of).is_some_and(|p| p.owner.is_some()) {
+                    blow_away(state, report);
+                    continue;
+                }
+                here
+            }
+        };
+        if let Some(w) = claimed
+            .and_then(|id| usize::try_from(id).ok())
+            .and_then(|i| worth.get_mut(i))
+        {
+            *w |= 0x80;
+        }
+    }
+}
+
+/// `FMoveToNearestStarbase` (`1090:6f7e`): a leg at `0x1140` — warp 4, no
+/// task — to the nearest own planet with a starbase
+/// (`IdplFindClosestStarbase`, `1090:6e04`; with `big_ones`, one of more
+/// than 25,000 people), measured from the fleet's current waypoint. The
+/// leg replaces whatever orders followed (`FMoveAiFleet` with `fAppend`
+/// 0). Answers whether there was one.
+fn move_to_nearest_starbase(state: &mut GameState, me: i16, index: usize, big_ones: bool) -> bool {
+    let from = state.fleets[index]
+        .waypoints
+        .first()
+        .map_or(state.fleets[index].position, |w| w.position);
+    let mut best: Option<(i64, i16, Point)> = None;
+    for planet in &state.planets {
+        if planet.owner != Some(me) || !planet.starbase {
+            continue;
+        }
+        if big_ones && planet.pop <= 250 {
+            continue;
+        }
+        let Some(at) = planet.position else {
+            continue;
+        };
+        let dx = i64::from(at.x) - i64::from(from.x);
+        let dy = i64::from(at.y) - i64::from(from.y);
+        let d2 = dx * dx + dy * dy;
+        if d2 < 10_000_000 && best.is_none_or(|(b, _, _)| d2 < b) {
+            best = Some((d2, planet.id, at));
+        }
+    }
+    let Some((_, target, at)) = best else {
+        return false;
+    };
+    let fleet = &mut state.fleets[index];
+    if fleet.waypoints.first().is_some_and(|w| w.position == at) {
+        // Already there: the orders shrink to this one, and the new order
+        // — which has no task — is written over it.
+        fleet.waypoints.truncate(1);
+        fleet.waypoints[0].task = stars_formats::task::NONE;
+        fleet.waypoints[0].transport = None;
+        fleet.warp = None;
+        return true;
+    }
+    lay_leg(fleet, at, target, stars_formats::task::NONE, 4);
+    true
+}
+
+/// `SplitOutShdefs` (`1090:98d8`): while the player has fewer than 501
+/// fleets, the first live fleet of theirs carrying both an old design
+/// (marked by `CheckAiShdefStatus`) and a current one is split, the old
+/// designs' ships going to a new fleet (`LpflNewSplit`, which copies the
+/// orders) and the cargo following them (`FleetTransferCargoBalance`);
+/// then the search starts over, until no such fleet is left.
+fn split_out_designs(
+    state: &mut GameState,
+    player: usize,
+    me: i16,
+    old: &[bool; 16],
+    report: &mut Report,
+) {
+    if !old.iter().any(|&o| o) {
+        return;
+    }
+    let designs = state.designs.get(player).cloned().unwrap_or_default();
+    loop {
+        if state.fleets.iter().filter(|f| f.owner == me).count() >= 501 {
+            return;
+        }
+        let Some(index) = state.fleets.iter().position(|f| {
+            f.owner == me
+                && !f.is_empty()
+                && f.stacks
+                    .iter()
+                    .any(|s| s.count > 0 && old.get(usize::from(s.design)) == Some(&true))
+                && f.stacks
+                    .iter()
+                    .any(|s| s.count > 0 && old.get(usize::from(s.design)) == Some(&false))
+        }) else {
+            return;
+        };
+        let source = &state.fleets[index];
+        let before = source.stacks.clone();
+        let new_id = crate::turn::next_fleet_id(state, me);
+        let mut split = crate::fleet::Fleet {
+            id: new_id,
+            owner: source.owner,
+            position: source.position,
+            orbiting: source.orbiting,
+            stacks: Vec::new(),
+            cargo: crate::fleet::Cargo::default(),
+            battle_plan: source.battle_plan,
+            warp: source.warp,
+            waypoints: source.waypoints.clone(),
+            name: None,
+            repeat_orders: source.repeat_orders,
+            direction: None,
+        };
+        let source = &mut state.fleets[index];
+        let (moved, kept): (Vec<_>, Vec<_>) = source
+            .stacks
+            .drain(..)
+            .partition(|s| old.get(usize::from(s.design)) == Some(&true));
+        source.stacks = kept;
+        split.stacks = moved;
+        let source_id = source.id;
+        crate::fleet::balance_cargo([source, &mut split], [&before, &[]], &designs);
+        state.fleets.push(split);
+        report.split.push((source_id, new_id));
+    }
 }
 
 /// The armada potencies for the year — `vrgAiArmadaPotency`, four figures

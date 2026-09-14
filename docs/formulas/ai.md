@@ -691,8 +691,12 @@ afresh each year until one is built.
 `CheckAiShdefStatus(from, to, recycle, &latest, old)` counts the ships of
 a slot range, notes the newest design, and after `recycle` years — 50
 before turn 120, 70 before 200, 100 after — obsoletes an unused design or
-marks a used one for `SplitOutShdefs`, which splits ships of the old
-designs into fleets of their own from turn 60.
+marks a used one for `SplitOutShdefs` (`1090:98d8`), which from turn 61
+and while the player has fewer than 501 fleets takes the first live fleet
+carrying both a marked design and an unmarked one, moves the marked
+designs' ships to a new fleet (`LpflNewSplit`: same place, orders copied)
+with their share of the cargo (`FleetTransferCargoBalance`), and starts
+the search again until no such fleet is left.
 
 #### Before the planets
 
@@ -768,12 +772,37 @@ mines-and-factories fill of *Mines and factories* above.
 
 #### The fleet pass
 
-First a walk over every fleet: the player's attack fleets
-(`FIsTurinDroneAiAttack`: any hull 4 to 10 aboard) are chained together,
-other players' fleets likewise, `det` bit 15 cleared, and stale orders
-cleaned — a colony ship bound for a planet somebody has since taken has
-its orders cut to one and its task cleared, a miner whose planet has been
-taken likewise.
+First a walk over every fleet (`1088:4932`–`1088:4a70`): the player's
+attack fleets (`FIsTurinDroneAiAttack`: any hull 4 to 10 aboard) are
+chained together, other players' fleets likewise, `det` bit 15 cleared,
+and stale orders dealt with. A fleet's *destination* is the planet it
+orbits when it has no orders, else its next waypoint's planet. For a
+fleet with no miners aboard, or whose last order has no task:
+
+* a **colony ship** (slot 1) with no freighters: a destination that is
+  somebody else's planet with a positive opt value (`vlpbAiPlanet[+3]`)
+  goes to the drop check below; one another player has taken otherwise
+  has the orders blown away (`LBlowAwayOrders`: cut to the current
+  waypoint, `ClearAiCurrentTask` clearing its task);
+* a **freighter** (slots 8, 9): with no destination, a next waypoint on
+  a bare point (`grobj` 4) has the orders blown away; with one that is
+  gone or another player's, the drop check (`LCheckForColDrop`): a valued
+  planet of theirs, colonists aboard, the player not Alternate Reality
+  and no starbase there, and the colonists are dropped — at the planet,
+  the current waypoint gets a Transport task with the colonists' item at
+  `0x2000` (unload all; the order word `0x1101`) and the fleet is then
+  sent to the nearest own starbase (`FMoveToNearestStarbase`, `1090:6f7e`:
+  `IdplFindClosestStarbase` from the current waypoint, a leg at `0x1140`,
+  warp 4, through `FMoveAiFleet` with `fAppend` 0, which replaces the
+  orders after the current waypoint); away from the planet the drop order
+  is written into the next waypoint and that same move then overwrites
+  it, so the fleet only heads for the starbase. Anything else has the
+  orders blown away.
+
+A fleet **with miners** whose last order has a task: in deep space with a
+next waypoint, that waypoint's task becomes Remote Mining and its planet
+is claimed (`vlpbAiPlanet[+1] |= 0x80`); at an unowned planet, the planet
+is claimed; at an owned one, the orders are blown away.
 
 Then the orders, by what the fleet carries, for fleets with **no
 orders** (`cord < 2`) and no miners aboard:
@@ -889,10 +918,10 @@ queue and factories at the back. Of those:
 
 Not yet: `FixPlanetsUnderAttack`, which never runs in a tutorial game
 (flag bit 3); salvage and the drops onto enemy planets in the freighter's
-scoring;
-`SplitOutShdefs`; the first pass that clears stale orders and `det` bit
-15; the AI's own tally that widens the cruiser limit (`vlpbAiData`, the
-haulers' assignments). A fleet of battleships or Rogues with no bombers
+scoring; the `det` bit 15 the first pass clears and the colonise and
+armada targeting set (nothing in the TurinDrone's turn reads it); the
+AI's own tally that widens the cruiser limit (`vlpbAiData`, the haulers'
+assignments). A fleet of battleships or Rogues with no bombers
 aboard is given nothing by the TurinDrone — its ladder of `rgcsh` tests
 (`1088:4932`–`1088:4eb0`: miners, orders pending, colony ships, freighters,
 bombers, scouts and destroyers, mine layers) has no rung for one, and it
