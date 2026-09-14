@@ -96,6 +96,8 @@ pub struct TurnReport {
     pub research_spending: Vec<i32>,
     /// Technology levels gained, per player.
     pub breakthroughs: Vec<Vec<Breakthrough>>,
+    /// What each computer player's turn did, by player index.
+    pub ai: Vec<(usize, crate::ai::turindrone::Report)>,
     /// Planets `AutoTerraform` moved this year — Claim Adjusters only.
     pub terraformed: Vec<i16>,
     /// Planets remote terraforming moved, as `(planet id, clicks applied)`.
@@ -192,6 +194,23 @@ pub fn generate_turn_with_orders(
     // into this one; here it has to be said explicitly, and it has to be said
     // *first* — the Mystery Trader's news is the earliest thing a year sends.
     state.messages.clear();
+
+    // --- DoAiTurn, for each computer player: the host plays their turn
+    // before the year runs, as if they had submitted orders. Only the
+    // TurinDrone is written so far, and only in part (`ai::turindrone`).
+    for player in 0..state.players.len() {
+        let turindrone = matches!(
+            state.players[player].control,
+            crate::ai::Control::Computer {
+                personality: Some(crate::ai::AiPersonality::TurinDrone),
+                ..
+            }
+        );
+        if turindrone {
+            let did = crate::ai::turindrone::turn(state, player, rng);
+            report.ai.push((player, did));
+        }
+    }
 
     // --- DoOrders(0): the recorded cargo transfers, before anything moves or
     // produces. A transfer applied here feeds this year's growth.

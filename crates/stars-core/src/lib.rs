@@ -198,6 +198,11 @@ pub struct Player {
     /// the five in [`DEFAULT_BATTLE_PLANS`]; the player can rename, retune,
     /// add and delete them, which is the `rtBtlPlan` (30) order operation.
     pub battle_plans: Vec<stars_formats::BattlePlanRecord>,
+    /// The planets this player has scanned, by id — what a planet record's
+    /// `det & 0xff > 2` says in the player's own file. Kept for the computer
+    /// players, whose turns are run from the host's state and who must not
+    /// see what they have not scanned. Not written to any file.
+    pub explored: std::collections::BTreeSet<i16>,
 }
 
 /// The five battle plans a new game gives every player.
@@ -270,6 +275,7 @@ impl Player {
             trader_parts: 0,
             crippled: false,
             battle_plans: default_battle_plans(0),
+            explored: std::collections::BTreeSet::new(),
         }
     }
 }

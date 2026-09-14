@@ -612,6 +612,151 @@ Scoring either properly needs the `.x` order files, which record what a player
 *submitted* rather than what survived the turn. The corpus has none — it has
 `.hst`, `.mN` and `.xy` only.
 
+### The TurinDrone turn — recovered, being written
+
+`DoTurinDroneAiTurn` (`1088:3670`, about eight kilobytes) is the
+personality the tutorial's Berserkers use (`tutorial.hst` gives them
+`0x27`: TurinDrone, skill 0). Read from Ghidra; the community decompile
+has it as a stub. What follows is the routine's shape, in order, with the
+design slots it works in. `ai::turindrone` is the transcription, begun
+with the parts the tutorial's first years need — scouting, colonising and
+the year-0 queue — and marked where it stops.
+
+#### The design slots
+
+The personality keeps a fixed meaning for each of the sixteen design
+slots, and `EnsureTurinDroneShdefs` (`1088:58ba`) fills a slot with
+`FCreateAiShdef(slot, hull, parts)` when it is empty or obsolete (`det`
+bit 9) and the tech allows:
+
+| slot | role | hull | needs |
+|-----:|------|------|-------|
+| 0 | scout | Frigate (5) | — (the starting Scout design is scrapped once Construction > 5) |
+| 1 | colony ship | Colony Ship (15) | — (a starting design here that is not a Privateer is obsoleted first) |
+| 2–3 | remote miners | Miner (22) | Con > 6, Elec > 3 |
+| 4–5 | battleships | Battleship (9), one of four fittings at random | Ener > 4, Elec > 5, Con > 12, Weap > 6 |
+| 6–7 | freighters (counted in the queue pass as `cPlanMax/12 + 8`) | | |
+| 8 | cruisers | Rogue (12) | Weap > 4, Con > 7 |
+| 9 | cruisers | Galleon (13) | Weap > 6, Con > 10 |
+| 10–11 | destroyers | Destroyer (6), one of two fittings | Ener > 4, Elec > 4, Con > 3, Weap > 4 |
+| 12 | mine layer | Privateer (11) | Con > 3, Bio > 3 |
+| 13 | bomber | Stealth Bomber (18) | Ener > 7, Elec > 6, Con > 5 |
+| 14 | bomber | Stealth Bomber (18) | Ener > 10, Elec > 11, Con > 14, Weap > 8 |
+| 15 | | Rogue (12) | Ener > 4, Elec > 5, Con > 12, Weap > 6 |
+
+The fittings are byte tables of *AI part* codes beside `rgptPlan`
+(`FGetAIPart` turns a code into a component), not yet read out.
+`CheckAiShdefStatus(from, to, recycle, &latest, old)` counts the ships of
+a slot range, notes the newest design, and after `recycle` years — 50
+before turn 120, 70 before 200, 100 after — obsoletes an unused design or
+marks a used one for `SplitOutShdefs`, which splits ships of the old
+designs into fleets of their own from turn 60.
+
+#### Before the planets
+
+* `IroEnsureAi` sets the research field to the first of a list of wanted
+  levels not yet reached, or the lowest field.
+* `MergeAllShdefs` merges fleets of the same slot at the same place for
+  the bombers (13), the mine layers (12), the destroyers (10, 11) and the
+  miners (2, 3).
+* Armada potency: `vrgAiArmadaPotency[0] = 3 + (turn − 120)/20` after
+  turn 130, at most 50; `[1]` half of it; `[2] = 6 + (turn − 100)/22`
+  after turn 115, at most 12; `[3] = [2]/2 − 1`, at most 3.
+* Two counts over every planet: unowned planets the player has scanned
+  (`det & 0xff > 2`) with `PctPlanetOptValue > 0`, and other players'
+  planets with a positive value — either being non-zero is what makes the
+  queue pass build colony ships.
+
+#### The planet pass
+
+For every planet in `lpPlanets`: a scratch byte per planet
+(`vlpbAiPlanet[id*16 + k]`) is filled — `[1]` the mineral worth of an
+unowned scanned planet (each concentration halved, capped at 75, summed,
+capped at 127), `[2]` set on an own planet with negative desirability,
+`[3]` the opt value of somebody else's planet, `[9]` always 1, `[10]`
+whether a foreign planet has a starbase.
+
+An own planet with a **starbase** (`det` bit 9) and at least 200 kT of
+colonists gets its queue looked at. If the queue already holds a ship
+(`AddItemToQueue` type 2, item < 16) nothing is added. Otherwise, in
+this order:
+
+1. **turn 0**: one scout per thirty planets in the universe (per hundred
+   past 190);
+2. otherwise, while slot 0 is a Frigate and not obsolete: a scout when
+   fewer than `min(cPlanMax/4, 32)` exist and ten times the built count is
+   under the existing count;
+3. a **cruiser** (slots 8–9) when Weapons > 4 and the count is under
+   `max(planets/10, 2 × the AI's own tally)`, or under ten sevenths of
+   that with a one-in-four roll;
+4. **four colony ships** when there is anywhere to settle and fewer than
+   two exist;
+5. **three mine layers** with a one-in-three roll, when the fleet of them
+   at the planet is under ten (under seventeen with one in eight) and a
+   roll of `2 × count + 1` comes up zero;
+6. a **bomber** when a war fleet at the planet already holds
+   `potency[2]` bombers;
+7. then, each paid for against the resources left after the queue
+   (`GetResourcesAvailable − GetProdQCost`, then `GetTrueHullCost` per
+   ship, stopping at the first that cannot be paid): up to five
+   **battleships** while fewer than `cPlanMax/24 + 4` exist, five
+   **freighters** under `cPlanMax/12 + 8`, five **destroyers** under
+   `cPlanMax/4 + 12`, and five of slot 15 under `cPlanMax/12 + 8`.
+
+`FinishProduction` writes the queue back. Then `HandleBasicAiTasks`:
+`KeepFleetsMoving` (every fleet with orders re-speeded by
+`SetAiFleetIdealSpeed`, transports at 30 and everything else at the ideal
+warp, 16 for the first five turns), `QueueAiStarbases`, and for every
+planet with 60 kT of colonists or more: `FUpgradeAiStarbase`, `FAIFling`,
+`FQueueAiScanner`, `FQueueAiDefenses`, then `FQueueAiTerraforming` when
+none of those queued; `FixPlanetsUnderAttack` from turn `20 + 10 ×
+size`; `AddMinesToBlockedQueues`; and last `FillProductionQueue`, the
+mines-and-factories fill of *Mines and factories* above.
+
+#### The fleet pass
+
+First a walk over every fleet: the player's attack fleets
+(`FIsTurinDroneAiAttack`: any hull 4 to 10 aboard) are chained together,
+other players' fleets likewise, `det` bit 15 cleared, and stale orders
+cleaned — a colony ship bound for a planet somebody has since taken has
+its orders cut to one and its task cleared, a miner whose planet has been
+taken likewise.
+
+Then the orders, by what the fleet carries, for fleets with **no
+orders** (`cord < 2`) and no miners aboard:
+
+* a **colony ship** (slot 1): `IdNearestColonizablePlanet`, loading 25
+  kT of colonists first at an own planet (`XferAiSupply`), then
+  `FColonizeAiFleet` — a waypoint on the planet with the Colonize task at
+  `IFindIdealWarp`, `det` bit 15 set; with nowhere to go it heads for the
+  nearest own planet, or one in ten takes a wormhole;
+* **cruisers** (8–9): `IdTargetFreighter` — they are the haulers;
+* **bombers** (13–14): `LpplFindBestEnum` for a target and a move at
+  `0x1140`;
+* **scouts and destroyers** (0, 10, 11): a Scout-hull scout is scrapped
+  once Construction > 5; otherwise `IdTargetScout`: a fleet with teeth
+  looks for the nearest enemy fleet nobody else is chasing and follows
+  it, or the nearest planet no other of our fleets is bound for; one
+  without goes to `IdNearestUnknownPlanet` — the nearest planet marked
+  unknown (`0x10`) — or, when everything is known, the best of
+  `LpplFindBestEnum` from home, or a random planet; the leg is laid at
+  `IFindIdealWarp` with `FMoveAiFleet`;
+* a **mine layer** (12) alone: the Lay Mines task, five years.
+
+At **turn 0** a fleet that has orders, or that carries the starting
+freighter or colony ship (slots 2–3 as the turn-0 designs stand), is
+given the **Scrap** task instead: the Berserkers recycle their opening
+Santa Maria and Teamster.
+
+#### What `ai::turindrone` does so far
+
+The year-0 scouts, scouting to unknown planets, and colony ships to the
+nearest colonisable planet, with the marks table above; using whatever
+designs the player has in the slots. Not yet: `FCreateAiShdef`'s part
+tables and `EnsureTurinDroneShdefs`, the rest of the queue pass, the war
+fleets, `IdTargetFreighter`, `HandleBasicAiTasks`, the scrap at turn 0.
+None of it is verified against a corpus turn yet.
+
 ### Other queue sources
 
 Eighteen functions call `AddItemToQueue`. Besides the two above, the AI-side

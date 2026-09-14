@@ -15,6 +15,7 @@ pub mod colonise;
 pub mod dispatch;
 pub mod production;
 pub mod ships;
+pub mod turindrone;
 
 /// One of the seven computer opponents Stars! ships.
 ///

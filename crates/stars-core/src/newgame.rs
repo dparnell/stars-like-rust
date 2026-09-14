@@ -1461,8 +1461,9 @@ pub fn tutorial() -> (NewGame, u32) {
             },
             NewPlayer {
                 race: Race::humanoid(),
+                // `tutorial.hst` gives the Berserkers `0x27`: a TurinDrone.
                 control: Control::Computer {
-                    personality: None,
+                    personality: Some(crate::ai::AiPersonality::TurinDrone),
                     skill_bits: 0,
                 },
                 name: "Berserker".to_string(),
