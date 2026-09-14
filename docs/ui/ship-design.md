@@ -301,9 +301,19 @@ warning, and the cost and statistics panel with true costs.
 * The starbase **upgrade** credit: building a new starbase over an existing one
   costs less, part by part, and that is `GetProductionCosts` rather than the
   designer.
-* The dialog's exact pixel geometry. The original places its controls from the
-  dialog resource and from `ptslotGlob`; this lays the same pieces out in the
-  same arrangement — parts list left, schematic right, name above it, cost
-  below — without matching coordinates.
+* The dialog's exact pixel geometry, in the **browser**. The original places
+  its controls from the dialog resource and from `ptslotGlob`; this lays the
+  same pieces out in the same arrangement without matching coordinates. The
+  **editor** is laid out from `ptslotGlob` as the original's is:
+  `ShipBuilder` is called with a client of 610 by 450 (`CommandHandler`,
+  `1020:4e14`), and `SlotDlg`'s edit branch (`10c8:1f67`) moves the parts
+  list to (16, 32) with the category filter at (16, 8) — the column the
+  radios had, both 240 wide, the list 266 tall — and the name field to
+  (610 − 264, 8); `DrawSlotDlg` draws the hull's picture at (610 − 338, 6)
+  and `UpdateSlotGlobals` starts the slot grid at (610 − 330, 32), with OK,
+  Cancel and Help along the foot at 610 − 226, − 148 and − 74. On the way
+  out of the editor the list goes back to the right (610 − 256, 32) and is
+  hidden unless the view is Components. Everything scales with the width
+  the window has.
 * Tutorial gating (`FTutorialEnabledShipBuilder`), the help file, and the
   sticky dialog position.

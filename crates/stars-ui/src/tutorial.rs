@@ -1862,8 +1862,9 @@ pub static STEPS: &[Step] = &[
                 },
             ),
             // "hit Goto to open the Technology Browser ... close the Tech
-            // Browser."
-            hint(0x11c, Check::Browser { open: true }),
+            // Browser." The browser up sets bit 10 (`10f8:31c3`), so the
+            // rung stays passed once it is closed again.
+            seen(0x11c, Check::Browser { open: true }),
             ask(
                 0x11e,
                 Check::Selection {
@@ -2078,7 +2079,9 @@ pub static STEPS: &[Step] = &[
                     pct: 30,
                 },
             ),
-            hint(0x145, Check::Browser { open: true }),
+            // The browser up sets bit 10 (`10f8:35f7`): looked at once is
+            // enough.
+            seen(0x145, Check::Browser { open: true }),
             // "press F4" — the designer, checked by being open at all.
             ask(
                 0x147,

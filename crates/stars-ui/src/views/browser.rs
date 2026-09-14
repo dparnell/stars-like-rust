@@ -14,13 +14,14 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     let Some(browser) = app.browser else {
         return;
     };
+    app.drawn_scope = "browser";
     let template = &crate::dialog::BROWSER;
     let (rect, at, caption) = crate::views::dialog_frame(ui, template);
     let line = ui.text_style_height(&egui::TextStyle::Small);
 
     // Prev, the dropdown and Next in a row along the top, each where the
     // template puts it.
-    if crate::views::dialog_button(ui, at(0x42e), &caption(0x42e), true).clicked() {
+    if crate::views::placed_button(app, ui, at(0x42e), &caption(0x42e), true).clicked() {
         app.browser_step(false);
     }
     let names: Vec<&str> = stars_core::browser::CATEGORIES
@@ -37,7 +38,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 names[i].to_string()
             });
     }
-    if crate::views::dialog_button(ui, at(0x42f), &caption(0x42f), true).clicked() {
+    if crate::views::placed_button(app, ui, at(0x42f), &caption(0x42f), true).clicked() {
         app.browser_step(true);
     }
     if category != browser.category {
@@ -80,7 +81,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     {
         app.browser_set_buildable_only(only);
     }
-    if crate::views::dialog_button(ui, at(0x2), &caption(0x2), true).clicked() {
+    if crate::views::placed_button(app, ui, at(0x2), &caption(0x2), true).clicked() {
         app.close_browser();
     }
 }

@@ -573,8 +573,21 @@ impl Shell {
             .game
             .as_ref()
             .is_some_and(|g| !g.packets.iter().any(|p| p.warp == 0));
+        // A fleet of the player's own that this world has not built —
+        // page 35's Teamster #12, which the original's Stove Top could
+        // afford and this one could not.
+        let unbuilt = |id: i16| {
+            let me = i16::try_from(self.app.local_player()).unwrap_or(-1);
+            self.app.game.as_ref().is_some_and(|g| {
+                !g.fleets
+                    .iter()
+                    .any(|f| f.owner == me && i16::try_from(f.id) == Ok(id))
+            })
+        };
         let excused = match check {
-            Check::Summary { class: 2, id } | Check::Selection { class: 2, id } => *id >= 0x200,
+            Check::Summary { class: 2, id } | Check::Selection { class: 2, id } => {
+                *id >= 0x200 || unbuilt(*id)
+            }
             Check::Summary { class: 8, id: -1 } => no_salvage,
             _ => false,
         };

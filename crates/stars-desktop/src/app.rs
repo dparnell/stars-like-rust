@@ -871,75 +871,8 @@ impl eframe::App for StarsApp {
             }
         }
 
-        // Both of these are modeless in the original, so they sit alongside
-        // whatever else is open rather than blocking it — and they are drawn
-        // every frame, not only on the one their key was pressed.
-        if self.app.browser.is_some() {
-            let mut open = true;
-            egui::Window::new("Technology Browser")
-                .open(&mut open)
-                .resizable(true)
-                .default_width(420.0)
-                .show(ctx, |ui| stars_ui::views::browser::view(&mut self.app, ui));
-            if !open {
-                self.app.close_browser();
-            }
-        }
-
-        // The report that is open, which is a window over the map rather
-        // than a screen: `ReportDlg` creates one, sizes it from `ptSize`
-        // and places it with `StickyDlgPos`, and the scanner goes on
-        // drawing behind it.
-        if let Some(report) = self.app.open_report_kind() {
-            let state = *self.app.reports.state(report);
-            let screen = ctx.screen_rect();
-            let size = egui::vec2(f32::from(state.size.0), f32::from(state.size.1));
-            let at = if state.centred() {
-                screen.center() - size / 2.0
-            } else {
-                egui::pos2(f32::from(state.pos.0), f32::from(state.pos.1))
-            };
-            let min = stars_ui::report::ReportState::MIN_SIZE;
-            let mut open = true;
-            let shown = egui::Window::new(stars_ui::views::report::window_title(&self.app, report))
-                .id(egui::Id::new(("report", report.irpt())))
-                .open(&mut open)
-                .resizable(true)
-                .min_size([f32::from(min.0), f32::from(min.1)])
-                .default_pos(at)
-                .default_size(size)
-                .show(ctx, |ui| {
-                    stars_ui::views::report::view(&mut self.app, ui, report);
-                });
-            // `StickyDlgPos` on the way out keeps the top-left, and
-            // `WM_DESTROY` the size.
-            if let Some(shown) = shown {
-                let rect = shown.response.rect;
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "a window's corner, in whole pixels"
-                )]
-                let round = |v: f32| v.round() as i16;
-                let state = self.app.reports.state_mut(report);
-                state.pos = (round(rect.left()), round(rect.top()));
-                state.size = (round(rect.width()), round(rect.height()));
-            }
-            if !open {
-                self.app.close_report();
-            }
-        }
-
-        if self.app.score_sheet.is_some() {
-            let mut open = true;
-            egui::Window::new("Score")
-                .open(&mut open)
-                .resizable(true)
-                .default_width(520.0)
-                .show(ctx, |ui| stars_ui::views::score::view(&mut self.app, ui));
-            if !open {
-                self.app.close_score_sheet();
-            }
-        }
+        // The Technology Browser, the report windows and the score sheet
+        // are drawn with the other dialogs by `views::frame::dialogs`.
 
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {

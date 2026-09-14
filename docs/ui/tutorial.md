@@ -701,7 +701,7 @@ pane cannot reach.
 
 ### Where the run stops
 
-The walkthrough now plays through page 40 and into 2413, page 41: the
+The walkthrough now plays through page 44 and into 2414, page 45: the
 three pieces that were wanted for the years after 2410 are in — the
 player's own view of the galaxy (`stars_core::visibility`), the
 Berserkers' turn (`../formulas/ai.md`, *The TurinDrone turn*) and
@@ -758,11 +758,27 @@ moment its turns run:
   regardless — the page's last line says to — and the tutor turns to
   2413's page as it would for any page left standing when the year ends.
 
+* **Page 43's queue.** The page wants the Mini-Miner right behind the
+  hundred mines; the original's Stove Top had nothing else queued, this
+  one still has a Teamster of page 40's on the ways, so the harness moves
+  the Mini-Miner up past it with Item Up, as a player would.
+
 Where a page's rung cannot be reached in this world the harness
 generates the year anyway (`Shell::generate_anyway`, which says why), and
 the tutor carries on with the year — every page from 35 on waits only on
-the world. The test stops at page 41's Teamster #1 with an assertion that
-says so; when Stove Top can build it, extend it.
+the world. Getting 2413 to play brought four things out of the original:
+fleet numbers start at **zero** (`LpflNew`, `1038:300c`), which is how
+the Teamster Stove Top builds in 2413 is *Teamster #1*, in the number
+Armed Probe #1 left; a level of research reports **each part it brings**
+(`../formulas/research.md`, *What a level brings*), which is the
+Robo-Miner message page 41 reads and the Privateer one page 44 does; a
+fleet that ends a year standing on a planet is in orbit of it
+(`../formulas/movement.md`, *Chasing a fleet*), which is where page 44
+finds Armed Probe #9; and "read your last message" (`FCheckMessages`
+with 9999) is done when Next has nowhere to go, filtered messages not
+counting. The designer's editor was also laid out as the original's
+(`ship-design.md`), the parts list having been drawn where the schematic
+needed to be. The test stops at page 45 with an assertion that says so.
 
 Two smaller things came out of getting to page 34 all the same: a waypoint
 aimed at a fleet holds the fleet's **full object word**, owner and all,

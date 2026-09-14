@@ -111,13 +111,17 @@ stands, and then covers
 
 A chaser that arrives, or runs out of allowance, or covers nothing, leaves
 the chase; a chase that is still going after ten passes is left where it
-is. Arriving on a fleet puts the chaser **in deep space** beside it, not in
-orbit: only a waypoint aimed at a planet sets a fleet's orbit
-(`KillUsedWaypoints` copies the waypoint's object over the fleet's, and a
-fleet is not a planet). The tutorial's Armed Probe #9 catching the
-Berserkers' scout over Hiho (page 37's battle) is this chase in the engine
-(`turn.rs`, the `chase` list); the probe orbits nothing afterwards, which
-is what the page's battle record says as well.
+is. Arriving on a fleet does not by itself put the chaser in orbit — only
+a waypoint aimed at a planet does — but every fleet that has moved and
+stands in deep space is then asked about (`10b0:4ddb`): `FFindNearestObject`
+with mask `0x81`, a planet at **exactly** the fleet's point, and if there
+is one the fleet is in orbit of it. So Armed Probe #9, catching the
+Berserkers' scout over Hiho (page 37's battle), ends the year orbiting
+Hiho, and page 44 finds it in the planet's menu. `KillUsedWaypoints`
+(`1080:1bfb`) then rewrites a first waypoint still aimed at a fleet, when
+it carries no Transport or Merge, to say where the fleet now is — the
+planet, or a point in space. The engine does the same in
+`settle_where_it_stands` (`turn.rs`), after the `chase` list.
 
 ## Arriving, and Repeat Orders (`KillUsedWaypoints`, `1080:189a`)
 

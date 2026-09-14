@@ -59,6 +59,25 @@ pub mod id {
     /// `idmScientistsHaveCompletedResearchTechLevelPrimary`: the same for a
     /// race with Generalized Research, whose primary field it names.
     pub const TECH_LEVEL_GAINED_GENERAL: u16 = 0x136;
+    /// `idmRecentBreakthroughHasAlsoGivenBenefit`: a level gained has
+    /// brought a component within reach — `UpdateResearchStatus`
+    /// (`10b8:80fe`) walks every category after each level and reports
+    /// each part now buildable whose requirement in that field is exactly
+    /// the new level; `[field, category bits, item]`, with the part's
+    /// browser word (`0xc000 | category index << 8 | item`) as the object,
+    /// so Goto opens the Technology Browser on it.
+    pub const BREAKTHROUGH_PART: u16 = 0x5f;
+    /// `idmRecentBreakthroughHasAlsoGivenHullType`: the same for a ship
+    /// hull, with the Ship Design dialog (`-3`) for its Goto.
+    pub const BREAKTHROUGH_HULL: u16 = 0x78;
+    /// `idmRecentBreakthroughHasAlsoGivenHullDesign`: a starbase hull.
+    pub const BREAKTHROUGH_STARBASE_HULL: u16 = 0xd0;
+    /// `idmRecentBreakthroughHasAlsoTaughtHowBuild`: planetary items 9
+    /// to 13, the defences, which upgrade every planet's at once.
+    pub const BREAKTHROUGH_DEFENSE: u16 = 0x145;
+    /// `idmRecentBreakthroughHasAlsoTaughtHowBuild2`: planetary items 0 to
+    /// 8, the scanners, likewise.
+    pub const BREAKTHROUGH_SCANNER: u16 = 0x157;
     /// `idmHasDismantledKtMineralsWhichHaveDeposited`: a colony ship broke
     /// itself up on arrival. The fifth message the tutorial filters.
     pub const FLEET_DISMANTLED: u16 = 89;
@@ -501,6 +520,38 @@ impl Message {
                     field(1),
                     field(2)
                 )
+            }
+            id::BREAKTHROUGH_PART
+            | id::BREAKTHROUGH_HULL
+            | id::BREAKTHROUGH_STARBASE_HULL
+            | id::BREAKTHROUGH_DEFENSE
+            | id::BREAKTHROUGH_SCANNER => {
+                let field = usize::try_from(param(0))
+                    .ok()
+                    .and_then(|i| crate::research::TechField::ALL.get(i))
+                    .map_or("?", |f| f.name());
+                let part = crate::parts::part(
+                    param(1) as u16,
+                    usize::try_from(param(2)).unwrap_or(usize::MAX),
+                )
+                .map_or("a new part", |p| p.name);
+                match self.id {
+                    id::BREAKTHROUGH_HULL => format!(
+                        "Your recent breakthrough in {field} has also given you the {part} hull type; copy it from the designer's available hulls to build ships with it."
+                    ),
+                    id::BREAKTHROUGH_STARBASE_HULL => format!(
+                        "Your recent breakthrough in {field} has also given you the {part} hull; copy it from the designer's available starbase hulls to design starbases with it."
+                    ),
+                    id::BREAKTHROUGH_DEFENSE => format!(
+                        "Your recent breakthrough in {field} has also taught you how to build {part} defences; every planetary defence you have is upgraded."
+                    ),
+                    id::BREAKTHROUGH_SCANNER => format!(
+                        "Your recent breakthrough in {field} has also taught you how to build the {part} scanner; every planetary scanner you have is upgraded."
+                    ),
+                    _ => format!(
+                        "Your recent breakthrough in {field} has also given you the {part}."
+                    ),
+                }
             }
             id::HAS_UNLOADED | id::HAS_BEAMED_DOWN => format!(
                 "{} has put {}kT of {} down at {}.",

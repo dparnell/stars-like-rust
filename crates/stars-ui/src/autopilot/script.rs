@@ -990,6 +990,35 @@ pub fn tutorial(shell: &mut Shell) {
         !teamster_12,
         "Teamster #12 exists: the pages of 2411 can be played in full — extend the script"
     );
+    // Page 36's work is done all the same, since the world needs it as
+    // much as the original's did: seventy mines at the top of Stove Top's
+    // queue, and the next field of research set to Biotechnology. The
+    // tutor's page does not move — it is still on the Teamster — so the
+    // presses go unchecked, as a player's would.
+    shell.right_click_planet_and_pick(STOVE_TOP, "Stove Top");
+    assert_eq!(shell.app.selection.planet, Some(STOVE_TOP));
+    shell.press("planet", "Change");
+    shell.scroll_to("production", "Mine", "Factory");
+    shell.press("production", "Mine");
+    shell.press("production", "Top of the Queue");
+    for _ in 0..7 {
+        shell.press_with(egui::Modifiers::SHIFT, "production", "Add ->");
+    }
+    {
+        let dialog = shell.app.production.as_ref().expect("open");
+        assert_eq!(
+            (dialog.queue[0].item, dialog.queue[0].count),
+            (stars_core::production::item::MINE, 70),
+            "{:?}",
+            dialog.queue
+        );
+    }
+    shell.press("production", "OK");
+    shell.press("menu", "Commands");
+    shell.press("menu", "Research…");
+    shell.app.research_dialog.as_mut().expect("the dialog").next =
+        stars_core::research::NextField::Field(5);
+    shell.press("research", "Done");
     shell.generate_anyway("Teamster #12 was not built; on to 2412");
     assert_eq!(shell.page(), 38, "2412: the year's pages are counted done");
 
@@ -1075,4 +1104,227 @@ pub fn tutorial(shell: &mut Shell) {
         shell.generate_anyway("the Teamsters joined the one still building; on to 2413");
     }
     assert_eq!(shell.page(), 41, "2413: the Teamster page");
+
+    // --- 2413 -------------------------------------------------------------
+    // Page 41: the first message is the new Teamster — Teamster #1, in
+    // the number Armed Probe #1 left free — its Goto; Xfer, the hold
+    // filled with colonists; a waypoint at Slime with Transport and
+    // Colonists set to Unload All from the tile's two dropdowns.
+    shell.next_message_until(stars_core::message::Goto::Fleet(0));
+    shell.press("messages", "Goto");
+    assert_eq!(shell.selected_fleet_id(), Some(0), "Teamster #1");
+    shell.press("fleet", "Xfer");
+    shell.frame();
+    let gauge = shell
+        .app
+        .drawn_button("xfer", "Colonists gauge")
+        .expect("the colonists gauge")
+        .rect;
+    shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
+    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard[3], 210);
+    shell.press("xfer", "OK");
+    shell.shift_click_planet(SLIME);
+    shell.press("fleet", "Waypoint Task");
+    shell.press("fleet", "Transport");
+    shell.press("fleet", "Cargo");
+    shell.press("fleet", "Colonists");
+    shell.press("fleet", "Action");
+    shell.press("fleet", "Unload All");
+    shell.frame();
+    assert_eq!(
+        shell.app.tutor.as_ref().map(|t| t.bold),
+        Some(322),
+        "the Teamster is bound for Slime; the next message is next"
+    );
+    // The next message is the level of Construction: its Goto is the
+    // Research dialog; the next field to Propulsion.
+    shell.next_message_until(stars_core::message::Goto::Research);
+    shell.press("messages", "Goto");
+    shell.app.research_dialog.as_mut().expect("the dialog").next =
+        stars_core::research::NextField::Field(2);
+    shell.press("research", "Done");
+    shell.frame();
+    assert_eq!(shell.app.tutor.as_ref().map(|t| t.bold), Some(325));
+    // The next message is what the level brought — the Robo-Miner — and
+    // its Goto is the Technology Browser, opened on it.
+    shell.press("messages", "Next");
+    assert_eq!(
+        shell.app.current_message().map(|m| m.id),
+        Some(stars_core::message::id::BREAKTHROUGH_PART),
+        "the Robo-Miner is the next message"
+    );
+    shell.press("messages", "Goto");
+    assert!(
+        shell.app.browser.is_some(),
+        "the browser is open on the part"
+    );
+    shell.press("browser", "Close");
+    shell.frame();
+    assert_eq!(shell.app.tutor.as_ref().map(|t| t.bold), Some(327));
+    // F4 is the shell's key; the menu's Ship Design is the same command.
+    shell.press("menu", "Commands");
+    shell.press("menu", "Ship Design…");
+    shell.frame();
+    assert_eq!(shell.page(), 42, "the designer open turns the page");
+
+    // Page 42: Available Hull Types, Mini-Miner from the dropdown, Copy
+    // Selected Design; then the parts dragged onto the slots — a Long
+    // Hump 6 on the engine, a Rhino Scanner on the scanner slot, and a
+    // Robo-Miner on each of the two mining slots under the Mining Robots
+    // filter.
+    shell.press("designer", "Available Hull Types");
+    shell.press("designer", "Designs");
+    shell.press("designer", "Mini-Miner");
+    shell.press("designer", "Copy Selected Design");
+    shell.frame();
+    assert!(
+        shell
+            .app
+            .designer
+            .as_ref()
+            .is_some_and(|d| d.editing.is_some()),
+        "the editor is open on the copy"
+    );
+    let fit = |shell: &mut Shell, part: &str, slot: &str| {
+        shell.frame();
+        let from = shell
+            .app
+            .drawn_button("designer", part)
+            .unwrap_or_else(|| panic!("{part} in the parts list"))
+            .rect
+            .center();
+        let to = shell
+            .app
+            .drawn_button("designer", slot)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{slot} on the schematic; drawn: {:?}",
+                    shell
+                        .app
+                        .drawn
+                        .iter()
+                        .filter(|w| w.scope == "designer")
+                        .map(|w| w.label.clone())
+                        .collect::<Vec<_>>()
+                )
+            })
+            .rect
+            .center();
+        shell.step(&format!("designer: {part} onto {slot}"));
+        shell.drag(from, to);
+    };
+    fit(shell, "Long Hump 6", "slot 0");
+    shell.frame();
+    assert_eq!(shell.app.tutor.as_ref().map(|t| t.bold), Some(333));
+    fit(shell, "Rhino Scanner", "slot 1");
+    shell.frame();
+    // The page's arm asks after the engine and the scanner only, so the
+    // page turns here, with the robots still to fit — as the original's
+    // does.
+    assert_eq!(shell.page(), 43, "engine and scanner fitted: page 43");
+    assert_eq!(shell.app.tutor.as_ref().map(|t| t.bold), Some(337));
+    shell.press("designer", "Parts");
+    shell.press("designer", "Mining Robots");
+    fit(shell, "Robo-Miner", "slot 2");
+    fit(shell, "Robo-Miner", "slot 3");
+    {
+        let editing = shell
+            .app
+            .designer
+            .as_ref()
+            .and_then(|d| d.editing.as_ref())
+            .expect("the editor");
+        let fitted: Vec<Option<(u16, usize)>> =
+            (0..4)
+                .map(|i| {
+                    editing.design.slots.get(i).copied().and_then(|s| {
+                        stars_core::design::slot_part(&s).map(|p| (p.category, p.item))
+                    })
+                })
+                .collect();
+        assert_eq!(
+            fitted,
+            vec![
+                Some((0x1, 3)),
+                Some((0x2, 1)),
+                Some((0x80, 2)),
+                Some((0x80, 2))
+            ],
+            "the Mini-Miner fitted out"
+        );
+    }
+
+    // Page 43: OK finishes the design, Done closes the designer; the new
+    // Mini-Miner into Stove Top's queue, then a hundred mines at its top
+    // with Ctrl held.
+    shell.press("designer", "OK");
+    shell.frame();
+    assert!(
+        shell
+            .app
+            .designer
+            .as_ref()
+            .is_some_and(|d| d.editing.is_none()),
+        "back in the browser"
+    );
+    shell.press("designer", "Done");
+    shell.frame();
+    assert_eq!(shell.page(), 43);
+    assert_eq!(shell.app.tutor.as_ref().map(|t| t.bold), Some(339));
+    shell.right_click_planet_and_pick(STOVE_TOP, "Stove Top");
+    shell.press("planet", "Change");
+    shell.double_click("production", "Mini-Miner");
+    shell.press("production", "OK");
+    shell.frame();
+    assert_eq!(shell.app.tutor.as_ref().map(|t| t.bold), Some(342));
+    shell.press("planet", "Change");
+    shell.scroll_to("production", "Mine", "Factory");
+    shell.press("production", "Mine");
+    shell.press("production", "Top of the Queue");
+    shell.press_with(egui::Modifiers::COMMAND, "production", "Add ->");
+    {
+        let dialog = shell.app.production.as_ref().expect("open");
+        assert_eq!(
+            (dialog.queue[0].item, dialog.queue[0].count),
+            (stars_core::production::item::MINE, 100),
+            "{:?}",
+            dialog.queue
+        );
+    }
+    // The page wants the Mini-Miner right behind the mines. The original's
+    // Stove Top had nothing else queued; this one still has a Teamster of
+    // page 40's on the ways, so the Mini-Miner is moved up past it with
+    // Item Up — which a player following the page here would do too.
+    shell.press("production", "1  Mini-Miner");
+    shell.press("production", "Item Up");
+    {
+        let dialog = shell.app.production.as_ref().expect("open");
+        assert_eq!(
+            (dialog.queue[1].ship, dialog.queue[1].item),
+            (true, 6),
+            "{:?}",
+            dialog.queue
+        );
+    }
+    shell.press("production", "OK");
+    shell.frame();
+    assert_eq!(shell.page(), 44, "the mines turn the page");
+
+    // Page 44: the rest of the messages — the Privateer hull among them —
+    // then Armed Probe #9 home to Stove Top.
+    while shell.app.message_next(false).is_some() {
+        shell.press("messages", "Next");
+    }
+    shell.frame();
+    assert_eq!(shell.app.tutor.as_ref().map(|t| t.bold), Some(348));
+    // The probe caught the scout over Hiho and orbits it now, so it is
+    // taken from the planet's menu.
+    shell.right_click_planet_and_pick(HIHO, "Armed Probe #9");
+    assert_eq!(shell.selected_fleet_id(), Some(8), "Armed Probe #9");
+    shell.shift_click_planet(STOVE_TOP);
+    shell.frame();
+    assert_eq!(shell.page(), 44, "2413 is done, waiting on the turn");
+    assert!(shell.app.tutor_waiting());
+    shell.generate();
+    assert_eq!(shell.page(), 45);
 }

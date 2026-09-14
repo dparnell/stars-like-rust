@@ -27,6 +27,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     if app.designer.is_none() {
         return;
     }
+    app.drawn_scope = "designer";
     let editing = app.designer.as_ref().is_some_and(|d| d.editing.is_some());
 
     if editing {
@@ -56,10 +57,10 @@ fn browser(app: &mut App, ui: &mut egui::Ui) {
     let can_copy = app.designer_can_copy();
     let can_edit = app.designer_can_edit();
     let can_delete = app.designer_can_delete();
-    if crate::views::dialog_button(ui, at(0x816), &caption(0x816), can_copy).clicked() {
+    if crate::views::placed_button(app, ui, at(0x816), &caption(0x816), can_copy).clicked() {
         app.designer_copy();
     }
-    if crate::views::dialog_button(ui, at(0x817), &caption(0x817), can_delete).clicked() {
+    if crate::views::placed_button(app, ui, at(0x817), &caption(0x817), can_delete).clicked() {
         match app.designer_delete_warning() {
             Some(question) => {
                 if let Some(designer) = app.designer.as_mut() {
@@ -69,7 +70,7 @@ fn browser(app: &mut App, ui: &mut egui::Ui) {
             None => app.designer_delete(),
         }
     }
-    if crate::views::dialog_button(ui, at(0x818), &caption(0x818), can_edit).clicked() {
+    if crate::views::placed_button(app, ui, at(0x818), &caption(0x818), can_edit).clicked() {
         app.designer_edit();
     }
 
@@ -112,7 +113,9 @@ fn browser(app: &mut App, ui: &mut egui::Ui) {
 
     // `ShowMainControls` hides OK in the browser and calls the button beside
     // it `Done`; the browser's only way out is that one.
-    if crate::views::dialog_button(ui, at(0x2), crate::dialog::DESIGNER_CLOSE.0, true).clicked() {
+    if crate::views::placed_button(app, ui, at(0x2), crate::dialog::DESIGNER_CLOSE.0, true)
+        .clicked()
+    {
         app.close_designer();
     }
 
@@ -155,22 +158,20 @@ fn radios(
     let mut view = designer.view;
 
     // `Ships` and `Starbases` — the resource's captions are plural.
-    if ui
-        .put(
-            at(0x810),
-            egui::RadioButton::new(!starbase, egui::RichText::new(caption(0x810)).small()),
-        )
-        .clicked()
-    {
+    let ships = ui.put(
+        at(0x810),
+        egui::RadioButton::new(!starbase, egui::RichText::new(caption(0x810)).small()),
+    );
+    crate::views::record(app, ui, &caption(0x810), &ships);
+    if ships.clicked() {
         starbase = false;
     }
-    if ui
-        .put(
-            at(0x811),
-            egui::RadioButton::new(starbase, egui::RichText::new(caption(0x811)).small()),
-        )
-        .clicked()
-    {
+    let bases = ui.put(
+        at(0x811),
+        egui::RadioButton::new(starbase, egui::RichText::new(caption(0x811)).small()),
+    );
+    crate::views::record(app, ui, &caption(0x811), &bases);
+    if bases.clicked() {
         starbase = true;
     }
     // `mdBuild = wParam - 0x812`, so the four View radios are in the enum's
@@ -178,13 +179,12 @@ fn radios(
     for (index, choice) in DesignView::ALL.into_iter().enumerate() {
         #[allow(clippy::cast_possible_truncation)]
         let id = 0x812 + index as u16;
-        if ui
-            .put(
-                at(id),
-                egui::RadioButton::new(view == choice, egui::RichText::new(caption(id)).small()),
-            )
-            .clicked()
-        {
+        let radio = ui.put(
+            at(id),
+            egui::RadioButton::new(view == choice, egui::RichText::new(caption(id)).small()),
+        );
+        crate::views::record(app, ui, &caption(id), &radio);
+        if radio.clicked() {
             view = choice;
         }
     }
@@ -217,9 +217,19 @@ fn dropdown(app: &mut App, ui: &mut egui::Ui, rect: egui::Rect) {
     designer.selected = designer.selected.min(list.len() - 1);
     let mut selected = designer.selected;
     let mut child = ui.child_ui(rect, egui::Layout::top_down(egui::Align::Min), None);
-    egui::ComboBox::from_id_source("designer-dd")
+    let box_ = egui::ComboBox::from_id_source("designer-dd")
         .width(rect.width())
-        .show_index(&mut child, &mut selected, list.len(), |i| list[i].clone());
+        .selected_text(list[selected].clone())
+        .show_ui(&mut child, |ui| {
+            for (index, name) in list.iter().enumerate() {
+                let entry = ui.selectable_value(&mut selected, index, name.clone());
+                crate::views::record(app, ui, name, &entry);
+            }
+        });
+    crate::views::record(app, ui, "Designs", &box_.response);
+    let Some(designer) = app.designer.as_mut() else {
+        return;
+    };
     if selected != designer.selected {
         designer.selected = selected;
         designer.confirm = None;
@@ -237,22 +247,32 @@ fn editor(app: &mut App, ui: &mut egui::Ui) {
     let template = &crate::dialog::DESIGNER;
     let (rect, at, caption) = crate::views::dialog_frame(ui, template);
 
-    // The name field, where the template puts it.
-    name_field(app, ui, at(0x81b));
-
-    // The parts list. Its own rectangle runs ten units past the bottom of the
-    // dialog in the resource, so it is clipped to what is really there, with
-    // the category filter just above it.
-    let list = at(0x80c).intersect(rect);
+    // The editor is laid out from `ptslotGlob`, the designer's client size
+    // of 610 by 450 (`ShipBuilder`, `1020:4e14`), not from the template:
+    // `SlotDlg`'s edit branch (`10c8:1f67`) moves the parts list to
+    // (16, 32) with the category filter at (16, 8) above it — the column
+    // the radios had — and the name field to (610 - 264, 8), 240 wide;
+    // `DrawSlotDlg` draws the hull's picture at (610 - 338, 6) and
+    // `UpdateSlotGlobals` starts the slot grid at (610 - 330, 32).
+    // Everything scales with the width the frame has.
+    let k = rect.width() / crate::dialog::SLOT_CLIENT.0;
+    let px = |x: f32, y: f32| egui::pos2(rect.left() + x * k, rect.top() + y * k);
     let tall = at(0x81a).height().min(24.0);
+    name_field(
+        app,
+        ui,
+        egui::Rect::from_min_size(px(346.0, 8.0), egui::vec2(240.0 * k, tall)),
+    );
     filter_dropdown(
         app,
         ui,
-        egui::Rect::from_min_size(
-            egui::pos2(list.left(), list.top() - tall - 2.0),
-            egui::vec2(list.width(), tall),
-        ),
+        egui::Rect::from_min_size(px(16.0, 8.0), egui::vec2(240.0 * k, tall)),
     );
+    let list = egui::Rect::from_min_size(
+        px(16.0, 8.0 + tall / k + 4.0),
+        egui::vec2(240.0 * k, 266.0 * k),
+    )
+    .intersect(rect);
     {
         let mut child = ui.child_ui(list, egui::Layout::top_down(egui::Align::Min), None);
         child.set_clip_rect(list);
@@ -267,11 +287,11 @@ fn editor(app: &mut App, ui: &mut egui::Ui) {
         dropped_on_list = payload.map(|p| *p);
     }
 
-    // The picture and the schematic fill what the list leaves to its right,
-    // short of the column the OK and Cancel buttons are in.
+    // The picture and the schematic to the right of the list, above the
+    // row of buttons along the foot; the cost and statistics under them.
     let right = egui::Rect::from_min_max(
-        egui::pos2(list.right() + 6.0, rect.top() + 4.0),
-        egui::pos2(at(0x1).left() - 6.0, rect.bottom() - 4.0),
+        px(272.0, 8.0 + tall / k + 4.0),
+        egui::pos2(rect.right() - 4.0, at(0x1).top() - 6.0),
     );
     if right.width() > 40.0 {
         let mut child = ui.child_ui(right, egui::Layout::top_down(egui::Align::Min), None);
@@ -299,10 +319,12 @@ fn editor(app: &mut App, ui: &mut egui::Ui) {
 
     // `ShowMainControls` shows OK for the editor and relabels the button
     // beside it `Cancel`.
-    if crate::views::dialog_button(ui, at(0x1), &caption(0x1), true).clicked() {
+    if crate::views::placed_button(app, ui, at(0x1), &caption(0x1), true).clicked() {
         app.designer_ok();
     }
-    if crate::views::dialog_button(ui, at(0x2), crate::dialog::DESIGNER_CLOSE.1, true).clicked() {
+    if crate::views::placed_button(app, ui, at(0x2), crate::dialog::DESIGNER_CLOSE.1, true)
+        .clicked()
+    {
         app.designer_cancel();
     }
 }
@@ -324,12 +346,19 @@ fn filter_dropdown(app: &mut App, ui: &mut egui::Ui, rect: egui::Rect) {
     designer.filter = designer.filter.min(names.len().saturating_sub(1));
     let mut selected = designer.filter;
     let mut child = ui.child_ui(rect, egui::Layout::top_down(egui::Align::Min), None);
-    egui::ComboBox::from_id_source("designer-filter")
+    let box_ = egui::ComboBox::from_id_source("designer-filter")
         .width(rect.width())
-        .show_index(&mut child, &mut selected, names.len(), |i| {
-            names[i].to_string()
+        .selected_text(names.get(selected).copied().unwrap_or(""))
+        .show_ui(&mut child, |ui| {
+            for (index, name) in names.iter().enumerate() {
+                let entry = ui.selectable_value(&mut selected, index, *name);
+                crate::views::record(app, ui, name, &entry);
+            }
         });
-    designer.filter = selected;
+    crate::views::record(app, ui, "Parts", &box_.response);
+    if let Some(designer) = app.designer.as_mut() {
+        designer.filter = selected;
+    }
 }
 
 fn parts_list(app: &mut App, ui: &mut egui::Ui) {
@@ -343,8 +372,12 @@ fn parts_list(app: &mut App, ui: &mut egui::Ui) {
             count: held,
             from_slot: None,
         };
+        // Each row under an id of its own: a row being dragged is drawn
+        // on egui's tooltip layer, and a child `Ui` that shared its id
+        // with a row still on the base layer would trip egui's check that
+        // a widget keeps to one layer a frame.
         ui.dnd_drag_source(id, drag, |ui| {
-            part_row(app, ui, part, index);
+            ui.push_id(index, |ui| part_row(app, ui, part, index));
         });
     }
     if parts.is_empty() {
@@ -370,9 +403,9 @@ fn part_row(app: &mut App, ui: &mut egui::Ui, part: &PartRow, index: usize) {
         if let Some(cell) = cell {
             crate::art::draw(app, ui, cell, 32.0);
         }
-        clicked = ui
-            .selectable_label(selected, egui::RichText::new(label).small())
-            .clicked();
+        let row = ui.selectable_label(selected, egui::RichText::new(&label).small());
+        crate::views::record(app, ui, &part.name, &row);
+        clicked = row.clicked();
     });
     if clicked {
         if let Some(designer) = app.designer.as_mut() {
@@ -623,6 +656,7 @@ fn slot_widget(
 ) -> bool {
     let id = egui::Id::new(("designer-slot", index));
     let response = ui.interact(rect, id, egui::Sense::click_and_drag());
+    crate::views::record(app, ui, &format!("slot {index}"), &response);
     let selected = app
         .designer
         .as_ref()

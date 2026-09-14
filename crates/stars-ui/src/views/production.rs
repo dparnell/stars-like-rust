@@ -341,13 +341,12 @@ fn queue(app: &mut App, ui: &mut egui::Ui, step: i32) {
     // The original's first line, which is where "add to the front" lives.
     let mut clicked: Option<Option<usize>> = None;
     let mut removed = false;
-    if ui
-        .selectable_label(
-            selected.is_none(),
-            egui::RichText::new("— Top of the Queue —").small().weak(),
-        )
-        .clicked()
-    {
+    let top = ui.selectable_label(
+        selected.is_none(),
+        egui::RichText::new("— Top of the Queue —").small().weak(),
+    );
+    crate::views::record(app, ui, "Top of the Queue", &top);
+    if top.clicked() {
         clicked = Some(None);
     }
     for (index, (count, name)) in rows.iter().enumerate() {

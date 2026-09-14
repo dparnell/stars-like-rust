@@ -82,6 +82,34 @@ resources go to the current field and 15% of the total to each other field.
 Super Stealth races additionally steal `spent / living_players / 2` in every
 field anyone spent in, provided that comes to more than 1.
 
+## What a level brings (`UpdateResearchStatus`, `10b8:80fe`)
+
+Each level gained sends `idmScientistsHaveCompletedResearch…` (`0x50`, or
+`0x136` for Generalized Research) with the Research dialog for its Goto,
+and then a message for **each part the level has just made buildable**.
+The scan walks the component categories from the engines up — one
+`hst` bit at a time, `hstEngine`, `hstScanner`, … `hstHull`, `hstPlanetary`
+— and every item in each; a part counts when `FLookupPart` now says
+*available* and its requirement **in the field that advanced equals the
+new level**, so a part that was waiting on another field is reported when
+that field catches up, and a part already reachable is not reported
+twice. A Total Terraforming race skips terraforming items 8, 12 and 16.
+The message is one of five:
+
+| category | message | object |
+|----------|---------|--------|
+| a starbase hull | `0xd0` `idmRecentBreakthroughHasAlsoGivenHullDesign` | `-3`, the Ship Design dialog |
+| a ship hull | `0x78` `idmRecentBreakthroughHasAlsoGivenHullType` | `-3` |
+| planetary items 9–13 (the defences) | `0x145` `idmRecentBreakthroughHasAlsoTaughtHowBuild` | the part word |
+| planetary items 0–8 (the scanners) | `0x157` `idmRecentBreakthroughHasAlsoTaughtHowBuild2` | the part word |
+| anything else | `0x5f` `idmRecentBreakthroughHasAlsoGivenBenefit` | the part word |
+
+The part word is `0xc000 | category index << 8 | item`, which Goto opens
+the Technology Browser on; the parameters are `[field, category bits,
+item]`. The tutorial's 2413 is the worked example: Construction 4 brings
+the Robo-Miner (`0x5f`, mining robots item 2) and the Privateer hull
+(`0x78`, hull 11), in that order, and pages 41 and 44 read them.
+
 ## Edge cases & clamps
 
 - Levels stop at 26.

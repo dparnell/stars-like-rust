@@ -414,6 +414,11 @@ pub const DESIGNER_BROWSER_ONLY: [u16; 9] = [
 /// `HULDEF.wrcCargo`: its high byte is the top-left cell and its low byte the
 /// bottom-right, each nibble a half-cell like `rgbrc`.
 pub const SLOT_CELL: f32 = 32.0;
+/// The designer's client size, `ptslotGlob`: `ShipBuilder` is called with
+/// 610 by 450 (`CommandHandler`, `1020:4e14`) and `SlotDlg`'s
+/// `WM_INITDIALOG` sizes the window to it; every control the dialog moves
+/// is placed from its right and bottom edges.
+pub const SLOT_CLIENT: (f32, f32) = (610.0, 450.0);
 /// How far the designer's own grid is left of `ptslotGlob.x`.
 pub const SLOT_ORIGIN_BACK: f32 = 0x14a as f32;
 /// How far down the designer's grid starts.

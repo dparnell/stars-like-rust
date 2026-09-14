@@ -13126,9 +13126,12 @@ impl App {
                 kind,
                 filter,
             } => {
-                let count = i32::try_from(self.messages().len()).unwrap_or(0);
+                // 9999 is "the last": `FCheckMessages` (`10f8:6c48`) asks
+                // `IMsgNext(0)`, so it is done when Next has nowhere to
+                // go — filtered messages, which Next steps over, do not
+                // count.
                 let read = if *message == 9999 {
-                    count == 0 || self.message_index >= count - 1
+                    self.message_next(false).is_none()
                 } else {
                     *message < 0 || self.message_index >= *message
                 };
@@ -13876,6 +13879,65 @@ impl App {
                     None
                 } else {
                     take_fleet(*fleet)
+                }
+            }
+            // The Technology Browser: the message whose Goto opens it on a
+            // part, or the Help menu's entry; its Close once it is up.
+            Check::Browser { open: true } => {
+                if self.browser.is_some() {
+                    widget("browser", "Close")
+                } else if matches!(goto, Goto::Part(_)) {
+                    widget("messages", "Goto")
+                } else {
+                    menu("Technology Browser…", "Help")
+                }
+            }
+            Check::Browser { open: false } => {
+                if self.browser.is_some() {
+                    widget("browser", "Close")
+                } else {
+                    None
+                }
+            }
+            // The designer: the Commands menu opens it (F4 is a key); with
+            // it up, the Starbases radio when a starbase design is wanted,
+            // and Copy Selected Design to start one.
+            Check::ShipBuilder { starbase, .. } => match self.designer.as_ref() {
+                None => menu("Ship Design…", "Commands"),
+                Some(d) if d.editing.is_none() && starbase.is_some_and(|s| s != d.starbase) => {
+                    widget("designer", if d.starbase { "Ships" } else { "Starbases" })
+                }
+                Some(d) if d.editing.is_none() => widget("designer", "Copy Selected Design"),
+                Some(_) => widget("designer", "OK"),
+            },
+            Check::Designer { open: false } => match self.designer.as_ref() {
+                None => None,
+                Some(d) if d.editing.is_some() => widget("designer", "OK"),
+                Some(_) => widget("designer", "Done"),
+            },
+            Check::Designer { open: true } => {
+                if self.designer.is_some() {
+                    widget("designer", "Done")
+                } else {
+                    menu("Ship Design…", "Commands")
+                }
+            }
+            // A part wanted in a slot of the design being edited: the slot
+            // it goes on; before that, the copy that opens the editor.
+            Check::DesignSlot { slot, .. } => match self.designer.as_ref() {
+                None => menu("Ship Design…", "Commands"),
+                Some(d) if d.editing.is_some() => widget("designer", &format!("slot {slot}")),
+                Some(_) => widget("designer", "Copy Selected Design"),
+            },
+            // A report: the Report menu opens one; the sort is a click on
+            // its column, which nothing here rings.
+            Check::ReportOpen => menu("Planets…", "Report"),
+            // A zip order: the blue diamond in the Waypoint Task tile.
+            Check::Zip { .. } => {
+                if self.selection.on_fleet {
+                    widget("fleet", "blue diamond")
+                } else {
+                    None
                 }
             }
             // The toolbar's view buttons, by the labels the toolbar draws.

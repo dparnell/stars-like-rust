@@ -300,6 +300,7 @@ pub fn generate_turn_with_orders(
             // getting shorter is how this pass knows the fleet arrived.
             let waypoints = state.fleets[index].waypoints.len();
             let outcome = move_fleet(&mut state.fleets[index], &designs, ife, cap);
+            settle_where_it_stands(state, index);
             if let Some(entry) = chase.iter_mut().find(|(i, _, _, _)| *i == index) {
                 let travelled = outcome.map_or(0, |(t, _)| t);
                 entry.2 -= travelled;
@@ -582,6 +583,7 @@ pub fn generate_turn_with_orders(
         // Research dialog; the Generalized Research wording names the
         // primary field.
         let general = player.race.has_lrt(crate::race::lrt::GENERALIZED_RESEARCH);
+        let tutorial = state.tutorial;
         for gain in &gained {
             state.messages.push(crate::message::Message {
                 player: index,
@@ -597,6 +599,59 @@ pub fn generate_turn_with_orders(
                     n_i16(i32::try_from(gain.continues_in).unwrap_or(0)),
                 ],
             });
+            // And what the level brings: `UpdateResearchStatus` walks the
+            // categories from the engines up, one bit at a time, and for
+            // each part the player may now build whose requirement in
+            // this field is exactly the new level sends a word about it —
+            // its browser word as the object for a component, the Ship
+            // Design dialog for a hull. A Total Terraforming race skips
+            // the three terraforming modules its trait replaces.
+            let builder =
+                crate::parts::Builder::player(&state.players[index]).in_tutorial(tutorial);
+            let total_terraforming = builder.race.has_lrt(crate::race::lrt::TT);
+            for (category_index, category) in (0..16u16).map(|i| (i, 1u16 << i)) {
+                let mut item = 0usize;
+                loop {
+                    let status = crate::parts::availability(&builder, category, item);
+                    if status == crate::parts::Availability::Missing {
+                        break;
+                    }
+                    let skipped = category == crate::components::slot::TERRA
+                        && total_terraforming
+                        && matches!(item, 8 | 12 | 16);
+                    if status.is_available()
+                        && !skipped
+                        && crate::parts::part(category, item).is_some_and(|p| {
+                            p.tech[gain.field] == i8::try_from(gain.level).unwrap_or(i8::MAX)
+                        })
+                    {
+                        use crate::components::slot;
+                        use crate::message::id;
+                        let (id, object) = match category {
+                            slot::SB_HULL => (id::BREAKTHROUGH_STARBASE_HULL, -3),
+                            slot::HULL => (id::BREAKTHROUGH_HULL, -3),
+                            slot::PLANETARY if (9..14).contains(&item) => {
+                                (id::BREAKTHROUGH_DEFENSE, part_word(category_index, item))
+                            }
+                            slot::PLANETARY if item < 9 => {
+                                (id::BREAKTHROUGH_SCANNER, part_word(category_index, item))
+                            }
+                            _ => (id::BREAKTHROUGH_PART, part_word(category_index, item)),
+                        };
+                        state.messages.push(crate::message::Message {
+                            player: index,
+                            id,
+                            object,
+                            params: vec![
+                                n_i16(i32::try_from(gain.field).unwrap_or(0)),
+                                category as i16,
+                                n_i16(i32::try_from(item).unwrap_or(0)),
+                            ],
+                        });
+                    }
+                    item += 1;
+                }
+            }
         }
         report.breakthroughs[index] = gained;
     }
@@ -2245,6 +2300,14 @@ fn fuel_fleets(state: &mut GameState) {
     }
 }
 
+/// A component's word for a message object: bits 14 and 15 set, the
+/// category's index in bits 8..=11 and the item in the low byte
+/// (`UpdateResearchStatus`, `10b8:80fe`), which Goto opens the
+/// Technology Browser on.
+fn part_word(category_index: u16, item: usize) -> i16 {
+    (0xc000 | (category_index << 8) | (u16::try_from(item).unwrap_or(0) & 0xff)) as i16
+}
+
 /// A count as a message parameter carries it.
 fn n_i16(count: i32) -> i16 {
     i16::try_from(count).unwrap_or(i16::MAX)
@@ -2253,7 +2316,12 @@ fn n_i16(count: i32) -> i16 {
 /// The lowest fleet number a player is not already using.
 ///
 /// Fleet numbers are per player and are reused once a fleet is gone, which is
-/// why this looks for the first gap rather than counting.
+/// why this looks for the first gap rather than counting. `LpflNew`
+/// (`1038:300c`) walks the player's fleets in order from a count of
+/// `0xffff` and stops at the first whose number is not the last plus one, so
+/// the numbers start at **zero** — the tutorial's Armed Probe #1 is fleet 0,
+/// and the Teamster its Stove Top builds in 2413, after that probe is lost,
+/// is Teamster #1 in its place.
 #[must_use]
 pub fn next_fleet_id(state: &GameState, owner: i16) -> u16 {
     let mut used: Vec<u16> = state
@@ -2263,7 +2331,7 @@ pub fn next_fleet_id(state: &GameState, owner: i16) -> u16 {
         .map(|f| f.id)
         .collect();
     used.sort_unstable();
-    let mut id = 1;
+    let mut id = 0;
     for taken in used {
         if taken == id {
             id += 1;
@@ -2481,6 +2549,45 @@ enum RanDry {
     /// The tank is empty, so the leg has been slowed to the fastest warp
     /// the engines run free at (`idmHasRunFuelFleetsSpeedHasDecreased`).
     SlowedTo(u8),
+}
+
+/// A fleet that has moved and stands in deep space exactly on a planet is
+/// in orbit of it: `MoveFleets` (`10b0:4ddb`) asks `FFindNearestObject`
+/// for a planet at the fleet's own point — mask `0x81`, planets within
+/// no distance at all — and writes its id in when one is there, which is
+/// how a chaser that catches a fleet over a planet ends up orbiting the
+/// planet. Then, as `KillUsedWaypoints` has it (`1080:1bfb`), a first
+/// waypoint still aimed at a **fleet** — with no Transport or Merge on
+/// it — is rewritten to say where the fleet now is: the planet, or a
+/// point in space.
+fn settle_where_it_stands(state: &mut GameState, index: usize) {
+    let at = state.fleets[index].position;
+    if state.fleets[index].orbiting.is_none() {
+        let here = state
+            .planets
+            .iter()
+            .find(|p| p.position == Some(at))
+            .and_then(|p| u16::try_from(p.id).ok());
+        state.fleets[index].orbiting = here;
+    }
+    let orbiting = state.fleets[index].orbiting;
+    if let Some(first) = state.fleets[index].waypoints.first_mut() {
+        if first.target_class == crate::fleet::grobj::FLEET
+            && first.task != stars_formats::task::TRANSPORT
+            && first.task != stars_formats::task::MERGE
+        {
+            match orbiting {
+                Some(planet) => {
+                    first.target_class = crate::fleet::grobj::PLANET;
+                    first.target = Some(planet);
+                }
+                None => {
+                    first.target_class = crate::fleet::grobj::POSITION;
+                    first.target = None;
+                }
+            }
+        }
+    }
 }
 
 /// A fleet has reached its next waypoint: the waypoint is done with, and

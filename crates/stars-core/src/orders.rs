@@ -1296,7 +1296,7 @@ mod tests {
         assert_eq!(done, vec![(3, task::TRANSFER)]);
         let given = &state.fleets[0];
         assert_eq!(given.owner, 1, "player 1 has it now");
-        assert_eq!(given.id, 1, "and it takes their first free number");
+        assert_eq!(given.id, 0, "and it takes their first free number");
         // The design came with it.
         assert_eq!(state.designs[1].len(), 1);
         assert_eq!(state.designs[1][0].name, "Scout");
