@@ -184,8 +184,157 @@ pub fn player_file(state: &GameState, player: usize) -> Result<Vec<u8>> {
     push_battle_plans(state, &mut body, player)?;
     push_battles(state, &mut body, player)?;
     push_messages(state, &mut body, player)?;
+    push_standings(state, &mut body, player)?;
 
     StarsFile::build(&header, &body, footer(state))
+}
+
+/// Write one player's history file — the `.hN` beside their `.mN`, which
+/// the original's **client** keeps for itself: the planets the player has
+/// a record of, their message filter, and the score sheet's timeline.
+///
+/// The layout is the fixtures' (`Game.h1`, `tutorial.h1`): the history
+/// header (`rtHistHdr`, type 32) with the planet count and the year, one
+/// partial planet record (type 14, detail 3) per planet known — its
+/// environment and concentrations, the owner's population and defence
+/// estimates for an owned one, and the year it was last seen as a trailing
+/// word — the message filter (type 33) and one history row (type 45, the
+/// turn in place of the rank) per year of the timeline. The two short
+/// player and design blocks a real file also carries are not written; the
+/// original writes the file afresh from its own turn file every year, so
+/// nothing here is lost on it.
+///
+/// `known` is the set of planets the player has a record of, by id — the
+/// client's own knowledge, which the host's state does not hold for a human
+/// player; a computer player's is its [`Player::explored`]. The player's
+/// own planets are written whether or not they are in it.
+///
+/// # Errors
+/// [`FormatError::Malformed`] if `player` is not in the game, or if a record
+/// does not fit its block.
+pub fn history_file(
+    state: &GameState,
+    player: usize,
+    known: &std::collections::BTreeSet<i16>,
+) -> Result<Vec<u8>> {
+    let record = state
+        .players
+        .get(player)
+        .ok_or_else(|| FormatError::Malformed(format!("no player {player} in this game")))?;
+    let number = u8::try_from(player)
+        .map_err(|_| FormatError::Malformed(format!("player {player} is out of range")))?;
+    let header = FileHeader::new(
+        state.seed,
+        FileType::History,
+        number,
+        state.turn.unsigned_abs(),
+        salt_for(state.seed, number, state.turn),
+    );
+    let owner = i16::from(number);
+
+    // Every planet the player has a record of, in id order.
+    let known: Vec<&Planet> = all_planets(state)
+        .filter(|p| p.owner == Some(owner) || known.contains(&p.id))
+        .collect();
+    let mut body = Vec::new();
+    let mut hist = Vec::with_capacity(4);
+    hist.extend_from_slice(&u16::try_from(known.len()).unwrap_or(u16::MAX).to_le_bytes());
+    hist.extend_from_slice(&(state.turn.unsigned_abs() + 1).to_le_bytes());
+    body.push(block(32, hist)?);
+    for planet in known {
+        let mut partial = planet_record(planet);
+        partial.block_type = 14;
+        partial.detail = 3;
+        partial.has_installations = false;
+        partial.has_surface_minerals = false;
+        partial.routing = false;
+        partial.surface_minerals = None;
+        partial.population = None;
+        partial.installations = None;
+        partial.route_dest = None;
+        // A planet of somebody else's is known by its owner and by the
+        // estimates the scanner gives, not by its books — and carries the
+        // first-year flag, which the fixtures show every planet but the
+        // player's own keeping year after year.
+        if planet.owner != Some(owner) {
+            partial.first_year = true;
+            partial.starbase = partial.starbase.map(|mut sb| {
+                sb.damage_pct = 0;
+                sb.fling_dest = 0;
+                sb.warp = 0;
+                sb
+            });
+        }
+        partial.trailing = state.turn.unsigned_abs().to_le_bytes().to_vec();
+        body.push(block(14, partial.encode())?);
+    }
+    body.push(block(
+        stars_formats::MESSAGE_FILTER_BLOCK,
+        record.message_filter.encode().to_vec(),
+    )?);
+    // The timeline: one row a year for every player, the turn where a
+    // standing keeps its rank.
+    let years: std::collections::BTreeSet<u16> =
+        state.timeline.iter().flatten().map(|y| y.turn).collect();
+    for turn in years {
+        for (who, rows) in state.timeline.iter().enumerate() {
+            let Some(year) = rows.iter().find(|y| y.turn == turn) else {
+                continue;
+            };
+            let standing = crate::score::Standing {
+                player: who,
+                known: true,
+                winner: false,
+                rank: turn,
+                victory: 0,
+                score: year.score,
+            };
+            body.push(block(45, score_record(&standing, true).encode())?);
+        }
+    }
+    StarsFile::build(&header, &body, Vec::new())
+}
+
+/// The current standings, as the turn file carries them: a type-45 row
+/// for the player's own score, and for every other's when the game's
+/// scores are public — a fixture game with them private holds the one
+/// row.
+fn push_standings(state: &GameState, body: &mut Vec<Block>, player: usize) -> Result<()> {
+    for standing in &state.standings {
+        if standing.player == player || (state.public_scores && standing.known) {
+            body.push(block(45, score_record(standing, false).encode())?);
+        }
+    }
+    Ok(())
+}
+
+/// A standing as a score block, a history row when `history`.
+fn score_record(standing: &crate::score::Standing, history: bool) -> stars_formats::ScoreRecord {
+    let vc = standing.victory >> 6;
+    stars_formats::ScoreRecord {
+        player_id: u8::try_from(standing.player).unwrap_or(0),
+        known: standing.known,
+        victory: stars_formats::VictoryConditions {
+            owns_planets: vc & 1 != 0,
+            attains_tech: vc & 2 != 0,
+            exceeds_score: vc & 4 != 0,
+            exceeds_second_place: vc & 8 != 0,
+            production_capacity: vc & 16 != 0,
+            capital_ships: vc & 32 != 0,
+            highest_score: vc & 64 != 0,
+        },
+        winner: standing.winner,
+        history,
+        rank: standing.rank,
+        score: u32::try_from(standing.score.score).unwrap_or(0),
+        resources: u32::try_from(standing.score.resources).unwrap_or(0),
+        planets: u16::try_from(standing.score.planets).unwrap_or(u16::MAX),
+        starbases: u16::try_from(standing.score.starbases).unwrap_or(u16::MAX),
+        unarmed_ships: crate::score::pack(standing.score.unarmed_ships),
+        escort_ships: crate::score::pack(standing.score.escort_ships),
+        capital_ships: crate::score::pack(standing.score.capital_ships),
+        tech_levels: u16::try_from(standing.score.tech_levels).unwrap_or(u16::MAX),
+    }
 }
 
 /// Every planet the state knows about, in id order.
@@ -443,8 +592,12 @@ fn planet_record(planet: &Planet) -> PlanetRecord {
         original_environment: original,
         // `uPopGuess` is the owner's own estimate, which a fresh planet records
         // as a quarter of its population; the decoder scales it by 1000.
-        pop_guess: owned.then(|| u32::try_from(planet.pop / 4).unwrap_or(0) * 1000),
-        defense_guess: owned.then_some(0),
+        pop_guess: owned.then(|| {
+            planet
+                .pop_guess
+                .unwrap_or_else(|| u32::try_from(planet.pop / 4).unwrap_or(0) * 1000)
+        }),
+        defense_guess: owned.then(|| planet.defense_guess.unwrap_or(0)),
         surface_minerals: owned.then(|| Minerals {
             ironium: u32::try_from(planet.surface_min[0]).unwrap_or(0),
             boranium: u32::try_from(planet.surface_min[1]).unwrap_or(0),

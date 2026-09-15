@@ -12,7 +12,7 @@
 //!
 //! Tests skip rather than fail when the fixtures are absent.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use stars_core::newgame::{generate, NewGame, NewPlayer, Size};
 use stars_core::{opponents, save, GameState, Planet, Race, Rng};
@@ -532,4 +532,50 @@ fn a_host_password_is_written_after_the_player_blocks_and_read_back() {
     assert!(!file.blocks.iter().any(|b| b.type_id == 36));
     let (read, _) = GameState::from_file(&file);
     assert_eq!(read.host_password, 0);
+}
+
+/// A player's history file rebuilt from their turn file matches the one the
+/// client wrote: the planet count, each planet's partial record, the message
+/// filter and the score rows — the history header's second word aside, which
+/// the fixtures do not pin down (6 here at turn 1, the turn plus one in
+/// later games).
+#[test]
+fn rebuilding_a_real_history_file_reproduces_its_records() {
+    const TURN1: &str = "../../fixtures/incoming/turn1";
+    for (player, name) in [(0usize, "Game.h1"), (1, "Game.h2"), (2, "Game.h3")] {
+        let Some(original) = read_file(&format!("{TURN1}/{name}")) else {
+            eprintln!("no turn-1 fixture; skipping");
+            return;
+        };
+        let Some(turn) = read_file(&format!("{TURN1}/Game.m{}", player + 1)) else {
+            return;
+        };
+        // Two of the three histories were left by clients that had not been
+        // run on the year: they are a year behind their turn files, and
+        // say nothing about writing this one.
+        if original.latest_segment().header.turn != turn.latest_segment().header.turn {
+            eprintln!("{name} is of another year than its turn file; skipping");
+            continue;
+        }
+        let (mut state, _) = GameState::from_file(&turn);
+        if let Some(universe) = read_universe(&format!("{TURN1}/Game.xy")) {
+            state.apply_universe(&universe);
+        }
+        // What the player's file knows is what the history knows.
+        let known: BTreeSet<i16> = stars_formats::planet::planet_records(&turn)
+            .iter()
+            .filter_map(|p| i16::try_from(p.id).ok())
+            .collect();
+        let bytes = save::history_file(&state, player, &known).expect("writes");
+        let rebuilt = StarsFile::decode(&bytes).expect("decodes");
+        assert_eq!(
+            rebuilt.latest_segment().header.file_type,
+            stars_formats::FileType::History
+        );
+        let want = stars_formats::history::history_header(&original).expect("a header");
+        let got = stars_formats::history::history_header(&rebuilt).expect("a header");
+        assert_eq!(got.planet_count, want.planet_count, "{name}");
+        // Each planet's record is the turn file's, with the year behind it.
+        compare_by_type(&original, &rebuilt, name, &[32]);
+    }
 }

@@ -145,13 +145,26 @@ measured over the corpus rather than assumed:
 - **Space objects** — minefields, mineral packets, wormholes, mystery traders —
   because `GameState` does not model them. The object section is written as a
   count of zero.
-- **Messages, battle recordings and scores**, for the same reason. A fresh game
-  has none of them, which is what the turn-0 fixture's own files look like.
+- **Battle recordings** beyond the year's own. Messages, the year's
+  recordings and the score rows *are* written: a turn file carries the
+  player's own standing and, when the game's scores are public, everyone's.
 - A **fleet's name** *is* written, in the type-21 block after its waypoints, but
   no fixture has one to check against; see `fleet.md`.
-- **The `.hN` history files.** A host writes those; this project does not yet.
-  The `.xN` order log **is** written — see `orders-x.md` — but with a zero
+- The `.xN` order log **is** written — see `orders-x.md` — but with a zero
   registration serial, because this project has none.
+
+The **`.hN` history file** is the client's, not the host's, and
+`stars_core::save::history_file` writes it from what a player has a record
+of: the history header (type 32: the planet count, and the turn plus one
+where the fixtures do not pin the word down), one partial planet record
+(type 14, detail 3, the first-year flag on every planet but the player's
+own, the year as a trailing word) per known planet, the message filter
+(type 33) and one history row (type 45, the turn in the rank's place) per
+year of the timeline. `fixtures/incoming/turn1/Game.h1` is rebuilt from its
+turn file byte for byte (`tests/save_files.rs`); the two short player and
+design blocks later histories carry are not written, and the original
+rewrites the file from its own turn file every year regardless. A hosted
+game's save writes one beside each player's turn file.
 - The player fields nothing has identified: the race emblem is written from
   `Player::logo`, and offsets 82 to 111 are zero.
 

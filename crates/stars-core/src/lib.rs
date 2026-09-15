@@ -344,6 +344,11 @@ pub struct GameState {
     /// clear — `game_flag::NO_RANDOM`): meteors, climate changes, mineral
     /// finds and the Mystery Trader. See [`crate::events`].
     pub random_events: bool,
+    /// Whether every player's score is public (`GAME` flag
+    /// `game_flag::VIS_SCORES`), which decides whose rows a player's file
+    /// carries; without it a player sees their own alone until the game is
+    /// old enough for the score sheet to open.
+    pub public_scores: bool,
     /// The game's "computer players form alliances" option, bit 4 of the
     /// flag word, which sends their armadas at the human players first.
     pub ais_band: bool,
@@ -461,6 +466,7 @@ impl GameState {
         if let Ok(info) = universe.game() {
             self.slow_tech = info.flags & stars_formats::game_flag::SLOW_TECH != 0;
             self.random_events = info.flags & stars_formats::game_flag::NO_RANDOM == 0;
+            self.public_scores = info.flags & stars_formats::game_flag::VIS_SCORES != 0;
             self.ais_band = info.flags & stars_formats::game_flag::AIS_BAND != 0;
             self.tutorial_game = info.flags & stars_formats::game_flag::TUTORIAL != 0;
             self.single_player = info.flags & stars_formats::game_flag::SINGLE_PLAYER != 0;
@@ -501,6 +507,7 @@ impl GameState {
             designs: Vec::new(),
             slow_tech: false,
             random_events: true,
+            public_scores: false,
             ais_band: false,
             single_player: false,
             tutorial: false,

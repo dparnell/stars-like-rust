@@ -1280,6 +1280,16 @@ impl App {
             let bytes = stars_core::save::player_file(game, player)
                 .map_err(|e| format!("cannot build player {player}'s file: {e}"))?;
             written.push(write(format!("{stem}.m{}", player + 1), bytes)?);
+            // The history beside it: what this player has a record of —
+            // the local player's own map, a computer player's exploration.
+            let known: std::collections::BTreeSet<i16> = if player == self.local_player() {
+                self.known_planets.clone()
+            } else {
+                game.players[player].explored.clone()
+            };
+            let bytes = stars_core::save::history_file(game, player, &known)
+                .map_err(|e| format!("cannot build player {player}'s history: {e}"))?;
+            written.push(write(format!("{stem}.h{}", player + 1), bytes)?);
         }
 
         if !self.orders.is_empty() || self.research_edited || !self.edited.is_empty() {

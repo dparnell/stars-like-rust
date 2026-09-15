@@ -149,6 +149,29 @@ impl ScoreRecord {
         })
     }
 
+    /// Encode the record as a 24-byte type-45 payload — the inverse of
+    /// [`Self::decode`], field for field.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let word0 = u16::from(self.player_id & 0x1F)
+            | u16::from(self.known) << 5
+            | (self.victory.bits() & 0xFF) << 6
+            | u16::from(self.winner) << 14
+            | u16::from(self.history) << 15;
+        let mut out = Vec::with_capacity(RECORD_LEN);
+        out.extend_from_slice(&word0.to_le_bytes());
+        out.extend_from_slice(&self.rank.to_le_bytes());
+        out.extend_from_slice(&self.score.to_le_bytes());
+        out.extend_from_slice(&self.resources.to_le_bytes());
+        out.extend_from_slice(&self.planets.to_le_bytes());
+        out.extend_from_slice(&self.starbases.to_le_bytes());
+        out.extend_from_slice(&self.unarmed_ships.to_le_bytes());
+        out.extend_from_slice(&self.escort_ships.to_le_bytes());
+        out.extend_from_slice(&self.capital_ships.to_le_bytes());
+        out.extend_from_slice(&self.tech_levels.to_le_bytes());
+        out
+    }
+
     /// The turn this row describes, on a history row.
     ///
     /// The second word of a score block is a union: a rank on the current
@@ -190,6 +213,13 @@ mod tests {
         d.extend_from_slice(&0u16.to_le_bytes()); // capital
         d.extend_from_slice(&18u16.to_le_bytes()); // tech
         d
+    }
+
+    #[test]
+    fn encoding_undoes_decoding() {
+        let bytes = sample();
+        let record = ScoreRecord::decode(&bytes).unwrap();
+        assert_eq!(record.encode(), bytes[..RECORD_LEN].to_vec());
     }
 
     #[test]

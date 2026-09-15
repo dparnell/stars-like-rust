@@ -167,6 +167,8 @@ pub fn planet_from_record(record: &PlanetRecord) -> Option<Planet> {
         // block stores one byte per mineral whose accumulator is non-zero and
         // omits the rest; `0` is what the mining formula reads as "full".
         min_level: record.min_level,
+        pop_guess: record.pop_guess,
+        defense_guess: record.defense_guess,
         surface_min: [
             i32::try_from(surface.ironium).unwrap_or(0),
             i32::try_from(surface.boranium).unwrap_or(0),
@@ -240,6 +242,8 @@ pub fn partial_planet_from_record(record: &PlanetRecord) -> Option<Planet> {
     planet.starbase_damage = record.starbase.map_or(0, |s| s.damage_pct);
     planet.homeworld = record.homeworld;
     planet.artifact = record.artifact;
+    planet.pop_guess = record.pop_guess;
+    planet.defense_guess = record.defense_guess;
 
     planet.detail = match (record.environment, record.concentration) {
         (Some(env), Some(conc)) => {

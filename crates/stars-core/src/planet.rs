@@ -142,6 +142,14 @@ pub struct Planet {
     pub position: Option<crate::movement::Point>,
     /// The planet's name, from the `.xy` file's name table.
     pub name: Option<&'static str>,
+    /// The owner's population estimate as the file carries it
+    /// (`uPopGuess`, in colonists) and the defence estimate beside it —
+    /// what `UpdateGuesses` last wrote, kept so a file read is written back
+    /// as it was; `None` for a planet that never came from a file, which
+    /// is written as a quarter of its population.
+    pub pop_guess: Option<u32>,
+    /// See [`Self::pop_guess`].
+    pub defense_guess: Option<u8>,
 }
 
 impl Planet {
@@ -175,6 +183,8 @@ impl Planet {
             starbase_damage: 0,
             position: None,
             name: None,
+            pop_guess: None,
+            defense_guess: None,
         }
     }
 

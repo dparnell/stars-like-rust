@@ -73,6 +73,8 @@ Per-format (payload record layouts, populated as decoded in Step 2):
 - `race-r.md` — race definition (`.rN`): record largely decoded
 - player history (`.hN`): container round-trips; the **history header**
   (`RTHISTHDR`, type 32) is decoded & verified (`stars-formats::history`), the
-  score record (type 45) is decoded, and the **message filter** (`rtMsgFilt`,
-  type 33) is decoded & verified — 3,204 records, all 45 bytes, see
-  `message.md`; other record layouts not yet decoded.
+  score record (type 45) is decoded and encoded, and the **message filter**
+  (`rtMsgFilt`, type 33) is decoded & verified — 3,204 records, all 45 bytes,
+  see `message.md`. `stars_core::save::history_file` writes the whole file
+  (`writing.md`); the short player and design blocks later histories carry
+  are not decoded.

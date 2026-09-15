@@ -359,8 +359,23 @@ fn a_new_game_can_be_saved_and_reopened() {
         .collect();
     assert_eq!(
         names,
-        vec!["Kestrel.xy", "Kestrel.hst", "Kestrel.m1", "Kestrel.m2"]
+        vec![
+            "Kestrel.xy",
+            "Kestrel.hst",
+            "Kestrel.m1",
+            "Kestrel.h1",
+            "Kestrel.m2",
+            "Kestrel.h2"
+        ]
     );
+    // The history beside each turn file decodes as one.
+    let history = stars_formats::StarsFile::decode(&std::fs::read(dir.join("Kestrel.h1")).unwrap())
+        .expect("a history file");
+    assert_eq!(
+        history.latest_segment().header.file_type,
+        stars_formats::FileType::History
+    );
+    assert!(stars_formats::history::history_header(&history).is_some());
 
     // Saving re-opens from the host file, so the app is now backed by one.
     assert!(app.can_save_game());
