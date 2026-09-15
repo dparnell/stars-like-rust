@@ -129,6 +129,8 @@ pub struct TurnReport {
     pub mines_swept: Vec<(u16, i16, i32)>,
     /// Packets that landed, and what each did — see [`crate::packet::land`].
     pub packets_landed: Vec<crate::packet::Landing>,
+    /// Packets thrown this year — see [`crate::packet::fling`].
+    pub packets_flung: Vec<crate::packet::Flung>,
     /// Wormholes that jumped this year, by id.
     pub wormholes_moved: Vec<u16>,
     /// What became of each Mystery Trader, as `(trader id, event)`.
@@ -551,6 +553,16 @@ pub fn generate_turn_with_orders(
                 object: id,
                 params: vec![id],
             });
+        }
+        // Packets go up as they are finished (`FBuildObject`'s packet arm).
+        for (item, count) in &built {
+            if (item::PACKET_IRONIUM..=item::PACKET_MIXED).contains(item)
+                || *item == item::AUTO_PACKET
+            {
+                if let Some(flung) = crate::packet::fling(state, index, *item, *count) {
+                    report.packets_flung.push(flung);
+                }
+            }
         }
         if !built.is_empty() {
             report.built.push((id, built));

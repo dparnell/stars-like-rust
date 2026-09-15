@@ -331,6 +331,19 @@ pub mod id {
     pub const PACKET_TERRAFORMED: u16 = 0x133;
     /// As [`PACKET_TERRAFORMED`], on somebody else's planet.
     pub const PACKET_TERRAFORMED_THEIRS: u16 = 0x134;
+
+    // Throwing a packet — `FBuildObject` (`10b8:19b2`), to the planet's
+    // owner, with the planet and then the target.
+    /// A packet was built with no mass driver to throw it.
+    pub const PACKET_NO_DRIVER: u16 = 0xd1;
+    /// A packet was built with no destination set.
+    pub const PACKET_NO_DESTINATION: u16 = 0xd2;
+    /// A packet was thrown.
+    pub const PACKET_FLUNG: u16 = 0xd3;
+    /// The year's packet joined one already on the pad.
+    pub const PACKET_ADDED_TO: u16 = 0xd4;
+    /// The game has no room for another packet (`10b8:2716`).
+    pub const NO_ROOM_FOR_THING: u16 = 0x129;
 }
 
 /// The families of message ids the filter treats as one thing.
@@ -859,6 +872,31 @@ impl Message {
                     planet(param(0))
                 )
             }
+            id::PACKET_NO_DRIVER => format!(
+                "{} has built a mineral packet but has no mass driver to throw it \
+                 with.",
+                planet(param(0))
+            ),
+            id::PACKET_NO_DESTINATION => format!(
+                "{} has built a mineral packet but its mass driver has no destination \
+                 set.",
+                planet(param(0))
+            ),
+            id::PACKET_FLUNG => format!(
+                "{} has thrown a mineral packet at {}.",
+                planet(param(0)),
+                planet(param(1))
+            ),
+            id::PACKET_ADDED_TO => format!(
+                "{} has added this year's minerals to the packet bound for {}.",
+                planet(param(0)),
+                planet(param(1))
+            ),
+            id::NO_ROOM_FOR_THING => format!(
+                "{} could not throw its mineral packet: the galaxy can hold no more \
+                 objects.",
+                planet(param(0))
+            ),
             id::PACKET_CAUGHT | id::PACKET_HARMLESS => format!(
                 "A mineral packet of {}kT from player {} has arrived at {} and been \
                  recovered without harm.",

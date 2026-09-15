@@ -1,8 +1,8 @@
 # Mineral packets
 
-Status: **flight and decay verified against real games**; catching, arrival
-damage and Packet Physics terraforming transcribed from the binary and
-unit-tested, not differentially checked; launching not modelled.
+Status: **flight and decay verified against real games**; throwing, catching,
+arrival damage and Packet Physics terraforming transcribed from the binary
+and unit-tested, not differentially checked.
 
 A mineral packet is a `THING` ([`thing.md`](../formats/thing.md), `ith = 1`)
 thrown from one planet's mass driver at another, carrying minerals across the
@@ -44,6 +44,35 @@ percentage works out to, a packet loses at least **ten** kilotons of each
 mineral it is carrying — **five** for Packet Physics — and never more than it
 has; a packet with nothing left is gone. A move that covered only part of a year
 decays by that part.
+
+## Throwing
+
+`FBuildObject` (`10b8:19b2`), the mineral-packet arm from `10b8:2496`,
+implemented as [`stars_core::packet::fling`](../../crates/stars-core/src/packet.rs)
+and run by the turn as the production queue finishes each packet item.
+
+A packet item is **100 kT** of its mineral, or **40 of each** for a mixed
+packet (the auto-build packet is thrown as a mixed one); a **Packet Physics**
+race packs 70 and 25 instead, having paid less for them (`production.md`).
+The year's count is thrown as one lot, capped at 32,760 kT.
+
+The planet needs a **mass driver** — none, and the owner is told (`0xd1`) —
+and a **destination** set (`0xd2`). The warp is the planet's setting, unless
+that is under 5 or more than three over the driver's rating, when it is the
+driver's own, a pair of drivers counting as one warp faster (`10b8:26aa`).
+The packet's **decay code** is how far over the driver's (paired) warp it was
+thrown, 0 to 3 — an Interstellar Traveller's one further, up to 3 — which is
+what `FPacketDecay` reads back as none, a tenth, a quarter or a half.
+
+A packet of the planet's own still sitting on the pad — same warp, same
+target, same decay code, under 1,630 kT — takes the load instead of a new
+one being made (`0xd4` against `0xd3`); a game with no room for another
+object says so (`0x129`). A packet thrown this year has not moved, so the
+second `MoveThings` pass gives it its half year.
+
+`packet::tests` covers the two refusals, a hundred kilotons at the planet's
+warp with a second lot joining it, the fall-back to a paired driver's warp,
+and a Packet Physics race's lighter packets.
 
 ## Arrival
 
@@ -175,9 +204,6 @@ apart.
 
 ## Not modelled
 
-- **Launching.** A planet's production queue can build packets, and a mass
-  driver throws them; neither is wired up, so packets only exist in a game that
-  was loaded with them.
 - **Stealing.** A fleet at a packet's position may take from it in the
   original (`MANUAL.PDF` p. 6-12); the cargo transfer form does not offer it.
 - **The thrower learning the target's starbase design**, as above.

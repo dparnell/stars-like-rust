@@ -157,6 +157,168 @@ pub fn damage(packet_warp: i32, driver_warp: i32, receiver_inner_tech: bool, mas
     (packet_warp * packet_warp - driver_warp) * mass / 160
 }
 
+/// A packet thrown, as the turn reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Flung {
+    /// The planet that threw it.
+    pub planet: i16,
+    /// The packet it went into — new, or one already on the pad this year.
+    pub packet: u16,
+    /// Whether it joined a packet already there.
+    pub joined: bool,
+    /// What went up, in kT.
+    pub minerals: [i16; 3],
+    /// The warp it flies at.
+    pub warp: u8,
+}
+
+/// Throw the packets a planet has just built — `FBuildObject`
+/// (`10b8:19b2`), the mineral-packet arm from `10b8:2496`.
+///
+/// `item` is the queue item (14 to 17, or the auto packet, which is thrown
+/// as a mixed one) and `count` how many were finished. Each is 100 kT of
+/// its mineral — 70 for a Packet Physics race — or 40 of each of the three
+/// (25 for Packet Physics), capped at 32,760 in all. The planet needs a
+/// mass driver (else message `0xd1`) and a destination set (`0xd2`). The
+/// warp is the planet's setting, or the driver's own — a pair counting one
+/// faster — when the setting is under 5 or more than three over it; the
+/// packet decays by how far over the driver it was thrown, an Interstellar
+/// Traveller's as if one further. A packet of the planet's own, on the pad,
+/// at the same warp and target and decay and under 1,630 kT takes the load
+/// (`0xd4`); otherwise a new one is made (`0xd3`), or none when the game
+/// has no room for another (`0x129`).
+pub fn fling(
+    state: &mut crate::GameState,
+    planet_index: usize,
+    item: u16,
+    count: i32,
+) -> Option<Flung> {
+    use crate::message::{id, Message};
+    use crate::production::item;
+    use crate::race::Prt;
+
+    let planet = &state.planets[planet_index];
+    let planet_id = planet.id;
+    let owner = usize::try_from(planet.owner?).ok()?;
+    let prt = state.players.get(owner)?.race.prt();
+    let designs = state.designs.get(owner)?;
+    let driver = crate::production::mass_driver(planet, designs);
+    let position = planet.position?;
+    let mut tell = |id: u16, extra: Option<i16>| {
+        let mut params = vec![planet_id];
+        params.extend(extra);
+        state.messages.push(Message {
+            player: owner,
+            id,
+            object: planet_id,
+            params,
+        });
+    };
+    if driver.warp == 0 {
+        tell(id::PACKET_NO_DRIVER, None);
+        return None;
+    }
+    let planet = &state.planets[planet_index];
+    let Some(target) = planet.fling_dest else {
+        tell(id::PACKET_NO_DESTINATION, None);
+        return None;
+    };
+
+    // What goes up.
+    let item = if item == item::AUTO_PACKET {
+        item::PACKET_MIXED
+    } else {
+        item
+    };
+    let per_unit = match (item == item::PACKET_MIXED, prt == Some(Prt::Pp)) {
+        (true, true) => 25,
+        (true, false) => 40,
+        (false, true) => 70,
+        (false, false) => 100,
+    };
+    let mut minerals = [0i16; 3];
+    for (kind, slot) in minerals.iter_mut().enumerate() {
+        let which = usize::from(item - item::PACKET_IRONIUM);
+        if item == item::PACKET_MIXED || kind == which {
+            let load = i64::from(per_unit) * i64::from(count);
+            *slot = i16::try_from(load.min(0x7ff8)).unwrap_or(0x7ff8);
+        }
+    }
+
+    // How fast, and how far over the driver.
+    let driver_warp = driver.warp + i32::from(driver.paired);
+    let mut warp = i32::from(planet.fling_warp) + 4;
+    if warp < 5 || warp > driver.warp + 3 {
+        warp = driver_warp;
+    }
+    let mut over = (warp - driver_warp).max(0);
+    if prt == Some(Prt::It) && over < 3 {
+        over += 1;
+    }
+    let stored_warp = u8::try_from(warp - 4).unwrap_or(0);
+    let decay_rate = u8::try_from(over).unwrap_or(3);
+    let owner_word = i16::try_from(owner).unwrap_or(0);
+
+    // Onto a packet already on the pad, or a new one.
+    let joined = state.packets.iter().position(|p| {
+        p.owner == owner_word
+            && p.position == position
+            && p.warp == stored_warp
+            && p.target == u16::try_from(target).unwrap_or(0)
+            && p.decay_rate == decay_rate
+            && p.mass() < 0x65e
+    });
+    let (packet_id, joined) = match joined {
+        Some(index) => {
+            let packet = &mut state.packets[index];
+            for (have, more) in packet.minerals.iter_mut().zip(minerals) {
+                *have = have.saturating_add(more);
+            }
+            (packet.id, true)
+        }
+        None => {
+            if state.packets.len() >= 512 {
+                tell(id::NO_ROOM_FOR_THING, None);
+                return None;
+            }
+            let packet_id = state
+                .packets
+                .iter()
+                .map(|p| p.id)
+                .max()
+                .map_or(0, |m| m + 1);
+            state.packets.push(Packet {
+                id: packet_id,
+                owner: owner_word,
+                position,
+                target: u16::try_from(target).unwrap_or(0),
+                warp: stored_warp,
+                minerals,
+                decay_rate,
+                moved: false,
+                include: true,
+                turn: u16::try_from(state.turn).unwrap_or(0),
+            });
+            (packet_id, false)
+        }
+    };
+    tell(
+        if joined {
+            id::PACKET_ADDED_TO
+        } else {
+            id::PACKET_FLUNG
+        },
+        Some(target),
+    );
+    Some(Flung {
+        planet: planet_id,
+        packet: packet_id,
+        joined,
+        minerals,
+        warp: stored_warp + WARP_BIAS,
+    })
+}
+
 /// What a packet did when it landed.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Landing {
@@ -638,6 +800,128 @@ mod tests {
         planet.env_orig = Some([40, 40, 40]);
         state.planets.push(planet);
         state
+    }
+
+    /// The planet in [`a_state`] given a starbase with a Mass Driver 7
+    /// (two of them when `paired`), aimed at planet 8 at the warp asked.
+    fn with_driver(state: &mut crate::GameState, paired: bool, warp: u8) {
+        use crate::components::slot;
+        use crate::design::{DesignSlot, ShipDesign};
+        let base = usize::from(crate::startup::FIRST_STARBASE_SLOT);
+        let empty = ShipDesign {
+            name: String::new(),
+            picture: 0,
+            stored_armor: 0,
+            obsolete: false,
+            designed: 0,
+            built: 0,
+            hull_id: -1,
+            slots: Vec::new(),
+        };
+        state.designs[0].resize(base + 1, empty);
+        state.designs[0][base] = ShipDesign {
+            name: "Dock".to_string(),
+            picture: 0,
+            stored_armor: 100,
+            obsolete: false,
+            designed: 0,
+            built: 0,
+            hull_id: 33,
+            slots: vec![
+                DesignSlot {
+                    category: slot::SPECIAL_SB,
+                    item: 9, // Mass Driver 7
+                    count: 1,
+                },
+                DesignSlot {
+                    category: slot::SPECIAL_SB,
+                    item: 9,
+                    count: u8::from(paired),
+                },
+            ],
+        };
+        let planet = &mut state.planets[0];
+        planet.owner = Some(0);
+        planet.pop = 1000;
+        planet.starbase = true;
+        planet.starbase_design = Some(0);
+        planet.fling_dest = Some(8);
+        planet.fling_warp = warp.saturating_sub(WARP_BIAS);
+    }
+
+    /// A packet built with no driver, or no destination, is not thrown, and
+    /// the planet says why.
+    #[test]
+    fn a_packet_needs_a_driver_and_a_destination() {
+        let mut state = a_state();
+        state.planets[0].owner = Some(0);
+        assert!(fling(&mut state, 0, crate::production::item::PACKET_IRONIUM, 1).is_none());
+        assert_eq!(
+            state.messages.last().map(|m| m.id),
+            Some(crate::message::id::PACKET_NO_DRIVER)
+        );
+        with_driver(&mut state, false, 7);
+        state.planets[0].fling_dest = None;
+        assert!(fling(&mut state, 0, crate::production::item::PACKET_IRONIUM, 1).is_none());
+        assert_eq!(
+            state.messages.last().map(|m| m.id),
+            Some(crate::message::id::PACKET_NO_DESTINATION)
+        );
+        assert!(state.packets.is_empty());
+    }
+
+    /// A hundred kilotons a packet, at the planet's warp, and a second lot
+    /// the same year joins the first.
+    #[test]
+    fn a_packet_is_thrown_at_the_planets_warp_and_joined_by_the_next() {
+        use crate::production::item;
+        let mut state = a_state();
+        with_driver(&mut state, false, 9);
+        let flung = fling(&mut state, 0, item::PACKET_IRONIUM, 2).expect("thrown");
+        assert!(!flung.joined);
+        assert_eq!(flung.minerals, [200, 0, 0]);
+        assert_eq!(
+            flung.warp, 9,
+            "the planet's setting, within three of the driver"
+        );
+        let packet = &state.packets[0];
+        assert_eq!(packet.owner, 0);
+        assert_eq!(packet.target, 8);
+        assert_eq!(packet.speed(), 9);
+        assert_eq!(packet.decay_rate, 2, "two over a warp 7 driver");
+        assert_eq!(
+            state.messages.last().map(|m| (m.id, m.params.clone())),
+            Some((crate::message::id::PACKET_FLUNG, vec![7, 8]))
+        );
+
+        // A mixed packet of the same year goes into the same one.
+        let again = fling(&mut state, 0, item::PACKET_MIXED, 1).expect("thrown");
+        assert!(again.joined);
+        assert_eq!(state.packets.len(), 1);
+        assert_eq!(state.packets[0].minerals, [240, 40, 40]);
+        assert_eq!(
+            state.messages.last().map(|m| m.id),
+            Some(crate::message::id::PACKET_ADDED_TO)
+        );
+    }
+
+    /// A setting the driver cannot manage — under 5, or more than three
+    /// over it — falls back to the driver's own warp, a pair counting one
+    /// faster; and a Packet Physics race packs less into each.
+    #[test]
+    fn an_impossible_setting_falls_back_to_the_driver() {
+        use crate::production::item;
+        let mut state = a_state();
+        with_driver(&mut state, true, 12);
+        let flung = fling(&mut state, 0, item::PACKET_BORANIUM, 1).expect("thrown");
+        assert_eq!(flung.warp, 8, "the pair of 7s counts as 8");
+        assert_eq!(state.packets[0].decay_rate, 0);
+
+        let mut state = a_state();
+        state.players[0].race.attrs[crate::race::RaceStat::MajorAdv as usize] = 6;
+        with_driver(&mut state, false, 7);
+        let flung = fling(&mut state, 0, item::AUTO_PACKET, 3).expect("thrown");
+        assert_eq!(flung.minerals, [75, 75, 75], "25 of each, three times");
     }
 
     /// With no driver, an unowned planet keeps a ninth and nothing else
