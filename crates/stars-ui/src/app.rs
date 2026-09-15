@@ -7314,20 +7314,40 @@ impl App {
 
     /// The cost panel's right column: what the design *does*.
     ///
-    /// `Max Fuel`, `Armor`, `Shields` and `Rating` always; `Cloak/Jam`,
-    /// `Initiative` and `Scanner Range` only at 800x600 and above, which is the
-    /// `mdScreenSize` test in `DrawBuildSelHull`. There is no such thing here,
-    /// so they are always shown.
+    /// `DrawBuildSelHull` (`10c8:451e`): `Max Fuel`, `Armor`, `Shields` and
+    /// `Rating` always; `Cloak/Jam`, `Initiative/Moves` and `Scanner Range`
+    /// — or, for an Alternate Reality starbase, `Max Population` — only at
+    /// 800x600 and above, which is the `mdScreenSize` test. There is no
+    /// such thing here, so they are always shown. A bare hull gets the
+    /// fuel and armour alone.
+    ///
+    /// The rating is `LComputePower`, left off when it is nought; the
+    /// cloak is `PctCloakFromHuldef` for the player's own race (and for
+    /// nobody's in the Enemy view, `iplr == -1`), the jamming
+    /// `PctJammerFromHul`, the initiative `InitFromHuldef`, and the moves
+    /// the battle speed's quarter-squares from the table at `1120:0ca0`:
+    /// `--` for a hull with no engine, then `½` to `2½`.
     #[must_use]
     pub fn designer_stat_rows(&self) -> Vec<(String, String)> {
         let Some(design) = self.designer_subject() else {
             return Vec::new();
         };
-        let regenerating = self
+        let race = self
             .game
             .as_ref()
             .and_then(|g| g.players.get(self.local_player()))
-            .is_some_and(|p| p.race.has_lrt(stars_core::race::lrt::REGENERATING_SHIELDS));
+            .map(|p| p.race.clone());
+        let regenerating = race
+            .as_ref()
+            .is_some_and(|r| r.has_lrt(stars_core::race::lrt::REGENERATING_SHIELDS));
+        let hulls = self
+            .designer
+            .as_ref()
+            .is_some_and(|d| d.view == DesignView::Hulls && d.editing.is_none());
+        let enemy = self
+            .designer
+            .as_ref()
+            .is_some_and(|d| d.view == DesignView::Enemy && d.editing.is_none());
 
         let mut rows = Vec::new();
         if !design.is_starbase() {
@@ -7338,6 +7358,9 @@ impl App {
         if let Some(armor) = design.armor(regenerating) {
             rows.push(("Armor:".to_string(), format!("{armor}dp")));
         }
+        if hulls {
+            return rows;
+        }
         let shields = design.shields(regenerating);
         rows.push((
             "Shields:".to_string(),
@@ -7347,8 +7370,53 @@ impl App {
                 format!("{shields}dp")
             },
         ));
+        let rating = stars_core::score::design_power(&design);
+        if rating != 0 {
+            rows.push(("Rating:".to_string(), rating.to_string()));
+        }
 
-        if !design.is_starbase() {
+        // The rows the original keeps for 800x600 and above.
+        let cloak = if enemy {
+            stars_core::design::cloak_pct_of_points(i64::from(design.cloak_points()))
+        } else {
+            race.as_ref().map_or(0, |r| design.cloak_pct(r))
+        };
+        let fittings = stars_core::combat::fittings(&design);
+        // `PctJammerFromHul` (`10c8:42e6`) is the battle figure less a
+        // quarter on every starbase hull past the Orbital Fort.
+        let mut jam = fittings.pct_jam;
+        if design.hull_id > stars_core::hab::FIRST_STARBASE_HULL {
+            jam -= jam / 4;
+        }
+        rows.push(("Cloak/Jam:".to_string(), format!("{cloak}%/{jam}%")));
+        let moves = if design.is_starbase() || design.engine().is_none() {
+            "--"
+        } else {
+            let speed = race.as_ref().map_or(0, |r| {
+                usize::from(stars_core::combat::battle_speed(&design, r, 0))
+            });
+            BATTLE_MOVES[speed.min(BATTLE_MOVES.len() - 1)]
+        };
+        rows.push((
+            "Initiative/Moves:".to_string(),
+            format!("{}/{moves}", fittings.initiative),
+        ));
+
+        if design.is_starbase() {
+            if let Some(race) = race.as_ref().filter(|r| r.is_ar()) {
+                let hull = design.hull_id - stars_core::hab::FIRST_STARBASE_HULL;
+                if let Some(max) = usize::try_from(hull)
+                    .ok()
+                    .and_then(|h| stars_core::hab::AR_STARBASE_MAX_POP.get(h))
+                {
+                    let mut max = i64::from(*max) * 100;
+                    if race.has_lrt(stars_core::race::lrt::OBRM) {
+                        max += max / 10;
+                    }
+                    rows.push(("Max Population:".to_string(), crate::report::commas(max)));
+                }
+            }
+        } else {
             let range = design.scanner_range();
             let text = match (range.normal, range.penetrating) {
                 (0, _) => None,
@@ -7362,6 +7430,11 @@ impl App {
         rows
     }
 }
+
+/// The designer's `Moves` figure by battle speed, the three-byte strings at
+/// `1120:0ca0`: quarter-squares a round, from a half to two and a half. A
+/// hull with no engine shows the entry before them, `--`.
+const BATTLE_MOVES: [&str; 9] = ["½", "¾", "1", "1¼", "1½", "1¾", "2", "2¼", "2½"];
 
 // --- The Production dialog -----------------------------------------------
 

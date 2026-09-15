@@ -294,6 +294,17 @@ lower than 800x600", p. 9-3).
 The cost shown is the **true** cost, not the table price: see
 `../formulas/design.md` for miniaturisation and the two starbase adjustments.
 
+The right column's figures: `Rating:` is `LComputePower` (`../formulas/scores.md`),
+left off when it is nought; `Cloak/Jam:` is `PctCloakFromHuldef` for the
+player's own race — for nobody's in the Enemy view — over `PctJammerFromHul`
+(`10c8:42e6`), which is the battle jamming less a quarter on any starbase
+hull past the Orbital Fort; `Initiative/Moves:` is `InitFromHuldef` over the
+battle speed as quarter-squares a round, the three-byte strings at
+`1120:0ca0` — `--` for a hull with no engine, then `½` to `2½`; and an
+Alternate Reality race's starbase shows `Max Population:` (`rglPopMac`) in
+place of the scanner range. A bare hull shows only its fuel and armour. The
+800x600 gate is not reproduced: every row is always drawn.
+
 ## What is reproduced
 
 The two faces and the swap between them, both radio groups and all four views,
@@ -320,9 +331,6 @@ warning, and the cost and statistics panel with true costs.
   base back, so the choice wraps inside the hull's own group and can never land
   on another hull's ship. A new design starts on the first of its hull's four —
   which is why a hull's `ibmp` is a *base*, not a picture.
-* `Rating:` — `LComputePower`, which has not been read yet — and the
-  `Cloak/Jam` and `Initiative/Moves` rows, which need `PctCloakFromHuldef`,
-  `PctJammerFromHul` and `InitFromHuldef`.
 * `SHDEF.cBuilt`, so the plaque's second figure repeats the first.
 * The starbase **upgrade** credit: building a new starbase over an existing one
   costs less, part by part, and that is `GetProductionCosts` rather than the

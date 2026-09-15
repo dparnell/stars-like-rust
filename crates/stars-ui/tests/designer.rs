@@ -428,11 +428,39 @@ fn the_cost_panel_shows_what_it_would_really_cost() {
         vec!["Ironium", "Boranium", "Germanium", "Resources", "Mass"]
     );
 
+    // A bare hull gets its fuel and armour and nothing else
+    // (`DrawBuildSelHull`, `mdBuildHuldef`).
     let stats = app.designer_stat_rows();
     let labels: Vec<&str> = stats.iter().map(|(l, _)| l.as_str()).collect();
-    assert!(labels.contains(&"Max Fuel:"), "{labels:?}");
-    assert!(labels.contains(&"Armor:"), "{labels:?}");
+    assert_eq!(labels, vec!["Max Fuel:", "Armor:"], "{labels:?}");
+
+    // A design gets the lot: shields, the rating, the cloak and jamming,
+    // the initiative and moves, and the scanner range.
+    app.designer.as_mut().expect("open").view = DesignView::Existing;
+    let stats = app.designer_stat_rows();
+    let labels: Vec<&str> = stats.iter().map(|(l, _)| l.as_str()).collect();
     assert!(labels.contains(&"Shields:"), "{labels:?}");
+    assert!(labels.contains(&"Cloak/Jam:"), "{labels:?}");
+    assert!(labels.contains(&"Initiative/Moves:"), "{labels:?}");
+    let value = |label: &str| {
+        stats
+            .iter()
+            .find(|(l, _)| l == label)
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default()
+    };
+    assert_eq!(value("Cloak/Jam:"), "0%/0%", "a plain starting design");
+    let (initiative, moves) = {
+        let text = value("Initiative/Moves:");
+        let (i, m) = text.split_once('/').expect("initiative/moves");
+        (i.to_string(), m.to_string())
+    };
+    assert!(initiative.parse::<i32>().is_ok(), "{initiative}");
+    assert!(
+        ["½", "¾", "1", "1¼", "1½", "1¾", "2", "2¼", "2½"].contains(&moves.as_str()),
+        "{moves}"
+    );
+    app.designer.as_mut().expect("open").view = DesignView::Hulls;
 
     // The Orbital Fort is listed at 80 resources. It requires no technology at
     // all, so miniaturisation measures a Jack of All Trades' three starting
