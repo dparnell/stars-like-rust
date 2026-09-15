@@ -314,6 +314,26 @@ fn waypoint_task(app: &mut App, ui: &mut egui::Ui) {
             text.weak()
         });
     }
+    // Remote Mining over a planet the robots can dig: `Mining Rate per
+    // Year:` and the three figures in the mineral colours, each followed
+    // by `kT` (`DrawShipWayPtOrders`, `EstMineralsMined`).
+    if let Some(rate) = app.waypoint_mining_rate() {
+        ui.add_space(2.0);
+        ui.label(
+            egui::RichText::new("Mining Rate per Year:")
+                .small()
+                .strong(),
+        );
+        ui.horizontal(|ui| {
+            for (mineral, figure) in rate.iter().enumerate() {
+                ui.label(
+                    egui::RichText::new(format!("{figure}kT"))
+                        .small()
+                        .color(crate::views::mineral_colour(mineral)),
+                );
+            }
+        });
+    }
 }
 
 /// Lay Mine Field's duration: one to five years, then indefinitely.
@@ -386,6 +406,70 @@ fn patrol(app: &mut App, ui: &mut egui::Ui) {
             app.set_waypoint_task_word(1, chosen);
         }
     });
+    // Under the dropdown, `Warp Factor` and a gauge (`rgrcRef[18]`,
+    // `DrawFleetGauge` with no fleet): the warp the fleet patrols at, task
+    // word 0, 0 to 10, set by a press or drag along the bar
+    // (`ClickInShipOrders`, its `0x12` case).
+    let line = ui.text_style_height(&egui::TextStyle::Small);
+    let mine = app
+        .pane_fleet()
+        .is_some_and(|f| usize::try_from(f.owner).is_ok_and(|owner| owner == app.local_player()));
+    let warp = app.waypoint_task_word(0).min(10);
+    let top = ui.cursor().min;
+    let label_width = 64.0;
+    ui.painter().text(
+        top,
+        egui::Align2::LEFT_TOP,
+        "Warp Factor",
+        egui::TextStyle::Small.resolve(ui.style()),
+        ui.visuals().text_color(),
+    );
+    let bar = egui::Rect::from_min_size(
+        top + egui::vec2(label_width + 4.0, 0.0),
+        egui::vec2((ui.available_width() - label_width - 6.0).max(20.0), line),
+    );
+    let response = ui.interact(
+        bar,
+        ui.id().with("patrol-warp-gauge"),
+        if mine {
+            egui::Sense::click_and_drag()
+        } else {
+            egui::Sense::hover()
+        },
+    );
+    crate::views::record(app, ui, "Patrol warp gauge", &response);
+    let painter = ui.painter();
+    painter.rect_filled(bar, 0.0, ui.visuals().extreme_bg_color);
+    let filled = bar.width() * f32::from(warp) / 10.0;
+    painter.rect_filled(
+        egui::Rect::from_min_size(bar.min, egui::vec2(filled, bar.height())),
+        0.0,
+        egui::Color32::from_rgb(0x30, 0x80, 0xd0),
+    );
+    painter.rect_stroke(
+        bar,
+        0.0,
+        egui::Stroke::new(1.0_f32, ui.visuals().widgets.noninteractive.bg_stroke.color),
+    );
+    painter.text(
+        bar.center(),
+        egui::Align2::CENTER_CENTER,
+        format!("Warp {warp}"),
+        egui::TextStyle::Small.resolve(ui.style()),
+        ui.visuals().text_color(),
+    );
+    if mine && (response.dragged() || response.clicked()) {
+        if let Some(p) = response.interact_pointer_pos() {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let chosen = (((p.x - bar.left()) / bar.width()) * 11.0)
+                .floor()
+                .clamp(0.0, 10.0) as u16;
+            if chosen != warp {
+                app.set_waypoint_task_word(0, chosen);
+            }
+        }
+    }
+    ui.allocate_space(egui::vec2(ui.available_width(), line));
 }
 
 /// Transfer Fleet's recipient: every player but you, named as the original

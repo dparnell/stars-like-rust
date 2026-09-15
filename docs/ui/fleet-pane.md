@@ -130,9 +130,10 @@ record names the other fleet first with its gain as the quantity. This is
 
 ## Where it is
 
-`DrawShipPlanet` titles its tile with the planet the fleet is orbiting, or
-`In Deep Space` when it is not. Over a planet it also shows
-`Mining Rate per Year:` — what the fleet's mining robots would bring up.
+`DrawShipPlanet` (`1050:17b6`) titles its tile with the planet the fleet
+is orbiting, or `In Deep Space` when it is not, and places Goto and
+Xfer/Jettison across it; the `Mining Rate per Year:` row belongs to the
+Waypoint Task tile's Remote Mining note, below, not to this one.
 
 ## Fleet Waypoints
 
@@ -222,8 +223,15 @@ original's notices are authored prose.
 |------|------|
 | `Scrap Fleet` | the fleet is broken up, some minerals recovered |
 | `Merge with Fleet` | **warning** unless the waypoint's class is a fleet |
-| `Colonize` | **warning** with no colonists aboard, otherwise the dismantling note |
+| `Colonize` | **warning** when no design aboard has a Colonization Module or an Orbital Colonization Module (a `SPECIAL_M` slot holding item 0 or 1); else a **warning** with no colonists aboard; otherwise the dismantling note |
+| `Remote Mining` | **warning** when no ship carries a mining robot (`CMineFromLpfl` is 0); a plain note that only uninhabited planets can be mined when the waypoint is not a planet, or the planet is somebody's — the owner's own counts, unless they are Alternate Reality; a **warning** that nothing can be estimated when the planet's `det` is 1 or less; otherwise the `Mining Rate per Year:` row, `EstMineralsMined` with the fleet's robots, the three figures in the mineral colours (`App::waypoint_mining_rate`) |
 | `Lay Mine Field` | how many mines a year, or a **warning** with no layer aboard |
+
+Patrol has no note but a second control: under the Intercept dropdown,
+`Warp Factor` and a gauge (`rgrcRef[18]`, `DrawFleetGauge` with no fleet)
+of the warp the fleet patrols at, task word 0, 0 to 10, set by a press or
+drag along the bar (`ClickInShipOrders`, its `0x12` case). Recorded as
+`Patrol warp gauge`.
 
 ### The warp gauge
 
@@ -370,14 +378,9 @@ Also reproduced: the last tile as described above — its two titles, the
 dropdown, the skipped selection, and the two gauges with the cargo one
 segmented by mineral.
 
-Not reproduced: the two notes that need a component scan this project does not
-yet do — Colonize's "no colonisation module aboard" warning, and the whole of
-Remote Mining's, which is either a mining-rate estimate in the three mineral
-colours or one of three warnings; the patrol **warp** gauge under the Intercept
-dropdown, which is the other half of that task's payload; persisting the open
-tiles to `stars.ini`; the small-window
-layout, since the frame has no `fSmallTiles` to set; and the mining rate
-row. The location tile's own **Xfer** is there, and opens the
+Not reproduced: persisting the open tiles to `stars.ini`, and the
+small-window layout, since the frame has no `fSmallTiles` to set. The
+location tile's own **Xfer** is there, and opens the
 Cargo Transfer dialog (`cargo-transfer.md`), as do the last tile's
 **Cargo** and **Merge**; the location tile's **Jettison**, for a fleet in
 deep space, opens the same dialog on deep space.

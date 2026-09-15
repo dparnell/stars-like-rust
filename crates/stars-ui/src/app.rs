@@ -152,6 +152,17 @@ const PLANET_CLASS: u8 = 1;
 /// The object class for a fleet.
 const FLEET_CLASS: u8 = 2;
 
+/// What a Remote Mining task finds at its waypoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RemoteTarget {
+    /// No planet, or one that is not to be mined.
+    NotMinable,
+    /// A planet whose minerals are not on file.
+    Unknown,
+    /// A planet the robots can dig, by id.
+    Minable(i16),
+}
+
 /// What the player has picked out of the current game.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Selection {
@@ -4180,18 +4191,71 @@ impl App {
                         true,
                     )
                 }),
-            stars_formats::task::COLONIZE => Some(if fleet.cargo.colonists <= 0 {
-                (
-                    "The fleet is carrying no colonists. Load some before it gets there."
-                        .to_string(),
-                    true,
-                )
-            } else {
-                (
-                    "The ships are broken up on arrival to supply the new colony.".to_string(),
-                    false,
-                )
-            }),
+            // Colonize: first a scan of the fleet's designs for a
+            // Colonization Module or an Orbital Colonization Module — a
+            // `SPECIAL_M` slot holding item 0 or 1 — without which the
+            // mission cannot be carried out; then whether anybody is
+            // aboard; then the note that the ships are broken up.
+            stars_formats::task::COLONIZE => {
+                let designs = self.pane_fleet_designs();
+                let module = fleet.stacks.iter().filter(|s| s.count > 0).any(|s| {
+                    designs.get(usize::from(s.design)).is_some_and(|d| {
+                        d.slots.iter().any(|slot| {
+                            slot.category == stars_core::components::slot::SPECIAL_M
+                                && slot.item <= 1
+                                && slot.count > 0
+                        })
+                    })
+                });
+                Some(if !module {
+                    (
+                        "No ship in this fleet carries a colonisation module, so nothing can be \
+                         settled."
+                            .to_string(),
+                        true,
+                    )
+                } else if fleet.cargo.colonists <= 0 {
+                    (
+                        "The fleet is carrying no colonists. Load some before it gets there."
+                            .to_string(),
+                        true,
+                    )
+                } else {
+                    (
+                        "The ships are broken up on arrival to supply the new colony.".to_string(),
+                        false,
+                    )
+                })
+            }
+            // Remote Mining: no robots aboard is a warning; a planet that
+            // is not to be mined — somebody's, or the player's own unless
+            // Alternate Reality, or no planet at all — gets the plain note
+            // that only uninhabited planets can be mined; a planet whose
+            // figures are not on hand cannot be estimated; and one that
+            // can is the rate row, [`Self::waypoint_mining_rate`].
+            stars_formats::task::REMOTE_MINING => {
+                let designs = self.pane_fleet_designs();
+                let mines = stars_core::mining::remote_mines(designs, &fleet.stacks);
+                if mines == 0 {
+                    return Some((
+                        "No ship in this fleet carries a remote mining module.".to_string(),
+                        true,
+                    ));
+                }
+                match self.remote_mining_target() {
+                    RemoteTarget::NotMinable => Some((
+                        "Remote miners work only over planets nobody lives on.".to_string(),
+                        false,
+                    )),
+                    RemoteTarget::Unknown => Some((
+                        "Nothing is known of this planet's minerals, so the rate cannot be \
+                         estimated."
+                            .to_string(),
+                        true,
+                    )),
+                    RemoteTarget::Minable(_) => None,
+                }
+            }
             stars_formats::task::LAY_MINES => {
                 let designs = self
                     .game
@@ -4217,6 +4281,84 @@ impl App {
             }
             _ => None,
         }
+    }
+
+    /// What a Remote Mining task would be mining at the waypoint in hand.
+    fn remote_mining_target(&self) -> RemoteTarget {
+        let Some(leg) = self.task_leg() else {
+            return RemoteTarget::NotMinable;
+        };
+        let Some(fleet) = self.pane_fleet() else {
+            return RemoteTarget::NotMinable;
+        };
+        if leg.target_class != stars_core::fleet::grobj::PLANET {
+            return RemoteTarget::NotMinable;
+        }
+        let Some(game) = self.game.as_ref() else {
+            return RemoteTarget::NotMinable;
+        };
+        let planet = leg
+            .target
+            .and_then(|t| i16::try_from(t).ok())
+            .and_then(|id| {
+                game.planets
+                    .iter()
+                    .chain(game.known_planets.iter())
+                    .find(|p| p.id == id)
+            });
+        let Some(planet) = planet else {
+            return RemoteTarget::NotMinable;
+        };
+        // `DrawShipWayPtOrders`: somebody's planet is not mined, nor the
+        // fleet owner's own unless they are Alternate Reality.
+        if let Some(owner) = planet.owner {
+            let ar = owner == fleet.owner
+                && usize::try_from(owner)
+                    .ok()
+                    .and_then(|o| game.players.get(o))
+                    .is_some_and(|p| p.race.is_ar());
+            if !ar {
+                return RemoteTarget::NotMinable;
+            }
+        }
+        if planet.detail == stars_core::planet::Detail::Minimal {
+            return RemoteTarget::Unknown;
+        }
+        RemoteTarget::Minable(planet.id)
+    }
+
+    /// The **Mining Rate per Year:** row the Waypoint Task tile writes for
+    /// a Remote Mining task over a planet it can mine: `EstMineralsMined`
+    /// with the fleet's robots (`CMineFromLpfl`), the three figures in the
+    /// mineral colours. `None` when the tile writes a note instead.
+    #[must_use]
+    pub fn waypoint_mining_rate(&self) -> Option<[i32; 3]> {
+        let leg = self.task_leg()?;
+        if leg.task != stars_formats::task::REMOTE_MINING {
+            return None;
+        }
+        let fleet = self.pane_fleet()?;
+        let designs = self.pane_fleet_designs();
+        let mines = stars_core::mining::remote_mines(designs, &fleet.stacks);
+        if mines == 0 {
+            return None;
+        }
+        let RemoteTarget::Minable(id) = self.remote_mining_target() else {
+            return None;
+        };
+        let game = self.game.as_ref()?;
+        let planet = game
+            .planets
+            .iter()
+            .chain(game.known_planets.iter())
+            .find(|p| p.id == id)?;
+        let race = &game.players.get(usize::try_from(fleet.owner).ok()?)?.race;
+        Some(stars_core::mining::minerals_mined(
+            planet,
+            race,
+            Some(mines),
+            None,
+        ))
     }
 
     /// Delete the waypoint the map has in hand.

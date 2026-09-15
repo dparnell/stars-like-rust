@@ -287,3 +287,118 @@ fn only_your_own_fleets_take_a_task() {
         assert!(!app.set_waypoint_task_word(0, 3));
     }
 }
+
+/// Colonize's three notes (`DrawShipWayPtOrders`): no colonisation module
+/// aboard, nobody aboard, or the ships are broken up on arrival.
+#[test]
+fn colonize_looks_for_a_module_before_the_colonists() {
+    let mut app = a_game();
+    let fleet = a_fleet_with_legs(&mut app);
+    app.selection.waypoint = Some(1);
+    assert!(app.set_waypoint_task(task::COLONIZE));
+    // Design 0 is a scout with nothing to settle with.
+    let (note, warning) = app.waypoint_task_note().expect("a note");
+    assert!(warning && note.contains("module"), "{note}");
+
+    // A Santa Maria carries the module.
+    let santa_maria = app.game.as_ref().expect("a game").designs[0]
+        .iter()
+        .position(|d| d.name == "Santa Maria")
+        .expect("a colony ship design");
+    if let Some(game) = app.game.as_mut() {
+        game.fleets[fleet].stacks[0].design = u8::try_from(santa_maria).unwrap();
+    }
+    let (note, warning) = app.waypoint_task_note().expect("a note");
+    assert!(warning && note.contains("colonists"), "{note}");
+    if let Some(game) = app.game.as_mut() {
+        game.fleets[fleet].cargo.colonists = 25;
+    }
+    let (_, warning) = app.waypoint_task_note().expect("a note");
+    assert!(!warning, "with people aboard it is only a note");
+}
+
+/// Remote Mining's notes and its rate row: no robots is a warning, a planet
+/// not to be mined gets the note, one nobody knows cannot be estimated,
+/// and an uninhabited one on file gets `Mining Rate per Year`.
+#[test]
+fn remote_mining_estimates_the_rate_where_it_can() {
+    let mut app = a_game();
+    let fleet = a_fleet_with_legs(&mut app);
+    app.selection.waypoint = Some(1);
+    assert!(app.set_waypoint_task(task::REMOTE_MINING));
+    let (note, warning) = app.waypoint_task_note().expect("a note");
+    assert!(warning && note.contains("mining module"), "{note}");
+    assert!(app.waypoint_mining_rate().is_none());
+
+    // A Potato Bug is a remote miner (the stock template, which a race
+    // without Advanced Remote Mining does not start with); the leg points
+    // at nothing yet.
+    let miner = {
+        let game = app.game.as_mut().expect("a game");
+        game.designs[0]
+            .push(stars_core::startup::SHIPS[stars_core::startup::ship::POTATO_BUG].design());
+        game.designs[0].len() - 1
+    };
+    if let Some(game) = app.game.as_mut() {
+        game.fleets[fleet].stacks[0].design = u8::try_from(miner).unwrap();
+    }
+    let (_, warning) = app.waypoint_task_note().expect("a note");
+    assert!(!warning, "only uninhabited planets: a note, not a warning");
+
+    // At an unowned planet on file: the rate.
+    let target = app
+        .game
+        .as_ref()
+        .expect("a game")
+        .planets
+        .iter()
+        .find(|p| p.owner.is_none() && p.detail == stars_core::planet::Detail::Full)
+        .map(|p| p.id)
+        .expect("an unowned planet on file");
+    if let Some(game) = app.game.as_mut() {
+        let leg = &mut game.fleets[fleet].waypoints[1];
+        leg.target_class = grobj::PLANET;
+        leg.target = Some(u16::try_from(target).unwrap());
+    }
+    assert!(app.waypoint_task_note().is_none(), "the rate row instead");
+    let rate = app.waypoint_mining_rate().expect("a rate");
+    assert!(rate.iter().all(|r| *r >= 0));
+
+    // Somebody's planet: the note again.
+    let home = app
+        .game
+        .as_ref()
+        .expect("a game")
+        .planets
+        .iter()
+        .find(|p| p.owner == Some(0))
+        .map(|p| p.id)
+        .expect("the home world");
+    if let Some(game) = app.game.as_mut() {
+        game.fleets[fleet].waypoints[1].target = Some(u16::try_from(home).unwrap());
+    }
+    let (_, warning) = app.waypoint_task_note().expect("a note");
+    assert!(!warning);
+    assert!(app.waypoint_mining_rate().is_none());
+
+    // A planet only glimpsed: no estimate.
+    if let Some(game) = app.game.as_mut() {
+        let id = game.planets.iter().position(|p| p.id == target).unwrap();
+        game.planets[id].detail = stars_core::planet::Detail::Minimal;
+        game.fleets[fleet].waypoints[1].target = Some(u16::try_from(target).unwrap());
+    }
+    let (note, warning) = app.waypoint_task_note().expect("a note");
+    assert!(warning && note.contains("estimated"), "{note}");
+}
+
+/// Patrol's warp is task word 0, which the gauge under the Intercept
+/// dropdown sets.
+#[test]
+fn patrol_keeps_its_warp_in_word_zero() {
+    let mut app = a_game();
+    a_fleet_with_legs(&mut app);
+    app.selection.waypoint = Some(1);
+    assert!(app.set_waypoint_task(task::PATROL));
+    assert!(app.set_waypoint_task_word(0, 7));
+    assert_eq!(app.waypoint_task_word(0), 7);
+}
