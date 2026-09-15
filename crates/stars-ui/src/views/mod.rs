@@ -334,6 +334,38 @@ fn gauge(
     dragged
 }
 
+/// The visuals a tile's body is drawn with: the light theme, since the
+/// tile's face is the Windows button face (`C0C0C0`), with plain black
+/// lettering as `DrawTile` writes it and the selection in the system
+/// highlight blue.
+pub(crate) fn tile_visuals() -> egui::Visuals {
+    let mut visuals = egui::Visuals::light();
+    let colour = |[r, g, b]: [u8; 3]| egui::Color32::from_rgb(r, g, b);
+    let face = colour(crate::toolbar::FACE);
+    let text = colour(crate::statusbar::TEXT);
+    // Plain black lettering on every widget that is not selected — not an
+    // override, so a selected row keeps the highlight's white.
+    for widget in [
+        &mut visuals.widgets.noninteractive,
+        &mut visuals.widgets.inactive,
+        &mut visuals.widgets.hovered,
+        &mut visuals.widgets.active,
+        &mut visuals.widgets.open,
+    ] {
+        widget.fg_stroke.color = text;
+    }
+    visuals.widgets.noninteractive.bg_fill = face;
+    visuals.widgets.inactive.bg_fill = colour([0xd8, 0xd8, 0xd8]);
+    visuals.widgets.inactive.weak_bg_fill = face;
+    visuals.widgets.hovered.bg_fill = colour([0xe8, 0xe8, 0xe8]);
+    visuals.widgets.active.bg_fill = colour([0xf0, 0xf0, 0xf0]);
+    visuals.selection.bg_fill = egui::Color32::from_rgb(0x00, 0x00, 0x80);
+    visuals.selection.stroke = egui::Stroke::new(1.0_f32, egui::Color32::WHITE);
+    visuals.extreme_bg_color = egui::Color32::WHITE;
+    visuals.faint_bg_color = colour([0xd0, 0xd0, 0xd0]);
+    visuals
+}
+
 /// The frame every tile shares, as both panes draw it.
 fn tile(ui: &mut egui::Ui, title: &str, body: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::group(ui.style())
@@ -435,6 +467,10 @@ pub(crate) fn tile_pane(
             if open[*index] && inside.height() > 4.0 {
                 let mut child = ui.child_ui(inside, egui::Layout::top_down(egui::Align::Min), None);
                 child.set_clip_rect(inside);
+                // The tile's face is the button face, so its text and
+                // widgets take the light theme's colours: the shell's dark
+                // theme lettering is all but invisible on it.
+                child.style_mut().visuals = tile_visuals();
                 child.spacing_mut().item_spacing.y = 0.0;
                 // A tile's rows are a line each, `dyArial8` apart, and the
                 // table sizes the tile for exactly that many: egui's
