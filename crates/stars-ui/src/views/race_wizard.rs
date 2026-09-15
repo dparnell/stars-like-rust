@@ -68,8 +68,8 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) -> bool {
             0 => names(app, &mut child),
             1 => habitability(app, &mut child),
             2 => economy(app, &mut child),
-            3 => primary_trait(app, &mut child),
-            4 => lesser_traits(app, &mut child),
+            3 => primary_trait(app, &mut child, &at),
+            4 => lesser_traits(app, &mut child, &at),
             _ => research(app, &mut child),
         }
     }
@@ -344,20 +344,25 @@ fn economy(app: &mut App, ui: &mut egui::Ui) {
 
     for (stat, before, after) in ROWS {
         let mut value = wizard.race.stat(stat);
+        // Painted in the dialog's own small face in the original; the
+        // sentences do not fit the page's 261 units in anything larger.
         ui.horizontal(|ui| {
-            ui.label(before);
+            ui.label(egui::RichText::new(before).small());
             if ui
                 .add(egui::DragValue::new(&mut value).range(1..=100))
                 .changed()
             {
                 edits.push((stat, value));
             }
-            ui.label(after);
+            ui.label(egui::RichText::new(after).small());
         });
     }
     ui.add_space(4.0);
     let toggled = ui
-        .checkbox(&mut cheap, "Factories cost 1kT less of Germanium to build")
+        .checkbox(
+            &mut cheap,
+            egui::RichText::new("Factories cost 1kT less of Germanium to build").small(),
+        )
         .changed();
 
     for (stat, value) in edits {
@@ -368,18 +373,32 @@ fn economy(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
-/// Page 4: the one primary trait.
-fn primary_trait(app: &mut App, ui: &mut egui::Ui) {
+/// A control at the left of its template rectangle, as a Windows radio or
+/// check box sits, rather than centred in it.
+fn at_left<R>(ui: &mut egui::Ui, rect: egui::Rect, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    let mut child = ui.child_ui(rect, egui::Layout::left_to_right(egui::Align::Center), None);
+    add(&mut child)
+}
+
+/// Page 4: the one primary trait — ten radios in two columns of five,
+/// controls `0x10f` to `0x118` of the template.
+fn primary_trait(app: &mut App, ui: &mut egui::Ui, at: &impl Fn(u16) -> egui::Rect) {
     let Some(wizard) = app.race_wizard.as_ref() else {
         return;
     };
     let current = wizard.race.prt();
     let mut chosen = None;
-    for prt in Prt::ALL {
-        if ui
-            .selectable_label(current == Some(prt), prt.name())
+    for (index, prt) in Prt::ALL.into_iter().enumerate() {
+        #[allow(clippy::cast_possible_truncation)]
+        let id = 0x10f + index as u16;
+        let clicked = at_left(ui, at(id), |ui| {
+            ui.add(egui::RadioButton::new(
+                current == Some(prt),
+                egui::RichText::new(prt.name()).small(),
+            ))
             .clicked()
-        {
+        });
+        if clicked {
             chosen = Some(prt);
         }
     }
@@ -388,18 +407,25 @@ fn primary_trait(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
-/// Page 5: the fourteen lesser traits.
-fn lesser_traits(app: &mut App, ui: &mut egui::Ui) {
+/// Page 5: the fourteen lesser traits — check boxes in two columns of
+/// seven, controls `0x123` to `0x130` of the template.
+fn lesser_traits(app: &mut App, ui: &mut egui::Ui, at: &impl Fn(u16) -> egui::Rect) {
     let Some(wizard) = app.race_wizard.as_ref() else {
         return;
     };
     let mut toggled = None;
-    for bit in lrt::ALL {
+    for (index, bit) in lrt::ALL.into_iter().enumerate() {
+        #[allow(clippy::cast_possible_truncation)]
+        let id = 0x123 + index as u16;
         let mut on = wizard.race.has_lrt(bit);
-        if ui
-            .checkbox(&mut on, lrt::name(bit).unwrap_or("?"))
+        let changed = at_left(ui, at(id), |ui| {
+            ui.checkbox(
+                &mut on,
+                egui::RichText::new(lrt::name(bit).unwrap_or("?")).small(),
+            )
             .changed()
-        {
+        });
+        if changed {
             toggled = Some(bit);
         }
     }

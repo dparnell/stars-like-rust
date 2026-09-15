@@ -42,28 +42,127 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
 
 // --- browsing ------------------------------------------------------------
 
+/// The designer's client: 610 by 450 (`ShipBuilder`, `1020:4e14`), scaled
+/// with the width the window has. The template's controls are placed at
+/// their dialog-unit positions scaled the same way, and everything the
+/// code places from `ptslotGlob` at its pixel offset.
+struct Client {
+    rect: egui::Rect,
+    k: f32,
+}
+
+impl Client {
+    fn allocate(ui: &mut egui::Ui) -> Self {
+        let (client_w, client_h) = crate::dialog::SLOT_CLIENT;
+        let k = ui.available_width() / client_w;
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(client_w * k, client_h * k), egui::Sense::hover());
+        Client { rect, k }
+    }
+
+    /// A point of the client, in pixels of the original's.
+    fn px(&self, x: f32, y: f32) -> egui::Pos2 {
+        egui::pos2(self.rect.left() + x * self.k, self.rect.top() + y * self.k)
+    }
+
+    /// A rectangle of the client, in pixels of the original's.
+    fn at(&self, x: f32, y: f32, w: f32, h: f32) -> egui::Rect {
+        egui::Rect::from_min_size(self.px(x, y), egui::vec2(w * self.k, h * self.k))
+    }
+
+    /// One of the template's controls, where the template puts it.
+    fn control(&self, id: u16) -> egui::Rect {
+        crate::dialog::DESIGNER
+            .control(id)
+            .map_or(egui::Rect::NOTHING, |control| {
+                crate::dialog::place(self.rect.min, self.k, control.at)
+            })
+    }
+
+    /// A line and a half of Arial 8, the height of the foot's buttons.
+    fn button_h(&self) -> f32 {
+        (20.0 * self.k).clamp(16.0, 24.0)
+    }
+
+    /// One of the three buttons along the foot — OK, Cancel and Help at
+    /// 610 − 226, − 148 and − 74, 68 wide (`SlotDlg`'s `WM_INITDIALOG`).
+    fn foot_button(&self, x: f32) -> egui::Rect {
+        let h = self.button_h();
+        egui::Rect::from_min_size(
+            self.px(x, crate::dialog::SLOT_CLIENT.1 - 6.0) - egui::vec2(0.0, h),
+            egui::vec2(68.0 * self.k, h),
+        )
+    }
+}
+
+fn caption(id: u16) -> String {
+    crate::dialog::DESIGNER
+        .control(id)
+        .map_or_else(String::new, crate::dialog::Control::label)
+}
+
+/// A 3-D frame round a group of controls with its caption cut into the top
+/// edge, as `SlotDlg`'s `WM_PAINT` draws round the two radio groups:
+/// `ExpandRc(dyArial8, dyArial8 / 2)` round the first and last control,
+/// `Draw3dFrame`, and the caption at `left + 8`, half a line up.
+fn group_frame(ui: &egui::Ui, first: egui::Rect, last: egui::Rect, k: f32, caption: &str) {
+    let rect = first.union(last).expand2(egui::vec2(13.0 * k, 6.5 * k));
+    let painter = ui.painter();
+    let lit = egui::Color32::from_rgb(0xff, 0xff, 0xff);
+    let dark = egui::Color32::from_rgb(0x80, 0x80, 0x80);
+    painter.rect_stroke(rect, 0.0, egui::Stroke::new(1.0_f32, dark));
+    painter.rect_stroke(
+        rect.translate(egui::vec2(1.0, 1.0)),
+        0.0,
+        egui::Stroke::new(1.0_f32, lit),
+    );
+    let font = egui::FontId::proportional((11.0 * k).clamp(9.0, 13.0));
+    let colour = ui.visuals().strong_text_color();
+    let galley = painter.layout_no_wrap(caption.to_string(), font, colour);
+    let at = egui::pos2(rect.left() + 8.0 * k, rect.top() - galley.size().y / 2.0);
+    painter.rect_filled(
+        egui::Rect::from_min_size(at, galley.size()).expand2(egui::vec2(2.0, 0.0)),
+        0.0,
+        ui.visuals().window_fill(),
+    );
+    painter.galley(at, galley, colour);
+}
+
 fn browser(app: &mut App, ui: &mut egui::Ui) {
     // Components view is the odd one out: there is no design to show, so the
-    // parts list fills the space the schematic had and the dropdown becomes
+    // parts list stands where the schematic was and the dropdown becomes
     // the category filter (`DrawSlotDlg` returns early on `mdBuildComp`).
     let components = app
         .designer
         .as_ref()
         .is_some_and(|d| d.view == DesignView::Components);
 
-    let template = &crate::dialog::DESIGNER;
-    let (rect, at, caption) = crate::views::dialog_frame(ui, template);
+    let client = Client::allocate(ui);
+    let rect = client.rect;
+    let k = client.k;
 
-    // The left column: the two radio groups and the three buttons, each where
-    // the template puts it.
-    radios(app, ui, &at, &caption);
+    // The left column: the two radio groups in their frames and the three
+    // buttons, each where the template puts it.
+    group_frame(
+        ui,
+        client.control(0x810),
+        client.control(0x811),
+        k,
+        "Design",
+    );
+    group_frame(ui, client.control(0x812), client.control(0x815), k, "View");
+    radios(app, ui, &|id| client.control(id), &caption);
     let can_copy = app.designer_can_copy();
     let can_edit = app.designer_can_edit();
     let can_delete = app.designer_can_delete();
-    if crate::views::placed_button(app, ui, at(0x816), &caption(0x816), can_copy).clicked() {
+    if crate::views::placed_button(app, ui, client.control(0x816), &caption(0x816), can_copy)
+        .clicked()
+    {
         app.designer_copy();
     }
-    if crate::views::placed_button(app, ui, at(0x817), &caption(0x817), can_delete).clicked() {
+    if crate::views::placed_button(app, ui, client.control(0x817), &caption(0x817), can_delete)
+        .clicked()
+    {
         match app.designer_delete_warning() {
             Some(question) => {
                 if let Some(designer) = app.designer.as_mut() {
@@ -73,50 +172,72 @@ fn browser(app: &mut App, ui: &mut egui::Ui) {
             None => app.designer_delete(),
         }
     }
-    if crate::views::placed_button(app, ui, at(0x818), &caption(0x818), can_edit).clicked() {
+    if crate::views::placed_button(app, ui, client.control(0x818), &caption(0x818), can_edit)
+        .clicked()
+    {
         app.designer_edit();
     }
 
-    // The dropdown, and under it the design itself.
-    let dd = at(0x81a);
-    let dd = egui::Rect::from_min_size(dd.min, egui::vec2(dd.width(), dd.height().min(24.0)));
+    // The dropdown at (610 − 264, 8), 240 wide — eight further right in
+    // Components view, where it is the category filter over the parts
+    // list at (610 − 256, 32), 240 by 266.
+    let tall = client.button_h();
+    let done_rect = client.foot_button(462.0);
+    let foot = done_rect.top() - 6.0;
     if components {
+        let dd = egui::Rect::from_min_size(client.px(354.0, 8.0), egui::vec2(240.0 * k, tall));
         filter_dropdown(app, ui, dd);
+        let list = client.at(354.0, 32.0, 240.0, 266.0).intersect(rect);
+        let mut child = ui.child_ui(list, egui::Layout::top_down(egui::Align::Min), None);
+        child.set_clip_rect(list);
+        egui::Frame::default()
+            .inner_margin(4.0)
+            .show(&mut child, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_source("designer-components")
+                    .show(ui, |ui| parts_list(app, ui, false));
+            });
     } else {
+        let dd = egui::Rect::from_min_size(client.px(346.0, 8.0), egui::vec2(240.0 * k, tall));
         dropdown(app, ui, dd);
-    }
 
-    // The design's picture, schematic and plaque go under the dropdown, in the
-    // space the template leaves between it and the buttons along the right.
-    let body = egui::Rect::from_min_max(
-        egui::pos2(rect.left() + 110.0, dd.bottom() + 6.0),
-        egui::pos2(rect.right() - 4.0, rect.bottom() - 4.0),
-    );
-    if body.height() > 8.0 {
-        let mut child = ui.child_ui(body, egui::Layout::top_down(egui::Align::Min), None);
-        child.set_clip_rect(body);
-        if components {
-            egui::ScrollArea::vertical()
-                .id_source("designer-components")
-                .show(&mut child, |ui| parts_list(app, ui, false));
-        } else {
-            picture(app, &mut child, false, true);
-            schematic(app, &mut child, false, CELL);
-            if let Some((alive, built)) = app.designer_plaque() {
-                child.add_space(2.0);
-                child.label(
-                    egui::RichText::new(format!("{alive} of {built}"))
-                        .small()
-                        .strong(),
-                );
+        // The hull's picture at (610 − 338, 6), the slot grid from
+        // (610 − 330, 32), and under the grid the plaque at its origin
+        // plus (0x102, 0x111); the numbers panel fills the left half from
+        // `yBuildInfoSum` (340) down.
+        let picture_rect = client.at(272.0, 6.0, 66.0, 90.0);
+        if picture_rect.height() > 8.0 {
+            let mut child =
+                ui.child_ui(picture_rect, egui::Layout::top_down(egui::Align::Min), None);
+            child.set_clip_rect(picture_rect);
+            picture(app, &mut child, false, false);
+        }
+        let grid =
+            egui::Rect::from_min_max(client.px(280.0, 32.0), egui::pos2(rect.right() - 4.0, foot));
+        if grid.width() > 40.0 && grid.height() > 8.0 {
+            let mut child = ui.child_ui(grid, egui::Layout::top_down(egui::Align::Min), None);
+            child.set_clip_rect(grid);
+            schematic(app, &mut child, false, 32.0 * k);
+        }
+        if let Some((alive, built)) = app.designer_plaque() {
+            let (dx, dy) = crate::dialog::PLAQUE_OFFSET;
+            let plaque = client.at(280.0 + dx, 32.0 + dy, 60.0, 30.0);
+            if plaque.bottom() <= foot {
+                plaque_widget(app, ui, plaque, alive, built);
             }
+        }
+        let numbers =
+            egui::Rect::from_min_max(client.px(16.0, 340.0), egui::pos2(rect.center().x, foot));
+        if numbers.height() > 8.0 {
+            let mut child = ui.child_ui(numbers, egui::Layout::top_down(egui::Align::Min), None);
+            child.set_clip_rect(numbers);
             stats(app, &mut child);
         }
     }
 
     // `ShowMainControls` hides OK in the browser and calls the button beside
     // it `Done`; the browser's only way out is that one.
-    if crate::views::placed_button(app, ui, at(0x2), crate::dialog::DESIGNER_CLOSE.0, true)
+    if crate::views::placed_button(app, ui, done_rect, crate::dialog::DESIGNER_CLOSE.0, true)
         .clicked()
     {
         app.close_designer();
@@ -125,6 +246,42 @@ fn browser(app: &mut App, ui: &mut egui::Ui) {
     if let Some(question) = app.designer.as_ref().and_then(|d| d.confirm.clone()) {
         confirm(app, ui, rect, &question);
     }
+}
+
+/// The plaque under an existing design's schematic: the game's own
+/// picture of it (`hdibPlaque`, 60 by 30) with `%ld of %ld` printed on
+/// it — how many ships of the design exist, and how many were built.
+fn plaque_widget(app: &mut App, ui: &mut egui::Ui, rect: egui::Rect, alive: i64, built: i64) {
+    let ctx = ui.ctx().clone();
+    let cell = stars_formats::resources::art::Cell {
+        resource: crate::dialog::PLAQUE_BITMAP,
+        x: 0,
+        y: 0,
+        width: 60,
+        height: 30,
+    };
+    let drawn = app
+        .art
+        .as_mut()
+        .and_then(|art| art.sprite_at_size(&ctx, cell, rect.size()))
+        .map(|image| image.paint_at(ui, rect))
+        .is_some();
+    let painter = ui.painter();
+    if !drawn {
+        painter.rect_filled(rect, 2.0, ui.visuals().faint_bg_color);
+        painter.rect_stroke(rect, 2.0, ui.visuals().widgets.noninteractive.bg_stroke);
+    }
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        format!("{alive} of {built}"),
+        egui::FontId::proportional((rect.height() * 0.36).clamp(8.0, 12.0)),
+        if drawn {
+            egui::Color32::WHITE
+        } else {
+            ui.visuals().text_color()
+        },
+    );
 }
 
 /// The confirmation the Delete button raises, over the dialog's own foot.
@@ -160,19 +317,22 @@ fn radios(
     let mut starbase = designer.starbase;
     let mut view = designer.view;
 
+    // A radio sits at the left of its rectangle, as a Windows radio does,
+    // rather than centred in it.
+    let radio_at = |ui: &mut egui::Ui, rect: egui::Rect, on: bool, text: &str| {
+        let mut child = ui.child_ui(rect, egui::Layout::left_to_right(egui::Align::Center), None);
+        child.add(egui::RadioButton::new(
+            on,
+            egui::RichText::new(text).small(),
+        ))
+    };
     // `Ships` and `Starbases` — the resource's captions are plural.
-    let ships = ui.put(
-        at(0x810),
-        egui::RadioButton::new(!starbase, egui::RichText::new(caption(0x810)).small()),
-    );
+    let ships = radio_at(ui, at(0x810), !starbase, &caption(0x810));
     crate::views::record(app, ui, &caption(0x810), &ships);
     if ships.clicked() {
         starbase = false;
     }
-    let bases = ui.put(
-        at(0x811),
-        egui::RadioButton::new(starbase, egui::RichText::new(caption(0x811)).small()),
-    );
+    let bases = radio_at(ui, at(0x811), starbase, &caption(0x811));
     crate::views::record(app, ui, &caption(0x811), &bases);
     if bases.clicked() {
         starbase = true;
@@ -182,10 +342,7 @@ fn radios(
     for (index, choice) in DesignView::ALL.into_iter().enumerate() {
         #[allow(clippy::cast_possible_truncation)]
         let id = 0x812 + index as u16;
-        let radio = ui.put(
-            at(id),
-            egui::RadioButton::new(view == choice, egui::RichText::new(caption(id)).small()),
-        );
+        let radio = radio_at(ui, at(id), view == choice, &caption(id));
         crate::views::record(app, ui, &caption(id), &radio);
         if radio.clicked() {
             view = choice;
@@ -257,27 +414,13 @@ fn editor(app: &mut App, ui: &mut egui::Ui) {
     // Cancel and Help sit along the foot at 610 − 226, − 148 and − 74,
     // 68 wide and a line and a half tall (`SlotDlg`'s `WM_INITDIALOG`).
     // Everything scales with the width the frame has.
-    let template = &crate::dialog::DESIGNER;
-    let (client_w, client_h) = crate::dialog::SLOT_CLIENT;
-    let k = ui.available_width() / client_w;
-    let (rect, _) =
-        ui.allocate_exact_size(egui::vec2(client_w * k, client_h * k), egui::Sense::hover());
-    let px = |x: f32, y: f32| egui::pos2(rect.left() + x * k, rect.top() + y * k);
-    let caption = |id: u16| {
-        template
-            .control(id)
-            .map_or_else(String::new, crate::dialog::Control::label)
-    };
-    let tall = (20.0 * k).clamp(16.0, 24.0);
-    let button_h = (20.0 * k).clamp(16.0, 24.0);
-    let button = |x: f32| {
-        egui::Rect::from_min_size(
-            px(x, client_h - 6.0) - egui::vec2(0.0, button_h),
-            egui::vec2(68.0 * k, button_h),
-        )
-    };
-    let ok_rect = button(384.0);
-    let cancel_rect = button(462.0);
+    let client = Client::allocate(ui);
+    let rect = client.rect;
+    let k = client.k;
+    let px = |x: f32, y: f32| client.px(x, y);
+    let tall = client.button_h();
+    let ok_rect = client.foot_button(384.0);
+    let cancel_rect = client.foot_button(462.0);
     name_field(
         app,
         ui,

@@ -327,11 +327,9 @@ warning, and the cost and statistics panel with true costs.
 * The starbase **upgrade** credit: building a new starbase over an existing one
   costs less, part by part, and that is `GetProductionCosts` rather than the
   designer.
-* The dialog's exact pixel geometry, in the **browser**. The original places
-  its controls from the dialog resource and from `ptslotGlob`; this lays the
-  same pieces out in the same arrangement without matching coordinates. The
-  **editor** is laid out from `ptslotGlob` as the original's is:
-  `ShipBuilder` is called with a client of 610 by 450 (`CommandHandler`,
+* Nothing of the dialog's geometry any more: both faces are laid out on
+  the original's client. `ShipBuilder` is called with a client of 610 by 450
+  (`CommandHandler`,
   `1020:4e14`), and `SlotDlg`'s edit branch (`10c8:1f67`) moves the parts
   list to (16, 32) with the category filter at (16, 8) — the column the
   radios had, both 240 wide, the list 266 tall — and the name field to
@@ -344,8 +342,13 @@ warning, and the cost and statistics panel with true costs.
   `yBuildInfoSum` (340) down, under the list; OK, Cancel and Help sit
   along the foot at 610 − 226, − 148 and − 74, 68 wide. On the way out of
   the editor the list goes back to the right (610 − 256, 32) and is hidden
-  unless the view is Components. The editor here takes a 610 by 450 client
-  scaled with the width the window has and places every piece so; the
-  browser still keeps the template's own proportions.
+  unless the view is Components. The **browser** keeps the same client: the
+  two radio groups in their 3-D frames and the three buttons at the
+  template's own positions down the left, the dropdown at (610 − 264, 8)
+  — eight further right in Components view, over the list — the picture,
+  grid, plaque (grid origin plus `(0x102, 0x111)`, the top-left 60 by 30
+  of `hdibPlaque`) and numbers panel where the editor has them, and Done
+  in Cancel's place along the foot. Both take the 610 by 450 client scaled
+  with the width the window has.
 * Tutorial gating (`FTutorialEnabledShipBuilder`), the help file, and the
   sticky dialog position.

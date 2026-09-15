@@ -423,6 +423,8 @@ pub const SLOT_CLIENT: (f32, f32) = (610.0, 450.0);
 pub const SLOT_ORIGIN_BACK: f32 = 0x14a as f32;
 /// How far down the designer's grid starts.
 pub const SLOT_ORIGIN_TOP: f32 = 32.0;
+/// The plaque's own picture, `hdibPlaque` (bitmap 449), 60 by 30.
+pub const PLAQUE_BITMAP: u16 = 449;
 /// Where the plaque sits from the grid's origin.
 pub const PLAQUE_OFFSET: (f32, f32) = (0x102 as f32, 0x111 as f32);
 

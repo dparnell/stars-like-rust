@@ -152,6 +152,16 @@ impl Art {
         self.sprite_sized(ctx, cell, egui::vec2(size, size))
     }
 
+    /// One cell of a sheet, stretched to a size of the caller's choosing.
+    pub fn sprite_at_size(
+        &mut self,
+        ctx: &egui::Context,
+        cell: Cell,
+        size: egui::Vec2,
+    ) -> Option<egui::Image<'_>> {
+        self.sprite_sized(ctx, cell, size)
+    }
+
     /// One cell of a sheet at a size of the caller's choosing.
     fn sprite_sized(
         &mut self,

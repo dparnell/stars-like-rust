@@ -77,14 +77,20 @@ fn universe(app: &mut App, ui: &mut egui::Ui) {
         );
         return;
     }
+    // The value column wraps within the window: the options line names
+    // every option the game has on, and runs long.
+    let label_width = 90.0;
+    let value_width = (ui.available_width() - label_width - 14.0).max(120.0);
     egui::Grid::new("game-parameters")
         .num_columns(2)
         .spacing([14.0, 2.0])
         .striped(true)
+        .min_col_width(label_width)
+        .max_col_width(value_width)
         .show(ui, |ui| {
             for (label, value) in &rows {
                 ui.label(egui::RichText::new(label).small());
-                ui.label(egui::RichText::new(value).small());
+                ui.add(egui::Label::new(egui::RichText::new(value).small()).wrap());
                 ui.end_row();
             }
         });
