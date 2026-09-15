@@ -58,16 +58,19 @@ bombs     = Σ bomb slots:    (colonists killed + installations destroyed) × co
 capacitors: a running 1000, multiplied by (100 + ability) / 100 for each one fitted
             (the Energy and Flux Capacitors, items 12 and 13 of the electrical specials)
 if any capacitor: beams = beams × min(capacitors / 10, 255) / 100
-power = bombs + beams + torpedoes
+speed     = SpdOfShip(design alone)            # no fleet: no War Monger bonus, no cargo
+power = bombs + beams + beams × (speed − 4) / 10 + torpedoes
 ```
 
 `power <= 0` is unarmed, `power < 2000` an escort, and the rest are capital
 ships (`1038:5b14`, `1038:5b4a`).
 
-The original adds one more term — `beams × (speed - 4) / 10`, the speed coming
-from `SpdOfShip`, which is not recovered yet. Leaving it out changed **none** of
-the 1,826 rows, so no design in the fixtures sits close enough to 2000 for it to
-matter; a design that did could be classified one step low.
+The speed term (`1038:0d6e`) is the design's battle speed as `combat.md`
+recovers it, asked with no fleet behind the design (`SpdOfShip(NULL, …)`),
+so the War Monger's two and the cargo's drag are left out. A speed-4 design
+adds nothing; a speed-8 beam boat is worth 40% more, a speed-0 one 40% less.
+With or without the term the 1,826 score rows agree, so no fixture design
+sits close enough to 2000 for it to have told.
 
 ## Ranking (`UpdatePlayerScores`, `10b8:6258`)
 

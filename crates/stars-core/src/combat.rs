@@ -328,6 +328,22 @@ pub fn battle_speed(
     race: &crate::race::Race,
     cargo_share: i32,
 ) -> u8 {
+    battle_speed_of(
+        design,
+        race.prt() == Some(crate::race::Prt::Wm),
+        cargo_share,
+    )
+}
+
+/// [`battle_speed`] with the War Monger bonus given outright — which
+/// `SpdOfShip` leaves out when it is asked about a design with no fleet
+/// behind it, as `LComputePower` asks (`1038:0d6e`).
+#[must_use]
+pub fn battle_speed_of(
+    design: &crate::design::ShipDesign,
+    war_monger: bool,
+    cargo_share: i32,
+) -> u8 {
     use crate::components::slot;
     let mut engine: Option<(usize, i32)> = None;
     let mut halves = 0i32;
@@ -371,7 +387,7 @@ pub fn battle_speed(
         i32::try_from(warp).unwrap_or(0)
     };
     let mut speed = base - 4 + whole + (halves + 1) / 2;
-    if race.prt() == Some(crate::race::Prt::Wm) {
+    if war_monger {
         speed += 2;
     }
     let mass = design.mass().unwrap_or(0) + cargo_share.max(0);

@@ -47,10 +47,10 @@ pub const CAPITAL_POWER: i32 = 2000;
 /// percentage, and the result, divided by ten and capped at 255, is applied to
 /// the beams as a percentage.
 ///
-/// The original adds one more term, `beams × (speed - 4) / 10`, where the speed
-/// is the design's battle speed from `SpdOfShip`. That routine is not recovered
-/// yet, so this leaves the term out; a design close to [`CAPITAL_POWER`] could
-/// therefore be classified one step low.
+/// Last, `beams × (speed − 4) / 10` (`1038:0d6e`), where the speed is the
+/// design's battle speed from `SpdOfShip` asked with no fleet behind it —
+/// no War Monger bonus, no cargo — so a fast beam ship counts for more and
+/// a slow one for less.
 #[must_use]
 pub fn design_power(design: &ShipDesign) -> i32 {
     use crate::components::{slot, BEAMS, BOMBS, SPECIALS_E, TORPEDOES};
@@ -111,7 +111,9 @@ pub fn design_power(design: &ShipDesign) -> i32 {
         let scale = (capacitors / 10).min(255);
         beams = beams * scale / 100;
     }
-    i32::try_from(bombs + beams + torpedoes).unwrap_or(i32::MAX)
+    let speed = i64::from(crate::combat::battle_speed_of(design, false, 0));
+    let by_speed = beams * (speed - 4) / 10;
+    i32::try_from(bombs + beams + by_speed + torpedoes).unwrap_or(i32::MAX)
 }
 
 /// Which of the three classes a design's ships count as.
