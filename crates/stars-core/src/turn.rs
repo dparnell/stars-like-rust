@@ -261,7 +261,10 @@ pub fn generate_turn_with_orders(
     // --- MoveFleets, which happens before Produce. Which fleets moved is
     // remembered for the tasks that want a fleet to have been **here all
     // turn** (`fHereAllTurn`): laying mines and remote mining.
-    let mut moved_this_turn: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+    // Fleets that travelled this year, by `(owner, id)` — a fleet can be
+    // pruned before this is read, so an index would not do.
+    let mut moved_this_turn: std::collections::BTreeSet<(i16, u16)> =
+        std::collections::BTreeSet::new();
     // A fleet whose next waypoint is another **fleet** chases it
     // (`10b0:426f`): it does not move in the first pass, and in the passes
     // after — up to ten — it flies toward wherever its quarry now is, all
@@ -343,7 +346,8 @@ pub fn generate_turn_with_orders(
             if let Some((travelled, dry)) = outcome {
                 report.moved.push((state.fleets[index].id, travelled));
                 if travelled > 0 {
-                    moved_this_turn.insert(index);
+                    let f = &state.fleets[index];
+                    moved_this_turn.insert((f.owner, f.id));
                 }
                 let fleet_id = state.fleets[index].id;
                 match dry {
@@ -410,6 +414,9 @@ pub fn generate_turn_with_orders(
         }
         passes += 1;
     }
+
+    // A fleet a minefield emptied is gone.
+    prune_destroyed(state, &report.mine_hits);
 
     // --- ThingDecay: an armed field goes off under everyone inside it, and
     // then every field loses a slice of itself. A field that runs out is gone.
@@ -748,7 +755,8 @@ pub fn generate_turn_with_orders(
     // --- SatisfyOrders(3): laying mines. A fleet ordered to lay does so where
     // it now is, into its own field if one reaches that far.
     for index in 0..state.fleets.len() {
-        let laid = lay_mines_for_fleet(state, index, moved_this_turn.contains(&index));
+        let key = (state.fleets[index].owner, state.fleets[index].id);
+        let laid = lay_mines_for_fleet(state, index, moved_this_turn.contains(&key));
         let id = state.fleets[index].id;
         let owner = usize::try_from(state.fleets[index].owner).ok();
         let total: i32 = laid.iter().map(|(_, mines)| mines).sum();
@@ -771,8 +779,8 @@ pub fn generate_turn_with_orders(
     // over an unowned planet, carrying mining robots and ordered to mine, digs
     // as `CMineFromLpfl` mines would and leaves the minerals on the surface.
     for index in 0..state.fleets.len() {
-        let Some(mined) =
-            remote_mine_for_fleet(state, index, rng, moved_this_turn.contains(&index))
+        let key = (state.fleets[index].owner, state.fleets[index].id);
+        let Some(mined) = remote_mine_for_fleet(state, index, rng, moved_this_turn.contains(&key))
         else {
             continue;
         };
@@ -1197,7 +1205,7 @@ fn cross_minefields(
             .is_some_and(|r| *r == 1)
     };
     let to = state.fleets[index].position;
-    let hit = crate::minefield::traverse(
+    let (field_index, at) = crate::minefield::traverse(
         &state.minefields,
         &state.fleets[index],
         crate::minefield::Leg {
@@ -1211,12 +1219,15 @@ fn cross_minefields(
     )?;
 
     // The fleet stops where it was hit.
-    let stopped = crate::movement::advance(from, to, hit.travelled);
+    let stopped = crate::movement::advance(from, to, at);
     let fleet = &mut state.fleets[index];
     fleet.position = stopped;
     if stopped != to {
         fleet.orbiting = None;
     }
+
+    let field = state.minefields[field_index].clone();
+    let hit = mine_hit(state, index, &field, at, false)?;
 
     // The field pays for it too, and the player who found it can now see it.
     if let Some(field) = state
@@ -1235,11 +1246,227 @@ fn cross_minefields(
     Some(hit)
 }
 
+/// What a minefield does to a fleet once it has it: the damage
+/// ([`crate::minefield::apply_damage`]), the cargo the dead ships can no
+/// longer carry dropped as salvage where the fleet stands
+/// (`FleetTransferCargoBalance` into a fleet of the dead, then
+/// `DropSalvage`, `10b0:5f2c`), and the two owners told.
+///
+/// A detonation that does nothing is not a hit (`10b0:5cf0`). A Space
+/// Demolition field owner's learning of the designs it hit (`10b0:6174`)
+/// is not modelled. The fleet, if emptied, is left for the movement pass
+/// to prune.
+fn mine_hit(
+    state: &mut GameState,
+    index: usize,
+    field: &crate::minefield::Minefield,
+    travelled: i32,
+    detonation: bool,
+) -> Option<crate::minefield::MineHit> {
+    use crate::message::{fleet_name_word, fleet_object, id, Message, THING_OBJECT};
+
+    let owner = usize::try_from(state.fleets[index].owner).ok()?;
+    let designs = state.designs.get(owner).cloned().unwrap_or_default();
+    let regen = state
+        .players
+        .get(owner)
+        .is_some_and(|p| p.race.has_lrt(crate::race::lrt::REGENERATING_SHIELDS));
+    let before = state.fleets[index].stacks.clone();
+    let (design, mixed) = primary_design(&state.fleets[index]);
+    let hit = crate::minefield::apply_damage(
+        &mut state.fleets[index],
+        &designs,
+        regen,
+        field,
+        travelled,
+        detonation,
+    );
+    if detonation && hit.damage == 0 {
+        return None;
+    }
+
+    // The dead ships' share of the cargo goes down with them.
+    let mut salvage: Option<u16> = None;
+    if hit.ships_lost > 0 {
+        let mut dead = Fleet {
+            stacks: before
+                .iter()
+                .map(|was| {
+                    let now = state.fleets[index]
+                        .stacks
+                        .iter()
+                        .find(|s| s.design == was.design)
+                        .map_or(0, |s| s.count);
+                    crate::fleet::ShipStack {
+                        design: was.design,
+                        count: was.count - now,
+                        damaged_pct: 0,
+                        damage_pct: 0,
+                    }
+                })
+                .collect(),
+            ..state.fleets[index].clone()
+        };
+        dead.cargo = crate::fleet::Cargo::default();
+        crate::fleet::balance_cargo(
+            [&mut state.fleets[index], &mut dead],
+            [&before, &[]],
+            &designs,
+        );
+        if dead.cargo.minerals.iter().any(|m| *m > 0) {
+            let at = state.fleets[index].position;
+            salvage = crate::combat::drop_salvage(state, at, dead.cargo.minerals);
+        }
+    }
+
+    // Both sides hear of it.
+    let fleet_id = state.fleets[index].id;
+    let field_owner = usize::try_from(field.owner).ok();
+    let at = state.fleets[index].position;
+    let kind = i16::from(field.kind);
+    let thing_full = |ith: u16, owner: i16, id: u16| -> i16 {
+        ((ith << 13) | (u16::try_from(owner).unwrap_or(0) & 0xf) << 9 | (id & 0x1ff)) as i16
+    };
+    let damage = i16::try_from(hit.damage).unwrap_or(i16::MAX);
+    let lost = i16::try_from(hit.ships_lost).unwrap_or(i16::MAX);
+    let object = fleet_object(fleet_id);
+    let mut push = |player: usize, id: u16, object: i16, params: Vec<i16>| {
+        state.messages.push(Message {
+            player,
+            id,
+            object,
+            params,
+        });
+    };
+    if hit.damage == 0 {
+        if Some(owner) != field_owner {
+            push(
+                owner,
+                id::MINE_HIT_NO_DAMAGE,
+                object,
+                vec![object, field.owner, kind, at.x, at.y],
+            );
+        }
+        if let Some(fo) = field_owner {
+            push(
+                fo,
+                id::YOUR_FIELD_HIT_NO_DAMAGE,
+                object,
+                vec![object, kind, at.x, at.y],
+            );
+        }
+    } else if hit.ships_lost == 0 {
+        if Some(owner) != field_owner {
+            let id = if detonation {
+                id::MINE_DETONATED_ON
+            } else {
+                id::MINE_HIT
+            };
+            push(
+                owner,
+                id,
+                object,
+                vec![object, field.owner, kind, at.x, at.y, damage],
+            );
+        }
+        if let Some(fo) = field_owner {
+            let id = if detonation {
+                id::YOUR_FIELD_DETONATED_ON
+            } else {
+                id::YOUR_FIELD_HIT
+            };
+            push(fo, id, object, vec![object, kind, at.x, at.y, damage]);
+        }
+    } else if hit.fleet_destroyed {
+        let named = fleet_name_word(fleet_id, design, mixed);
+        match salvage {
+            None => {
+                if Some(owner) != field_owner {
+                    push(
+                        owner,
+                        id::MINE_HIT_DESTROYED,
+                        -1,
+                        vec![named, field.owner, kind, at.x, at.y],
+                    );
+                }
+                if let Some(fo) = field_owner {
+                    if fo == owner {
+                        push(
+                            fo,
+                            id::YOUR_FIELD_DESTROYED_YOURS,
+                            -1,
+                            vec![named, kind, at.x, at.y],
+                        );
+                    } else {
+                        push(
+                            fo,
+                            id::YOUR_FIELD_DESTROYED_FLEET,
+                            THING_OBJECT,
+                            vec![
+                                thing_full(0, field.owner, field.id),
+                                fleet_id as i16,
+                                kind,
+                                at.x,
+                                at.y,
+                            ],
+                        );
+                    }
+                }
+            }
+            Some(salvage) => {
+                let salvage_full = thing_full(1, -1, salvage);
+                if Some(owner) != field_owner {
+                    push(
+                        owner,
+                        id::MINE_HIT_DESTROYED_SALVAGE,
+                        THING_OBJECT,
+                        vec![salvage_full, named, field.owner, kind, at.x, at.y],
+                    );
+                }
+                if let Some(fo) = field_owner {
+                    push(
+                        fo,
+                        id::YOUR_FIELD_DESTROYED_FLEET,
+                        THING_OBJECT,
+                        vec![salvage_full, fleet_id as i16, kind, at.x, at.y],
+                    );
+                }
+            }
+        }
+    } else {
+        if Some(owner) != field_owner {
+            let id = if detonation {
+                id::MINE_DETONATED_ON_SHIPS_LOST
+            } else {
+                id::MINE_HIT_SHIPS_LOST
+            };
+            push(
+                owner,
+                id,
+                object,
+                vec![object, field.owner, kind, at.x, at.y, damage, lost],
+            );
+        }
+        if let Some(fo) = field_owner {
+            let id = if detonation {
+                id::YOUR_FIELD_DETONATED_ON_SHIPS_LOST
+            } else {
+                id::YOUR_FIELD_HIT_SHIPS_LOST
+            };
+            push(fo, id, object, vec![object, kind, at.x, at.y, damage, lost]);
+        }
+    }
+    Some(hit)
+}
+
 /// Set off every field that is armed to detonate.
 ///
-/// `ThingDecay` (`10b8:70c6`) walks the fleets inside an armed field and takes
-/// them through it as though they had been caught, with no roll: the mines are
-/// going off whether or not the fleet was moving.
+/// `ThingDecay` (`10b8:70c6`) walks **every** fleet inside an armed field —
+/// the owner's own included, though its mine-layer hulls are spared — and
+/// takes it through `FTravelThroughMineFields` with no roll: the mines are
+/// going off whether or not the fleet was moving. A fleet is caught once a
+/// year however many fields go off under it (`det` bit 12), and a
+/// detonation that does no damage is not a hit.
 fn detonate_minefields(state: &mut GameState) -> Vec<(u16, crate::minefield::MineHit)> {
     let mut hits = Vec::new();
     let armed: Vec<crate::minefield::Minefield> = state
@@ -1248,15 +1475,36 @@ fn detonate_minefields(state: &mut GameState) -> Vec<(u16, crate::minefield::Min
         .filter(|f| f.detonating)
         .cloned()
         .collect();
+    let mut caught: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
     for field in &armed {
-        for fleet in &state.fleets {
-            if fleet.owner == field.owner || !field.contains(fleet.position) {
+        for index in 0..state.fleets.len() {
+            let fleet = &state.fleets[index];
+            if fleet.is_empty() || caught.contains(&index) || !field.contains(fleet.position) {
                 continue;
             }
-            hits.push((fleet.id, crate::minefield::damage(fleet, field, 0)));
+            if let Some(hit) = mine_hit(state, index, field, 0, true) {
+                hits.push((state.fleets[index].id, hit));
+                caught.insert(index);
+            }
         }
     }
+    prune_destroyed(state, &hits);
     hits
+}
+
+/// Drop the fleets a minefield left nothing of.
+fn prune_destroyed(state: &mut GameState, hits: &[(u16, crate::minefield::MineHit)]) {
+    let gone: Vec<u16> = hits
+        .iter()
+        .filter(|(_, hit)| hit.fleet_destroyed)
+        .map(|(id, _)| *id)
+        .collect();
+    if gone.is_empty() {
+        return;
+    }
+    state
+        .fleets
+        .retain(|f| !(f.is_empty() && gone.contains(&f.id)));
 }
 
 /// Decay every minefield, and remove the ones that run out.

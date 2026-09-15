@@ -374,7 +374,7 @@ pub fn decay_amount(field: &Minefield, planets_inside: i32, space_demolition: bo
 }
 
 /// What a fleet ran into.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct MineHit {
     /// The field it hit.
     pub field: u16,
@@ -384,10 +384,16 @@ pub struct MineHit {
     pub kind: u8,
     /// How far along its leg the fleet got, in light years.
     pub travelled: i32,
-    /// Total damage taken.
+    /// Total damage dealt, before shields and armour, capped at `0x7ff8` as
+    /// the messages carry it.
     pub damage: i32,
     /// Ships destroyed by it.
     pub ships_lost: i32,
+    /// Whether nothing of the fleet was left.
+    pub fleet_destroyed: bool,
+    /// Whether the field went off under the fleet rather than being flown
+    /// into.
+    pub detonation: bool,
 }
 
 /// The mine-expertise a race brings: Space Demolition counts as two warp
@@ -414,10 +420,10 @@ pub fn mine_expertise(race: &crate::race::Race) -> i32 {
 /// `Random(1000) < (warp - safe - expertise) × chance`. The first hit stops the
 /// fleet there.
 ///
-/// Two things the original does that this does not: it merges overlapping
+/// One thing the original does that this does not: it merges overlapping
 /// intervals of the **same kind** so that two fields on top of each other are
-/// rolled once, and it scales damage by the engine count and lets shields
-/// absorb. Damage here is the fleet's total, applied as whole ships lost.
+/// rolled once. Returns the index of the field hit and how far along the leg
+/// the hit was; [`apply_damage`] does the rest.
 #[must_use]
 pub fn traverse(
     minefields: &[Minefield],
@@ -426,7 +432,7 @@ pub fn traverse(
     expertise: i32,
     friendly: &dyn Fn(i16) -> bool,
     rng: &mut Rng,
-) -> Option<MineHit> {
+) -> Option<(usize, i32)> {
     let Leg {
         from,
         to,
@@ -464,7 +470,7 @@ pub fn traverse(
         let chance = over * HIT_PER_MILLE[kind];
         for step in 0..(end - start).max(0) {
             if i32::from(rng.random(1000)) < chance {
-                return Some(damage(fleet, field, start + step));
+                return Some((index, start + step));
             }
         }
     }
@@ -502,29 +508,120 @@ fn crossing(from: Point, to: Point, field: &Minefield, travelled: i32) -> Option
     Some((start as i32, end as i32))
 }
 
-/// What a hit costs the fleet.
+/// Whether a fleet counts as flying on ram scoops for the mine tables.
 ///
-/// The kind's damage per ship, times the ships — except that a fleet of four
-/// or fewer takes the kind's minimum total instead, which is what makes a lone
-/// scout such an expensive way to find a minefield.
+/// `10b0:5613`: any design in the fleet whose engine's `rgcFuelUsed[4]` is
+/// zero — an engine that runs free at warp 4. That is every scoop, and also
+/// the Settler's Delight, the Fuel Mizer and the Enigma Pulsar.
 #[must_use]
-pub fn damage(fleet: &Fleet, field: &Minefield, travelled: i32) -> MineHit {
+pub fn ram_scoop(fleet: &Fleet, designs: &[ShipDesign]) -> bool {
+    fleet.stacks.iter().any(|s| {
+        s.count > 0
+            && designs
+                .get(usize::from(s.design))
+                .and_then(ShipDesign::engine)
+                .is_some_and(|e| e.fuel_used.get(4).copied() == Some(0))
+    })
+}
+
+/// The Mini Mine Layer and Super Mine Layer hulls, which a field's owner's
+/// own detonation spares (`10b0:58f4`, hull ids `0x1b` and `0x1c`).
+const MINE_LAYER_HULLS: [i16; 2] = [27, 28];
+
+/// What a hit costs the fleet, and the fleet after it.
+///
+/// `FTravelThroughMineFields` from `10b0:57f1`. The kind's damage per ship,
+/// times the ships — a fleet of four or fewer is topped up to the kind's
+/// minimum, which is what makes a lone scout such an expensive way to find
+/// a minefield — and every design's share is **multiplied by its engine
+/// count** (`10b0:5a85`). Design by design:
+///
+/// 1. the design's shields, pooled across its ships, absorb what they can;
+/// 2. the damage the ships already carried is added to what is left
+///    (`armour × damaged ships × damage‰ / 500`, `10b0:5b99`);
+/// 3. the total is spread evenly over the ships: if a ship's share exceeds
+///    its armour every ship of the design is destroyed, otherwise all of
+///    them are marked damaged with that share in 500ths of armour, at
+///    least one (`10b0:5c1a`).
+///
+/// The top-up is paid once, by the first design with ships. In a
+/// **detonation** the field's owner's own ships are hit too, all but the
+/// mine-layer hulls, and a detonation that does nothing is not a hit at all.
+///
+/// Damage is dealt to `fleet`'s stacks; cargo and salvage are the caller's.
+#[must_use]
+pub fn apply_damage(
+    fleet: &mut Fleet,
+    designs: &[ShipDesign],
+    regenerating_shields: bool,
+    field: &Minefield,
+    travelled: i32,
+    detonation: bool,
+) -> MineHit {
     let kind = usize::from(field.kind).min(MINE_KINDS - 1);
-    let ships: i32 = fleet.stacks.iter().map(|s| s.count).sum();
-    let ram_scoop = 0; // Ram scoops are not modelled; the plain column applies.
-    let per_ship = DAMAGE_PER_SHIP[kind][ram_scoop];
-    let mut damage = per_ship * ships;
-    if ships <= 4 {
-        // A small fleet takes a minimum total instead.
-        damage = damage.max(MIN_DAMAGE[kind][ram_scoop]);
+    let ships: i64 = fleet.stacks.iter().map(|s| i64::from(s.count)).sum();
+    let scoop = usize::from(ram_scoop(fleet, designs));
+    let per_ship = i64::from(DAMAGE_PER_SHIP[kind][scoop]);
+    let mut top_up = i64::from(MIN_DAMAGE[kind][scoop]) - per_ship * ships;
+    if ships > 4 || top_up < 1 {
+        top_up = 0;
     }
+
+    let mut total = 0i64;
+    let mut lost = 0i64;
+    for stack in &mut fleet.stacks {
+        if stack.count <= 0 {
+            continue;
+        }
+        let Some(design) = designs.get(usize::from(stack.design)) else {
+            continue;
+        };
+        if detonation && field.owner == fleet.owner && MINE_LAYER_HULLS.contains(&design.hull_id) {
+            continue;
+        }
+        let count = i64::from(stack.count);
+        let engines = design
+            .slots
+            .iter()
+            .find(|s| s.is(crate::components::slot::ENGINE))
+            .map_or(1, |s| i64::from(s.count.max(1)));
+        let shields = i64::from(design.shields(regenerating_shields)) * count;
+        let armour = i64::from(design.stored_armor);
+
+        let mut damage = (per_ship * count + top_up) * engines;
+        top_up = 0;
+        total += damage;
+        let absorbed = damage.min(shields);
+        damage -= absorbed;
+        // What the ships already carried, back in damage points.
+        let damaged_ships = count * i64::from(stack.damaged_pct) / 100;
+        damage += armour * i64::from(stack.damage_pct) * damaged_ships / 500;
+
+        let share = damage / count;
+        if armour < share {
+            lost += count;
+            stack.count = 0;
+            stack.damaged_pct = 0;
+            stack.damage_pct = 0;
+        } else {
+            stack.damaged_pct = 100;
+            let mut per_mille = if armour > 0 { share * 500 / armour } else { 0 };
+            if per_mille == 0 {
+                per_mille = 1;
+            }
+            stack.damage_pct = i32::try_from(per_mille & 0x1ff).unwrap_or(0);
+        }
+    }
+
     MineHit {
         field: field.id,
         field_owner: field.owner,
         kind: field.kind,
         travelled,
-        damage,
-        ships_lost: 0,
+        damage: i32::try_from(total.min(0x7ff8)).unwrap_or(0x7ff8),
+        ships_lost: i32::try_from(lost).unwrap_or(i32::MAX),
+        fleet_destroyed: ships > 0 && lost == ships,
+        detonation,
     }
 }
 
@@ -725,9 +822,9 @@ mod tests {
             visible_to: 0,
             turn: 0,
         }];
-        let fleet = fleet(vec![stack(0, 10)]);
+        let mut fleet = fleet(vec![stack(0, 10)]);
         let never = |_: i16| false;
-        let hit = traverse(
+        let (index, at) = traverse(
             &fields,
             &fleet,
             Leg {
@@ -740,9 +837,18 @@ mod tests {
             &mut rng,
         )
         .expect("81 light years at warp 9 through a 100 ly field");
+        assert_eq!(index, 0);
+        assert!(at <= 81);
+        let hit = apply_damage(
+            &mut fleet,
+            &[hull_with(1000)],
+            false,
+            &fields[index],
+            at,
+            false,
+        );
         assert_eq!(hit.field, 7);
         assert_eq!(hit.kind, 0);
-        assert!(hit.travelled <= 81);
         assert_eq!(hit.damage, 100 * 10, "100 a ship, ten ships");
     }
 
@@ -884,26 +990,122 @@ mod tests {
         assert_eq!(hit_cost(10_000), 100);
     }
 
-    /// A fleet of four or fewer takes the minimum instead of the per-ship
-    /// figure, which is what makes a lone scout so expensive to lose.
-    #[test]
-    fn a_small_fleet_takes_the_minimum() {
-        let field = Minefield {
+    /// A hull with one engine, no shields and the armour asked for.
+    fn hull_with(armor: u16) -> ShipDesign {
+        ShipDesign {
+            name: "Scout".to_string(),
+            picture: 0,
+            stored_armor: armor,
+            obsolete: false,
+            designed: 0,
+            built: 0,
+            hull_id: 0,
+            slots: vec![DesignSlot {
+                category: slot::ENGINE,
+                item: 1,
+                count: 1,
+            }],
+        }
+    }
+
+    fn a_field(kind: u8) -> Minefield {
+        Minefield {
             id: 0,
             owner: 1,
             position: Point::new(1000, 1000),
             mines: 100,
-            kind: 0,
+            kind,
             detonating: false,
             detected_by: 0,
             visible_to: 0,
             turn: 0,
+        }
+    }
+
+    /// A fleet of four or fewer takes the minimum instead of the per-ship
+    /// figure, which is what makes a lone scout so expensive to lose.
+    #[test]
+    fn a_small_fleet_takes_the_minimum() {
+        let field = a_field(0);
+        let designs = [hull_with(1000)];
+        let hit = |n: i32| {
+            let mut f = fleet(vec![stack(0, n)]);
+            apply_damage(&mut f, &designs, false, &field, 0, false)
         };
         // One ship: 100 damage per ship, but at least 500 in total.
-        assert_eq!(damage(&fleet(vec![stack(0, 1)]), &field, 0).damage, 500);
+        assert_eq!(hit(1).damage, 500);
         // Five ships: 500, the per-ship figure, and no top-up.
-        assert_eq!(damage(&fleet(vec![stack(0, 5)]), &field, 0).damage, 500);
+        assert_eq!(hit(5).damage, 500);
         // Six: 600.
-        assert_eq!(damage(&fleet(vec![stack(0, 6)]), &field, 0).damage, 600);
+        assert_eq!(hit(6).damage, 600);
+    }
+
+    /// A ship whose armour cannot take its share is destroyed; one that can
+    /// is marked damaged by the share in 500ths.
+    #[test]
+    fn damage_is_shared_over_the_ships_and_kills_or_marks() {
+        let field = a_field(0);
+        // Ten scouts of 20 armour: 1,000 damage, 100 each, more than 20.
+        let mut f = fleet(vec![stack(0, 10)]);
+        let hit = apply_damage(&mut f, &[hull_with(20)], false, &field, 0, false);
+        assert_eq!(hit.ships_lost, 10);
+        assert!(hit.fleet_destroyed);
+        assert_eq!(f.stacks[0].count, 0);
+
+        // Ten of 400 armour: 100 each is a quarter — 125 of 500.
+        let mut f = fleet(vec![stack(0, 10)]);
+        let hit = apply_damage(&mut f, &[hull_with(400)], false, &field, 0, false);
+        assert_eq!(hit.ships_lost, 0);
+        assert_eq!(f.stacks[0].count, 10);
+        assert_eq!(f.stacks[0].damaged_pct, 100);
+        assert_eq!(f.stacks[0].damage_pct, 125);
+
+        // Hit again: the 125/500 they carry is 100 each, plus another 100.
+        let hit = apply_damage(&mut f, &[hull_with(400)], false, &field, 0, false);
+        assert_eq!(hit.damage, 1000);
+        assert_eq!(f.stacks[0].damage_pct, 250);
+    }
+
+    /// Shields absorb first, pooled over the design's ships, and the engine
+    /// count multiplies the blow.
+    #[test]
+    fn shields_absorb_and_engines_multiply() {
+        let field = a_field(0);
+        let mut shielded = hull_with(400);
+        shielded.slots.push(DesignSlot {
+            category: slot::SHIELD,
+            item: 0, // Mole-skin, 25 dp
+            count: 4,
+        });
+        // Ten ships, 1,000 shield points between them: all of it absorbed.
+        let mut f = fleet(vec![stack(0, 10)]);
+        let hit = apply_damage(&mut f, &[shielded.clone()], false, &field, 0, false);
+        assert_eq!(hit.damage, 1000);
+        assert_eq!(f.stacks[0].damaged_pct, 100, "marked all the same");
+        assert_eq!(f.stacks[0].damage_pct, 1, "at least one");
+
+        // Two engines: 2,000 damage, 1,000 through the shields, 100 each.
+        shielded.slots[0].count = 2;
+        let mut f = fleet(vec![stack(0, 10)]);
+        let hit = apply_damage(&mut f, &[shielded], false, &field, 0, false);
+        assert_eq!(hit.damage, 2000);
+        assert_eq!(f.stacks[0].damage_pct, 125);
+    }
+
+    /// A detonation spares the owner's own mine layers and nobody else.
+    #[test]
+    fn a_detonation_spares_the_owners_mine_layers() {
+        let mut field = a_field(0);
+        field.owner = 0;
+        let mut layer = hull_with(20);
+        layer.hull_id = 27;
+        let designs = [layer, hull_with(20)];
+        let mut f = fleet(vec![stack(0, 1), stack(1, 1)]);
+        f.owner = 0;
+        let hit = apply_damage(&mut f, &designs, false, &field, 0, true);
+        assert_eq!(f.stacks[0].count, 1, "the layer is spared");
+        assert_eq!(f.stacks[1].count, 0);
+        assert_eq!(hit.ships_lost, 1);
+        assert!(!hit.fleet_destroyed);
     }
 }

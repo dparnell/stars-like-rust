@@ -1,8 +1,8 @@
 # Minefields
 
-Status: **in progress** — laying, growth, traversal, decay, sweeping and
-detonation are simulated. What is left is inside the damage step: the interval
-merging, the engine-count scaling and shield absorption.
+Status: **in progress** — laying, growth, traversal, damage, decay, sweeping
+and detonation are simulated. What is left is the merging of overlapping
+intervals of one kind, and the visibility a Space Demolition owner gains.
 
 A minefield is a circle in the galaxy and a `THING` in the file
 ([`thing.md`](../formats/thing.md), `ith = 0`). It stores a centre and a mine
@@ -96,20 +96,86 @@ an interval of light years, and every light year inside one is a separate roll:
 hit if Random(1000) < (warp - safe warp - expertise) × chance
 ```
 
-The first hit stops the fleet where it happened. Damage is `damage a ship ×
-ships`, except that a fleet of **four or fewer** takes the kind's minimum
-instead — which is why a lone scout is such an expensive way to find a
-minefield.
+The first hit stops the fleet where it happened.
 
-Three things the original does that this does not yet: it merges overlapping
-intervals of the same kind so two fields on top of each other are rolled once,
-it scales damage by the engine count, and it lets shields absorb before armour.
-Damage here is applied to the fleet as a total.
+One thing the original does that this does not yet: it merges overlapping
+intervals of the same kind so two fields on top of each other are rolled once.
 
 A hit costs the **field** as well: `cMines / 20`, or `cMines / 100` once the
 first would pass fifty, with floors of ten and fifty — about 5% of a small field
 and 1% of a large one (`10b0:2097`). The fleet's owner also learns the field is
 there, which is the one piece of minefield visibility this engine maintains.
+
+### The damage
+
+`FTravelThroughMineFields` from `10b0:57f1`, implemented in
+[`minefield::apply_damage`](../../crates/stars-core/src/minefield.rs) and
+wired up by `turn::mine_hit`.
+
+The tables are the kind's **damage a ship** and **minimum total**
+(`rgrgdmgMine` `10b0:4f3c`, `rgrgdmgMinMine` `10b0:4f48`), each with a
+plain column and a *ram scoop* column. The ram-scoop column applies when any
+design in the fleet has an engine whose `rgcFuelUsed[4]` is zero
+(`10b0:5613`) — one that runs free at warp 4, which is every scoop and also
+the Settler's Delight, the Fuel Mizer and the Enigma Pulsar. A fleet of
+**four or fewer** whose `damage a ship × ships` falls short of the minimum is
+topped up to it, once, on the first design with ships.
+
+Then, design by design (`10b0:5a19`–`10b0:5c60`):
+
+```
+damage   = (damage a ship × ships + top-up) × engines on the hull
+absorbed = min(damage, shields a ship × ships)
+damage   = damage − absorbed
+         + armour × damaged ships × damage‰ / 500     (what they carried)
+share    = damage / ships
+if armour < share:  every ship of the design is destroyed
+else:               100% damaged, damage‰ = share × 500 / armour, at least 1
+```
+
+The engine count is the design's engine slot count, so a hull with two engines
+takes twice the blow. Shields are `DpShieldOfShdef`'s figure — the battle
+value, Regenerating Shields' 40% included — pooled across the ships of the
+design; armour is the design's stored `dp`. The damage a stack already carried
+is converted back to points and added, and the whole is spread evenly, which
+is why a stack is either wholly destroyed or wholly marked. The total dealt,
+before shields, is what the messages report, capped at `0x7ff8`.
+
+**What the dead take with them.** The destroyed ships are made into a fleet
+of their own and `FleetTransferCargoBalance` (`10b0:5d3a`) moves them their
+share of the cargo — the part the survivors' holds can no longer carry —
+which `DropSalvage` (`10b0:5f2c`) leaves as a stationary packet where the
+fleet was stopped. A fleet left with nothing is gone.
+
+**Detonation** (`ThingDecay`, `10b8:70c6`) runs the same routine with no roll
+over **every** fleet inside the field — the owner's own included, all but its
+ships on the Mini Mine Layer and Super Mine Layer hulls (`10b0:58f4`) — once
+a year however many fields go off (`det` bit 12), and a detonation that does
+no damage is not a hit at all (`10b0:5cf0`). It costs the field nothing extra
+and grants no visibility.
+
+**Messages** (`10b0:6174` on): the fleet's owner gets `0xc5` (no damage),
+`0xc6` (damage), `0xc7` (ships lost), `0x15f` (destroyed) or `0xc8`
+(destroyed, salvage left — object `−6`, the salvage's id first); the field's
+owner `0xc9`, `0xca`, `0xcb` or `0xcc` (object `−6`, the salvage's or the
+field's id), and `0x162` when the fleet was its own. A detonation says
+`0x160`/`0x161` and `0x163`/`0x164` instead of the `0xc6`/`0xc7` and
+`0xca`/`0xcb` pairs. The wordings here are this project's.
+
+Not modelled: a Space Demolition field owner learns the designs its field hit
+(`10b0:6174` sets a seen-by bit on each), for which the state has no place.
+
+### Worked example
+
+Ten scouts of 400 armour and one engine each, no shields, in a standard field:
+`100 × 10 = 1,000`, no top-up (more than four ships), no shields, share 100 a
+ship — under 400, so all ten are marked 100% damaged at `100 × 500 / 400 =
+125‰`. Hit again the same way, they carry `400 × 10 × 125 / 500 = 1,000` back
+into the sum: 2,000 over ten is 200 a ship, `250‰`. Ten scouts of 20 armour
+are destroyed outright by the first hit. `minefield::tests` pins each of
+these, the shield and engine cases, and the spared mine layers;
+`tests/minefields.rs` runs a fleet through a heavy field in a whole turn,
+both surviving and destroyed with its cargo left behind.
 
 ## Decay
 
@@ -170,8 +236,8 @@ then decays 25 percentage points faster for the privilege.
 - **Visibility.** `grbitPlr` and `grbitPlrNow` say who has seen a field. They
   are preserved, and set for a player who hits or sweeps one, but not otherwise
   maintained — nothing here recomputes what each player's scanners can see.
-- Inside the damage step: the merging of overlapping intervals of the same
-  kind, the engine-count scaling, and shield absorption.
+- The merging of overlapping intervals of the same kind in the traversal
+  roll, and the Space Demolition owner's view of the designs its field hit.
 
 ## Source
 

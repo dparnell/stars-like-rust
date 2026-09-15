@@ -468,11 +468,11 @@ pub fn execute_arrival_tasks(state: &mut GameState) -> (Vec<(u16, u8)>, Vec<Colo
     execute_arrival_tasks_after_moving(state, &std::collections::BTreeSet::new())
 }
 
-/// [`execute_arrival_tasks`], told which fleets (by index) travelled this
-/// year, which is what "here all turn" is decided by.
+/// [`execute_arrival_tasks`], told which fleets (by `(owner, id)`) travelled
+/// this year, which is what "here all turn" is decided by.
 pub fn execute_arrival_tasks_after_moving(
     state: &mut GameState,
-    travelled: &std::collections::BTreeSet<usize>,
+    travelled: &std::collections::BTreeSet<(i16, u16)>,
 ) -> (Vec<(u16, u8)>, Vec<ColonistDrop>) {
     use stars_formats::{task, XferAction};
 
@@ -601,7 +601,7 @@ pub fn execute_arrival_tasks_after_moving(
                                     (i != index
                                         && f.owner == owner
                                         && f.orbiting == Some(orbiting)
-                                        && !travelled.contains(&i)
+                                        && !travelled.contains(&(f.owner, f.id))
                                         && crate::mining::remote_mines(designs, &f.stacks) > 0)
                                         .then_some(f.id)
                                 })

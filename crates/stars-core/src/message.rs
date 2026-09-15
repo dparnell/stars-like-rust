@@ -241,6 +241,44 @@ pub mod id {
     /// The Trader meant to give a ship and could not (`1110:133b`).
     pub const TRADER_TRIED_SHIP: u16 = 0x150;
 
+    // A fleet in a minefield — `FTravelThroughMineFields` from `10b0:6174`.
+    // One wording to the fleet's owner and one to the field's, each with
+    // a detonation variant. The fleet owner's carry the fleet, the field's
+    // owner, the kind and the place; the field owner's the fleet, the kind
+    // and the place; then the damage and the ships lost where there were.
+    /// Your fleet hit a minefield and took no damage.
+    pub const MINE_HIT_NO_DAMAGE: u16 = 0xc5;
+    /// Your fleet hit a minefield and was damaged.
+    pub const MINE_HIT: u16 = 0xc6;
+    /// Your fleet hit a minefield and lost ships.
+    pub const MINE_HIT_SHIPS_LOST: u16 = 0xc7;
+    /// Your fleet was destroyed by a minefield and left salvage — the object
+    /// is [`super::THING_OBJECT`], the salvage's full id first.
+    pub const MINE_HIT_DESTROYED_SALVAGE: u16 = 0xc8;
+    /// Your fleet was destroyed by a minefield: a name word for the fleet,
+    /// the field's owner, the kind, the place.
+    pub const MINE_HIT_DESTROYED: u16 = 0x15f;
+    /// Your fleet was caught in a minefield going off, and damaged.
+    pub const MINE_DETONATED_ON: u16 = 0x160;
+    /// Your fleet was caught in a minefield going off, and lost ships.
+    pub const MINE_DETONATED_ON_SHIPS_LOST: u16 = 0x161;
+    /// Somebody's fleet hit your minefield and took no damage.
+    pub const YOUR_FIELD_HIT_NO_DAMAGE: u16 = 0xc9;
+    /// Somebody's fleet hit your minefield and was damaged.
+    pub const YOUR_FIELD_HIT: u16 = 0xca;
+    /// Somebody's fleet hit your minefield and lost ships.
+    pub const YOUR_FIELD_HIT_SHIPS_LOST: u16 = 0xcb;
+    /// Your minefield destroyed a fleet: [`super::THING_OBJECT`], the
+    /// salvage's (or, with none, the field's) full id, the fleet id, the
+    /// kind, the place.
+    pub const YOUR_FIELD_DESTROYED_FLEET: u16 = 0xcc;
+    /// Your own fleet was destroyed by your minefield going off.
+    pub const YOUR_FIELD_DESTROYED_YOURS: u16 = 0x162;
+    /// Your minefield went off and damaged a fleet.
+    pub const YOUR_FIELD_DETONATED_ON: u16 = 0x163;
+    /// Your minefield went off and destroyed ships.
+    pub const YOUR_FIELD_DETONATED_ON_SHIPS_LOST: u16 = 0x164;
+
     // Random events — see [`crate::events`]. `MeteorStrike` (`10b8:560e`)
     // sends `0x83 + size` to everyone but the (non-AR) owner, who gets
     // `0x87 + size`; the Exodus game's `.m6` holds `0x84` with the planet
@@ -528,6 +566,11 @@ impl Message {
                 format!("({x}, {y})")
             }
         };
+        let mine_kind = |kind: i16| match kind {
+            0 => "standard",
+            1 => "heavy",
+            _ => "speed trap",
+        };
         let object_planet = || planet(self.object);
         let object_fleet =
             || names.fleet(u16::try_from(i32::from(self.object) & 0x1ff).unwrap_or(0));
@@ -686,6 +729,110 @@ impl Message {
             id::TRADER_TRIED_SHIP => {
                 "The Mystery Trader meant to give a ship and could not.".to_string()
             }
+            id::MINE_HIT_NO_DAMAGE => format!(
+                "{} has struck a {} minefield belonging to player {} at ({}, {}); \
+                 it took no damage but has stopped there.",
+                fleet(),
+                mine_kind(param(2)),
+                param(1) + 1,
+                param(3),
+                param(4)
+            ),
+            id::MINE_HIT | id::MINE_DETONATED_ON => format!(
+                "{} has {} a {} minefield belonging to player {} at ({}, {}) and \
+                 taken {} damage.",
+                fleet(),
+                if self.id == id::MINE_HIT {
+                    "struck"
+                } else {
+                    "been caught in the detonation of"
+                },
+                mine_kind(param(2)),
+                param(1) + 1,
+                param(3),
+                param(4),
+                param(5)
+            ),
+            id::MINE_HIT_SHIPS_LOST | id::MINE_DETONATED_ON_SHIPS_LOST => format!(
+                "{} has {} a {} minefield belonging to player {} at ({}, {}), taking \
+                 {} damage and losing {} ships.",
+                fleet(),
+                if self.id == id::MINE_HIT_SHIPS_LOST {
+                    "struck"
+                } else {
+                    "been caught in the detonation of"
+                },
+                mine_kind(param(2)),
+                param(1) + 1,
+                param(3),
+                param(4),
+                param(5),
+                param(6)
+            ),
+            id::MINE_HIT_DESTROYED => format!(
+                "Fleet #{} was destroyed by a {} minefield belonging to player {} at \
+                 ({}, {}).",
+                (i32::from(param(0)) & 0x1ff) + 1,
+                mine_kind(param(2)),
+                param(1) + 1,
+                param(3),
+                param(4)
+            ),
+            id::MINE_HIT_DESTROYED_SALVAGE => format!(
+                "Fleet #{} was destroyed by a {} minefield belonging to player {} at \
+                 ({}, {}); its cargo lies there as salvage.",
+                (i32::from(param(1)) & 0x1ff) + 1,
+                mine_kind(param(3)),
+                param(2) + 1,
+                param(4),
+                param(5)
+            ),
+            id::YOUR_FIELD_HIT_NO_DAMAGE => format!(
+                "A fleet has struck your {} minefield at ({}, {}) and taken no damage.",
+                mine_kind(param(1)),
+                param(2),
+                param(3)
+            ),
+            id::YOUR_FIELD_HIT | id::YOUR_FIELD_DETONATED_ON => format!(
+                "A fleet {} your {} minefield at ({}, {}) and took {} damage.",
+                if self.id == id::YOUR_FIELD_HIT {
+                    "struck"
+                } else {
+                    "was caught in the detonation of"
+                },
+                mine_kind(param(1)),
+                param(2),
+                param(3),
+                param(4)
+            ),
+            id::YOUR_FIELD_HIT_SHIPS_LOST | id::YOUR_FIELD_DETONATED_ON_SHIPS_LOST => format!(
+                "A fleet {} your {} minefield at ({}, {}), took {} damage and lost {} \
+                 ships.",
+                if self.id == id::YOUR_FIELD_HIT_SHIPS_LOST {
+                    "struck"
+                } else {
+                    "was caught in the detonation of"
+                },
+                mine_kind(param(1)),
+                param(2),
+                param(3),
+                param(4),
+                param(5)
+            ),
+            id::YOUR_FIELD_DESTROYED_FLEET => format!(
+                "Your {} minefield at ({}, {}) has destroyed a fleet.",
+                mine_kind(param(2)),
+                param(3),
+                param(4)
+            ),
+            id::YOUR_FIELD_DESTROYED_YOURS => format!(
+                "Your own fleet #{} was destroyed when your {} minefield at ({}, {}) \
+                 went off.",
+                (i32::from(param(0)) & 0x1ff) + 1,
+                mine_kind(param(1)),
+                param(2),
+                param(3)
+            ),
             id::TRADER_APPEARED => {
                 "A Mystery Trader has entered the galaxy. Send a fleet carrying at \
                  least 1,200kT of minerals to meet it and it may trade you something \

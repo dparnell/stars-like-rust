@@ -1083,10 +1083,10 @@ fn apply(state: &mut GameState, encounter: &Encounter, board: &Board, outcome: &
 
 /// `DropSalvage` (`10f0:24dc`): minerals left in space as a stationary
 /// packet at `at`, joining one already there. Nothing is left on a
-/// planet's position.
-fn drop_salvage(state: &mut GameState, at: Point, minerals: [i32; 3]) {
+/// planet's position. Returns the id of the packet the salvage is in.
+pub(crate) fn drop_salvage(state: &mut GameState, at: Point, minerals: [i32; 3]) -> Option<u16> {
     if state.planets.iter().any(|p| p.position == Some(at)) {
-        return;
+        return None;
     }
     if let Some(existing) = state
         .packets
@@ -1098,7 +1098,7 @@ fn drop_salvage(state: &mut GameState, at: Point, minerals: [i32; 3]) {
                 i16::try_from(m.clamp(&0, &i32::from(i16::MAX)).to_owned()).unwrap_or(i16::MAX),
             );
         }
-        return;
+        return Some(existing.id);
     }
     let id = state
         .packets
@@ -1119,6 +1119,7 @@ fn drop_salvage(state: &mut GameState, at: Point, minerals: [i32; 3]) {
         include: true,
         turn: u16::try_from(state.turn).unwrap_or(0),
     });
+    Some(id)
 }
 
 /// `SendBattleMessages` (`10f0:9c0e`), in outline: every player present

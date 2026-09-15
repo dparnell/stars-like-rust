@@ -160,6 +160,8 @@ fn only_space_demolition_lays_on_the_move() {
 #[test]
 fn a_field_stops_a_fleet_that_flies_into_it() {
     let mut state = a_layer(5, Prt::Joat);
+    // Two thousand armour a ship: the minimum's thousand each is half of it.
+    state.designs[0][0].stored_armor = 2000;
     state.players.push(Player::new(Race::humanoid()));
     state.designs.push(state.designs[0].clone());
     // Player 1's field lies across player 0's course.
@@ -202,8 +204,81 @@ fn a_field_stops_a_fleet_that_flies_into_it() {
     assert_eq!(hit.1.field_owner, 1);
     assert_eq!(hit.1.kind, 1);
     assert_eq!(hit.1.damage, 2000, "two ships, so the minimum applies");
-    // It stopped where the mines caught it, short of its waypoint.
+    assert_eq!(hit.1.ships_lost, 0);
+    // It stopped where the mines caught it, short of its waypoint, its ships
+    // all marked with half their armour gone.
     assert!(state.fleets[0].position.x < 1200);
+    assert_eq!(state.fleets[0].stacks[0].count, 2);
+    assert_eq!(state.fleets[0].stacks[0].damaged_pct, 100);
+    assert_eq!(state.fleets[0].stacks[0].damage_pct, 250);
+    // Both owners hear of it.
+    let ids: Vec<(usize, u16)> = state.messages.iter().map(|m| (m.player, m.id)).collect();
+    assert!(
+        ids.contains(&(0, stars_core::message::id::MINE_HIT)),
+        "{ids:?}"
+    );
+    assert!(
+        ids.contains(&(1, stars_core::message::id::YOUR_FIELD_HIT)),
+        "{ids:?}"
+    );
+}
+
+/// A fleet whose armour cannot take its share is destroyed, and the
+/// minerals it carried are left as salvage where it was stopped.
+#[test]
+fn a_field_destroys_a_thin_skinned_fleet_and_leaves_its_cargo() {
+    let mut state = a_layer(5, Prt::Joat);
+    state.players.push(Player::new(Race::humanoid()));
+    state.designs.push(state.designs[0].clone());
+    state.minefields.push(Minefield {
+        id: 0,
+        owner: 1,
+        position: Point::new(1100, 1000),
+        mines: 10_000,
+        kind: 1,
+        detonating: false,
+        detected_by: 0,
+        visible_to: 0,
+        turn: 0,
+    });
+    let fleet = &mut state.fleets[0];
+    fleet.waypoints[0].task = stars_formats::task::NONE;
+    fleet.warp = Some(9);
+    fleet.orbiting = None;
+    fleet.cargo.fuel = 10_000;
+    fleet.cargo.minerals = [50, 0, 0];
+    fleet.waypoints.push(Waypoint {
+        position: Point::new(1200, 1000),
+        target: None,
+        target_class: 4,
+        warp: 9,
+        task: stars_formats::task::NONE,
+        transport: None,
+        task_data: Vec::new(),
+    });
+
+    let mut rng = Rng::from_seeds(11, 22);
+    let report = generate_turn(&mut state, &mut rng);
+    let hit = report.mine_hits.first().expect("hit");
+    assert_eq!(hit.1.ships_lost, 2);
+    assert!(hit.1.fleet_destroyed);
+    assert!(state.fleets.iter().all(|f| f.id != 1), "the fleet is gone");
+    let salvage = state
+        .packets
+        .iter()
+        .find(|p| p.warp == 0)
+        .expect("its minerals lie where it was stopped");
+    assert_eq!(salvage.minerals, [50, 0, 0]);
+    assert!(salvage.position.x > 1000 && salvage.position.x < 1200);
+    let ids: Vec<(usize, u16)> = state.messages.iter().map(|m| (m.player, m.id)).collect();
+    assert!(
+        ids.contains(&(0, stars_core::message::id::MINE_HIT_DESTROYED_SALVAGE)),
+        "{ids:?}"
+    );
+    assert!(
+        ids.contains(&(1, stars_core::message::id::YOUR_FIELD_DESTROYED_FLEET)),
+        "{ids:?}"
+    );
 }
 
 /// A fleet with beam weapons sitting in somebody else's field clears mines
