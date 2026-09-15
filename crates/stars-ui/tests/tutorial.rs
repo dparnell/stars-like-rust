@@ -1045,7 +1045,8 @@ fn the_years_transcribed_are_contiguous() {
 
 /// Page 56 asks for a fuel transfer by dragging a gauge: "Click and drag in
 /// the fuel gauge in the Other Fleets Here tile until Teamster #4 has 383mg
-/// of fuel."
+/// of fuel." The gauge is the other fleet's, and what leaves it goes to the
+/// fleet in hand (`ClickInShipOrders`, the gauge at `rgrcRef[1]`).
 #[test]
 fn fuel_can_be_dragged_between_two_fleets() {
     let mut app = a_game();
@@ -1059,29 +1060,50 @@ fn fuel_can_be_dragged_between_two_fleets() {
         game.fleets[b].cargo.fuel = 40;
     }
     app.select_object(stars_ui::ScanObject::Fleet(a));
-    let capacity = {
+    let (capacity, tank_b) = {
         let game = app.game.as_ref().expect("a game");
         let designs = game.designs.first().cloned().unwrap_or_default();
-        game.fleets[a].fuel_capacity(&designs)
+        (
+            game.fleets[a].fuel_capacity(&designs),
+            game.fleets[b].fuel_capacity(&designs),
+        )
     };
     assert!(capacity >= 30, "a scout holds at least this much");
+    assert!(tank_b >= 45, "and so does the other");
 
-    // Ask for more than the pane's fleet has: it comes from the other one.
-    let moved = app.drag_fleet_fuel(b, 30);
+    // Drag the other's gauge down to 20: what left it came across.
+    let moved = app.drag_fleet_fuel(b, 20);
     assert_eq!(moved, 20, "twenty came across");
     let game = app.game.as_ref().expect("a game");
     assert_eq!(game.fleets[a].cargo.fuel, 30);
     assert_eq!(game.fleets[b].cargo.fuel, 20);
+    // The order names the other fleet first, and the figure is its gain.
+    let last = app.orders.last().expect("an order").as_cargo_transfer();
+    assert_eq!(
+        last.as_ref().map(|t| (t.id1, t.id2, t.quantities.clone())),
+        Some((
+            (game.fleets[b].id & 0x1ff) | (u16::try_from(game.fleets[b].owner).unwrap() << 9),
+            (game.fleets[a].id & 0x1ff) | (u16::try_from(game.fleets[a].owner).unwrap() << 9),
+            vec![-20]
+        ))
+    );
 
     // Dragging to the same fleet is not a transfer.
     assert_eq!(app.drag_fleet_fuel(a, 50), 0);
     // Nor is asking for what it already has.
-    assert_eq!(app.drag_fleet_fuel(b, 30), 0);
-    // Dragging it back down gives fuel to the other fleet.
-    assert_eq!(app.drag_fleet_fuel(b, 5), -25);
+    assert_eq!(app.drag_fleet_fuel(b, 20), 0);
+    // Dragging it back up takes fuel from the fleet in hand.
+    assert_eq!(app.drag_fleet_fuel(b, 45), -25);
     let game = app.game.as_ref().expect("a game");
     assert_eq!(game.fleets[a].cargo.fuel, 5);
     assert_eq!(game.fleets[b].cargo.fuel, 45);
+    // No further than the other's tank, or than the two fleets' fuel
+    // together: everything the pane's fleet has left, and not a drop more.
+    let ceiling = tank_b.min(50);
+    assert_eq!(app.drag_fleet_fuel(b, 10_000), -(ceiling - 45));
+    let game = app.game.as_ref().expect("a game");
+    assert_eq!(game.fleets[a].cargo.fuel, 50 - ceiling);
+    assert_eq!(game.fleets[b].cargo.fuel, ceiling);
 }
 
 /// Waypoint zero's task must be settable: Lay Mine Field is given where the

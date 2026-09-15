@@ -265,7 +265,7 @@ pub fn tutorial(shell: &mut Shell) {
         .rect;
     shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
     assert_eq!(
-        shell.app.xfer.as_ref().expect("still up").aboard[3],
+        shell.app.xfer.as_ref().expect("still up").aboard()[3],
         25,
         "a full hold of colonists"
     );
@@ -350,7 +350,7 @@ pub fn tutorial(shell: &mut Shell) {
         .expect("the colonists gauge")
         .rect;
     shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
-    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard[3], 210);
+    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard()[3], 210);
     shell.press("xfer", "OK");
     assert_eq!(shell.page(), 15);
 
@@ -670,7 +670,7 @@ pub fn tutorial(shell: &mut Shell) {
         .rect;
     shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
     assert_eq!(
-        shell.app.xfer.as_ref().expect("up").aboard[3],
+        shell.app.xfer.as_ref().expect("up").aboard()[3],
         50,
         "two holds"
     );
@@ -780,7 +780,7 @@ pub fn tutorial(shell: &mut Shell) {
         .expect("the colonists gauge")
         .rect;
     shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
-    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard[3], 25);
+    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard()[3], 25);
     shell.press("xfer", "OK");
     shell.shift_click_planet(OXYGEN);
     shell.press("fleet", "Waypoint Task");
@@ -978,7 +978,7 @@ pub fn tutorial(shell: &mut Shell) {
         .expect("the colonists gauge")
         .rect;
     shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
-    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard[3], 25);
+    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard()[3], 25);
     shell.press("xfer", "OK");
     shell.shift_click_planet(MOZART);
     shell.press("fleet", "Waypoint Task");
@@ -1143,7 +1143,7 @@ pub fn tutorial(shell: &mut Shell) {
         .expect("the colonists gauge")
         .rect;
     shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
-    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard[3], 210);
+    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard()[3], 210);
     shell.press("xfer", "OK");
     shell.shift_click_planet(SLIME);
     shell.press("fleet", "Waypoint Task");
@@ -1654,7 +1654,7 @@ pub fn tutorial(shell: &mut Shell) {
         .expect("the colonists gauge")
         .rect;
     shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
-    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard[3], 210);
+    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard()[3], 210);
     shell.press("xfer", "OK");
     shell.shift_click_planet(OXYGEN);
     shell.press("fleet", "Waypoint Task");
@@ -1843,7 +1843,7 @@ pub fn tutorial(shell: &mut Shell) {
         .expect("the colonists gauge")
         .rect;
     shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
-    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard[3], 210);
+    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard()[3], 210);
     shell.press("xfer", "OK");
     shell.shift_click_planet(WALLABY);
     shell.press("fleet", "Waypoint Task");
@@ -2075,7 +2075,7 @@ pub fn tutorial(shell: &mut Shell) {
             .sum::<i32>()
     };
     assert_eq!(hold % 210, 0, "Teamsters");
-    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard[3], hold);
+    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard()[3], hold);
     shell.press("xfer", "OK");
     shell.frame();
     assert_eq!(shell.page(), 60, "the loaded freighter turns the page");
@@ -2386,7 +2386,7 @@ pub fn tutorial(shell: &mut Shell) {
         .expect("the colonists gauge")
         .rect;
     shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
-    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard[3], 75);
+    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard()[3], 75);
     shell.press("xfer", "OK");
     shell.shift_click_planet(LEVER);
     shell.press("fleet", "Waypoint Task");

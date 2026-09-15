@@ -2,7 +2,7 @@
 //! through `App`. See `docs/ui/cargo-transfer.md`.
 
 use stars_core::orders::{COLONISTS, FUEL};
-use stars_ui::{App, ScanObject};
+use stars_ui::{App, ScanObject, XferObject};
 
 const STOVE_TOP: i16 = 0x0d;
 
@@ -17,19 +17,23 @@ fn colony_ship_in_hand() -> App {
 }
 
 /// Xfer opens on the fleet in hand and the planet it orbits, with what each
-/// side has; fuel can only pass where there is a starbase.
+/// side has; the planet has no tank, so fuel does not move.
 #[test]
 fn xfer_opens_on_the_fleet_and_its_planet() {
     let mut app = colony_ship_in_hand();
     assert!(app.open_xfer());
     let dialog = app.xfer.clone().expect("open");
-    assert_eq!(dialog.planet, STOVE_TOP);
-    assert_eq!(dialog.cargo_capacity, 25);
-    assert_eq!(dialog.aboard[..4], [0, 0, 0, 0]);
-    assert!(dialog.fuel_here, "the home world has a starbase");
+    assert_eq!(
+        dialog.objects,
+        [XferObject::Fleet(2), XferObject::Planet(STOVE_TOP)]
+    );
+    assert_eq!(dialog.cargo_capacity[0], 25);
+    assert_eq!(dialog.aboard()[..4], [0, 0, 0, 0]);
+    assert_eq!(dialog.own, [true, true]);
+    assert!(!dialog.fuel_moves(), "a planet has no tank");
     let home = app.selected_planet().expect("Stove Top");
-    assert_eq!(dialog.stock[..3], home.surface_min);
-    assert_eq!(dialog.stock[COLONISTS], home.pop);
+    assert_eq!(dialog.has[1][..3], home.surface_min);
+    assert_eq!(dialog.has[1][COLONISTS], home.pop);
 }
 
 /// The arrows move what the giver has and the taker has room for, and
@@ -72,26 +76,31 @@ fn moves_are_clamped_and_kept_until_ok() {
 fn a_gauge_sets_the_hold() {
     let mut app = colony_ship_in_hand();
     assert!(app.open_xfer());
-    assert_eq!(app.xfer_set(COLONISTS, 25), 25);
-    assert_eq!(app.xfer_set(COLONISTS, 10), -15);
-    assert_eq!(app.xfer.as_ref().expect("open").aboard[COLONISTS], 10);
+    assert_eq!(app.xfer_set(0, COLONISTS, 25), 25);
+    assert_eq!(app.xfer_set(0, COLONISTS, 10), -15);
+    assert_eq!(app.xfer.as_ref().expect("open").aboard()[COLONISTS], 10);
+    assert_eq!(app.xfer_set(1, COLONISTS, 0), 0, "a planet has no gauge");
     app.xfer_cancel();
     let game = app.game.as_ref().expect("a game");
     assert_eq!(game.fleets[2].cargo.colonists, 0, "Cancel drops it all");
     assert!(app.orders.is_empty());
 }
 
-/// Fuel moves only at a planet with a starbase, and never counts against the
-/// hold.
+/// Fuel never crosses to or from a planet, which has no tank: `ChgCargo`
+/// moves none on one, and `UpdateXferBtns` keeps the fuel pair dead.
 #[test]
-fn fuel_takes_the_tank_not_the_hold() {
+fn fuel_stays_put_at_a_planet() {
     let mut app = colony_ship_in_hand();
     assert!(app.open_xfer());
     let dialog = app.xfer.clone().expect("open");
-    assert_eq!(dialog.aboard[FUEL], dialog.fuel_capacity, "it starts full");
-    assert_eq!(app.xfer_move(FUEL, -50), -50);
+    assert_eq!(
+        dialog.aboard()[FUEL],
+        dialog.fuel_capacity[0],
+        "it starts full"
+    );
+    assert_eq!(app.xfer_move(FUEL, -50), 0);
+    assert_eq!(app.xfer_move(FUEL, 50), 0);
     assert_eq!(app.xfer_move(COLONISTS, 25), 25, "the hold is untouched");
-    assert_eq!(app.xfer_move(FUEL, 1000), 50, "back up to the brim");
 }
 
 /// No fleet in hand, or one in deep space, and there is nothing to open.
@@ -105,4 +114,214 @@ fn nothing_opens_in_deep_space() {
     }
     assert!(!app.open_xfer());
     assert!(app.xfer.is_none());
+}
+
+/// Two fleets of the player's standing together, the second put beside
+/// the first with some cargo aboard.
+fn two_fleets_together() -> (App, usize, usize) {
+    let mut app = colony_ship_in_hand();
+    let at = app.game.as_ref().expect("a game").fleets[2].position;
+    let other = app
+        .own_fleets()
+        .into_iter()
+        .find(|index| {
+            let game = app.game.as_ref().expect("a game");
+            let designs = game.designs.first().cloned().unwrap_or_default();
+            *index != 2 && game.fleets[*index].cargo_capacity(&designs) >= 25
+        })
+        .expect("another fleet with a hold");
+    {
+        let game = app.game.as_mut().expect("a game");
+        game.fleets[other].position = at;
+        game.fleets[other].orbiting = Some(u16::try_from(STOVE_TOP).unwrap());
+        game.fleets[other].cargo.minerals = [12, 0, 0];
+        game.fleets[other].cargo.fuel = 30;
+    }
+    (app, 2, other)
+}
+
+/// The fleets-here tile's Cargo: the fleet in hand on the left and the
+/// fleet the tile shows on the right, gauges both sides, fuel movable, and
+/// OK logs one fleet-to-fleet order naming the left fleet first.
+#[test]
+fn cargo_moves_between_two_fleets() {
+    let (mut app, mine, other) = two_fleets_together();
+    app.choose_pane_fleet({
+        let game = app.game.as_ref().expect("a game");
+        (game.fleets[other].owner, game.fleets[other].id)
+    });
+    assert!(app.open_xfer_with_fleet_here());
+    let dialog = app.xfer.clone().expect("open");
+    assert_eq!(
+        dialog.objects,
+        [XferObject::Fleet(mine), XferObject::Fleet(other)]
+    );
+    assert_eq!(dialog.own, [true, true]);
+    assert!(dialog.fuel_moves());
+    assert_eq!(dialog.has[1][0], 12);
+    assert_eq!(dialog.has[1][FUEL], 30);
+
+    // Ironium comes across as far as the other has; fuel goes the other
+    // way as far as its tank holds.
+    assert_eq!(app.xfer_move(0, 100), 12);
+    let tank = dialog.fuel_capacity[1];
+    assert_eq!(
+        app.xfer_move(FUEL, -1000),
+        -(tank - 30).min(dialog.aboard()[FUEL])
+    );
+    // The right gauge sets the right side.
+    assert_eq!(app.xfer_set(1, 0, 2), 2);
+    assert_eq!(app.xfer.as_ref().expect("open").has[0][0], 10);
+
+    app.xfer_ok();
+    let game = app.game.as_ref().expect("a game");
+    assert_eq!(game.fleets[mine].cargo.minerals[0], 10);
+    assert_eq!(game.fleets[other].cargo.minerals[0], 2);
+    assert_eq!(
+        game.fleets[other].cargo.fuel,
+        tank.min(30 + dialog.aboard()[FUEL])
+    );
+    let order = app
+        .orders
+        .last()
+        .expect("an order")
+        .as_cargo_transfer()
+        .expect("a cargo transfer");
+    let word = |index: usize| {
+        let f = &game.fleets[index];
+        (u16::try_from(f.owner).unwrap() << 9) | (f.id & 0x1ff)
+    };
+    assert_eq!((order.id1, order.id2), (word(mine), word(other)));
+    assert_eq!((order.grobj1, order.grobj2), (2, 2));
+    assert_eq!(order.items_mask, (1 << 0) | (1 << FUEL));
+    assert_eq!(order.quantities[0], 10, "the left fleet's gain");
+    assert!(order.quantities[1] < 0, "and its loss of fuel");
+}
+
+/// From the planet pane the planet is on the left and the fleet in orbit
+/// on the right: the left arrow unloads onto the planet.
+#[test]
+fn the_planet_pane_puts_the_planet_on_the_left() {
+    let (mut app, _, other) = two_fleets_together();
+    app.select_object(ScanObject::Planet(STOVE_TOP));
+    app.choose_pane_fleet({
+        let game = app.game.as_ref().expect("a game");
+        (game.fleets[other].owner, game.fleets[other].id)
+    });
+    assert!(app.open_xfer_with_fleet_here());
+    let dialog = app.xfer.clone().expect("open");
+    assert_eq!(
+        dialog.objects,
+        [XferObject::Planet(STOVE_TOP), XferObject::Fleet(other)]
+    );
+    assert!(!dialog.fuel_moves());
+    let ironium = dialog.has[0][0];
+    assert_eq!(app.xfer_move(0, 5), 5, "five kT onto the planet");
+    assert_eq!(app.xfer_move(FUEL, -10), 0, "the planet gives no fuel");
+    app.xfer_ok();
+    let game = app.game.as_ref().expect("a game");
+    assert_eq!(game.fleets[other].cargo.minerals[0], 7);
+    assert_eq!(
+        app.selected_planet().expect("Stove Top").surface_min[0],
+        ironium + 5
+    );
+    let order = app
+        .orders
+        .last()
+        .expect("an order")
+        .as_cargo_transfer()
+        .expect("a cargo transfer");
+    assert_eq!((order.grobj1, order.grobj2), (1, 2));
+    assert_eq!(order.id1, u16::try_from(STOVE_TOP).unwrap());
+    assert_eq!(order.quantities, vec![5]);
+}
+
+/// Another player's fleet shows figures, gives no colonists, and can be
+/// given minerals.
+#[test]
+fn another_players_fleet_takes_minerals_but_no_colonists() {
+    let (mut app, mine, other) = two_fleets_together();
+    {
+        let game = app.game.as_mut().expect("a game");
+        game.fleets[other].owner = 1;
+        // Its holds are sized by its owner's designs.
+        game.designs[1] = game.designs[0].clone();
+        game.fleets[mine].cargo.minerals = [5, 0, 0];
+        game.fleets[mine].cargo.colonists = 3;
+    }
+    assert!(app.open_xfer_between([XferObject::Fleet(mine), XferObject::Fleet(other)]));
+    let dialog = app.xfer.clone().expect("open");
+    assert_eq!(dialog.own, [true, false]);
+    assert_eq!(
+        app.xfer_move(COLONISTS, -3),
+        0,
+        "no colonists to a stranger"
+    );
+    assert_eq!(app.xfer_move(0, -5), -5, "minerals, yes");
+    assert_eq!(
+        app.xfer_set(1, 0, 0),
+        0,
+        "and no gauge to drag on their side"
+    );
+}
+
+/// The tile's Merge: the Ship Transfer dialog over the two fleets, with a
+/// row for every design either has; OK moves the ships and a fleet left
+/// with none is gone.
+#[test]
+fn merge_moves_ships_between_two_fleets() {
+    let (mut app, mine, other) = two_fleets_together();
+    let key = {
+        let game = app.game.as_ref().expect("a game");
+        (game.fleets[other].owner, game.fleets[other].id)
+    };
+    app.choose_pane_fleet(key);
+    assert!(app.open_merge_with_fleet_here());
+    let dialog = app.split.clone().expect("open");
+    assert_eq!(dialog.target, Some(other));
+    let (mine_design, other_design) = {
+        let game = app.game.as_ref().expect("a game");
+        (
+            game.fleets[mine].stacks[0].design,
+            game.fleets[other].stacks[0].design,
+        )
+    };
+    let row_of = |design: u8| {
+        dialog
+            .designs
+            .iter()
+            .position(|(d, _)| *d == design)
+            .expect("a row for the design")
+    };
+    assert_eq!(dialog.left[row_of(mine_design)], 1);
+    assert!(dialog.right[row_of(other_design)] >= 1);
+
+    // The colony ship crosses to the other fleet.
+    assert_eq!(app.split_move(row_of(mine_design), 1), 1);
+    let fleets_before = app.game.as_ref().expect("a game").fleets.len();
+    app.split_ok();
+    let game = app.game.as_ref().expect("a game");
+    assert_eq!(
+        game.fleets.len(),
+        fleets_before - 1,
+        "the emptied fleet is gone"
+    );
+    let merged = game
+        .fleets
+        .iter()
+        .find(|f| f.owner == key.0 && f.id == key.1)
+        .expect("the other fleet");
+    assert!(merged.stacks.iter().any(|s| s.design == mine_design));
+    let order = app
+        .orders
+        .last()
+        .expect("an order")
+        .as_cargo_transfer()
+        .expect("a ships record");
+    assert_eq!(order.items_mask, 1 << mine_design);
+    assert_eq!(
+        order.quantities,
+        vec![-1],
+        "one ship left the fleet named first"
+    );
 }

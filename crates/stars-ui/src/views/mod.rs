@@ -127,8 +127,7 @@ pub fn mineral_colour(mineral: usize) -> egui::Color32 {
 /// is here?". A dropdown of the fleets, then a **Fuel** gauge and a **Cargo**
 /// gauge for the one chosen, their labels aligned on the wider of the two.
 ///
-/// The three buttons the original puts along the bottom are not here: they open
-/// the Xfer and Merge dialogs, which this project does not have.
+/// Along the bottom the original's three buttons: Cargo, Goto and Merge.
 pub fn fleets_here(app: &mut App, ui: &mut egui::Ui) {
     let title = app.pane_fleets_title();
     tile(ui, title, |ui| fleets_here_body(app, ui));
@@ -233,16 +232,30 @@ pub fn fleets_here_body(app: &mut App, ui: &mut egui::Ui) {
         }
     }
 
-    // The three buttons across the tile's foot. `ShipCommandProc`
-    // (`1050:2640`) wires them as `rghwndBtn[0..2]`: Xfer with whatever is
-    // chosen, **Goto** it, and load everything off it. Goto is the one the
-    // tutorial leans on — it is how you take command of a fleet in orbit
-    // beside the one you are looking at.
-    let chosen_fleet = app
+    // The three buttons across the tile's foot — `rghwndBtn[0..2]`,
+    // captioned **Cargo**, **Goto** and **Merge** from the strings at
+    // `idsCargo2` (`0x19f`) and the two after it (`PlanetWndProc`,
+    // `1048:09c8`). `DrawPlanetShipList` (`1048:3d40`) places them as
+    // Goto, Merge, Cargo left to right, and in the planet pane leaves the
+    // Merge button hidden (`1048:3d99`), so that pane shows Goto and Cargo
+    // with a gap between. Cargo is live whenever the dropdown has a choice
+    // (`1048:391f`), Goto only for a fleet of the player's own
+    // (`1048:39f4`), Merge whenever there is a choice (`1048:3db8`).
+    // `ShipCommandProc` (`1050:2640`) wires them: Cargo opens the Cargo
+    // Transfer dialog over the fleet in hand and whatever is chosen, Goto
+    // takes command of it, and Merge opens the Ship Transfer dialog over
+    // the two fleets. From the planet pane Cargo puts the planet on the
+    // left (`PlanetWndProc`, `rghwndBtn[0]`). Goto is the one the tutorial
+    // leans on — it is how you take command of a fleet in orbit beside
+    // the one you are looking at.
+    let chosen = app
         .pane_fleet_choice()
-        .and_then(|index| app.game.as_ref()?.fleets.get(index))
+        .and_then(|index| app.game.as_ref()?.fleets.get(index));
+    let chosen_fleet = chosen
         .filter(|f| usize::try_from(f.owner).is_ok_and(|owner| owner == app.local_player()))
         .map(|f| f.id);
+    let on_fleet = app.selection.on_fleet;
+    let chosen_any = chosen.is_some();
     // Across the foot, three abreast, `dyArial8 * 3 / 2` tall as the
     // pane's buttons all are.
     let height = (line * 3.0 / 2.0).floor();
@@ -255,17 +268,22 @@ pub fn fleets_here_body(app: &mut App, ui: &mut egui::Ui) {
             egui::vec2(width, height),
         )
     };
-    // Xfer and the load-everything button open the transfer dialog, which
-    // this project reaches from the Fleets screen instead.
-    placed_button(app, ui, at(0.0), "Xfer", false)
-        .on_disabled_hover_text("Transfer cargo from the Fleets screen.");
-    if placed_button(app, ui, at(1.0), "Goto", chosen_fleet.is_some()).clicked() {
+    if placed_button(app, ui, at(0.0), "Goto", chosen_fleet.is_some()).clicked() {
         if let Some(id) = chosen_fleet {
             app.goto_fleet(id);
         }
     }
-    placed_button(app, ui, at(2.0), "Load All", false)
-        .on_disabled_hover_text("Transfer cargo from the Fleets screen.");
+    // Recorded as `Merge here` and `Cargo here`: the Fleet Composition
+    // tile's Merge and the Waypoint Task tile's Cargo dropdown already
+    // carry the bare names in this scope.
+    if on_fleet
+        && placed_button_named(app, ui, at(1.0), "Merge", "Merge here", chosen_any).clicked()
+    {
+        app.open_merge_with_fleet_here();
+    }
+    if placed_button_named(app, ui, at(2.0), "Cargo", "Cargo here", chosen_any).clicked() {
+        app.open_xfer_with_fleet_here();
+    }
 
     if let Some(key) = choose {
         app.choose_pane_fleet(key);

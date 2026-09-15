@@ -5,23 +5,30 @@
 //! its foot (the template at `0x3461d5` in the executable), and everything
 //! above them painted by `DrawXferDlg` (`1050:6908`):
 //!
-//! * the fleet on the left and the planet on the right, each a framed
-//!   square the width of its half (`GetXferLeftRightRcs`), with a title bar
-//!   the height of a line and six rows under it a line and six apart —
-//!   Fuel, Cargo, Ironium, Boranium, Germanium, Colonists — labels
-//!   right-aligned 75 pixels in;
-//! * the fleet's rows are gauges (`DrawFleetGauge`) from 81 pixels in to
-//!   4 from the edge; the planet's are figures in sunken frames, and it
-//!   has no fuel row;
+//! * two sides, each a framed square the width of its half
+//!   (`GetXferLeftRightRcs`), with a title bar the height of a line and
+//!   six rows under it a line and six apart — Fuel, Cargo, Ironium,
+//!   Boranium, Germanium, Colonists — labels right-aligned 75 pixels in:
+//!   the fleet in hand and the planet it orbits (Xfer), the fleet in hand
+//!   and a fleet beside it (the fleets-here tile's Cargo), or the planet
+//!   in hand and a fleet over it (the planet pane's Cargo);
+//! * a fleet of the player's own has gauges (`DrawFleetGauge`) from 81
+//!   pixels in to 4 from the edge; another player's fleet has figures in
+//!   sunken frames and none on the cargo row; a planet has figures for
+//!   the four holds and no fuel row (`DrawPlanetXferSide`);
 //! * down the middle a pair of arrows a row, for fuel and the four holds
-//!   but not the cargo total (`FSetupXferBtns`): the left arrow moves cargo
-//!   **into** the fleet, the right arrow out, one at a time, ten with
-//!   Shift, a hundred with Ctrl, a thousand with both (`FTrackXfer`);
-//! * a press or drag in a fleet gauge sets that hold to the pointer's
-//!   share of the tank or hold.
+//!   but not the cargo total (`FSetupXferBtns`): the left arrow moves
+//!   cargo **into the left side**, the right arrow into the right, one at
+//!   a time, ten with Shift, a hundred with Ctrl, a thousand with both
+//!   (`FTrackXfer`); an arrow is dead when its giver has none or its
+//!   taker has no room (`UpdateXferBtns`), and the fuel pair is dead
+//!   against a planet;
+//! * a press or drag in one of the player's own gauges sets that hold to
+//!   the pointer's share of the tank or hold.
 //!
 //! The arrows, the gauges and the three buttons are recorded as drawn
-//! widgets under the scope `"xfer"` — the gauges by their row's label, the
+//! widgets under the scope `"xfer"` — the gauges by their row's label
+//! (`Colonists gauge`, and `Colonists gauge (right)` on the right), the
 //! arrows as `Colonists <` and `Colonists >` — so a test can press what the
 //! tutorial's pages name. The dialog's ship mode, the **Split** button, is
 //! `split.rs`.
@@ -91,8 +98,14 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     let Some(dialog) = app.xfer.clone() else {
         return;
     };
-    let fleet_name = app.fleet_display_name(dialog.fleet);
-    let planet_name = app.planet_name(dialog.planet);
+    let name_of = |app: &App, object: crate::app::XferObject| match object {
+        crate::app::XferObject::Fleet(index) => app.fleet_display_name(index),
+        crate::app::XferObject::Planet(id) => app.planet_name(id),
+    };
+    let names = [
+        name_of(app, dialog.objects[0]),
+        name_of(app, dialog.objects[1]),
+    ];
 
     // Each side is a square as wide as its half, framed, with a title bar.
     let row_step = line + 6.0;
@@ -114,140 +127,172 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         // The rows start three under the title bar.
         bar.bottom() + 3.0
     };
-    let top_left = side(ui, &painter, left, &fleet_name);
-    let top_right = side(ui, &painter, right, &planet_name);
+    let halves = [left, right];
+    let tops = [
+        side(ui, &painter, left, &names[0]),
+        side(ui, &painter, right, &names[1]),
+    ];
 
     let label_x = 75.0;
     let mut moves: Vec<(usize, i32)> = Vec::new();
-    let mut sets: Vec<(usize, i32)> = Vec::new();
+    let mut sets: Vec<(usize, usize, i32)> = Vec::new();
 
     for (row, (label, kind)) in ROWS.iter().enumerate() {
         #[allow(clippy::cast_precision_loss)]
         let dy = row as f32 * row_step;
 
-        // --- the fleet's row: a label and a gauge.
-        let y = top_left + dy;
-        painter.text(
-            egui::pos2(left.left() + 4.0 + label_x, y),
-            egui::Align2::RIGHT_TOP,
-            label,
-            font.clone(),
-            ui.visuals().text_color(),
-        );
-        let gauge_rect = egui::Rect::from_min_max(
-            egui::pos2(left.left() + 4.0 + label_x + 6.0, y),
-            egui::pos2(left.right() - 4.0, y + line),
-        );
-        let (amount, total, colour, unit) = match kind {
-            Some(k) if *k == stars_core::orders::FUEL => (
-                dialog.aboard[*k],
-                dialog.fuel_capacity,
-                crate::survey::CARGO_COLOURS[4],
-                "mg",
-            ),
-            Some(k) => (
-                dialog.aboard[*k],
-                dialog.cargo_capacity,
-                crate::survey::CARGO_COLOURS[*k],
-                "kT",
-            ),
-            None => (
-                dialog.cargo(),
-                dialog.cargo_capacity,
-                crate::survey::CARGO_COLOURS[0],
-                "kT",
-            ),
-        };
-        let gauge = crate::survey::Gauge {
-            segments: if kind.is_none() {
-                let mut all: Vec<(i32, [u8; 3])> = (0..3)
-                    .map(|i| (dialog.aboard[i], crate::survey::CARGO_COLOURS[i]))
-                    .collect();
-                all.push((
-                    dialog.aboard[stars_core::orders::COLONISTS],
-                    crate::survey::CARGO_COLOURS[3],
-                ));
-                all
-            } else {
-                vec![(amount, colour)]
-            },
-            total,
-            label: format!("{amount} of {total}{unit}"),
-        };
-        crate::views::survey::gauge_bar(ui, &painter, &gauge, gauge_rect, &font);
-        // The gauge is a control: a press or drag along it sets the hold.
-        let can_drag = kind.is_some_and(|k| k != stars_core::orders::FUEL || dialog.fuel_here);
-        let response = ui.interact(
-            gauge_rect,
-            ui.id().with(("xfer-gauge", row)),
-            if can_drag {
-                egui::Sense::click_and_drag()
-            } else {
-                egui::Sense::hover()
-            },
-        );
-        crate::views::record(app, ui, &format!("{label} gauge"), &response);
-        if can_drag && (response.clicked() || response.dragged()) {
-            if let (Some(k), Some(at)) = (kind, response.interact_pointer_pos()) {
-                // `FTrackXfer`: the pointer's place along the bar, less the
-                // two pixels of frame, as a share of the capacity.
-                let width = (gauge_rect.width() - 2.0).max(1.0);
-                let share = ((at.x - gauge_rect.left()) / width).clamp(0.0, 1.0);
-                #[allow(clippy::cast_possible_truncation)]
-                let want = (f64::from(share) * f64::from(total)).round() as i32;
-                sets.push((*k, want));
+        for which in 0..2 {
+            let half = halves[which];
+            let y = tops[which] + dy;
+            let planet = dialog.is_planet(which);
+            // A planet has no fuel row and no cargo total
+            // (`DrawPlanetXferSide`); a fleet has all six labels, and a
+            // fleet not the player's own shows figures where the gauges
+            // would be, with none on the cargo row
+            // (`DrawFleetCargoXferSide`).
+            if planet && row < 2 {
+                continue;
             }
-        }
-
-        // --- the planet's row: a label and a figure, for the four holds.
-        if row >= 2 {
-            let y = top_right + dy;
             painter.text(
-                egui::pos2(right.left() + 4.0 + label_x, y),
+                egui::pos2(half.left() + 4.0 + label_x, y),
                 egui::Align2::RIGHT_TOP,
                 label,
                 font.clone(),
                 ui.visuals().text_color(),
             );
-            let value_rect = egui::Rect::from_min_max(
-                egui::pos2(right.left() + 4.0 + label_x + 4.0, y - 1.0),
-                egui::pos2(right.right() - 4.0, y + line + 1.0),
-            );
-            frame_3d(&painter, value_rect);
-            let figure = kind.map_or(0, |k| dialog.stock[k]);
-            painter.text(
-                egui::pos2(value_rect.right() - 3.0, y),
-                egui::Align2::RIGHT_TOP,
-                format!("{figure} kT"),
-                font.clone(),
-                ui.visuals().text_color(),
-            );
+            if dialog.own[which] && !planet {
+                // --- a gauge, which is a control: a press or drag along
+                // it sets the hold.
+                let gauge_rect = egui::Rect::from_min_max(
+                    egui::pos2(half.left() + 4.0 + label_x + 6.0, y),
+                    egui::pos2(half.right() - 4.0, y + line),
+                );
+                let has = dialog.has[which];
+                let (amount, total, colour, unit) = match kind {
+                    Some(k) if *k == stars_core::orders::FUEL => (
+                        has[*k],
+                        dialog.fuel_capacity[which],
+                        crate::survey::CARGO_COLOURS[4],
+                        "mg",
+                    ),
+                    Some(k) => (
+                        has[*k],
+                        dialog.cargo_capacity[which],
+                        crate::survey::CARGO_COLOURS[*k],
+                        "kT",
+                    ),
+                    None => (
+                        dialog.cargo(which),
+                        dialog.cargo_capacity[which],
+                        crate::survey::CARGO_COLOURS[0],
+                        "kT",
+                    ),
+                };
+                let gauge = crate::survey::Gauge {
+                    segments: if kind.is_none() {
+                        let mut all: Vec<(i32, [u8; 3])> = (0..3)
+                            .map(|i| (has[i], crate::survey::CARGO_COLOURS[i]))
+                            .collect();
+                        all.push((
+                            has[stars_core::orders::COLONISTS],
+                            crate::survey::CARGO_COLOURS[3],
+                        ));
+                        all
+                    } else {
+                        vec![(amount, colour)]
+                    },
+                    total,
+                    label: format!("{amount} of {total}{unit}"),
+                };
+                crate::views::survey::gauge_bar(ui, &painter, &gauge, gauge_rect, &font);
+                let can_drag =
+                    kind.is_some_and(|k| k != stars_core::orders::FUEL || dialog.fuel_moves());
+                let response = ui.interact(
+                    gauge_rect,
+                    ui.id().with(("xfer-gauge", which, row)),
+                    if can_drag {
+                        egui::Sense::click_and_drag()
+                    } else {
+                        egui::Sense::hover()
+                    },
+                );
+                let name = if which == 0 {
+                    format!("{label} gauge")
+                } else {
+                    format!("{label} gauge (right)")
+                };
+                crate::views::record(app, ui, &name, &response);
+                if can_drag && (response.clicked() || response.dragged()) {
+                    if let (Some(k), Some(at)) = (kind, response.interact_pointer_pos()) {
+                        // `FTrackXfer`: the pointer's place along the bar,
+                        // less the two pixels of frame, as a share of the
+                        // capacity.
+                        let width = (gauge_rect.width() - 2.0).max(1.0);
+                        let share = ((at.x - gauge_rect.left()) / width).clamp(0.0, 1.0);
+                        #[allow(clippy::cast_possible_truncation)]
+                        let want = (f64::from(share) * f64::from(total)).round() as i32;
+                        sets.push((which, *k, want));
+                    }
+                }
+            } else if let Some(k) = kind {
+                // --- a figure in a sunken frame: `%ld kT`, or `%ld mg`
+                // for another player's fuel.
+                let value_rect = egui::Rect::from_min_max(
+                    egui::pos2(half.left() + 4.0 + label_x + 4.0, y - 1.0),
+                    egui::pos2(half.right() - 4.0, y + line + 1.0),
+                );
+                frame_3d(&painter, value_rect);
+                let unit = if *k == stars_core::orders::FUEL {
+                    "mg"
+                } else {
+                    "kT"
+                };
+                painter.text(
+                    egui::pos2(value_rect.right() - 3.0, y),
+                    egui::Align2::RIGHT_TOP,
+                    format!("{} {unit}", dialog.has[which][*k]),
+                    font.clone(),
+                    ui.visuals().text_color(),
+                );
+            }
         }
 
-        // --- the arrows between, for fuel and the four holds.
+        // --- the arrows between, for fuel and the four holds: the left
+        // arrow moves into the left side, the right into the right. Each
+        // is dead when its giver has none or its taker has no room
+        // (`UpdateXferBtns`), and the fuel pair is dead against a planet.
         if let Some(k) = kind {
-            let show = *k != stars_core::orders::FUEL || dialog.fuel_here;
             let size = line + 3.0;
-            let y = top_left + dy - 2.0;
-            let into =
+            let y = tops[0] + dy - 2.0;
+            let into_left =
                 egui::Rect::from_min_size(egui::pos2(mid - size + 1.0, y), egui::vec2(size, size));
-            let out_of =
+            let into_right =
                 egui::Rect::from_min_size(egui::pos2(mid + 3.0, y), egui::vec2(size, size));
-            if show {
-                let name = format!("{label} <");
-                if crate::views::placed_button_named(app, ui, into, "<", &name, true).clicked() {
-                    moves.push((*k, step));
-                }
-                let name = format!("{label} >");
-                if crate::views::placed_button_named(app, ui, out_of, ">", &name, true).clicked() {
-                    moves.push((*k, -step));
-                }
+            let colonists_stay = *k == stars_core::orders::COLONISTS
+                && (0..2).any(|side| !dialog.own[side] && !dialog.is_planet(side));
+            let live = |taker: usize, giver: usize| {
+                (*k != stars_core::orders::FUEL || dialog.fuel_moves())
+                    && !colonists_stay
+                    && dialog.has[giver][*k] > 0
+                    && dialog.room(taker, *k) > 0
+            };
+            let name = format!("{label} <");
+            if crate::views::placed_button_named(app, ui, into_left, "<", &name, live(0, 1))
+                .clicked()
+            {
+                moves.push((*k, step));
+            }
+            let name = format!("{label} >");
+            if crate::views::placed_button_named(app, ui, into_right, ">", &name, live(1, 0))
+                .clicked()
+            {
+                moves.push((*k, -step));
             }
         }
     }
 
-    for (kind, want) in sets {
-        app.xfer_set(kind, want);
+    for (side, kind, want) in sets {
+        app.xfer_set(side, kind, want);
     }
     for (kind, delta) in moves {
         app.xfer_move(kind, delta);

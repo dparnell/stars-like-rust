@@ -143,7 +143,8 @@ production dialog with its templates; the **Ship and Starbase Designer**
 on the original's 610-by-450 client, its slots wearing the component
 pictures and the empty-slot sheet, parts dragged from the palette under
 the original's rules (`IDropPart`: what stacks, what fills, what is
-refused); research, the technology browser, cargo and ship transfer,
+refused); research, the technology browser, cargo and ship transfer
+between a fleet and its planet or two fleets standing together,
 battle plans, player relations, the four reports, the score sheet, host
 mode, and a new-game wizard with the six-page race designer. The
 **Battle VCR** plays the recordings back on the original's board — the
@@ -170,8 +171,8 @@ own input — the tests press, drag and click what the panes drew, as a
 hand would — and the workspace's suite stands at about 120 test binaries
 that run on every push.
 
-What is still not the original's, and says so in its spec: the VCR's
-text panel, the Help buttons, and
+What is still not the original's, and says so in its spec: the Help
+buttons, and
 the dialogs' colours — the shell is on a dark theme where the original is
 button-face grey, though the tiles keep the original's black-on-grey.
 

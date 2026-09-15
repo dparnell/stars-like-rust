@@ -79,6 +79,49 @@ The cargo gauge is drawn by a different routine from the fuel gauge
 ironium, boranium and germanium, and one for colonists, in the colours the game
 gives them elsewhere. That is reproduced too.
 
+### The three buttons: Goto, Merge, Cargo
+
+The pane's buttons are one array, `rghwndBtn[13]`, created once in
+`PlanetWndProc` (`1048:09c8`) and captioned from the strings at `idsCargo2`
+(`0x19f`, decoded from the nibble-packed table at `1010:6e32`): `[0]` is
+**Cargo**, `[1]` **Goto**, `[2]` **Merge**. `DrawPlanetShipList` places
+them across the tile's foot (`1048:3d40`), each `(width − 10) / 3` wide and
+`dyArial8 × 3 / 2` tall, in the order `rghwndBtn[(i + 1) % 3]` — so the
+tile reads **Goto | Merge | Cargo** — and shows `rghwndBtn[i]` for each
+except that in the planet pane (no fleet passed) the Merge button stays
+hidden (`1048:3d99`), leaving Goto and Cargo with a gap between.
+
+Their enabling (`ENABLEWINDOW` at `1048:391f`, `1048:39f4` and
+`1048:3db8`): Cargo whenever the dropdown has a choice; Goto only when the
+choice is a fleet of the player's own (`iPlayer == idPlayer`, and not a
+thing); Merge whenever there is a choice.
+
+`ShipCommandProc` (`1050:2640`) wires them for the fleet pane: **Cargo**
+looks the choice up (`FLookupOrbitingXfer`) and raises the Cargo Transfer
+dialog over the fleet in hand and it (`TransferStuff(…, 0)`); **Goto**
+takes command of it (`SelectAdjFleet(0, id)`); **Merge** raises the Ship
+Transfer dialog over the two fleets (`TransferStuff(…, 1)`). In the planet
+pane (`PlanetWndProc`) Cargo raises the same dialog with the **planet** on
+the left. Both dialogs are in `cargo-transfer.md`. The manual (page 5-5)
+describes the three in that order: drag the Fuel gauge to move fuel,
+Goto to take command, Merge to move ships, Cargo to move cargo. Not
+reproduced: mineral packets in the dropdown (`FLookupOrbitingXfer` lists
+the things at the spot after the fleets).
+
+### The Fuel gauge is a control
+
+`ClickInShipOrders` (`1050:7cda`; the gauge branch at `1050:8b82`, the
+rectangle `rgrcRef[1]`): a press or drag in the tile's **Fuel** gauge, when the choice is a fleet of the
+player's own, sets **that fleet's** fuel to the pointer's share of its
+tank. With a fleet in hand the difference comes out of, or goes into, the
+fleet in hand — the new figure is held between the other's fuel less the
+fleet in hand's free room, and the smaller of its tank and the two fleets'
+fuel together (`local_e8`, `local_f0`). With a planet in hand the gauge
+can only come down. On release the other fleet is stored first and then
+the one in hand (`FLookupFleet(-1, …)` twice), so the log's transfer
+record names the other fleet first with its gain as the quantity. This is
+`App::drag_fleet_fuel`, which page 56 of the tutorial needs.
+
 ## Where it is
 
 `DrawShipPlanet` titles its tile with the planet the fleet is orbiting, or
@@ -307,12 +350,12 @@ colours or one of three warnings; the patrol **warp** gauge under the Intercept
 dropdown, which is the other half of that task's payload; persisting the open
 tiles to `stars.ini`; the small-window
 layout, since the frame has no `fSmallTiles` to set; the mining rate row, the
-*Fuel & Cargo* tile's own gauges (that tile gives the figures as text), and the
-buttons — Battle Plans, Jettison and
-Xfer on tile 4, and the three along the foot of the last tile — whose dialogs
-this project does not have. The location tile's own **Xfer** is there, and
-opens the Cargo Transfer dialog (`cargo-transfer.md`); its **Jettison**, for
-a fleet in deep space, is drawn but dead.
+*Fuel & Cargo* tile's own gauges (that tile gives the figures as text), and
+the Battle Plans and Jettison buttons on tile 4, whose dialogs this project
+does not have. The location tile's own **Xfer** is there, and opens the
+Cargo Transfer dialog (`cargo-transfer.md`), as do the last tile's
+**Cargo** and **Merge**; the location tile's **Jettison**, for a fleet in
+deep space, is drawn but dead.
 
 One thing this project has to say that the original does not: a fleet id is the
 **player's own numbering**, so two players each have a fleet 1. The dropdown

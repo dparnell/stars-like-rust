@@ -218,7 +218,11 @@ original's labels, formats and Alternate Reality special cases and the three
 mineral labels in `rgcrMin`'s own colours; the Production tile's queue and its
 empty text; the Starbase tile's title, its rows — the Damage figure in its own
 dark red — its warp gauge with the three colours of risk, and the Set Dest
-button with the click it arms; the fleets in orbit.
+button with the click it arms; the fleets in orbit, with the **Goto** and
+**Cargo** buttons the tile shows in this pane — the Merge button between
+them stays hidden here (`DrawPlanetShipList`, `1048:3d99`; see
+`fleet-pane.md`, *The three buttons*) — Cargo raising the Cargo Transfer
+dialog with the planet on the left (`cargo-transfer.md`).
 
 ### What the packed word holds
 

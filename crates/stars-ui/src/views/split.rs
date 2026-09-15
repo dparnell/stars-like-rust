@@ -1,10 +1,12 @@
 //! The Ship Transfer dialog — `TransferDlg` in its ship mode (`mdXferDlg
-//! == 1`), the **Split** button on the Fleet Composition tile.
+//! == 1`), the **Split** button on the Fleet Composition tile and the
+//! **Merge** button on the Other Fleets Here tile.
 //!
 //! The same template as the Cargo Transfer dialog (`transfer.rs`), titled
 //! `Ship Transfer` (`idsShipTransfer`), with the fleet on the left and the
-//! new fleet on the right. Each side is a framed square with a title bar,
-//! then a row per design aboard (`rgXferValidHulls`): the design's name
+//! new fleet — or, for Merge, the fleet the tile is showing — on the right.
+//! Each side is a framed square with a title bar, then a row per design
+//! aboard either (`rgXferValidHulls`, in slot order): the design's name
 //! right-aligned and its count in a sunken frame
 //! (`DrawFleetShipsXferSide`). Between them an arrow pair a row
 //! (`FSetupXferBtns`), moving one ship, ten with Shift, a hundred with
@@ -71,7 +73,10 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     };
     let names = (
         app.fleet_display_name(dialog.fleet),
-        format!("Fleet #{}", dialog.new_id + 1),
+        dialog.target.map_or_else(
+            || format!("Fleet #{}", dialog.new_id + 1),
+            |other| app.fleet_display_name(other),
+        ),
     );
 
     // A side: the whole half framed, a title bar, and the rows.
