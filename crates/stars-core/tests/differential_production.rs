@@ -1278,3 +1278,79 @@ fn the_research_dialog_reports_what_it_should() {
     let all = projected_research_spending(std::slice::from_ref(&busy), 0, &who, 100, &[]);
     assert!(all > none, "{all} vs {none}");
 }
+
+/// A starbase in the queue goes up over the planet, not into a fleet
+/// (`FBuildObject`, the `cBuilt > 0xf` arm): the planet gets the base, its
+/// mass driver sets the fling warp, the design's built count rises, and
+/// the owner is told with the dock's size.
+#[test]
+fn a_queued_starbase_goes_up_over_the_planet() {
+    use stars_core::design::{DesignSlot, ShipDesign};
+    use stars_core::rng::Rng;
+    use stars_core::Point;
+    use stars_core::{generate_turn, GameState};
+
+    let race = Race::humanoid();
+    let mut planet = Planet::unowned(7);
+    planet.position = Some(Point { x: 0, y: 0 });
+    planet.owner = Some(0);
+    planet.pop = 30_000;
+    planet.factories = 50;
+    planet.surface_min = [50_000, 50_000, 50_000];
+    planet.queue = vec![stars_core::production::QueueItem {
+        count: 1,
+        item: 16, // the first starbase design
+        ship: true,
+        completion: 0,
+    }];
+
+    let empty = ShipDesign {
+        name: String::new(),
+        picture: 0,
+        stored_armor: 0,
+        obsolete: false,
+        designed: 0,
+        built: 0,
+        hull_id: -1,
+        slots: Vec::new(),
+    };
+    let mut designs = vec![empty; 16];
+    designs.push(ShipDesign {
+        name: "Dock".to_string(),
+        picture: 0,
+        stored_armor: 250,
+        obsolete: false,
+        designed: 0,
+        built: 0,
+        hull_id: 33, // Space Dock
+        slots: vec![DesignSlot {
+            category: stars_core::components::slot::SPECIAL_SB,
+            item: 9, // Mass Driver 7
+            count: 1,
+        }],
+    });
+
+    let mut state = GameState::new(0x1234);
+    state.turn = 20;
+    state.players = vec![stars_core::Player::new(race)];
+    state.designs = vec![designs];
+    state.planets = vec![planet];
+
+    let mut rng = Rng::randomize(1);
+    for _ in 0..30 {
+        let report = generate_turn(&mut state, &mut rng);
+        if !report.starbases_built.is_empty() {
+            assert_eq!(report.starbases_built, vec![(7, 16)]);
+            break;
+        }
+    }
+    let planet = &state.planets[0];
+    assert!(planet.starbase, "the base is up");
+    assert_eq!(planet.starbase_design, Some(0));
+    assert_eq!(planet.fling_warp, 7 - 4, "the driver sets the fling warp");
+    assert!(state.fleets.is_empty(), "no fleet was made of it");
+    assert_eq!(state.designs[0][16].built, 1);
+    assert!(state.messages.iter().any(|m| {
+        m.id == stars_core::message::id::STARBASE_BUILT_WITH_DOCK && m.params == vec![7, 16, 200]
+    }));
+}

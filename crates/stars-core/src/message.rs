@@ -345,6 +345,15 @@ pub mod id {
     /// The game has no room for another packet (`10b8:2716`).
     pub const NO_ROOM_FOR_THING: u16 = 0x129;
 
+    // A starbase finished — `FBuildObject` (`10b8:1a5c`): the planet, the
+    // design word (`owner << 5 | slot`), the dock's size in kT.
+    /// A starbase has been built over the planet.
+    pub const STARBASE_BUILT: u16 = 0xcd;
+    /// A starbase with a dock that builds ships up to so many kT.
+    pub const STARBASE_BUILT_WITH_DOCK: u16 = 0xce;
+    /// A starbase whose dock builds ships of any size.
+    pub const STARBASE_BUILT_ANY_SIZE: u16 = 0xcf;
+
     // Wreckage — `ITechLearnATech` (`10f0:9918`), object `-2`, the place
     // (`x, y`, or `-1` and the planet), the field, the resources as a long.
     /// Wreckage from a battle you fought boosted your research.
@@ -886,6 +895,18 @@ impl Message {
                     planet(param(0))
                 )
             }
+            id::STARBASE_BUILT => {
+                format!("{} has built a new starbase.", planet(param(0)))
+            }
+            id::STARBASE_BUILT_WITH_DOCK => format!(
+                "{} has built a new starbase; its dock can build ships of up to {}kT.",
+                planet(param(0)),
+                param(2)
+            ),
+            id::STARBASE_BUILT_ANY_SIZE => format!(
+                "{} has built a new starbase; its dock can build ships of any size.",
+                planet(param(0))
+            ),
             id::WRECKAGE_BOOSTED_RESEARCH
             | id::WRECKAGE_IN_ORBIT_BOOSTED_RESEARCH
             | id::FLEET_FOUND_WRECKAGE => {

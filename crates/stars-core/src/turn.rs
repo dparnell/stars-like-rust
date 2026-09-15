@@ -93,6 +93,9 @@ pub struct TurnReport {
     /// Ships finished this year, as `(planet id, design slot, count)`. They are
     /// added to a fleet in orbit over the planet that built them.
     pub ships_built: Vec<(i16, u8, i32)>,
+    /// Starbases finished this year, as `(planet id, design slot)` — the
+    /// slot counted from 16, as the queue names it.
+    pub starbases_built: Vec<(i16, u8)>,
     /// Fleets that moved, as `(fleet id, light years travelled)`.
     pub moved: Vec<(u16, i32)>,
     /// Population change per planet id, in units of 100 colonists.
@@ -573,6 +576,13 @@ pub fn generate_turn_with_orders(
         if !ships_built.is_empty() {
             let id = state.planets[index].id;
             for (slot, count) in ships_built {
+                // A starbase is not a ship: it goes up over the planet.
+                if slot >= crate::startup::FIRST_STARBASE_SLOT {
+                    if install_starbase(state, index, slot - crate::startup::FIRST_STARBASE_SLOT) {
+                        report.starbases_built.push((id, slot));
+                    }
+                    continue;
+                }
                 report.ships_built.push((id, slot, count));
                 // `SHDEF.cBuilt`, which the computer players read.
                 if let Some(design) = state
@@ -931,6 +941,116 @@ pub fn generate_turn_with_orders(
 }
 
 /// The race owning `planets[index]`, cloned so the planet can be mutated.
+/// A starbase finished — `FBuildObject` (`10b8:19b2`), the `cBuilt > 0xf`
+/// arm: the planet's base becomes the design in `slot` (0 to 9, the
+/// player's starbase designs), a new one where there was none, the old
+/// one's built count given back. A base replacing one with a smaller hull
+/// number drops the ships from the planet's queue (`KillQueuedShips`,
+/// `10c8:6c3a`: the ship items go, the starbase items lose their
+/// progress). A planet whose old base had no mass driver looks at the new
+/// one: none, and the packets come off the queue too
+/// (`KillQueuedMassPackets`, `10c8:6a52`) with the fling setting cleared;
+/// one, and the fling warp is set to it, a pair counting one faster. The
+/// owner is told (`0xcd`, or `0xce` for a base with a dock and `0xcf`
+/// for one that builds any size) with the design word and the dock's size.
+///
+/// Returns whether a base went up — not for a design the player has no
+/// hull for.
+fn install_starbase(state: &mut GameState, index: usize, slot: u8) -> bool {
+    use crate::message::{id, Message};
+    let planet_id = state.planets[index].id;
+    let Some(owner) = state.planets[index]
+        .owner
+        .and_then(|o| usize::try_from(o).ok())
+    else {
+        return false;
+    };
+    let design_index = usize::from(crate::startup::FIRST_STARBASE_SLOT) + usize::from(slot);
+    let Some(design) = state
+        .designs
+        .get(owner)
+        .and_then(|d| d.get(design_index))
+        .filter(|d| d.hull_id >= 0)
+        .cloned()
+    else {
+        return false;
+    };
+    let Some(hull) = design.hull() else {
+        return false;
+    };
+    let dock = i32::from(hull.cargo_max);
+    let message = match dock {
+        0 => id::STARBASE_BUILT,
+        d if d == i32::from(u16::MAX) => id::STARBASE_BUILT_ANY_SIZE,
+        _ => id::STARBASE_BUILT_WITH_DOCK,
+    };
+    let design_word = (i16::try_from(owner).unwrap_or(0) << 5)
+        | i16::from(crate::startup::FIRST_STARBASE_SLOT + slot);
+    state.messages.push(Message {
+        player: owner,
+        id: message,
+        object: planet_id,
+        params: vec![
+            planet_id,
+            design_word,
+            i16::try_from(dock).unwrap_or(i16::MAX),
+        ],
+    });
+
+    let designs = state.designs[owner].clone();
+    let planet = &mut state.planets[index];
+    let old_driver = crate::production::mass_driver(planet, &designs);
+    if planet.starbase {
+        // A smaller base cannot finish the ships the old one was building.
+        if let Some(old) = planet
+            .starbase_design
+            .map(usize::from)
+            .map(|s| usize::from(crate::startup::FIRST_STARBASE_SLOT) + s)
+            .and_then(|s| designs.get(s))
+        {
+            if design.hull_id < old.hull_id {
+                planet.queue.retain(|q| {
+                    !(q.ship && q.item < u16::from(crate::startup::FIRST_STARBASE_SLOT))
+                });
+                for q in planet.queue.iter_mut().filter(|q| q.ship) {
+                    q.completion = 0;
+                }
+            }
+        }
+        if let Some(old) = planet.starbase_design {
+            if let Some(d) = state.designs[owner]
+                .get_mut(usize::from(crate::startup::FIRST_STARBASE_SLOT) + usize::from(old))
+            {
+                d.built = d.built.saturating_sub(1);
+            }
+        }
+    }
+    let planet = &mut state.planets[index];
+    planet.starbase = true;
+    planet.starbase_design = Some(slot);
+    planet.starbase_damage = 0;
+    if old_driver.warp < 1 {
+        let now = crate::production::mass_driver(planet, &designs);
+        if now.warp < 1 {
+            planet.fling_warp = 0;
+            planet.fling_dest = None;
+            planet.queue.retain(|q| {
+                q.ship
+                    || !(crate::production::item::PACKET_IRONIUM
+                        ..=crate::production::item::PACKET_MIXED)
+                        .contains(&q.item)
+            });
+        } else {
+            planet.fling_warp =
+                u8::try_from((now.warp + i32::from(now.paired) - 4).max(0)).unwrap_or(0);
+        }
+    }
+    if let Some(d) = state.designs[owner].get_mut(design_index) {
+        d.built += 1;
+    }
+    true
+}
+
 /// The hull of a planet's starbase, for the Alternate Reality maximum.
 fn starbase_hull_of(state: &GameState, index: usize) -> Option<i16> {
     let planet = &state.planets[index];
@@ -2803,7 +2923,7 @@ fn run_queue(
                 levels: tech,
                 researching: 0,
                 trader_parts: 0,
-                starbase: false,
+                starbase: slot >= crate::startup::FIRST_STARBASE_SLOT,
                 tutorial,
             };
             let Some(cost) = design.true_cost(&who) else {

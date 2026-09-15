@@ -144,6 +144,29 @@ only acts while the planet is not both growing and habitable. An auto-build
 item's `up to N` is a target rather than a countdown: it is clamped to that cap
 each year and the stored figure is untouched.
 
+## What a finished item becomes
+
+`FBuildObject` (`10b8:19b2`) takes each finished unit. Installations go on
+the planet; a ship joins a new fleet at the planet with its tank full;
+packets are thrown (`packets.md`); and a **starbase** (a design slot of 16
+and up) goes up over the planet, `turn::install_starbase`:
+
+- the planet's base becomes the design, a new one where there was none, and
+  the old design gives back one of its built count;
+- a base replacing one with a **smaller hull number** empties the ships out
+  of the planet's queue (`KillQueuedShips`, `10c8:6c3a`), the starbase items
+  keeping their place but losing their progress;
+- a planet whose old base had **no mass driver** looks at the new one: none,
+  and the packet items come off the queue too (`KillQueuedMassPackets`,
+  `10c8:6a52`) with the fling setting cleared; one, and the fling warp is set
+  to the driver's, a pair counting one faster (`10b8:1bdb`);
+- the owner is told (`0xcd`; `0xce` for a base with a dock, `0xcf` for one
+  that builds any size) with the planet, the design word and the dock's
+  size.
+
+`tests/differential_production.rs::a_queued_starbase_goes_up_over_the_planet`
+covers it; before it a queued base was launched as a ship.
+
 ## Where the queue stops
 
 `CBuildProdItem` returns an `mdProdStat` alongside the count, and `Produce`
