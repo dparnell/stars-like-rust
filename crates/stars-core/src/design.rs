@@ -348,6 +348,77 @@ impl ShipDesign {
         out
     }
 
+    /// Cloaking points of one ship, before its mass is counted —
+    /// `CPtsCloakFromLphs` (`1080:3170`) summed over the slots.
+    ///
+    /// The four cloaks give their own ability (300, 70, 140, 540); the parts
+    /// that cloak on the side give a fixed figure each: the Enigma Pulsar
+    /// 20, the Chameleon Scanner 40, the Shadow Shield 70, the Langston
+    /// Shell 20, Depleted Neutronium 50, the Mega Poly Shell 40, the
+    /// Multi Contained Munition 20, the Alien Miner 60, the Orbital Adjuster
+    /// 50 and the Multi Function Pod 20 — each times the slot's count.
+    /// `MANUAL.PDF` p. 24-1 lists the seven a player can read off.
+    #[must_use]
+    pub fn cloak_points(&self) -> i32 {
+        let mut points = 0i32;
+        for s in &self.slots {
+            if s.count == 0 {
+                continue;
+            }
+            let item = usize::from(s.item);
+            let each = match s.category {
+                c if c == slot::ENGINE && item == 8 => 20,
+                c if c == slot::SCANNER && item == 6 => 40,
+                c if c == slot::SHIELD && item == 4 => 70,
+                c if c == slot::SHIELD && item == 6 => 20,
+                c if c == slot::ARMOR && item == 7 => 50,
+                c if c == slot::ARMOR && item == 9 => 40,
+                c if c == slot::BEAM && item == 18 => 20,
+                c if c == slot::MINING && item == 6 => 60,
+                c if c == slot::MINING && item == 7 => 50,
+                c if c == slot::SPECIAL_E && item < 5 => crate::components::SPECIALS_E
+                    .get(item)
+                    .map_or(0, |p| i32::from(p.ability)),
+                c if c == slot::SPECIAL_M && item == 4 => 20,
+                _ => 0,
+            };
+            points += each * i32::from(s.count);
+        }
+        points
+    }
+
+    /// The design's cloaking, in percent — `PctCloakFromHuldef`
+    /// (`1048:88c0`): the points of one empty ship, plus 40 for a starbase
+    /// hull of an Improved Starbases race and 300 for a Super Stealth race,
+    /// through [`cloak_pct_of_points`].
+    #[must_use]
+    pub fn cloak_pct(&self, race: &crate::race::Race) -> i32 {
+        let mut points = i64::from(self.cloak_points());
+        if self.is_starbase() && race.has_lrt(crate::race::lrt::ISB) {
+            points += 40;
+        }
+        if race.prt() == Some(crate::race::Prt::Ss) {
+            points += 300;
+        }
+        cloak_pct_of_points(points)
+    }
+
+    /// The share of an enemy's cloaking this design's Tachyon Detectors
+    /// leave, in percent — `GetShdefScannerRange` (`1038:50d0`) reads it
+    /// from a table by the number fitted, at most seventeen
+    /// (`1038:50be`): `95%` to the power of the square root of the count,
+    /// as `MANUAL.PDF` p. 24-3 has it. `100` with none.
+    #[must_use]
+    pub fn tachyon_pct(&self) -> i32 {
+        let detectors: usize = self
+            .slots
+            .iter()
+            .filter(|s| s.category == slot::SPECIAL_E && s.item == 15)
+            .map(|s| usize::from(s.count))
+            .sum();
+        i32::from(TACHYON_PCT[detectors.min(TACHYON_PCT.len() - 1)])
+    }
+
     /// Resource and mineral cost of one ship.
     #[must_use]
     pub fn cost(&self) -> Option<Cost> {
@@ -636,6 +707,51 @@ impl ShipDesign {
         }
 
         Some(cost)
+    }
+}
+
+/// `95%` to the power of the square root of the number of Tachyon
+/// Detectors, as the binary tabulates it at `1038:50be` for none to
+/// seventeen.
+pub const TACHYON_PCT: [u8; 18] = [
+    100, 95, 93, 91, 90, 89, 88, 87, 86, 86, 85, 84, 84, 83, 83, 82, 82, 81,
+];
+
+/// Cloaking points per kiloton to a percentage — the tail of
+/// `PctCloakFromHuldef` (`1048:88c0`) and `PctCloakFromLpfl`
+/// (`1080:2d5e`), which `MANUAL.PDF` p. 24-3 prints as pseudo-code:
+///
+/// ```text
+/// points ≤ 100:  points / 2
+///      ≤ 300:  50 + (points − 100) / 8
+///      ≤ 612:  75 + (points − 300) / 24
+///      ≤ 1124: 88 + (points − 612) / 64
+///      < 1380: 96
+///      < 1612: 97
+///      else    98
+/// ```
+///
+/// so a Stealth Cloak's 70 is 35%, an Ultra-Stealth's 540 is 85%. Nothing,
+/// or a figure past 25,000 (the routine's overflow guard), is 0.
+#[must_use]
+pub fn cloak_pct_of_points(points: i64) -> i32 {
+    let Ok(p) = i32::try_from(points) else {
+        return 0;
+    };
+    if p <= 0 || p > 25_000 {
+        0
+    } else if p <= 100 {
+        p / 2
+    } else if p <= 300 {
+        (p - 100) / 8 + 50
+    } else if p <= 612 {
+        (p - 300) / 24 + 75
+    } else if p - 612 <= 512 {
+        (p - 612) / 64 + 88
+    } else if p - 612 < 1000 {
+        96 + i32::from(p - 612 > 767)
+    } else {
+        98
     }
 }
 

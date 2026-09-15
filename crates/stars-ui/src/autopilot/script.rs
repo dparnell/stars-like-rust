@@ -925,13 +925,20 @@ pub fn tutorial(shell: &mut Shell) {
     shell.next_message_until(stars_core::message::Goto::Fleet(8));
     shell.press("messages", "Goto");
     assert_eq!(shell.selected_fleet_id(), Some(8));
-    let enemy = {
+    // The Berserkers are Super Stealth, their scout 75% cloaked bare, so
+    // the probe sees it only within a quarter of its range — and where the
+    // two stand this year is not the original's to the light year. When
+    // the triangle is not on the map the probe is sent to where the scout
+    // was seen last instead, which is what a player could do.
+    let (enemy, seen) = {
         let game = shell.app.game.as_ref().expect("a game");
-        game.fleets
+        let (index, scout) = game
+            .fleets
             .iter()
-            .find(|f| f.owner == 1 && f.id == 0)
-            .map(|f| f.position)
-            .expect("the enemy scout")
+            .enumerate()
+            .find(|(_, f)| f.owner == 1 && f.id == 0)
+            .expect("the enemy scout");
+        (scout.position, shell.app.in_view.fleets.contains(&index))
     };
     let pos = shell.point_on_screen(enemy, HIHO);
     shell.modifiers = egui::Modifiers::SHIFT;
@@ -941,13 +948,22 @@ pub fn tutorial(shell: &mut Shell) {
     {
         let game = shell.app.game.as_ref().expect("a game");
         let fleet = &game.fleets[shell.app.selection.fleet.expect("in hand")];
-        assert_eq!(fleet.waypoints[1].target, Some(0x200), "after the scout");
-        assert_eq!(
-            fleet.waypoints[1].target_class,
-            stars_core::fleet::grobj::FLEET
-        );
+        if seen {
+            assert_eq!(fleet.waypoints[1].target, Some(0x200), "after the scout");
+            assert_eq!(
+                fleet.waypoints[1].target_class,
+                stars_core::fleet::grobj::FLEET
+            );
+        } else {
+            assert_eq!(fleet.waypoints[1].position, enemy, "to where it was");
+        }
     }
-    assert_eq!(shell.page(), 35);
+    if seen {
+        assert_eq!(shell.page(), 35);
+    } else {
+        shell.off_the_page = true;
+    }
+    let scout_seen = seen;
 
     // Page 35: the new Santa Maria — its message's Goto — loads colonists
     // and settles Mozart, the best growth figure of the planets known.
@@ -968,12 +984,14 @@ pub fn tutorial(shell: &mut Shell) {
     shell.press("fleet", "Waypoint Task");
     shell.press("fleet", "Colonize");
     shell.frame();
-    assert_eq!(shell.page(), 35);
-    assert_eq!(
-        shell.app.tutor.as_ref().map(|t| t.bold),
-        Some(275),
-        "the Santa Maria is away; Teamster #12 is next"
-    );
+    if scout_seen {
+        assert_eq!(shell.page(), 35);
+        assert_eq!(
+            shell.app.tutor.as_ref().map(|t| t.bold),
+            Some(275),
+            "the Santa Maria is away; Teamster #12 is next"
+        );
+    }
 
     // Here this world parts from the original's. Page 35 goes on to
     // Teamster #12 (fleet 11), which the original's Stove Top built in
@@ -1322,8 +1340,20 @@ pub fn tutorial(shell: &mut Shell) {
     shell.frame();
     assert_eq!(shell.app.tutor.as_ref().map(|t| t.bold), Some(348));
     // The probe caught the scout over Hiho and orbits it now, so it is
-    // taken from the planet's menu.
-    shell.right_click_planet_and_pick(HIHO, "Armed Probe #9");
+    // taken from the planet's menu — unless the cloaked scout slipped it,
+    // in which case it is wherever the chase left it and is picked by
+    // number.
+    let probe_at_hiho = shell.app.game.as_ref().is_some_and(|game| {
+        game.fleets
+            .iter()
+            .any(|f| f.owner == 0 && f.id == 8 && f.orbiting == Some(HIHO as u16))
+    });
+    if probe_at_hiho {
+        shell.right_click_planet_and_pick(HIHO, "Armed Probe #9");
+    } else {
+        assert!(shell.app.goto_fleet(8), "Armed Probe #9 is ours");
+        shell.frame();
+    }
     assert_eq!(shell.selected_fleet_id(), Some(8), "Armed Probe #9");
     shell.shift_click_planet(STOVE_TOP);
     shell.frame();
@@ -1709,8 +1739,7 @@ pub fn tutorial(shell: &mut Shell) {
     // Weapons next; a starbase design — the station copied, a Stargate
     // 100/250 on its left Orbital slot, named Gater with the next picture
     // — and one queued at Stove Top.
-    shell.next_message_until(stars_core::message::Goto::Fleet(8));
-    shell.press("messages", "Goto");
+    shell.goto_fleet_by_message_or_number(8);
     assert_eq!(shell.selected_fleet_id(), Some(8), "Armed Probe #9");
     shell.shift_click_planet(LA_TE_DA);
     shell.frame();

@@ -58,8 +58,8 @@ fog of war. Transcribed as `stars_core::visibility`, and checked in
 `crates/stars-core/tests/visibility.rs`:
 
 * a **fleet** of another player is seen within a scanner's **normal** range,
-  but a fleet **in orbit** only within its **penetrating** range (cloaking
-  shrinks both; not modelled yet);
+  but a fleet **in orbit** only within its **penetrating** range — both cut
+  by the fleet's cloak, below;
 * a **planet** is learned only within **penetrating** range — the loop over
   planets sits inside `if (penetrating > 0)` in both passes — or by a fleet
   of the player's standing at it. The Scoper 150, which does not penetrate,
@@ -85,6 +85,63 @@ penetration of its own, plus the built-in 20) learns Hiho at seventeen light
 years in 2403 and not at forty-three the year before, none of the scouts
 learn their first planets from twenty-odd light years out in 2401, and
 `tutorial.h1` in 2403 knows exactly home, 90210, Prune, Alexander and Hiho.
+
+## Cloaking
+
+`PctCloakFromHuldef` (`1048:88c0`), `PctCloakFromLpfl` (`1080:2d5e`),
+`CPtsCloakFromLphs` (`1080:3170`); `MANUAL.PDF` ch. 24. Implemented as
+`ShipDesign::cloak_points`, `ShipDesign::cloak_pct`, `Fleet::cloak_pct` and
+`design::cloak_pct_of_points`, applied in `stars_core::visibility`.
+
+**Points.** Each part that cloaks gives so many points per copy, and a
+design's points are the sum over its slots:
+
+| part | points | | part | points |
+|------|-------:|-|------|-------:|
+| Transport Cloaking | 300 | | Chameleon Scanner | 40 |
+| Stealth Cloak | 70 | | Shadow Shield | 70 |
+| Super-Stealth Cloak | 140 | | Langston Shell | 20 |
+| Ultra-Stealth Cloak | 540 | | Depleted Neutronium | 50 |
+| Multi Function Pod | 20 | | Mega Poly Shell | 40 |
+| Enigma Pulsar | 20 | | Multi Contained Munition | 20 |
+| Alien Miner | 60 | | Orbital Adjuster | 50 |
+
+The cloaks give their table ability; the rest are fixed in the routine. A
+**Super Stealth** race adds 300 to every ship and starbase; an **Improved
+Starbases** race adds 40 to a starbase (`1048:88ec`).
+
+**Percent.** Points per kiloton become a percentage by the table the manual
+prints on p. 24-3 and the binary has from `1048:8a75`: half the points up to
+100 (50%), then an eighth of the rest to 300 (75%), a twenty-fourth to 612
+(88%), a sixty-fourth to 1,124 (96%), 97 short of 1,612 and 98 beyond.
+Nothing, or more than 25,000 (the routine's overflow guard), is 0.
+
+**A fleet's cloak** is its designs' points weighted by the mass of their
+ships and spread over the whole fleet's mass, **cargo included** unless the
+race is Super Stealth — so cargo dilutes a cloak and an uncloaked ship in the
+fleet counts as cargo, as the manual says. Ship by ship the figure is the
+design's alone: a Stealth Cloak on an empty ship is 70 points, 35%.
+
+**What it does.** `SetVisPFFleets` (`1070:a1d0`): a fleet is seen when
+
+```
+d² ≤ range² × (100 − cloak) / 100 × (100 − cloak) / 100
+```
+
+the two divisions in that order, where `cloak` is the fleet's percentage
+cut to the scanning fleet's Tachyon Detectors' share: `95%` to the power of
+the square root of the detectors fitted, tabulated at `1038:50be` — 100,
+95, 93, 91, 90, 89, 88, … 81 for none to seventeen (the best design in the
+fleet counts; a planet's scanner has none). A **planet** with a cloaked
+starbase is learned only within `range² × (100 − cloak)² / 10,000`
+(`1070:ab3c`), the squared figure being cached on the starbase design at the
+top of every turn (`10b0:120d`).
+
+So the tutorial's Berserkers, a Super Stealth race, are 75% cloaked with no
+cloak fitted at all: the Armed Probe's fifty-four light years reach them at
+thirteen, and Stove Top's Scoper 150 at thirty-seven.
+`tests/visibility.rs` checks a Stealth Cloak at 35%, the range it cuts, the
+dilution by cargo, a detector's five per cent, and the manual's table.
 
 ## Edge cases & clamps
 

@@ -176,6 +176,50 @@ impl Fleet {
         hulls + self.cargo.mass()
     }
 
+    /// The fleet's cloaking, in percent — `PctCloakFromLpfl`
+    /// (`1080:2d5e`).
+    ///
+    /// Each design's points (`300` more for a Super Stealth race, and a
+    /// starbase's Improved Starbases bonus does not apply here) are
+    /// weighted by the mass of its ships, and the total is spread over the
+    /// whole fleet's mass — the hulls, and the cargo too unless the race is
+    /// Super Stealth (`MANUAL.PDF` p. 24-1: cargo counts against the cloak,
+    /// and an uncloaked ship counts as cargo) — then read off
+    /// [`crate::design::cloak_pct_of_points`]. The original's fall-back to
+    /// floating point past 4,000 points or 500,000 kT is the same
+    /// arithmetic in 64 bits here.
+    #[must_use]
+    pub fn cloak_pct(&self, designs: &[ShipDesign], race: &crate::race::Race) -> i32 {
+        let stealth = race.prt() == Some(crate::race::Prt::Ss);
+        let mut weighted: i64 = 0;
+        let mut mass: i64 = 0;
+        for stack in &self.stacks {
+            if stack.count <= 0 {
+                continue;
+            }
+            let Some(design) = designs.get(usize::from(stack.design)) else {
+                continue;
+            };
+            let ships_mass = i64::from(stack.count) * i64::from(design.mass().unwrap_or(0));
+            let mut points = i64::from(design.cloak_points());
+            if stealth {
+                points += 300;
+            }
+            weighted += points * ships_mass;
+            mass += ships_mass;
+        }
+        if weighted == 0 {
+            return 0;
+        }
+        if !stealth {
+            mass += i64::from(self.cargo.mass());
+        }
+        if mass <= 0 {
+            return 0;
+        }
+        crate::design::cloak_pct_of_points(weighted / mass)
+    }
+
     /// Total cargo capacity, in kT.
     #[must_use]
     pub fn cargo_capacity(&self, designs: &[ShipDesign]) -> i32 {

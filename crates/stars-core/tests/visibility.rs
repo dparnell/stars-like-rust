@@ -63,6 +63,9 @@ fn outside_the_tutorial_the_built_in_scanner_follows_electronics() {
 #[test]
 fn planets_take_penetration_and_orbiting_fleets_too() {
     let mut state = tutorial_world();
+    // The Berserkers are Super Stealth — 300 cloaking points bare, 75% —
+    // which is its own test below; here they are made plain to see.
+    state.players[1].race.attrs[stars_core::race::RaceStat::MajorAdv as usize] = 9;
     // Park the probe nineteen light years from Prune, in open space.
     let prune = state
         .planets
@@ -104,4 +107,96 @@ fn planets_take_penetration_and_orbiting_fleets_too() {
     assert!(!seen.planets.contains(&12));
     assert!(!seen.fleets.contains(&enemy));
     assert!(seen.fleets.contains(&last));
+}
+
+/// A cloaked fleet is seen at a shorter range: a Stealth Cloak's 35% on an
+/// empty ship brings the probe's fifty-four down to thirty-five light years
+/// (`SetVisPFFleets`, `1070:a1d0`), and a Tachyon Detector on the scanning
+/// ship claws five per cent of the cloak back.
+#[test]
+fn a_cloak_shortens_the_range_a_fleet_is_seen_at() {
+    use stars_core::components::slot;
+    use stars_core::design::DesignSlot;
+
+    let mut state = tutorial_world();
+    // Bare, the Super Stealth Berserkers are 75% cloaked: 300 points. With
+    // a Stealth Cloak's 70 on top, 370 is 77%.
+    let enemy = state
+        .fleets
+        .iter()
+        .position(|f| f.owner == 1)
+        .expect("a Berserker fleet");
+    assert_eq!(
+        state.fleets[enemy].cloak_pct(&state.designs[1], &state.players[1].race),
+        75,
+        "Super Stealth alone"
+    );
+    state.players[1].race.attrs[stars_core::race::RaceStat::MajorAdv as usize] = 9;
+    let probe = state
+        .fleets
+        .iter()
+        .position(|f| f.owner == 0 && f.id == 0)
+        .expect("Armed Probe #1");
+    let at = stars_core::movement::Point::new(1500, 1500);
+    state.fleets[probe].position = at;
+    state.fleets[probe].orbiting = None;
+    // The Berserker fleet, fitted with a Stealth Cloak and emptied of cargo,
+    // forty light years off.
+    let design = usize::from(state.fleets[enemy].stacks[0].design);
+    state.designs[1][design].slots.push(DesignSlot {
+        category: slot::SPECIAL_E,
+        item: 1, // Stealth Cloak, 70 points
+        count: 1,
+    });
+    state.fleets[enemy].cargo = stars_core::fleet::Cargo::default();
+    state.fleets[enemy].orbiting = None;
+    state.fleets[enemy].position = stars_core::movement::Point::new(at.x + 40, at.y);
+    assert_eq!(
+        state.fleets[enemy].cloak_pct(&state.designs[1], &state.players[1].race),
+        35
+    );
+
+    let seen = view(&state, 0);
+    assert!(!seen.fleets.contains(&enemy), "forty is past 54 × 65%");
+    state.fleets[enemy].position = stars_core::movement::Point::new(at.x + 35, at.y);
+    let seen = view(&state, 0);
+    assert!(seen.fleets.contains(&enemy), "thirty-five is not");
+
+    // Cargo aboard dilutes the cloak: the same ship loaded to twice its
+    // mass shows at more like 60%-of-70 points.
+    let mass = state.designs[1][design].mass().expect("a hull");
+    state.fleets[enemy].cargo.minerals[0] = mass;
+    let diluted = state.fleets[enemy].cloak_pct(&state.designs[1], &state.players[1].race);
+    assert_eq!(diluted, 35 / 2, "70 points over twice the mass");
+
+    // A Tachyon Detector on the probe leaves 95% of the cloak: 33%, and the
+    // reach is 54 × 67% = 36.
+    state.fleets[enemy].cargo = stars_core::fleet::Cargo::default();
+    state.fleets[enemy].position = stars_core::movement::Point::new(at.x + 36, at.y);
+    assert!(!view(&state, 0).fleets.contains(&enemy));
+    let probe_design = usize::from(state.fleets[probe].stacks[0].design);
+    state.designs[0][probe_design].slots.push(DesignSlot {
+        category: slot::SPECIAL_E,
+        item: 15, // Tachyon Detector
+        count: 1,
+    });
+    assert_eq!(state.designs[0][probe_design].tachyon_pct(), 95);
+    assert!(view(&state, 0).fleets.contains(&enemy));
+}
+
+/// The points-to-percent table, as the manual prints it (p. 24-3).
+#[test]
+fn cloak_points_read_off_the_manuals_table() {
+    use stars_core::design::cloak_pct_of_points;
+    assert_eq!(cloak_pct_of_points(0), 0);
+    assert_eq!(cloak_pct_of_points(70), 35, "a Stealth Cloak");
+    assert_eq!(cloak_pct_of_points(100), 50);
+    assert_eq!(cloak_pct_of_points(140), 55, "a Super-Stealth Cloak");
+    assert_eq!(cloak_pct_of_points(300), 75, "a Transport Cloak");
+    assert_eq!(cloak_pct_of_points(540), 85, "an Ultra-Stealth Cloak");
+    assert_eq!(cloak_pct_of_points(612), 88);
+    assert_eq!(cloak_pct_of_points(1124), 96);
+    assert_eq!(cloak_pct_of_points(1380), 97);
+    assert_eq!(cloak_pct_of_points(1612), 98);
+    assert_eq!(cloak_pct_of_points(30_000), 0, "the overflow guard");
 }

@@ -571,6 +571,25 @@ impl Shell {
         );
     }
 
+    /// Take a fleet of ours in hand from the message that points at it —
+    /// or, when no message this year does (a world that has drifted from
+    /// the original's by a year), by its number, as View/Find would.
+    pub fn goto_fleet_by_message_or_number(&mut self, id: u16) {
+        let pointed = self.app.game.as_ref().is_some_and(|game| {
+            game.messages
+                .iter()
+                .any(|m| m.player == 0 && m.goto(&[1]) == stars_core::message::Goto::Fleet(id))
+        });
+        if pointed {
+            self.next_message_until(stars_core::message::Goto::Fleet(id));
+            self.press("messages", "Goto");
+        } else {
+            self.step(&format!("find fleet {id} by number"));
+            assert!(self.app.goto_fleet(id), "fleet {id} is ours");
+            self.frame();
+        }
+    }
+
     /// Press Next until the message in front is of the kind named.
     pub fn next_message_until_id(&mut self, id: u16) {
         for _ in 0..12 {

@@ -28,10 +28,13 @@
 //! dozen within 150 light years of Stove Top.
 //!
 //! What a player has **ever** seen is kept by the client, in its history
-//! file; this module only answers for one year. Cloaking is not modelled
-//! yet — every fleet and starbase is taken as uncloaked — and neither are
-//! the ranges of stargates and space objects that the two passes also
-//! settle.
+//! file; this module only answers for one year. **Cloaking** is the
+//! original's (`SetVisPFFleets`, `1070:a100`): a fleet's cloak
+//! ([`Fleet::cloak_pct`]), cut by the scanning fleet's Tachyon Detectors,
+//! shrinks the range it is seen at to `range × (100 − cloak) / 100`, and a
+//! planet's cloaked starbase shrinks the range the planet is learned at the
+//! same way. The ranges of stargates and space objects that the two passes
+//! also settle are not modelled.
 
 use std::collections::BTreeSet;
 
@@ -57,12 +60,108 @@ pub struct View {
 /// Whether a point is within `range` light years of `at` — the original's
 /// test, a bounding-box check and then the squares, with no square root.
 fn within(at: Point, p: Point, range: i32) -> bool {
+    within_cloaked(at, p, range, 0)
+}
+
+/// [`within`], against a fleet cloaked `cloak` percent: past the plain
+/// test the squared range is cut to `range² × (100 − cloak) / 100 ×
+/// (100 − cloak) / 100`, the two divisions in that order (`1070:a1f6`).
+fn within_cloaked(at: Point, p: Point, range: i32, cloak: i32) -> bool {
+    let Some((d2, range2)) = squares_within(at, p, range) else {
+        return false;
+    };
+    if cloak <= 0 {
+        return true;
+    }
+    let left = i64::from(100 - cloak);
+    d2 <= range2 * left / 100 * left / 100
+}
+
+/// [`within`], against a planet whose starbase is cloaked `cloak` percent:
+/// the turn caches `(100 − cloak)²` on the starbase design (`10b0:120d`)
+/// and the pass hides the planet when `range² × that / 10,000 < d²`
+/// (`1070:ab3c`).
+fn within_starbase_cloak(at: Point, p: Point, range: i32, cloak: i32) -> bool {
+    let Some((d2, range2)) = squares_within(at, p, range) else {
+        return false;
+    };
+    if cloak <= 0 {
+        return true;
+    }
+    let left = i64::from(100 - cloak);
+    d2 <= range2 * left * left / 10_000
+}
+
+/// The squared distance and squared range when the point is within the
+/// plain range, else nothing.
+fn squares_within(at: Point, p: Point, range: i32) -> Option<(i64, i64)> {
     let dx = i64::from(p.x) - i64::from(at.x);
     let dy = i64::from(p.y) - i64::from(at.y);
     if dx.abs() > i64::from(range) || dy.abs() > i64::from(range) {
-        return false;
+        return None;
     }
-    dx * dx + dy * dy <= i64::from(range) * i64::from(range)
+    let d2 = dx * dx + dy * dy;
+    let range2 = i64::from(range) * i64::from(range);
+    (d2 <= range2).then_some((d2, range2))
+}
+
+/// The cloaking a fleet shows to a scanner whose detectors leave
+/// `tachyon` percent of it: [`Fleet::cloak_pct`] scaled, as
+/// `SetVisPFFleets` does at `1070:a1d0`.
+fn fleet_cloak(state: &GameState, fleet: &Fleet, tachyon: i32) -> i32 {
+    let Some(owner) = usize::try_from(fleet.owner).ok() else {
+        return 0;
+    };
+    let (Some(designs), Some(player)) = (state.designs.get(owner), state.players.get(owner)) else {
+        return 0;
+    };
+    let pct = fleet.cloak_pct(designs, &player.race);
+    if tachyon == 100 {
+        pct
+    } else {
+        pct * tachyon / 100
+    }
+}
+
+/// The cloaking of a planet's starbase, which is what a planet is learned
+/// through (`1070:ab3c`): the starbase design's [`ShipDesign::cloak_pct`],
+/// or nothing without one.
+fn starbase_cloak(state: &GameState, planet: &Planet) -> i32 {
+    let Some(owner) = planet.owner.and_then(|o| usize::try_from(o).ok()) else {
+        return 0;
+    };
+    let (Some(designs), Some(player)) = (state.designs.get(owner), state.players.get(owner)) else {
+        return 0;
+    };
+    crate::production::starbase_hull(planet, designs)
+        .and_then(|_| {
+            planet
+                .starbase_design
+                .map(usize::from)
+                .map(|s| usize::from(crate::startup::FIRST_STARBASE_SLOT) + s)
+                .and_then(|s| designs.get(s))
+        })
+        .map_or(0, |d| d.cloak_pct(&player.race))
+}
+
+/// The share of a cloak a fleet's scanners see through: the best (lowest)
+/// of its designs' [`ShipDesign::tachyon_pct`] (`GetFleetScannerRange`,
+/// `1038:4fb8`).
+fn fleet_tachyon(state: &GameState, fleet: &Fleet) -> i32 {
+    let Some(owner) = usize::try_from(fleet.owner).ok() else {
+        return 100;
+    };
+    let Some(designs) = state.designs.get(owner) else {
+        return 100;
+    };
+    fleet
+        .stacks
+        .iter()
+        .filter(|s| s.count > 0)
+        .filter_map(|s| designs.get(usize::from(s.design)))
+        .map(crate::design::ShipDesign::tachyon_pct)
+        .min()
+        .unwrap_or(100)
 }
 
 /// A fleet's scanner ranges: the **largest** of its designs', each counted
@@ -121,8 +220,16 @@ pub fn planet_scan(state: &GameState, planet: &Planet) -> ScannerRange {
 
 /// What one scanner at `at` adds to a view: fleets of other players within
 /// its normal range (in orbit, within its penetrating range), and planets
-/// within its penetrating range.
-fn scan_from(state: &GameState, player: i16, at: Point, range: ScannerRange, view: &mut View) {
+/// within its penetrating range — each range cut by the target's cloak,
+/// which the scanner's detectors leave `tachyon` percent of.
+fn scan_from(
+    state: &GameState,
+    player: i16,
+    at: Point,
+    range: ScannerRange,
+    tachyon: i32,
+    view: &mut View,
+) {
     if range.normal > 0 {
         for (index, other) in state.fleets.iter().enumerate() {
             if other.owner == player || other.stacks.is_empty() {
@@ -134,7 +241,10 @@ fn scan_from(state: &GameState, player: i16, at: Point, range: ScannerRange, vie
                 range.normal
             };
             if reach > 0 && within(at, other.position, reach) {
-                view.fleets.insert(index);
+                let cloak = fleet_cloak(state, other, tachyon);
+                if within_cloaked(at, other.position, reach, cloak) {
+                    view.fleets.insert(index);
+                }
             }
         }
     }
@@ -147,7 +257,13 @@ fn scan_from(state: &GameState, player: i16, at: Point, range: ScannerRange, vie
                 .position
                 .is_some_and(|p| within(at, p, range.penetrating))
             {
-                view.planets.insert(planet.id);
+                let cloak = starbase_cloak(state, planet);
+                if planet
+                    .position
+                    .is_some_and(|p| within_starbase_cloak(at, p, range.penetrating, cloak))
+                {
+                    view.planets.insert(planet.id);
+                }
             }
         }
     }
@@ -171,7 +287,7 @@ pub fn view(state: &GameState, player: usize) -> View {
         let Some(at) = planet.position else {
             continue;
         };
-        scan_from(state, me, at, planet_scan(state, planet), &mut out);
+        scan_from(state, me, at, planet_scan(state, planet), 100, &mut out);
     }
 
     // SetVisPFFleets: the player's own fleets, the planet each is at, and
@@ -191,6 +307,7 @@ pub fn view(state: &GameState, player: usize) -> View {
             me,
             fleet.position,
             fleet_scan(state, fleet),
+            fleet_tachyon(state, fleet),
             &mut out,
         );
     }

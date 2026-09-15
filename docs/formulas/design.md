@@ -182,6 +182,8 @@ had **backwards**, both pinned by tests:
   (`InitFromHuldef`) has not been read yet.
 - Stock designs (`rgshdefT`, `rgshdefSBT`) are not transcribed; only the hull
   tables are.
-- `LComputePower`, the design's `Rating:`, and the cloak, jammer and initiative
-  figures the designer shows at higher resolutions.
+- `LComputePower`, the design's `Rating:`, and the jammer and initiative
+  figures the designer shows at higher resolutions; the cloak figure is
+  `ShipDesign::cloak_pct` (`scanning.md`, *Cloaking*) and is not drawn there
+  yet.
 - `grfAbilities` bit meanings across the component tables.
