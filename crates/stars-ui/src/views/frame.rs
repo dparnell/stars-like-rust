@@ -141,7 +141,8 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
         egui::Window::new(crate::dialog::BATTLE_VCR.caption)
             .open(&mut open)
             .resizable(true)
-            .default_width(420.0)
+            // The board at 32-pixel squares and the panel beside it.
+            .default_width(640.0)
             .show(ctx, |ui| crate::views::battles::view(app, ui));
         if !open {
             app.close_battle();

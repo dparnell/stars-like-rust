@@ -370,6 +370,68 @@ pub fn read_dib_recoloured(data: &[u8], recolour: &[(usize, [u8; 3])]) -> Result
     })
 }
 
+/// The resource type of an icon group (`RT_GROUP_ICON`).
+pub const RT_GROUP_ICON: u16 = 14;
+
+/// Read one icon by the name of its group and decode its first image, with
+/// the icon's AND mask turned into alpha.
+///
+/// `LoadIcon` takes the group's name — `BANG1ICO`, `TORP1ICO` and the like —
+/// and the group (`RT_GROUP_ICON`, 14) lists its images: six bytes of
+/// header, then fourteen per entry, the entry's `RT_ICON` id in its last
+/// word. The image is a `BITMAPINFOHEADER` DIB whose height is **doubled**:
+/// the colour bits (the XOR mask) come first, then a one-bit AND mask of the
+/// same size, set where the screen shows through.
+///
+/// # Errors
+/// [`FormatError::Malformed`] when the group or its image is missing or does
+/// not read.
+pub fn read_icon(exe: &[u8], group: &Name) -> Result<Image> {
+    let bad = |what: &str| FormatError::Malformed(format!("not a readable icon: {what}"));
+    let resource = find(exe, RT_GROUP_ICON, group)
+        .ok_or_else(|| FormatError::Malformed(format!("no icon group named {group:?}")))?;
+    let data = resource
+        .data(exe)
+        .ok_or_else(|| bad("the group runs off the end"))?;
+    let id = u16_at(data, 6 + 12).ok_or_else(|| bad("truncated group"))?;
+    let image = find(exe, RT_ICON, &Name::Id(id))
+        .ok_or_else(|| bad("the group names an image that is not there"))?;
+    let data = image
+        .data(exe)
+        .ok_or_else(|| bad("the image runs off the end"))?;
+
+    // The header says twice the height; read the colour half as a bitmap of
+    // its own by patching the height, then the mask after it.
+    let header = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
+    let doubled = i32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+    let mut halved = data.to_vec();
+    halved[8..12].copy_from_slice(&(doubled / 2).to_le_bytes());
+    let mut picture = read_dib_recoloured(&halved, &[])?;
+    let bpp = u32::from(u16_at(data, 14).ok_or_else(|| bad("truncated header"))?);
+    let used = u32::from_le_bytes([data[32], data[33], data[34], data[35]]);
+    let colours = if used == 0 { 1u32 << bpp } else { used } as usize;
+    let xor_stride = ((picture.width * bpp) as usize).div_ceil(32) * 4;
+    let mask_at = header + colours * 4 + xor_stride * picture.height as usize;
+    let mask_stride = (picture.width as usize).div_ceil(32) * 4;
+    for row in 0..picture.height as usize {
+        // Bottom-up, like the colour bits.
+        let source = picture.height as usize - 1 - row;
+        let Some(line) =
+            data.get(mask_at + source * mask_stride..mask_at + (source + 1) * mask_stride)
+        else {
+            break;
+        };
+        for column in 0..picture.width as usize {
+            let bit = (line[column / 8] >> (7 - column % 8)) & 1;
+            if bit == 1 {
+                let at = (row * picture.width as usize + column) * 4;
+                picture.pixels[at..at + 4].copy_from_slice(&[0, 0, 0, 0]);
+            }
+        }
+    }
+    Ok(picture)
+}
+
 /// Read one bitmap resource by name and decode it.
 ///
 /// # Errors

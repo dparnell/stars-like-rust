@@ -226,6 +226,30 @@ fn the_toolbars_keyed_entry_is_the_magenta_one() {
     );
 }
 
+/// The seven icons the VCR animates with read by the names `FCreateStuff`
+/// loads them under: 32 pixels square, the corner clear where the AND
+/// mask shows the screen through, and coloured in the middle.
+#[test]
+fn the_vcr_icons_read_with_their_masks() {
+    let Some(exe) = executable() else { return };
+    for name in art::VCR_ICONS {
+        let icon = stars_formats::resources::read_icon(&exe, &Name::Text(name.to_string()))
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!((icon.width, icon.height), (32, 32), "{name}");
+        assert_eq!(
+            icon.pixel(0, 0).map(|p| p.3),
+            Some(0),
+            "{name}: the corner is clear"
+        );
+        let (r, _, _, a) = icon.pixel(16, 16).expect("the middle");
+        assert_eq!(a, 255, "{name}: the middle is drawn");
+        assert!(r > 128, "{name}: the burst is red");
+    }
+    assert!(
+        stars_formats::resources::read_icon(&exe, &Name::Text("NOSUCHICO".to_string())).is_err()
+    );
+}
+
 /// The component pictures are thirty-two to a sheet, eight across.
 #[test]
 fn the_component_pictures_are_thirty_two_to_a_sheet() {

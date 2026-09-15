@@ -152,3 +152,125 @@ fn a_battle_at_a_planet_is_found_by_the_planet() {
     assert!(app.message_goto_follow(), "the battle at the planet opens");
     assert!(app.vcr.is_some());
 }
+
+/// The board draws the recording the original's way with the game's own
+/// pictures — the ship, its owner's emblem, the bursts and torpedoes of
+/// `AnimateAttack` — and a click on a square picks its stack out, cycling
+/// through the stacks there.
+#[test]
+fn the_board_draws_with_the_pictures_and_a_click_picks_a_stack() {
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../binary");
+    let Ok(bytes) = std::fs::read(root.join("stars.2.7j.exe")) else {
+        eprintln!("skipping: no copy of the original");
+        return;
+    };
+    // A recorded battle with shots in it — the Exodus game's, when the
+    // fixtures are there — draws every frame, the firing ones with their
+    // beams, torpedoes and bursts.
+    let fixtures = root.join("../fixtures/games/exodus");
+    let mut recorded = None;
+    for year in (2400..2500).step_by(2) {
+        let mut app = App::new();
+        if app
+            .open(&fixtures.join(format!("{year}/exodus.m6")))
+            .is_ok()
+            && !app.battles.is_empty()
+        {
+            recorded = Some(app);
+            break;
+        }
+    }
+    if let Some(mut app) = recorded {
+        app.load_art(bytes.clone(), "the test's copy")
+            .expect("the pictures load");
+        app.open_battle(0);
+        let frames = app.vcr.as_ref().expect("open").len();
+        let mut fired = 0;
+        for position in 0..=frames {
+            app.vcr.as_mut().expect("open").seek(position);
+            if let Some(stars_ui::vcr::Event::Fire { shots, .. }) =
+                app.vcr.as_ref().expect("open").frame().map(|f| &f.event)
+            {
+                fired += shots.len();
+                for shot in shots {
+                    assert!(shot.beam() || shot.torpedo() || shot.weapon == 0);
+                }
+            }
+            frame(&mut app);
+        }
+        assert!(fired > 0, "the recording has shots in it");
+    }
+
+    let mut app = a_game_with_a_fight();
+    app.load_art(bytes, "the test's copy")
+        .expect("the pictures load");
+    app.generate_turn();
+    assert_eq!(app.battles.len(), 1, "the year's battle reached the app");
+    app.open_battle(0);
+
+    // The focus follows a click on the board: the first stack on the
+    // square, then the next on another click.
+    let ctx = egui::Context::default();
+    let mut clicks = 0;
+    app.vcr.as_mut().expect("open").rewind();
+    let square = app.vcr.as_ref().expect("open").tokens()[0]
+        .square
+        .expect("on the board");
+    for pass in 0..3 {
+        let mut events = Vec::new();
+        if pass > 0 {
+            // The board's origin is ten pixels into its painter, whose top
+            // left the first pass records; a click on the token's square.
+            if let Some(origin) = app
+                .drawn
+                .iter()
+                .find(|w| w.label == "board")
+                .map(|w| w.rect.min)
+            {
+                let at = origin
+                    + egui::vec2(10.0, 10.0)
+                    + egui::vec2(
+                        f32::from(square.0) * 35.0 + 16.0,
+                        f32::from(square.1) * 35.0 + 16.0,
+                    );
+                events.push(egui::Event::PointerMoved(at));
+                events.push(egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                });
+                events.push(egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                });
+                clicks += 1;
+            }
+        }
+        app.start_frame();
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1200.0, 800.0),
+                )),
+                time: Some(f64::from(pass) * 2.0),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::Window::new("Battle VCR")
+                    .default_width(640.0)
+                    .show(ctx, |ui| stars_ui::views::battles::view(&mut app, ui));
+            },
+        );
+    }
+    assert!(clicks > 0, "the board was drawn and clicked");
+    assert_eq!(
+        app.vcr.as_ref().expect("open").focus,
+        Some(0),
+        "the click picked the stack on the square"
+    );
+}

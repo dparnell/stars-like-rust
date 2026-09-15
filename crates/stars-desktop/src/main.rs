@@ -291,6 +291,7 @@ fn play_battles(file: &StarsFile, wanted: Option<u16>) -> ExitCode {
                     target,
                     range,
                     ships_killed,
+                    ..
                 } => {
                     print!("  token {attacker} fires on {target} at range {range}");
                     if *ships_killed > 0 {

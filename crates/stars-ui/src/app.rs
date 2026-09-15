@@ -81,6 +81,11 @@ impl Screen {
     }
 }
 
+/// How long the VCR holds one frame while playing, in seconds. The
+/// original paces itself from `viSpeedVCR` with `Delay` (`10e8:3a3e`); this
+/// is the middle of its range.
+pub const VCR_FRAME: f64 = 0.6;
+
 /// Where a planet's starbase design sits in the flattened design list.
 ///
 /// `PLANET.isb` counts within the **starbase** designs — the original reads
@@ -596,6 +601,10 @@ pub struct App {
     pub vcr: Option<Vcr>,
     /// Whether playback is running.
     pub playing: bool,
+    /// When the VCR's current frame was entered, in egui's seconds: the
+    /// frame is held for [`VCR_FRAME`] while playing, and the torpedoes
+    /// fly across the first half of that.
+    pub vcr_frame_entered: f64,
     /// The most recent error, for the frontend to show.
     pub error: Option<String>,
     /// What the last generated turn did, for the frontend to show.
@@ -697,6 +706,7 @@ impl App {
             open_tiles: [true; 6],
             open_ship_tiles: [true; 7],
             scan_minefield_filter: 0xf,
+            vcr_frame_entered: 0.0,
             mineral_scale: MINERAL_GRAPH_MAX,
             mineral_menu: None,
             scan_overlays: ScanOverlays {

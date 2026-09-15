@@ -129,7 +129,10 @@ but not yet exercised by a fixture.
 
 ## Open questions
 
-- `grfWeapon` bit meanings (beam vs torpedo vs sapper) are not yet pinned down.
+- `grfWeapon`: `AnimateAttack` (`10e8:3ac2`) reads bits 0 and 1 as a beam
+  (bit 1 choosing the blue pen), bit 2 as a torpedo and bit 6 as the
+  torpedoes deflected; the fixtures carry 1, 4, 12, 196 and 204, so bit 3
+  and bit 7 (always beside bit 6) are still unnamed.
 - The tactics and movement words are decoded as packed values but their
   sub-fields are not yet mapped to the battle-plan UI.
 - The version difference matters: `BTLREC26` is a 2.6-era variant with the same

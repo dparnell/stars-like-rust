@@ -36,6 +36,9 @@ pub struct Art {
     /// Monochrome sheets uploaded as **tiling** stencils, for the pattern
     /// brushes the map fills with.
     patterns: HashMap<Name, egui::TextureHandle>,
+    /// Icons uploaded by the name of their group, their mask as alpha. A
+    /// `None` is one that would not read.
+    icons: HashMap<String, Option<egui::TextureHandle>>,
     /// Where it came from, for the frontend to show.
     pub source: String,
 }
@@ -68,6 +71,7 @@ impl Art {
             stencils: HashMap::new(),
             masked: HashMap::new(),
             patterns: HashMap::new(),
+            icons: HashMap::new(),
             source: source.to_string(),
         })
     }
@@ -150,6 +154,33 @@ impl Art {
         size: f32,
     ) -> Option<egui::Image<'_>> {
         self.sprite_sized(ctx, cell, egui::vec2(size, size))
+    }
+
+    /// One of the game's icons by the name of its group, `size` square,
+    /// with the icon's mask as its alpha — `DrawIcon`, in effect.
+    pub fn icon(&mut self, ctx: &egui::Context, name: &str, size: f32) -> Option<egui::Image<'_>> {
+        if !self.icons.contains_key(name) {
+            let handle = stars_formats::resources::read_icon(
+                &self.executable,
+                &Name::Text(name.to_string()),
+            )
+            .ok()
+            .map(|image| {
+                let dimensions = [image.width as usize, image.height as usize];
+                let colour = egui::ColorImage::from_rgba_unmultiplied(dimensions, &image.pixels);
+                ctx.load_texture(
+                    format!("stars-icon-{name}"),
+                    colour,
+                    egui::TextureOptions::NEAREST,
+                )
+            });
+            self.icons.insert(name.to_string(), handle);
+        }
+        let handle = self.icons.get(name)?.as_ref()?;
+        Some(
+            egui::Image::new((handle.id(), egui::vec2(size, size)))
+                .fit_to_exact_size(egui::vec2(size, size)),
+        )
     }
 
     /// One cell of a sheet, stretched to a size of the caller's choosing.

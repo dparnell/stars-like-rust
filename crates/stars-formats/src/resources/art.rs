@@ -76,6 +76,14 @@ pub fn component(ibmp: u16) -> Option<Cell> {
 /// `(bitmap id, colour-table entry)`; see [`super::read_bitmap_recoloured`].
 pub const SYSTEM_COLOURED: [(u16, usize); 2] = [(178, 253), (449, 249)];
 
+/// The seven icons the battle VCR animates with (`rghiconVCR`, loaded by
+/// name in `FCreateStuff`), 32 pixels square each: three bursts of growing
+/// size — a beam landing, a torpedo landing, a stack destroyed — and the
+/// four frames of a torpedo in flight.
+pub const VCR_ICONS: [&str; 7] = [
+    "BANG1ICO", "BANG2ICO", "BANG3ICO", "TORP1ICO", "TORP2ICO", "TORP3ICO", "TORP4ICO",
+];
+
 /// The sheet of pictures an empty design slot wears (`hbmpBackBld`,
 /// `FCreateStuff` loads id 119 at `1000:07b2`): 576 by 192, twenty-one
 /// 64-pixel cells drawn eight to a row.

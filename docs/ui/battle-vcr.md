@@ -1,7 +1,7 @@
 # The battle VCR
 
-Status: **playback, transport and layout recovered**; the board's artwork and
-the two token panels are not the original's.
+Status: **playback, transport, layout and the board's drawing recovered**;
+the panel beside the board is not yet the original's.
 
 `BattleVCR` (`10e8:0000`) opens it and `VCRDlg` (`10e8:0e90`) runs it, with
 `DrawVCR` (`10e8:1c62`) painting the board and `SetVCRBoard` (`10e8:08d8`)
@@ -64,6 +64,45 @@ and then replays from the beginning up to the step asked for. Round changes are
 noticed on the way, and every token with the regenerating-shields bit has its
 shields put back at each one.
 
+## The board
+
+`DrawVCR` paints ten squares by ten of `dxyVCRSquare` pixels — 32, or 64 when
+the window is large — three apart, from an origin of (10, 10), inside a sunken
+frame. Every square is framed in black; an empty one is filled black
+(`PatBlt BLACKNESS`), and an occupied one shows the stack on it through
+`DrawFleetBitmap` (`1050:490e`): the design's own picture from the small ship
+sheet (or the large), the owner's emblem over its bottom-left corner — eight
+pixels on the small picture, sixteen on the large — and, for every further
+stack on the same square up to three, a small cross in the next corner. When
+the focus token stands on the square it is the one shown; otherwise the first.
+The focus square (`viVCRFocus`, or the square `vbrcVCRFocus` names when no
+token is picked) is framed in blue two pixels wide (`hbrBlue`).
+
+Clicking a square picks the stack on it out, and the next stack along on the
+next click; `PopupVCRMenu` (`10e8:4518`) offers the same choice from the right
+button.
+
+## The shots
+
+`AnimateAttack` (`10e8:3ac2`) runs after the board for a record with kills.
+It works through the kills a target at a time, or-ing their `grfWeapon` flags
+(`KILL` byte 1 — see `../formats/battle.md`):
+
+| bit | meaning | drawn |
+|-----|---------|-------|
+| 0 or 1 | a beam | two lines from the near edge of the attacker's square — a third of a square either side of its centre, on the edge facing the target — to the target's centre, in `hpenEnemy` (red) or, with bit 1, `hpenStarbase` (blue); then icon 0 on the target |
+| 2 | a torpedo | while `fAnimate` (the VCR playing), one of the four torpedo icons flown from the beam's point to the target in eight steps a square, paced by `viSpeedVCR`; then icon 1 on the target |
+| 6 | torpedoes deflected | no landing burst |
+
+and last, on every target, icon 2 where ships were destroyed and icon 0 where
+not. The seven icons are `rghiconVCR`, loaded by name in `FCreateStuff`:
+`BANG1ICO`, `BANG2ICO`, `BANG3ICO` — bursts of growing size — and `TORP1ICO`
+to `TORP4ICO`, the torpedo's four frames. All are 32 pixels square with an AND
+mask; `stars_formats::resources::read_icon` reads them and
+`art::VCR_ICONS` names them. The recordings in `fixtures/games` carry the
+flags 1, 4, 12, 196 and 204 — a beam, a torpedo, a torpedo with bit 3, and
+torpedoes deflected (`0xc4`, `0xcc`: bits 6 and 7 together).
+
 ## What this project does
 
 `crates/stars-ui/src/views/battles.rs` over `crates/stars-ui/src/vcr.rs`.
@@ -71,9 +110,15 @@ shields put back at each one.
 Reproduced: the transport's five buttons with the resource's own captions and
 order, and `EnableVCRButtons`' rule for which are alive and where the focus
 lands, tested against a real recording; play stopping of its own accord at the
-last frame, which is what the forward buttons dying amounts to; and the
-playback itself, which is the module's own business.
+last frame, which is what the forward buttons dying amounts to; the playback
+itself, which is the module's own business; the board as `DrawVCR` paints it,
+with the game's pictures, emblems and icons when a copy of the original is at
+hand (coloured squares and red bursts when not); the shots as `AnimateAttack`
+draws them, the torpedoes flying across the first half of a frame's
+`VCR_FRAME` while the VCR plays; and the focus, picked by clicking a square.
 
-Not reproduced: the button **icons**, which need the game's own; `DrawVCR`'s
-board and its two token panels, which are drawn here as a grid of coloured
-marks; and the Help button, which has nothing behind it.
+Not reproduced: the button **icons**, which need the game's own; the text
+panel beside the board — the original's phase, speed, attacker, target and
+damage lines, and the focus token's figures — which is a roster of the tokens
+and a selection summary here; and the Help button, which has nothing behind
+it.

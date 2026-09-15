@@ -34,6 +34,9 @@ pub struct Token {
     pub index: usize,
     /// Owning player.
     pub player: u8,
+    /// Its design slot — sixteen and up for a starbase — which is where its
+    /// picture comes from.
+    pub design: u8,
     /// Where it is, or `None` once it has left the battle.
     pub square: Option<(u8, u8)>,
     /// Ships still in the stack.
@@ -51,6 +54,7 @@ impl Token {
         Self {
             index,
             player: t.player,
+            design: t.design,
             square: Some((t.square.x, t.square.y)),
             ships: i32::from(t.ships),
             shields: i32::from(t.shields),
@@ -82,12 +86,49 @@ pub enum Event {
         range: u8,
         /// Ships destroyed by this shot, across all tokens hit.
         ships_killed: u32,
+        /// Every token the shot reached, in the order the kills were
+        /// recorded, with the weapon flags of all the kills on it.
+        shots: Vec<Shot>,
     },
     /// A token left the battle.
     Disengage {
         /// The token that left.
         token: usize,
     },
+}
+
+/// One token a shot reached (`AnimateAttack`, `10e8:3ac2`, works through
+/// the kills of a record a target at a time, or-ing their weapon flags).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Shot {
+    /// The token hit.
+    pub target: usize,
+    /// The `grfWeapon` flags of every kill on it, or-ed together: bits 0
+    /// and 1 a beam (bit 1 the pen in the friendlier blue), bit 2 a
+    /// torpedo, bit 6 the torpedoes deflected — nothing lands.
+    pub weapon: u8,
+    /// Ships destroyed on it.
+    pub ships_killed: u32,
+}
+
+impl Shot {
+    /// A beam was fired at this token.
+    #[must_use]
+    pub fn beam(self) -> bool {
+        self.weapon & 0x03 != 0
+    }
+
+    /// A torpedo was fired at this token.
+    #[must_use]
+    pub fn torpedo(self) -> bool {
+        self.weapon & 0x04 != 0
+    }
+
+    /// The torpedoes were deflected: no burst lands.
+    #[must_use]
+    pub fn deflected(self) -> bool {
+        self.weapon & 0x40 != 0
+    }
 }
 
 /// One step of the playback: what happened, and the board just after it.
@@ -99,6 +140,26 @@ pub struct Frame {
     pub event: Event,
     /// Every token, as it stands after this frame.
     pub tokens: Vec<Token>,
+}
+
+/// The kills of one record, a target at a time.
+fn shots_of(kills: &[stars_formats::Kill]) -> Vec<Shot> {
+    let mut shots: Vec<Shot> = Vec::new();
+    for kill in kills {
+        let target = usize::from(kill.token);
+        match shots.iter_mut().find(|s| s.target == target) {
+            Some(shot) => {
+                shot.weapon |= kill.weapon;
+                shot.ships_killed += u32::from(kill.ships_killed);
+            }
+            None => shots.push(Shot {
+                target,
+                weapon: kill.weapon,
+                ships_killed: u32::from(kill.ships_killed),
+            }),
+        }
+    }
+    shots
 }
 
 /// A battle recording, prepared for playback.
@@ -113,6 +174,9 @@ pub struct Vcr {
     frames: Vec<Frame>,
     start: Vec<Token>,
     position: usize,
+    /// The token the player has picked out (`viVCRFocus`), whose square
+    /// is framed in blue and whose figures the panel shows.
+    pub focus: Option<usize>,
 }
 
 impl Vcr {
@@ -156,6 +220,7 @@ impl Vcr {
                                 .iter()
                                 .map(|k| u32::from(k.ships_killed))
                                 .sum(),
+                            shots: shots_of(&action.kills),
                         },
                         Some(here) => {
                             if let Some(t) = tokens.get_mut(actor) {
@@ -174,6 +239,7 @@ impl Vcr {
                             target: usize::from(action.target),
                             range: action.range,
                             ships_killed: 0,
+                            shots: shots_of(&action.kills),
                         },
                     }
                 }
@@ -213,6 +279,7 @@ impl Vcr {
             frames,
             start,
             position: 0,
+            focus: None,
         }
     }
 
