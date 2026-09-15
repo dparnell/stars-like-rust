@@ -7189,6 +7189,26 @@ impl App {
         true
     }
 
+    /// Empty a slot of the design being edited — what dragging its whole
+    /// stack off and letting go over the left half of the dialog does.
+    ///
+    /// The original has no key for it; this is what Delete and Backspace
+    /// do here with a slot selected, so a design can be cleared without a
+    /// drag.
+    pub fn designer_clear_slot(&mut self, index: usize) -> bool {
+        let Some(editing) = self.designer.as_mut().and_then(|d| d.editing.as_mut()) else {
+            return false;
+        };
+        let Some(s) = editing.design.slots.get_mut(index) else {
+            return false;
+        };
+        if s.count == 0 {
+            return false;
+        }
+        s.count = 0;
+        true
+    }
+
     /// Step the design's picture along, which is what the two arrows under it
     /// do.
     ///

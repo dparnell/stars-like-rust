@@ -201,7 +201,15 @@ dropping an engine back on the parts list takes the whole stack off whatever
 the drag was carrying.
 
 **Dropping anywhere else** removes the component, if the pointer is on the left
-half of the window — which is where the parts list is while editing.
+half of the window — which is where the parts list is while editing. Both are
+done here: a stack let go over the parts list, or anywhere on the left half of
+the dialog, comes off the design.
+
+**One addition the original does not have:** with a slot selected, **Delete**
+or **Backspace** empties it (`App::designer_clear_slot`), so a design can be
+cleared without a drag. The original has no key for it — `SlotDlg` handles
+no key messages, and `FTrackSlot` (`10c8:306a`) is reached only from the
+mouse; its right button raises the component's pop-up, not a removal.
 
 ## What OK and Cancel do
 

@@ -656,9 +656,16 @@ impl eframe::App for StarsApp {
         // stands aside for whatever has the focus — a text field, the
         // toolbar, a list — which here means only doing it when nothing else
         // wants the key.
+        // The designer's editor takes the two keys for its selected slot.
+        let designer_editing = self
+            .app
+            .designer
+            .as_ref()
+            .is_some_and(|d| d.editing.is_some());
         if self.app.game.is_some()
             && self.app.setup.is_none()
             && self.app.selection.fleet.is_some()
+            && !designer_editing
             && !ctx.wants_keyboard_input()
             && ctx
                 .input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))

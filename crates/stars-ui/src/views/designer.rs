@@ -348,6 +348,37 @@ fn editor(app: &mut App, ui: &mut egui::Ui) {
             app.designer_drop_on_slot(drag, target);
         }
     }
+    // `IDropPart`: a stack let go anywhere else comes off the design when
+    // the pointer is on the left half of the dialog — the side the parts
+    // list is on.
+    let released = ui.input(|i| i.pointer.any_released());
+    if released && egui::DragAndDrop::has_any_payload(ui.ctx()) {
+        let on_left = ui
+            .input(|i| i.pointer.interact_pos())
+            .is_some_and(|at| at.x < rect.center().x);
+        if on_left {
+            if let Some(drag) = taken_payload(ui) {
+                if drag.from_slot.is_some() {
+                    app.designer_drop_on_list(drag);
+                }
+            }
+        }
+    }
+    // Delete or Backspace empties the slot selected. The original has no
+    // key for it — a stack is dragged off — so this is an addition; it
+    // stands aside for a text field, as the shell's own keys do.
+    let selected_slot = app.designer.as_ref().and_then(|d| d.selected_slot);
+    if let Some(index) = selected_slot {
+        if !ui.ctx().wants_keyboard_input() {
+            let pressed = ui.input_mut(|i| {
+                i.consume_key(egui::Modifiers::NONE, egui::Key::Delete)
+                    || i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace)
+            });
+            if pressed {
+                app.designer_clear_slot(index);
+            }
+        }
+    }
 
     // `ShowMainControls` shows OK for the editor and relabels the button
     // beside it `Cancel`.

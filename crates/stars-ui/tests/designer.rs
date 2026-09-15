@@ -759,3 +759,91 @@ fn a_part_dragged_slowly_lands_in_the_slot() {
         "the engine went in by the slow drag"
     );
 }
+
+/// A copied Scout with its engine in, in a shell, with the engine slot's
+/// index and the rectangles of its row and slot.
+fn fitted_scout_in_a_shell() -> (stars_ui::autopilot::Shell, usize, egui::Rect) {
+    let mut app = a_game();
+    app.open_designer();
+    app.designer.as_mut().expect("open").view = DesignView::Hulls;
+    let scout = app
+        .designer_hulls()
+        .iter()
+        .position(|h| h.name == "Scout")
+        .expect("a Scout");
+    app.designer.as_mut().expect("open").selected = scout;
+    app.designer_copy();
+    let engine_slot = app
+        .designer_schematic()
+        .iter()
+        .position(|s| s.allowed & slot::ENGINE != 0)
+        .expect("an engine slot");
+    assert!(app.designer_drop_on_slot(
+        DesignerDrag {
+            category: slot::ENGINE,
+            item: 1,
+            count: 1,
+            from_slot: None,
+        },
+        engine_slot,
+    ));
+    let mut shell = stars_ui::autopilot::Shell::new(app);
+    shell.frame();
+    shell.frame();
+    let target = shell
+        .app
+        .drawn
+        .iter()
+        .find(|w| w.label == format!("slot {engine_slot}"))
+        .map(|w| w.rect)
+        .expect("the engine slot is drawn");
+    (shell, engine_slot, target)
+}
+
+/// Delete (or Backspace) with a slot selected empties it — a key the
+/// original does not have, for a design to be cleared without a drag.
+#[test]
+fn delete_empties_the_selected_slot() {
+    let (mut shell, engine_slot, target) = fitted_scout_in_a_shell();
+    shell.click_at(target.center());
+    assert_eq!(
+        shell.app.designer.as_ref().expect("open").selected_slot,
+        Some(engine_slot)
+    );
+    shell.push_event(egui::Event::Key {
+        key: egui::Key::Delete,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    shell.frame();
+    shell.frame();
+    assert!(
+        shell.app.designer_schematic()[engine_slot].fitted.is_none(),
+        "Delete emptied the slot"
+    );
+}
+
+/// A stack dragged off its slot and let go over the left half of the
+/// dialog — not on the parts list itself — comes off the design, as
+/// `IDropPart` has it.
+#[test]
+fn a_stack_let_go_on_the_left_comes_off() {
+    let (mut shell, engine_slot, target) = fitted_scout_in_a_shell();
+    // The filter dropdown's row, left of centre and above the list.
+    let dropdown = shell
+        .app
+        .drawn
+        .iter()
+        .find(|w| w.label == "Quick Jump 5")
+        .map(|w| w.rect)
+        .expect("the list is drawn");
+    let to = egui::pos2(dropdown.left() - 4.0, dropdown.top() - 30.0);
+    shell.drag(target.center(), to);
+    shell.frame();
+    assert!(
+        shell.app.designer_schematic()[engine_slot].fitted.is_none(),
+        "the engine came off"
+    );
+}
