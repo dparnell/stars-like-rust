@@ -341,3 +341,60 @@ fn the_six_templates_are_the_games_own() {
         "Costs 50% less"
     );
 }
+
+/// The wizard's figures are held to `SetRaceStat`'s bounds, and an axis's
+/// range to `FTrackRaceDlg2`'s: within the spectrum, at least twenty wide,
+/// moved and widened by the buttons a click at a time.
+#[test]
+fn the_sliders_have_the_originals_bounds() {
+    use stars_core::race::{adjust_hab_range, clamp_stat, drag_hab_range, STAT_MAX, STAT_MIN};
+
+    assert_eq!(
+        clamp_stat(RaceStat::ResGen, 3),
+        7,
+        "700 a resource at least"
+    );
+    assert_eq!(clamp_stat(RaceStat::ResGen, 99), 25);
+    assert_eq!(clamp_stat(RaceStat::FactProd, 99), 15);
+    assert_eq!(clamp_stat(RaceStat::MineBuild, 0), 2);
+    assert_eq!(STAT_MIN[RaceStat::UseLeftover as usize], 0);
+    assert_eq!(STAT_MAX[RaceStat::UseLeftover as usize], 6);
+
+    let mut app = wizard();
+    app.race_wizard_set_stat(RaceStat::FactBuild, 100);
+    assert_eq!(
+        app.race_wizard
+            .as_ref()
+            .expect("open")
+            .race
+            .stat(RaceStat::FactBuild),
+        25
+    );
+
+    // A range shifted past the top carries the low end with it.
+    assert_eq!(adjust_hab_range(80, 100, 1, 0), (80, 100));
+    assert_eq!(
+        adjust_hab_range(85, 95, 0, 10),
+        (70, 100),
+        "the overflow goes below"
+    );
+    // Narrowed under twenty wide, it opens back to twenty.
+    assert_eq!(adjust_hab_range(40, 60, 0, -5), (40, 60));
+    assert_eq!(adjust_hab_range(45, 55, 0, 0), (40, 60));
+    // Dragged to an edge the half-width is kept.
+    assert_eq!(drag_hab_range(40, 60, 3), (0, 20));
+    assert_eq!(drag_hab_range(40, 60, 99), (80, 100));
+
+    // Through the wizard: a shift of ten with Shift, and the centre follows.
+    let before = app.race_wizard.as_ref().expect("open").race.env_min[0];
+    app.race_wizard_shift_env(0, 10);
+    let race = &app.race_wizard.as_ref().expect("open").race;
+    assert_eq!(
+        race.env_min[0],
+        (before + 10).min(100 - (race.env_max[0] - race.env_min[0]))
+    );
+    assert_eq!(
+        race.env_center[0],
+        race.env_min[0] + (race.env_max[0] - race.env_min[0]) / 2
+    );
+}

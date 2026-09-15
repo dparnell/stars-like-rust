@@ -227,10 +227,11 @@ fn names(app: &mut App, ui: &mut egui::Ui) {
 /// bounds are clicks, `0..=100`, shown alongside in the units the game reads
 /// them out in.
 fn habitability(app: &mut App, ui: &mut egui::Ui) {
-    let Some(wizard) = app.race_wizard.as_ref() else {
+    let Some(wizard) = app.race_wizard.clone() else {
         return;
     };
     let mut edits: Vec<(usize, usize, i8)> = Vec::new();
+    let mut nudges: Vec<(usize, i8, i8)> = Vec::new();
     let mut immunity: Vec<(usize, bool)> = Vec::new();
     let mut growth = wizard.race.pct_ideal_growth;
 
@@ -271,6 +272,29 @@ fn habitability(app: &mut App, ui: &mut egui::Ui) {
                 );
             }
         });
+        // The original's five controls on the axis (`FTrackRaceDlg2`): a
+        // shift button either side of the bar, and `<<     >>` /
+        // `>>     <<` to widen and narrow it, one click a press and ten
+        // with Shift held.
+        let step: i8 = if ui.input(|i| i.modifiers.shift) {
+            10
+        } else {
+            1
+        };
+        ui.horizontal(|ui| {
+            if ui.small_button("<").clicked() {
+                nudges.push((axis, -step, 0));
+            }
+            if ui.small_button(">").clicked() {
+                nudges.push((axis, step, 0));
+            }
+            if ui.small_button("<<     >>").clicked() {
+                nudges.push((axis, 0, step));
+            }
+            if ui.small_button(">>     <<").clicked() {
+                nudges.push((axis, 0, -step));
+            }
+        });
         ui.add_space(2.0);
     }
 
@@ -293,6 +317,14 @@ fn habitability(app: &mut App, ui: &mut egui::Ui) {
             app.race_wizard_set_growth(value);
         } else {
             app.race_wizard_set_env(axis, which, value);
+        }
+    }
+    for (axis, shift, widen) in nudges {
+        if shift != 0 {
+            app.race_wizard_shift_env(axis, shift);
+        }
+        if widen != 0 {
+            app.race_wizard_widen_env(axis, widen);
         }
     }
 }
@@ -348,8 +380,13 @@ fn economy(app: &mut App, ui: &mut egui::Ui) {
         // sentences do not fit the page's 261 units in anything larger.
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(before).small());
+            // `SetRaceStat`'s bounds for the figure.
+            let (low, high) = (
+                stars_core::race::STAT_MIN[stat as usize],
+                stars_core::race::STAT_MAX[stat as usize],
+            );
             if ui
-                .add(egui::DragValue::new(&mut value).range(1..=100))
+                .add(egui::DragValue::new(&mut value).range(low..=high))
                 .changed()
             {
                 edits.push((stat, value));

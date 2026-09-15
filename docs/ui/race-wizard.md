@@ -147,13 +147,41 @@ Bit 6 of that byte is bit 30, `ibitRaceAIPlayer` — set on the shipped
 players are built from. It is modelled now rather than dropped, so a race file
 round-trips exactly. See `docs/formats/race-r.md`.
 
+## The bounds
+
+`SetRaceStat` (`10e0:3114`) holds every figure to two byte tables in its
+own segment, `CS:30f4` (least) and `CS:3104` (most), indexed by `RaceStat`:
+
+| stat | least | most |
+|------|-------|------|
+| colonists per resource (hundreds) | 7 | 25 |
+| resources per ten factories | 5 | 15 |
+| factory cost | 5 | 25 |
+| factories run per 10,000 | 5 | 25 |
+| minerals per ten mines | 5 | 25 |
+| mine cost | 2 | 15 |
+| mines run per 10,000 | 5 | 25 |
+| leftover policy | 0 | 6 |
+| each research setting | 0 | 2 |
+| primary trait | 0 | 9 |
+
+`FTrackRaceDlg2` (`10e0:2204`) keeps each habitable range in the spectrum
+and at least twenty clicks wide: the shift buttons either side of the bar
+move both ends by one (ten with Shift), the `<<     >>` and `>>     <<`
+buttons (`vrgszRCWWidth`) move each end out or in by one; an end pushed
+past 100 or under 0 carries the other with it, never past the far edge; a
+range narrower than twenty is opened to twenty, half the shortfall each
+side; and the centre is always `low + (high − low) / 2`. A drag in the bar
+sets the centre from the pointer's share of the bar with the half-width
+kept, the centre held between the half-width and 100 less it. Growth is
+1 to 20. Reproduced: `race::STAT_MIN`, `STAT_MAX`, `clamp_stat`,
+`adjust_hab_range`, `drag_hab_range`; the wizard's figure boxes take the
+bounds and each axis has the four buttons under its row.
+
 ## What is not
 
 * The **appearance**: the sliders, the bars and the eight race buttons are
   drawn in the original and are plain rows here.
-* The **slider bounds**. The original's habitability and economy sliders have
-  ends this project has not recovered; the wizard clamps only to what the file
-  can hold and lets the points counter be the constraint, which it is.
 * The **password**. Page 1 has the box, but what a race file stores is a salt
   of the password rather than the password (`docs/formats/orders-x.md`), and
   nothing is written from the box yet.

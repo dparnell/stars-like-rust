@@ -249,6 +249,70 @@ pub struct Race {
     pub pct_ideal_growth: i8,
 }
 
+/// The least each race statistic may be set to — `SetRaceStat`
+/// (`10e0:3114`) clamps to the byte table at `CS:30f4`, indexed by
+/// [`RaceStat`]: 700 colonists a resource, factories making 5 and costing
+/// 5 with 5 run per ten thousand, mines the same but 2 to build, leftover
+/// policy 0, every research setting 0 and the primary trait 0.
+pub const STAT_MIN: [i16; 15] = [7, 5, 5, 5, 5, 2, 5, 0, 0, 0, 0, 0, 0, 0, 0];
+
+/// The most (`CS:3104`): 2,500 colonists a resource, factories making 15
+/// and costing 25 with 25 run, mines making 25, costing 15 and 25 run,
+/// leftover policy 6, each research setting 2, and the ninth primary trait.
+pub const STAT_MAX: [i16; 15] = [25, 15, 25, 25, 25, 15, 25, 6, 2, 2, 2, 2, 2, 2, 9];
+
+/// Hold a statistic to the wizard's bounds, as `SetRaceStat` does.
+#[must_use]
+pub fn clamp_stat(stat: RaceStat, value: i16) -> i16 {
+    let index = stat as usize;
+    value.clamp(STAT_MIN[index], STAT_MAX[index])
+}
+
+/// The narrowest a habitable range may be, in clicks (`FTrackRaceDlg2`,
+/// `10e0:2204`: a range under twenty is widened to it, evenly).
+pub const HAB_RANGE_MIN: i8 = 20;
+
+/// Move or resize one axis of a habitable range the way the wizard's
+/// buttons do (`FTrackRaceDlg2`): the shift buttons move both ends by one
+/// (ten with Shift held), the width buttons move each end out or in by one.
+/// The result is held in the spectrum — an end pushed past 100 or below 0
+/// carries the other end with it, but never past the far edge — and to at
+/// least [`HAB_RANGE_MIN`] wide, which a narrower range is opened to by
+/// half the shortfall each side. Returns the new `(low, high)`; the centre
+/// is `low + (high - low) / 2`.
+#[must_use]
+pub fn adjust_hab_range(low: i8, high: i8, shift: i8, widen: i8) -> (i8, i8) {
+    let mut low = i32::from(low) - i32::from(widen) + i32::from(shift);
+    let mut high = i32::from(high) + i32::from(widen) + i32::from(shift);
+    if high > 100 {
+        low -= high - 100;
+        high = 100;
+    }
+    if low < 0 {
+        high = if high - low < 101 { high - low } else { 100 };
+        low = 0;
+    }
+    if high - low < i32::from(HAB_RANGE_MIN) {
+        let open = (i32::from(HAB_RANGE_MIN) - (high - low)) / 2;
+        low -= open;
+        high += open;
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    (low as i8, high as i8)
+}
+
+/// Where a drag in the wizard's bar puts an axis's range: the pointer's
+/// place as a share of the bar becomes the centre, the half-width is kept,
+/// and the centre is held between the half-width and 100 less it
+/// (`FTrackRaceDlg2`'s capture loop). Returns `(low, high)`.
+#[must_use]
+pub fn drag_hab_range(low: i8, high: i8, centre: i8) -> (i8, i8) {
+    let half = (i32::from(high) - i32::from(low)) / 2;
+    let centre = i32::from(centre).clamp(half, 100 - half);
+    #[allow(clippy::cast_possible_truncation)]
+    ((centre - half) as i8, (centre + half) as i8)
+}
+
 impl Race {
     /// Read one economy attribute (the game's `GetRaceStat`).
     #[must_use]

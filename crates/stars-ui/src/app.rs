@@ -13069,10 +13069,12 @@ impl App {
         }
     }
 
-    /// Move one bound of an environment axis, in clicks.
-    ///
-    /// The three are kept in order — low, centre, high — because a race whose
-    /// bounds crossed would have a habitable range of nothing.
+    /// Move one bound of an environment axis, in clicks — the figure
+    /// boxes this project draws beside the original's bar: the low or the
+    /// high end asked for becomes the range's edge with the other end
+    /// kept, and the ideal moves the whole range as a drag in the bar
+    /// does; every result is held as `FTrackRaceDlg2` holds it
+    /// ([`stars_core::race::adjust_hab_range`], [`stars_core::race::drag_hab_range`]).
     pub fn race_wizard_set_env(&mut self, axis: usize, which: usize, clicks: i8) {
         let Some(wizard) = self.race_wizard.as_mut() else {
             return;
@@ -13081,14 +13083,45 @@ impl App {
             return;
         }
         let clicks = clicks.clamp(0, 100);
-        match which {
-            0 => wizard.race.env_min[axis] = clicks.min(wizard.race.env_center[axis]),
-            1 => {
-                wizard.race.env_center[axis] =
-                    clicks.clamp(wizard.race.env_min[axis], wizard.race.env_max[axis]);
-            }
-            _ => wizard.race.env_max[axis] = clicks.max(wizard.race.env_center[axis]),
+        let (low, high) = (wizard.race.env_min[axis], wizard.race.env_max[axis]);
+        let (low, high) = match which {
+            0 => stars_core::race::adjust_hab_range(clicks.min(high), high, 0, 0),
+            1 => stars_core::race::drag_hab_range(low, high, clicks),
+            _ => stars_core::race::adjust_hab_range(low, clicks.max(low), 0, 0),
+        };
+        wizard.race.env_min[axis] = low;
+        wizard.race.env_max[axis] = high;
+        wizard.race.env_center[axis] = low + (high - low) / 2;
+    }
+
+    /// The wizard's shift buttons: move an axis's whole range by `by`
+    /// clicks (`FTrackRaceDlg2`, ten a press with Shift held).
+    pub fn race_wizard_shift_env(&mut self, axis: usize, by: i8) {
+        self.race_wizard_adjust_env(axis, by, 0);
+    }
+
+    /// The wizard's `<<     >>` and `>>     <<` buttons: widen or narrow an
+    /// axis's range by `by` clicks each side.
+    pub fn race_wizard_widen_env(&mut self, axis: usize, by: i8) {
+        self.race_wizard_adjust_env(axis, 0, by);
+    }
+
+    fn race_wizard_adjust_env(&mut self, axis: usize, shift: i8, widen: i8) {
+        let Some(wizard) = self.race_wizard.as_mut() else {
+            return;
+        };
+        if axis > 2 || wizard.race.env_max[axis] < 0 {
+            return;
         }
+        let (low, high) = stars_core::race::adjust_hab_range(
+            wizard.race.env_min[axis],
+            wizard.race.env_max[axis],
+            shift,
+            widen,
+        );
+        wizard.race.env_min[axis] = low;
+        wizard.race.env_max[axis] = high;
+        wizard.race.env_center[axis] = low + (high - low) / 2;
     }
 
     /// Set the maximum growth rate, which the points model clamps to `1..=20`.
@@ -13098,16 +13131,11 @@ impl App {
         }
     }
 
-    /// Set one economy figure.
-    ///
-    /// The original's sliders have bounds this project has not recovered, so
-    /// the only limits here are the ones the points model itself imposes — it
-    /// stops counting colonists-per-resource above 25 — and what the file can
-    /// store. What really constrains a race is the budget, which the counter
-    /// shows.
+    /// Set one economy figure, held to the wizard's bounds
+    /// (`SetRaceStat`, [`stars_core::race::clamp_stat`]).
     pub fn race_wizard_set_stat(&mut self, stat: stars_core::race::RaceStat, value: i16) {
         if let Some(wizard) = self.race_wizard.as_mut() {
-            wizard.race.attrs[stat as usize] = value.clamp(1, 100);
+            wizard.race.attrs[stat as usize] = stars_core::race::clamp_stat(stat, value);
         }
     }
 
