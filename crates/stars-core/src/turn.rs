@@ -129,8 +129,8 @@ pub struct TurnReport {
     pub mines_decayed: Vec<(u16, i16, i32)>,
     /// Mines swept, as `(field id, owner, mines)`.
     pub mines_swept: Vec<(u16, i16, i32)>,
-    /// Packets that landed, as `(target planet, minerals delivered, damage)`.
-    pub packets_landed: Vec<(i16, [i32; 3], i32)>,
+    /// Packets that landed, and what each did — see [`crate::packet::land`].
+    pub packets_landed: Vec<crate::packet::Landing>,
     /// Wormholes that jumped this year, by id.
     pub wormholes_moved: Vec<u16>,
     /// What became of each Mystery Trader, as `(trader id, event)`.
@@ -256,7 +256,7 @@ pub fn generate_turn_with_orders(
     // --- MoveThings(0): the Mystery Trader crosses a year, and the packets
     // already in flight do too, before anything else happens.
     report.trader_events = move_traders(state, rng);
-    report.packets_landed = move_packets(state, false);
+    report.packets_landed = move_packets(state, false, rng);
 
     // --- MoveFleets, which happens before Produce. Which fleets moved is
     // remembered for the tasks that want a fleet to have been **here all
@@ -781,7 +781,7 @@ pub fn generate_turn_with_orders(
 
     // --- MoveThings(1): a packet thrown this year covers half a year, and
     // decays for it; and the wormholes think about moving.
-    report.packets_landed.extend(move_packets(state, true));
+    report.packets_landed.extend(move_packets(state, true, rng));
     report.wormholes_moved = move_wormholes(state, rng);
 
     // --- FuelFleets: a fleet in orbit of a starbase with a dock — its own
@@ -1435,8 +1435,12 @@ enum Sweeper {
 /// gives them **half** a year: launched mid-year, they arrive that much later.
 /// A packet that moves without arriving decays for the part of a year it flew.
 ///
-/// Returns what landed, as `(planet, minerals delivered, damage done)`.
-fn move_packets(state: &mut GameState, after_production: bool) -> Vec<(i16, [i32; 3], i32)> {
+/// Returns what landed.
+fn move_packets(
+    state: &mut GameState,
+    after_production: bool,
+    rng: &mut Rng,
+) -> Vec<crate::packet::Landing> {
     let mut landed = Vec::new();
     let mut arrived: Vec<usize> = Vec::new();
 
@@ -1489,7 +1493,8 @@ fn move_packets(state: &mut GameState, after_production: bool) -> Vec<(i16, [i32
                 arrived.push(index);
                 continue;
             }
-            if let Some(result) = land_packet(state, index) {
+            let packet = state.packets[index].clone();
+            if let Some(result) = crate::packet::land(state, &packet, rng) {
                 landed.push(result);
             }
             arrived.push(index);
@@ -1507,34 +1512,6 @@ fn move_packets(state: &mut GameState, after_production: bool) -> Vec<(i16, [i32
         state.packets.remove(index);
     }
     landed
-}
-
-/// Land a packet on its target planet.
-///
-/// `10b0:1f03`. The receiving planet catches what its own mass driver can — the
-/// ratio of the squared warps, halved for an **Inner Tech** receiver — keeps
-/// that plus a ninth of the rest, and takes damage for whatever came in too
-/// fast. This engine does not model mass drivers on a planet yet, so nothing is
-/// caught; a packet's whole mass counts as uncaught, which is the worst case
-/// for the receiver and the case the fixtures' unowned targets are in anyway.
-fn land_packet(state: &mut GameState, index: usize) -> Option<(i16, [i32; 3], i32)> {
-    let packet = state.packets[index].clone();
-    let target = i16::try_from(packet.target).ok()?;
-    let planet = state.planets.iter_mut().find(|p| p.id == target)?;
-
-    let driver_warp = 0;
-    let inner_tech = false;
-    let caught = crate::packet::caught_per_mille(packet.speed(), driver_warp, inner_tech);
-    let kept = crate::packet::kept_per_mille(caught);
-
-    let mut delivered = [0i32; 3];
-    for (kind, amount) in packet.minerals.iter().enumerate() {
-        let share = i32::from(*amount) * kept / 1000;
-        delivered[kind] = share;
-        planet.surface_min[kind] += share;
-    }
-    let damage = crate::packet::damage(packet.speed(), driver_warp, inner_tech, packet.mass());
-    Some((target, delivered, damage))
 }
 
 /// Where the Mystery Trader heads for when it picks a new destination.

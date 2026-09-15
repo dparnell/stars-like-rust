@@ -258,6 +258,41 @@ pub mod id {
     /// A Mystery Trader has set out (`10b8:5efa`), told to everyone with
     /// [`super::THING_OBJECT`] and the Trader's full id.
     pub const TRADER_APPEARED: u16 = 0x12b;
+
+    // A mineral packet landing — `MoveThings` from `10b0:1f03`, see
+    // [`crate::packet::land`]. All to the planet's owner but the
+    // terraforming four, which go to the thrower. The parameters are the
+    // planet, then the mass as a long (low word, high word) or the thrower.
+    /// The planet's driver caught the packet, or it did no harm; the planet,
+    /// the thrower, the mass.
+    pub const PACKET_CAUGHT: u16 = 0xd5;
+    /// A packet did damage past a driver, colonists only; the planet, the
+    /// mass, the thrower, the colonists killed in hundreds.
+    pub const PACKET_DAMAGE: u16 = 0xd6;
+    /// As [`PACKET_DAMAGE`], with defences destroyed as a fifth parameter.
+    pub const PACKET_DAMAGE_DEFENCES: u16 = 0xd7;
+    /// As [`PACKET_DAMAGE`], at a planet with no driver.
+    pub const PACKET_DAMAGE_NO_DRIVER: u16 = 0xd8;
+    /// As [`PACKET_DAMAGE_DEFENCES`], at a planet with no driver.
+    pub const PACKET_DAMAGE_DEFENCES_NO_DRIVER: u16 = 0xd9;
+    /// A packet killed everyone on the planet; the planet, the thrower.
+    pub const PACKET_WIPED_OUT: u16 = 0xda;
+    /// A packet landed on a planet with no driver and did no harm; as
+    /// [`PACKET_CAUGHT`].
+    pub const PACKET_HARMLESS: u16 = 0x146;
+    /// A packet hit a planet of yours with nobody on it; the planet, the
+    /// thrower.
+    pub const PACKET_HIT_EMPTY: u16 = 0x181;
+    /// Your packet moved a planet's original environment: whether upward,
+    /// the variable, the planet, the clicks.
+    pub const PACKET_TERRAFORMED_ORIG: u16 = 0x131;
+    /// As [`PACKET_TERRAFORMED_ORIG`], on somebody else's planet.
+    pub const PACKET_TERRAFORMED_ORIG_THEIRS: u16 = 0x132;
+    /// Your packet terraformed a planet: whether upward, the variable, the
+    /// planet, the variable in the high byte over the new value.
+    pub const PACKET_TERRAFORMED: u16 = 0x133;
+    /// As [`PACKET_TERRAFORMED`], on somebody else's planet.
+    pub const PACKET_TERRAFORMED_THEIRS: u16 = 0x134;
 }
 
 /// The families of message ids the filter treats as one thing.
@@ -677,6 +712,69 @@ impl Message {
                     planet(param(0))
                 )
             }
+            id::PACKET_CAUGHT | id::PACKET_HARMLESS => format!(
+                "A mineral packet of {}kT from player {} has arrived at {} and been \
+                 recovered without harm.",
+                long(2),
+                param(1) + 1,
+                planet(param(0))
+            ),
+            id::PACKET_DAMAGE
+            | id::PACKET_DAMAGE_DEFENCES
+            | id::PACKET_DAMAGE_NO_DRIVER
+            | id::PACKET_DAMAGE_DEFENCES_NO_DRIVER => {
+                let driver = matches!(self.id, id::PACKET_DAMAGE | id::PACKET_DAMAGE_DEFENCES);
+                let mut text = format!(
+                    "A mineral packet of {}kT from player {} has struck {} {}, killing {} \
+                     colonists",
+                    long(1),
+                    param(3) + 1,
+                    planet(param(0)),
+                    if driver {
+                        "faster than its mass driver could catch"
+                    } else {
+                        "which has no mass driver to catch it"
+                    },
+                    i32::from(param(4)) * 100
+                );
+                if self.params.len() > 5 {
+                    text.push_str(&format!(" and destroying {} defences", param(5)));
+                }
+                text.push('.');
+                text
+            }
+            id::PACKET_WIPED_OUT => format!(
+                "A mineral packet from player {} has struck {} and killed every last \
+                 colonist there; the planet is no longer yours.",
+                param(1) + 1,
+                planet(param(0))
+            ),
+            id::PACKET_HIT_EMPTY => format!(
+                "A mineral packet from player {} has struck {}, where nobody lives; its \
+                 defences are destroyed.",
+                param(1) + 1,
+                planet(param(0))
+            ),
+            id::PACKET_TERRAFORMED | id::PACKET_TERRAFORMED_THEIRS => format!(
+                "Your mineral packet has {} the {} of {} to {}.",
+                if param(0) != 0 { "raised" } else { "lowered" },
+                ["gravity", "temperature", "radiation"]
+                    .get(usize::try_from(param(1)).unwrap_or(usize::MAX))
+                    .copied()
+                    .unwrap_or("climate"),
+                planet(param(2)),
+                i32::from(param(3)) & 0xff
+            ),
+            id::PACKET_TERRAFORMED_ORIG | id::PACKET_TERRAFORMED_ORIG_THEIRS => format!(
+                "Your mineral packet has permanently {} the {} of {} by {} click(s).",
+                if param(0) != 0 { "raised" } else { "lowered" },
+                ["gravity", "temperature", "radiation"]
+                    .get(usize::try_from(param(1)).unwrap_or(usize::MAX))
+                    .copied()
+                    .unwrap_or("climate"),
+                planet(param(2)),
+                param(3)
+            ),
             id::CLIMATE_CHANGE => format!(
                 "The {} of {} has shifted; check its habitability, and its \
                  production queue has been reduced to auto-build items.",

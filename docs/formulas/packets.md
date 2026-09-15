@@ -1,7 +1,8 @@
 # Mineral packets
 
-Status: **flight and decay verified against real games**; catching and arrival
-transcribed but not differentially checked; launching not modelled.
+Status: **flight and decay verified against real games**; catching, arrival
+damage and Packet Physics terraforming transcribed from the binary and
+unit-tested, not differentially checked; launching not modelled.
 
 A mineral packet is a `THING` ([`thing.md`](../formats/thing.md), `ith = 1`)
 thrown from one planet's mass driver at another, carrying minerals across the
@@ -46,7 +47,8 @@ decays by that part.
 
 ## Arrival
 
-`10b0:1f03`. The receiving planet catches what its own mass driver can:
+`10b0:1f03`, implemented in [`stars_core::packet::land`](../../crates/stars-core/src/packet.rs).
+The receiving planet catches what its own mass driver can:
 
 ```
 caught‰ = 1000                              if driver² >= packet²
@@ -55,22 +57,97 @@ caught‰ = 1000                              if driver² >= packet²
 ```
 
 where both are squared warps, and an **Inner Tech** receiver halves its driver's
-square before the comparison. Two mass drivers on one planet count as one warp
-faster — `IWarpMAFromLppl` (`1048:7b10`) reports the pair, and it counts
-**slots** rather than drivers, so two in the same slot are not a pair. See
+square before the comparison (`10b0:2046`). Two mass drivers on one planet
+count as one warp faster — `IWarpMAFromLppl` (`1048:7b10`) reports the pair
+and the caller adds one (`10b0:1f55`) — and it counts **slots** rather than
+drivers, so two in the same slot are not a pair. See
 [`planet-pane.md`](../ui/planet-pane.md), whose Mass Driver row writes the
 pair as a trailing `+`.
 
 What the planet keeps is everything caught **plus a ninth of the rest**
 (`10b0:20fd`), so even a planet with no driver keeps about 11% of what hits it.
-The rest is spent on the ground: damage of
+`MANUAL.PDF` p. 25-2 says a third; the binary divides by nine.
+
+### Damage
+
+The rest is spent on the ground (`10b0:21e0`):
 
 ```
-(packet warp² − driver warp²) × mass / 160
+raw = (packet warp² − driver warp) × mass / 160
 ```
 
-which kills colonists and defences. A **Packet Physics** sender terraforms the
-target with the share that was not caught, rolling per hundred kilotons.
+**The driver's warp is not squared.** The manual (p. 25-2) writes
+`(spdPacket − spdReceiver) × wtPacket / 160` with both sides squared, and its
+worked example (p. 25-3: a 1,000 kT warp 10 packet on a warp 5 driver) comes
+to 469; the binary loads the plain warp — `[BP-0x42]`, the figure
+`IWarpMAFromLppl` returned plus one for a pair — at `10b0:21f4`, where the
+squared and Inner-Tech-halved figure sits in `[BP-0x40]` beside it and is
+used only for the catch. The same packet does 593 here. With no driver at all
+the two readings agree, which is the common case in the fixtures.
+
+The defences take their share first: `CalcPctSurvive` (`10b0:28f9`), the
+same routine a bombing run meets ([`bombing.md`](bombing.md)), and
+`damage = ftol(raw × pct)`. Then, for an owned planet that is not Alternate
+Reality (`10b0:2940`):
+
+- **colonists killed** = `max(pop × damage / 1000, damage)` in hundreds
+  (`10b0:2adb`), the manual's rule exactly; a planet left with nothing is
+  `UninhabitPlanet`ed (`10b0:2aaf`) and its owner gets message `0xda`;
+- **defences destroyed** = `defences × damage / 1000` (`10b0:2b61`) — when that
+  is zero and there are defences, one with `Random(20) < damage` (`10b0:2b24`)
+  — but never fewer than `damage / 20` (`10b0:2b89`) and never more than there
+  are;
+- a planet with nobody on it loses every defence (message `0x181`).
+
+An unowned planet, an AR owner, or a hit whose damage rounds to nothing gets
+message `0xd5` (the planet has a driver) or `0x146` (it has none); otherwise
+`0xd6`/`0xd7` behind a driver and `0xd8`/`0xd9` without one, the second of
+each pair when defences fell. Every one carries the planet, the mass as a
+long and the thrower; the damage ones add the colonists killed and, when
+there were any, the defences lost.
+
+### Packet Physics terraforming
+
+A packet thrown by a **Packet Physics** race terraforms the target as it lands
+(`10b0:220c`), whoever owns it. For each mineral, the kilotons *not* caught are
+taken a hundred at a time, and each lot gives `Random(200) < kT` — a coin's
+toss for a full hundred, less for the last, smaller lot — one click on the
+matching variable (ironium gravity, boranium temperature, germanium radiation);
+each click won has a further `Random(10) == 0` chance of being **permanent**,
+a click on the original value as well.
+
+The clicks are then fitted to the thrower's race. The permanent ones move
+the original toward the thrower's ideal and stop there; the ordinary ones
+go through `FCanTerraformLppl` with `fHelp = 1` (`10b0:25fa`), so they move
+toward the ideal and no further than the thrower's terraforming reach, and
+nothing moves when the thrower could not terraform the planet at all. A
+thrower **immune** to a variable does the opposite: half the clicks, pushing
+the value *away* from the middle — down toward 1 below 50, up toward 99
+from 50 — and the original the same way at full strength.
+
+The thrower is told with `0x131`/`0x132` (a permanent change; on its own
+planet, on somebody else's) and `0x133`/`0x134` (an ordinary one). The
+manual's claim that Packet Physics packets do a third of the damage (p. 6-12)
+is not in this routine.
+
+What is **not** modelled: the thrower, when Packet Physics and the target
+has a driver, also learns the target's starbase design (`10b0:1f7f` sets a
+seen-by bit on the design); the state has no place for that.
+
+### Worked example
+
+The manual's own (p. 25-3): 1,000 kT of ironium at warp 10 onto a planet of
+250,000 colonists (`pop = 2500`), no driver, no defences:
+
+- caught 0‰, kept `0 + 1000 / 9 = 111‰`: **111 kT** reach the surface;
+- `raw = (100 − 0) × 1000 / 160 = 625`, nothing stops it;
+- killed `max(2500 × 625 / 1000, 625) = 1562` hundreds — **156,200
+  colonists**, the manual's 156,250 before its rounding — leaving 938.
+
+`packet::tests::an_uncaught_packet_kills_by_the_manuals_rule` pins this; its
+neighbours cover a ninth kept on an empty world, defences falling with the
+colonists, a colony wiped out, an AR owner unharmed, and a Packet Physics
+packet moving a variable within a Total Terraform 3 reach.
 
 ## What is verified, and how
 
@@ -101,13 +178,9 @@ apart.
 - **Launching.** A planet's production queue can build packets, and a mass
   driver throws them; neither is wired up, so packets only exist in a game that
   was loaded with them.
-- **Catching.** A planet's mass driver is not modelled either, so an arriving
-  packet is treated as uncaught: the planet keeps its ninth and takes the
-  damage. That is the right answer for an unowned target and the worst case for
-  an owned one.
-- **The damage itself** is computed and reported but not yet applied to
-  colonists and defences, and the Packet Physics terraforming on arrival is not
-  performed.
+- **Stealing.** A fleet at a packet's position may take from it in the
+  original (`MANUAL.PDF` p. 6-12); the cargo transfer form does not offer it.
+- **The thrower learning the target's starbase design**, as above.
 
 ## Source
 
