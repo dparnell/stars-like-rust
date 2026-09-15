@@ -1,7 +1,7 @@
 # The battle VCR
 
 Status: **playback, transport, layout, the board's drawing and the text
-panel recovered**; the panel's Goto button and Help are not.
+panel recovered**; Help is not.
 
 `BattleVCR` (`10e8:0000`) opens it and `VCRDlg` (`10e8:0e90`) runs it, with
 `DrawVCR` (`10e8:1c62`) painting the board and `SetVCRBoard` (`10e8:08d8`)
@@ -143,7 +143,14 @@ and design (the ships lost since the start after a plus) in blue, `Dead`
 or its initiative and moves on one line, armour (from the design, when the
 player holds it) and damage on the next, shields, jamming when it has
 any, tactic, and the primary and secondary target classes. The original's
-dark blue and dark red are lifted to read on this shell's dark ground. Not
-reproduced: the `Goto` button under the selection, and the Help button,
-which has nothing behind it. Below the original's lines this project adds
+dark blue and dark red are lifted to read on this shell's dark ground.
+Four pixels under the selection's last line sits a `dyArial8 + 4` square
+push button captioned `?` (`DrawBtn` style 8 with the string at
+`DS:0x1430`, `10e8:3392`); `VCRDlg`'s `WM_LBUTTONDOWN` answers a press
+on the panel while a token is the focus with the `grPopupShdef` pop-up —
+the token's design drawn with the designer's own panel, read-only,
+`iPlanMin` set when the design is another player's. Reproduced: the
+button, recorded as `?` in the `vcr` scope, raises `Popup::Design` of the
+focus token's design. Not reproduced: the Help button, which has nothing
+behind it. Below the original's lines this project adds
 its own list of the tokens, to pick one out by name.

@@ -150,6 +150,9 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     let board_side = 10.0 * pitch + 17.0;
     let mut clicked_square: Option<(u8, u8)> = None;
     let mut clicked_token: Option<usize> = None;
+    // The `?` button under the selection: where it was drawn, and the
+    // design it asks for when pressed.
+    let mut question: Option<(Rect, Option<(usize, u8)>)> = None;
     // What the board is drawn from, taken out of the recording so the
     // pictures can be borrowed from the app while it is drawn.
     let (tokens, focus, event) = {
@@ -298,12 +301,39 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
             ui.set_min_width(220.0);
             let mut speed_change: i8 = 0;
-            text_panel(app, ui, &mut speed_change, &mut clicked_token);
+            text_panel(
+                app,
+                ui,
+                &mut speed_change,
+                &mut clicked_token,
+                &mut question,
+            );
             if speed_change != 0 {
                 app.vcr_speed = app.vcr_speed.saturating_add_signed(speed_change).min(3);
             }
         });
     });
+
+    // The `?` under the selection: the focus token's design in the
+    // `grPopupShdef` pop-up, the designer's own panel drawn read-only
+    // (`VCRDlg`'s `WM_LBUTTONDOWN` on the panel with a focus). Recorded
+    // as `?` so a test can press it.
+    if let Some((rect, pressed)) = question {
+        crate::views::note_widget(app, ui, "?", rect, true);
+        if let Some((player, slot)) = pressed {
+            let design = app
+                .game
+                .as_ref()
+                .and_then(|g| g.designs.get(player))
+                .and_then(|d| d.get(usize::from(slot)))
+                .filter(|d| d.hull_id >= 0)
+                .cloned();
+            if let Some(design) = design {
+                let at = rect.left_bottom();
+                app.popup = Some((crate::popup::Popup::Design(design), (at.x, at.y)));
+            }
+        }
+    }
 
     if let Some(index) = clicked_token {
         if let Some(vcr) = app.vcr.as_mut() {
@@ -345,13 +375,14 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
 /// focus token's owner and design (the ships lost since the start after a
 /// plus), `Dead`, or its initiative and moves on one line, armour and
 /// damage on the next, shields, jamming when it has any, tactic and the
-/// two target classes. The `Goto` button the original ends on is not
-/// drawn.
+/// two target classes, and the `?` button that raises the design's
+/// pop-up.
 fn text_panel(
     app: &App,
     ui: &mut egui::Ui,
     speed_change: &mut i8,
     clicked_token: &mut Option<usize>,
+    question: &mut Option<(Rect, Option<(usize, u8)>)>,
 ) {
     let Some(vcr) = app.vcr.as_ref() else {
         return;
@@ -535,6 +566,19 @@ fn text_panel(
                 ui.label(small(format!("Secondary target: {}", secondary.name())));
             }
         }
+        // Four pixels under the last line, a `dyArial8 + 4` square push
+        // button captioned `?` (`DrawVCR`, `10e8:3392`: `DrawBtn` style 8
+        // with `DS:0x1430`), which raises the design in the `grPopupShdef`
+        // pop-up.
+        ui.add_space(4.0);
+        let line = ui.text_style_height(&egui::TextStyle::Small).ceil();
+        let response = bevel_button(ui, "?", Glyph::Text, true, Vec2::splat(line + 4.0));
+        *question = Some((
+            response.rect,
+            response
+                .clicked()
+                .then_some((usize::from(token.player), token.design)),
+        ));
     }
 
     // The tokens, to pick one out by name — this project's own list.

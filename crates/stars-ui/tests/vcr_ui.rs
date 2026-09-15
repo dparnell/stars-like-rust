@@ -274,3 +274,70 @@ fn the_board_draws_with_the_pictures_and_a_click_picks_a_stack() {
         "the click picked the stack on the square"
     );
 }
+
+/// Under the selection sits a `?` button (`DrawVCR`, `10e8:3392`), and
+/// pressing it raises the focus token's design in the `grPopupShdef`
+/// pop-up — the designer's own panel, read-only.
+#[test]
+fn the_question_mark_raises_the_focus_tokens_design() {
+    let mut app = a_game_with_a_fight();
+    app.generate_turn();
+    assert_eq!(app.battles.len(), 1);
+    app.open_battle(0);
+    app.vcr.as_mut().expect("open").focus = Some(0);
+    let expected = {
+        let token = app.vcr.as_ref().expect("open").tokens()[0];
+        app.game.as_ref().expect("game").designs[usize::from(token.player)]
+            [usize::from(token.design)]
+        .clone()
+    };
+
+    let ctx = egui::Context::default();
+    let mut pressed = false;
+    for pass in 0..3 {
+        let mut events = Vec::new();
+        if pass > 0 {
+            if let Some(at) = app.drawn_button("vcr", "?").map(|w| w.rect.center()) {
+                events.push(egui::Event::PointerMoved(at));
+                events.push(egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                });
+                events.push(egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                });
+                pressed = true;
+            }
+        }
+        app.start_frame();
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1200.0, 800.0),
+                )),
+                time: Some(f64::from(pass) * 2.0),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::Window::new("Battle VCR")
+                    .default_width(640.0)
+                    .show(ctx, |ui| stars_ui::views::battles::view(&mut app, ui));
+            },
+        );
+        if app.popup.is_some() {
+            break;
+        }
+    }
+    assert!(pressed, "the ? was drawn and pressed");
+    match app.popup.as_ref().map(|(popup, _)| popup) {
+        Some(stars_ui::popup::Popup::Design(design)) => assert_eq!(design, &expected),
+        other => panic!("no design pop-up: {other:?}"),
+    }
+}
