@@ -390,5 +390,3 @@ In `crates/stars-core/src/production.rs`:
   original recomputes it whenever it refills the list. It costs about a
   millisecond for a seven-row queue in a debug build, which is affordable; a
   very long queue on a slow machine would want caching.
-* The starbase **upgrade** discount, which is `GetProductionCosts` rather than
-  the dialog: rebuilding on the same hull credits the parts already in orbit.

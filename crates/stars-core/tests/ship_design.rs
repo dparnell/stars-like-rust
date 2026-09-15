@@ -628,3 +628,86 @@ fn a_starbase_design_change_lands_in_its_own_slot() {
     assert_eq!(report.designs, 1);
     assert_eq!(state.designs[0][slot].hull_id, -1);
 }
+
+/// A starbase built over one already in orbit is priced as an upgrade
+/// (`GetProductionCosts`, `10d0:4022`): on the same hull the hull comes off
+/// in full and each slot's old part is credited — all of it for the same
+/// part, eight tenths for another of its category — and on another hull
+/// half the old base comes off, never below half the new.
+#[test]
+fn a_starbase_over_another_is_priced_as_an_upgrade() {
+    let plain = race(Prt::Joat);
+    let who = builder(&plain, [0; 6]);
+    let fort = |lasers: (u8, u8)| ShipDesign {
+        hull_id: 32,
+        slots: vec![
+            DesignSlot {
+                category: 0,
+                item: 0,
+                count: 0,
+            },
+            DesignSlot {
+                category: slot::BEAM,
+                item: lasers.0,
+                count: lasers.1,
+            },
+        ],
+        name: "Fort".into(),
+        picture: 0,
+        stored_armor: 1000,
+        obsolete: false,
+        designed: 0,
+        built: 0,
+    };
+    let laser = true_part_cost(&part(slot::BEAM, 0).unwrap(), &who);
+    let xray = true_part_cost(&part(slot::BEAM, 1).unwrap(), &who);
+
+    // Two lasers to four: only the two more are paid for, halved.
+    let old = fort((0, 2));
+    let more = fort((0, 4));
+    let cost = more.upgrade_cost(&old, &who).expect("an upgrade");
+    assert_eq!(cost.resources, (2 * laser.resources + 1) / 2);
+    assert_eq!(cost.minerals[1], (2 * laser.minerals[1] + 1) / 2);
+    assert_eq!(cost.minerals[0], 0, "the hull is credited in full");
+    assert_eq!(cost.minerals[2], 0);
+    assert!(cost.resources < more.true_cost(&who).unwrap().resources);
+
+    // Two lasers to four X-Ray Lasers: the lasers count eight tenths.
+    let better = fort((1, 4));
+    let cost = better.upgrade_cost(&old, &who).expect("an upgrade");
+    let b = 4 * xray.resources;
+    let a = 2 * laser.resources;
+    let owed = (b - a * 8 / 10).max(b * 2 / 10);
+    assert_eq!(cost.resources, (owed + 1) / 2);
+
+    // Another hull: half the old base off, but never below half the new.
+    let dock = ShipDesign {
+        hull_id: 33,
+        slots: Vec::new(),
+        name: "Dock".into(),
+        picture: 0,
+        stored_armor: 1000,
+        obsolete: false,
+        designed: 0,
+        built: 0,
+    };
+    let full = dock.true_cost(&who).unwrap();
+    let cost = dock.upgrade_cost(&old, &who).expect("an upgrade");
+    let dock_list = 2 * full.resources;
+    let old_list = STARBASE_HULLS[0].resource_cost as i32 + 2 * laser.resources;
+    let expected = (dock_list / 2).max(dock_list - old_list / 2);
+    assert_eq!(cost.resources, (expected + 1) / 2);
+
+    // Ships have no upgrade price.
+    let scout = ShipDesign {
+        hull_id: 4,
+        slots: Vec::new(),
+        name: "Scout".into(),
+        picture: 0,
+        stored_armor: 0,
+        obsolete: false,
+        designed: 0,
+        built: 0,
+    };
+    assert!(scout.upgrade_cost(&old, &who).is_none());
+}

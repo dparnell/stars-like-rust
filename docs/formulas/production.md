@@ -227,6 +227,18 @@ is why they live in `production.rs`. See `../ui/production.md`.
   item is re-inserted at the front, and the alchemy chaining that lets mineral
   alchemy feed the item behind it — is still to do. The per-item build above is
   the piece it drives.
-- Starbase upgrades are costed part-by-part against the existing base, with
-  full credit for identical components and 80% for same-category
-  replacements; that path is read but not implemented.
+- ~~Starbase upgrades are costed part-by-part against the existing base;
+  that path is read but not implemented.~~ Done: `GetProductionCosts`'
+  starbase arm (`10d0:4022`–`10d0:4520`) is `ShipDesign::upgrade_cost`,
+  and `production::design_cost_at` applies it wherever a queued design is
+  priced — the turn's queue, the ETA estimate and the production dialog's
+  panel. On the **same hull** the hull's own price comes off in full and
+  then, slot by slot where both bases have something fitted, the old part
+  is credited — all of it for the same part (so a larger stack pays only
+  for the extra), the new total less eight tenths of the old but at least
+  two tenths of the new for another part of the category, seven and three
+  tenths across categories — each credit capped by what is left to pay,
+  minerals and resources apart. On a **different hull** half the old
+  base's price comes off, never below half the new one's. Then the usual
+  fifth off for Improved Starbases or Alternate Reality and the halving.
+  `tests/ship_design.rs::a_starbase_over_another_is_priced_as_an_upgrade`.

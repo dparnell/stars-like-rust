@@ -1010,6 +1010,39 @@ pub fn mass_driver(planet: &Planet, designs: &[crate::design::ShipDesign]) -> Ma
     out
 }
 
+/// What a queued ship or starbase design costs at a planet: the design's
+/// true cost, or, for a starbase queued over a planet that already has one,
+/// the **upgrade** price — `GetProductionCosts`' starbase arm credits the
+/// hull and the parts already in orbit
+/// ([`crate::design::ShipDesign::upgrade_cost`]).
+/// `None` for a slot the list does not hold.
+#[must_use]
+pub fn design_cost_at(
+    planet: &Planet,
+    designs: &[crate::design::ShipDesign],
+    slot: usize,
+    who: &crate::parts::Builder<'_>,
+) -> Option<ItemCost> {
+    let design = designs.get(slot).filter(|d| d.hull_id >= 0)?;
+    let cost = if design.is_starbase() && planet.starbase {
+        planet
+            .starbase_design
+            .and_then(|isb| {
+                designs
+                    .get(usize::from(isb & 0x0f) + usize::from(crate::startup::FIRST_STARBASE_SLOT))
+            })
+            .filter(|old| old.hull_id >= 0)
+            .and_then(|old| design.upgrade_cost(old, who))
+            .or_else(|| design.true_cost(who))?
+    } else {
+        design.true_cost(who)?
+    };
+    Some(ItemCost {
+        minerals: cost.minerals,
+        resources: cost.resources,
+    })
+}
+
 /// What one of a queue item costs this player.
 ///
 /// The superset of [`planetary_item_cost`]: it also covers the four mineral
@@ -1261,14 +1294,7 @@ pub fn eta(
 
             let auto = entry.is_auto();
             let cost = if entry.ship {
-                designs
-                    .get(usize::from(entry.item))
-                    .filter(|d| d.hull_id >= 0)
-                    .and_then(|d| d.true_cost(who))
-                    .map(|c| ItemCost {
-                        minerals: c.minerals,
-                        resources: c.resources,
-                    })
+                design_cost_at(&pl, designs, usize::from(entry.item), who)
             } else {
                 item_cost(entry.item, who)
             };
@@ -1501,14 +1527,7 @@ pub fn research_from_planet(
         }
         let auto = entry.is_auto();
         let cost = if entry.ship {
-            designs
-                .get(usize::from(entry.item))
-                .filter(|d| d.hull_id >= 0)
-                .and_then(|d| d.true_cost(who))
-                .map(|c| ItemCost {
-                    minerals: c.minerals,
-                    resources: c.resources,
-                })
+            design_cost_at(planet, designs, usize::from(entry.item), who)
         } else {
             item_cost(entry.item, who)
         };

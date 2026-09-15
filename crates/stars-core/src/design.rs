@@ -705,8 +705,7 @@ impl ShipDesign {
     /// which the designer's own panel repeats.
     ///
     /// Upgrading a starbase in place is cheaper again — the planet is credited
-    /// for the parts it already has — but that is a production rule rather than
-    /// a design one and is not applied here.
+    /// for the parts it already has — which is [`ShipDesign::upgrade_cost`].
     #[must_use]
     pub fn true_cost(&self, who: &crate::parts::Builder<'_>) -> Option<Cost> {
         use crate::components::slot;
@@ -751,6 +750,113 @@ impl ShipDesign {
         }
 
         Some(cost)
+    }
+
+    /// What this starbase design costs to build **over** a planet that
+    /// already has `old` in orbit (`GetProductionCosts`, `10d0:3f20`, the
+    /// starbase arm at `10d0:4022`–`10d0:4520`). The list prices are
+    /// miniaturised as [`true_part_cost`] does, and then:
+    ///
+    /// * on the **same hull** the hull's own price is credited in full, and
+    ///   then slot by slot, where both bases have something fitted: the
+    ///   same part is credited at the smaller of the two totals (so a
+    ///   larger stack pays only for the extra); a different part of the
+    ///   same category at **80%** of the smaller; a part of another
+    ///   category at **70%**. Each credit is capped by what is left to pay,
+    ///   component by component — three minerals and resources apart;
+    /// * on a **different hull** half the old base's price comes off, but
+    ///   never below half the new one's;
+    ///
+    /// and then, as for any starbase, a fifth off for Improved Starbases or
+    /// Alternate Reality, and the doubled table price halved, rounding up.
+    /// `None` for anything that is not a pair of starbase designs.
+    #[must_use]
+    pub fn upgrade_cost(&self, old: &ShipDesign, who: &crate::parts::Builder<'_>) -> Option<Cost> {
+        use crate::components::slot;
+
+        if !self.is_starbase() || !old.is_starbase() {
+            return None;
+        }
+        // The full list price of each, before the starbase adjustments,
+        // which `GetTrueHullCost` gives.
+        let list = |design: &ShipDesign| -> Option<[i32; 4]> {
+            let hull =
+                crate::parts::part(slot::SB_HULL, usize::try_from(design.hull_id - 32).ok()?)?;
+            let mut cost = true_part_cost(&hull, who);
+            for s in &design.slots {
+                if s.count == 0 {
+                    continue;
+                }
+                let Some(p) = slot_part(s) else { continue };
+                let each = true_part_cost(&p, who);
+                let n = i32::from(s.count);
+                cost.resources += each.resources * n;
+                for (total, add) in cost.minerals.iter_mut().zip(each.minerals.iter()) {
+                    *total += add * n;
+                }
+            }
+            Some([
+                cost.minerals[0],
+                cost.minerals[1],
+                cost.minerals[2],
+                cost.resources,
+            ])
+        };
+        let mut new = list(self)?;
+        let was = list(old)?;
+
+        if self.hull_id == old.hull_id {
+            let hull = crate::parts::part(slot::SB_HULL, usize::try_from(self.hull_id - 32).ok()?)?;
+            let hull_cost = true_part_cost(&hull, who);
+            let four = |c: &Cost| [c.minerals[0], c.minerals[1], c.minerals[2], c.resources];
+            for (left, paid) in new.iter_mut().zip(four(&hull_cost)) {
+                *left -= paid;
+            }
+            for (theirs, ours) in old.slots.iter().zip(self.slots.iter()) {
+                if theirs.count == 0 || ours.count == 0 {
+                    continue;
+                }
+                let (Some(a), Some(b)) = (slot_part(theirs), slot_part(ours)) else {
+                    continue;
+                };
+                let a = four(&true_part_cost(&a, who)).map(|c| c * i32::from(theirs.count));
+                let b = four(&true_part_cost(&b, who)).map(|c| c * i32::from(ours.count));
+                // What still has to be paid of the new part: for the same
+                // part, whatever the new total exceeds the old by; for
+                // another of the category, the new total less eight tenths
+                // of the old, but at least two tenths of it; across
+                // categories the same with seven and three. The rest is
+                // credited, as far as there is anything left to pay.
+                for i in 0..4 {
+                    let owed = if theirs.category != ours.category {
+                        (b[i] - a[i] * 7 / 10).max(b[i] * 3 / 10)
+                    } else if theirs.item != ours.item {
+                        (b[i] - a[i] * 8 / 10).max(b[i] * 2 / 10)
+                    } else {
+                        (b[i] - a[i]).max(0)
+                    };
+                    let credit = (b[i] - owed).min(new[i]);
+                    new[i] -= credit;
+                }
+            }
+        } else {
+            for (left, old_price) in new.iter_mut().zip(was) {
+                *left = (*left / 2).max(*left - old_price / 2);
+            }
+        }
+
+        let cheap =
+            who.race.has_lrt(crate::race::lrt::ISB) || who.race.prt() == Some(crate::race::Prt::Ar);
+        for value in &mut new {
+            if cheap {
+                *value -= *value / 5;
+            }
+            *value = (*value + 1) / 2;
+        }
+        Some(Cost {
+            minerals: [new[0], new[1], new[2]],
+            resources: new[3],
+        })
     }
 }
 

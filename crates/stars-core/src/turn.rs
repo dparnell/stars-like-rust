@@ -2928,25 +2928,29 @@ fn run_queue(
             let Some(slot) = u8::try_from(entry.item).ok() else {
                 continue;
             };
-            let Some(design) = designs.get(usize::from(slot)).filter(|d| d.hull_id >= 0) else {
+            if !designs
+                .get(usize::from(slot))
+                .is_some_and(|d| d.hull_id >= 0)
+            {
                 continue;
-            };
+            }
             let who = crate::parts::Builder {
                 race,
                 levels: tech,
                 researching: 0,
-                trader_parts: 0,
+                trader_parts,
                 starbase: slot >= crate::startup::FIRST_STARBASE_SLOT,
                 tutorial,
             };
-            let Some(cost) = design.true_cost(&who) else {
+            // A starbase over a planet that has one is priced as an
+            // upgrade (`GetProductionCosts`).
+            let Some(cost) =
+                crate::production::design_cost_at(planet, designs, usize::from(slot), &who)
+            else {
                 continue;
             };
             let outcome = build_item(
-                crate::production::ItemCost {
-                    minerals: cost.minerals,
-                    resources: cost.resources,
-                },
+                cost,
                 entry.count,
                 entry.completion,
                 available,

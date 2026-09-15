@@ -8167,6 +8167,7 @@ impl App {
         let who = stars_core::parts::Builder::player(player).in_tutorial(game.tutorial);
         let designs: &[stars_core::design::ShipDesign] =
             game.designs.get(me).map_or(&[], Vec::as_slice);
+        let planet = game.planets.iter().find(|p| p.id == dialog.planet)?;
 
         let (item, ship, count) = if queue {
             let entry = dialog.queue_index.and_then(|i| dialog.queue.get(i))?;
@@ -8177,14 +8178,7 @@ impl App {
             (row.item, row.ship, 1)
         };
         let cost = if ship {
-            designs
-                .get(usize::from(item))
-                .filter(|d| d.hull_id >= 0)
-                .and_then(|d| d.true_cost(&who))
-                .map(|c| stars_core::production::ItemCost {
-                    minerals: c.minerals,
-                    resources: c.resources,
-                })
+            stars_core::production::design_cost_at(planet, designs, usize::from(item), &who)
         } else {
             stars_core::production::item_cost(item, &who)
         }?;
@@ -8231,6 +8225,9 @@ impl App {
         let who = stars_core::parts::Builder::player(player).in_tutorial(game.tutorial);
         let designs: &[stars_core::design::ShipDesign] =
             game.designs.get(me).map_or(&[], Vec::as_slice);
+        let Some(planet) = game.planets.iter().find(|p| p.id == dialog.planet) else {
+            return Vec::new();
+        };
 
         // Whichever list the player last touched: a queue row if one is
         // picked, otherwise the inventory row.
@@ -8246,14 +8243,7 @@ impl App {
         };
 
         let cost = if ship {
-            designs
-                .get(usize::from(item))
-                .filter(|d| d.hull_id >= 0)
-                .and_then(|d| d.true_cost(&who))
-                .map(|c| stars_core::production::ItemCost {
-                    minerals: c.minerals,
-                    resources: c.resources,
-                })
+            stars_core::production::design_cost_at(planet, designs, usize::from(item), &who)
         } else {
             stars_core::production::item_cost(item, &who)
         };
