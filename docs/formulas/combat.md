@@ -1,6 +1,6 @@
 # Subsystem: Combat
 
-- **Status:** in progress — board, movement (schedule, phases, search, scoring, 95% against a 72% chance rate), targeting, the damage estimate and **both** firing loops implemented; the torpedo accuracy formula is transcribed but unverified, and replaying a recorded torpedo battle needs the RNG; the frame around the board — who fights, the tokens from the fleets, the round loop, the results, salvage, messages and the recording — is transcribed in `combat.rs` (*The battle around the board*, below) and not verified against a corpus battle
+- **Status:** in progress — board, movement (schedule, phases, search, scoring, 95% against a 72% chance rate), targeting, the damage estimate and **both** firing loops implemented; the torpedo accuracy formula is transcribed but unverified, and replaying a recorded torpedo battle needs the RNG; the frame around the board — who fights, the tokens from the fleets, the round loop, the results, salvage, messages and the recording — is transcribed in `combat.rs` (*The battle around the board*, below) and its tokens verified against the sixteen-player game's recordings (*The frame against the recordings*)
 - **Ghidra routine(s):** `battle.c` region — `DxyFromSpdRound`, `DzFromBrcBrc`, `CTorpHit`, `ScoreFromGiveAndTakeAndTactic`, `FAttack`, `FDamageTok`, `DxyMoveTokTo`, and the `rgbrcStart` table
 - **Manual reference:** `MANUAL.PDF` pp. 23-2..23-10
 - **Uses RNG:** **yes** — torpedo hits are rolled individually
@@ -462,6 +462,31 @@ examples.
 `crates/stars-core/tests/combat_vectors.rs` checks the movement table, torpedo
 accuracy, the starting-square table and Chebyshev distance against
 `../vectors/combat.json`, whose cases are quoted from the manual.
+
+## The frame against the recordings
+
+`crates/stars-core/tests/combat_frame.rs` generates every year of the
+sixteen-player computer game from its host file — the one corpus whose host
+file carries every player's designs — and sets the battles the engine fought
+beside the recordings the original wrote into the players' files for the
+following year. The computer players' turns are this project's own
+transcription and send their fleets along paths of their own, so most of the
+1,514 recorded battles are never joined; the test measures what happens
+where they are:
+
+| | |
+|--|--|
+| recorded battles | 1,514 |
+| fought at the same place | 343 |
+| between the same sides | 306 |
+| with the same ships, design for design | 140 |
+| tokens alike — mass, shields, initiative, speed, cloak | **371 of 377** |
+
+The six tokens apart carry cargo the year's diverging orders left different.
+Two faults came out of the first run: a fleet's colonists were loaded as
+people rather than hundreds, so every colony ship weighed a hundred times too
+much on the board; and a finished starbase was launched as a ship. Both are
+fixed and the test holds the figures.
 
 ## Open questions
 
