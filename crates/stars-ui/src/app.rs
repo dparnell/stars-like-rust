@@ -6284,6 +6284,9 @@ pub struct SchematicSlot {
     pub fitted: Option<(String, u8)>,
     /// The line under the picture: `up to 3`, `needs 1`, or `2 of 4`.
     pub label: String,
+    /// The picture: the component's when something is fitted, else the
+    /// category's from the empty-slot sheet (`DrawSlotDlg`, `10c8:2650`).
+    pub picture: Option<stars_formats::resources::art::Cell>,
 }
 
 impl App {
@@ -6997,12 +7000,17 @@ impl App {
                     }
                     None => format!("up to {}", hull_slot.capacity),
                 };
+                let picture = match &fitted {
+                    Some((p, _)) => stars_core::parts::picture_cell(p.category, p.picture, 0),
+                    None => Some(stars_formats::resources::art::empty_slot(hull_slot.allowed)),
+                };
                 Some(SchematicSlot {
                     cell,
                     allowed: hull_slot.allowed,
                     capacity: hull_slot.capacity,
                     fitted: fitted.map(|(p, count)| (p.name.to_string(), count)),
                     label,
+                    picture,
                 })
             })
             .collect()

@@ -637,3 +637,125 @@ fn the_parts_list_overruns_the_dialog() {
     );
     assert_eq!(list.1 + list.3 - DESIGNER.size.1, 10);
 }
+
+/// Dragging a part off the palette and letting go over a slot fits it —
+/// through egui, as a hand does it, not through `designer_drop_on_slot`.
+#[test]
+fn a_part_dragged_from_the_palette_lands_in_the_slot() {
+    let mut app = a_game();
+    app.open_designer();
+    app.designer.as_mut().expect("open").view = DesignView::Hulls;
+    let scout = app
+        .designer_hulls()
+        .iter()
+        .position(|h| h.name == "Scout")
+        .expect("a Scout");
+    app.designer.as_mut().expect("open").selected = scout;
+    app.designer_copy();
+    let engine_slot = app
+        .designer_schematic()
+        .iter()
+        .position(|s| s.allowed & slot::ENGINE != 0)
+        .expect("an engine slot");
+
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../binary");
+    if let Ok(bytes) = std::fs::read(root.join("stars.2.7j.exe")) {
+        app.load_art(bytes, "the test's copy")
+            .expect("the pictures load");
+    }
+    let mut shell = stars_ui::autopilot::Shell::new(app);
+    shell.frame();
+    shell.frame();
+    let row = shell
+        .app
+        .drawn
+        .iter()
+        .find(|w| w.label == "Quick Jump 5")
+        .map(|w| w.rect)
+        .expect("the Quick Jump 5 row is drawn");
+    let target = shell
+        .app
+        .drawn
+        .iter()
+        .find(|w| w.label == format!("slot {engine_slot}"))
+        .map(|w| w.rect)
+        .expect("the engine slot is drawn");
+    shell.drag(row.center(), target.center());
+    shell.frame();
+
+    let fitted = shell.app.designer_schematic();
+    let (name, _) = fitted[engine_slot]
+        .fitted
+        .clone()
+        .expect("the engine went in by the drag");
+    assert_eq!(name, "Quick Jump 5");
+}
+
+/// The same drag, the way a mouse delivers it: the press and the first
+/// movement in one frame, then a pixel a frame.
+#[test]
+fn a_part_dragged_slowly_lands_in_the_slot() {
+    let mut app = a_game();
+    app.open_designer();
+    app.designer.as_mut().expect("open").view = DesignView::Hulls;
+    let scout = app
+        .designer_hulls()
+        .iter()
+        .position(|h| h.name == "Scout")
+        .expect("a Scout");
+    app.designer.as_mut().expect("open").selected = scout;
+    app.designer_copy();
+    let engine_slot = app
+        .designer_schematic()
+        .iter()
+        .position(|s| s.allowed & slot::ENGINE != 0)
+        .expect("an engine slot");
+    let mut shell = stars_ui::autopilot::Shell::new(app);
+    shell.frame();
+    shell.frame();
+    let row = shell
+        .app
+        .drawn
+        .iter()
+        .find(|w| w.label == "Quick Jump 5")
+        .map(|w| w.rect)
+        .expect("row");
+    let target = shell
+        .app
+        .drawn
+        .iter()
+        .find(|w| w.label == format!("slot {engine_slot}"))
+        .map(|w| w.rect)
+        .expect("slot");
+    let from = row.center();
+    let to = target.center();
+    shell.push_event(egui::Event::PointerMoved(from));
+    shell.frame();
+    shell.push_event(egui::Event::PointerButton {
+        pos: from,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    shell.push_event(egui::Event::PointerMoved(from + egui::vec2(3.0, 0.0)));
+    shell.frame();
+    let steps = 40;
+    for step in 1..=steps {
+        let t = step as f32 / steps as f32;
+        shell.push_event(egui::Event::PointerMoved(from + (to - from) * t));
+        shell.frame();
+    }
+    shell.push_event(egui::Event::PointerButton {
+        pos: to,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    shell.frame();
+    shell.frame();
+    let fitted = shell.app.designer_schematic();
+    assert!(
+        fitted[engine_slot].fitted.is_some(),
+        "the engine went in by the slow drag"
+    );
+}

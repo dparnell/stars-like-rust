@@ -69,6 +69,47 @@ pub fn component(ibmp: u16) -> Option<Cell> {
     })
 }
 
+/// The sheet of pictures an empty design slot wears (`hbmpBackBld`,
+/// `FCreateStuff` loads id 119 at `1000:07b2`): 576 by 192, twenty-one
+/// 64-pixel cells drawn eight to a row.
+pub const EMPTY_SLOT_SHEET: u16 = 119;
+
+/// The category masks `IEmptyBmpFromGrhst` (`10c8:6716`) knows, in the
+/// order it walks them at `1120:0c52`: the position of the first that equals
+/// a slot's mask is the cell to draw, and a mask it does not know gets cell
+/// 0, the "Combo" picture.
+///
+/// Entries 16 to 19 are **byte-swapped in the binary** — `0x000a`, `0x0019`,
+/// `0x0008` and `0x0010` where the pictures under them read *Orbital or
+/// Elect* (`0x0a00`), *Mine Elect Mech* (`0x1900`), *Elect* (`0x0800`) and
+/// *Mech* (`0x1000`) — so those four pictures are never drawn and an empty
+/// Elect, Mech, Orbital-or-Elect or Mine-Elect-Mech slot wears the Combo
+/// picture in the original. The table is kept as the binary has it.
+pub const EMPTY_SLOT_MASKS: [u16; 21] = [
+    0x19ff, 0x0001, 0x0002, 0x0004, 0x0030, 0x193e, 0x1800, 0x1802, 0x0040, 0x000c, 0x0008, 0x0080,
+    0x180a, 0x0034, 0x0100, 0x0200, 0x000a, 0x0019, 0x0008, 0x0010, 0x1804,
+];
+
+/// The picture an empty slot with this category mask wears.
+///
+/// `DrawSlotDlg` (`10c8:2650`) blits it from the sheet at
+/// `((i & 7) << 6, ((i >> 3) & 3) << 6)`, 64 pixels square.
+#[must_use]
+pub fn empty_slot(mask: u16) -> Cell {
+    let i = EMPTY_SLOT_MASKS
+        .iter()
+        .position(|&m| m == mask)
+        .unwrap_or(0);
+    let i = u32::try_from(i).unwrap_or(0);
+    Cell {
+        resource: EMPTY_SLOT_SHEET,
+        x: (i & 7) * 64,
+        y: ((i >> 3) & 3) * 64,
+        width: 64,
+        height: 64,
+    }
+}
+
 /// How big a race emblem is wanted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmblemSize {
@@ -374,7 +415,7 @@ pub const CATALOGUE: [(&str, Which, &str); 38] = [
     (
         "hbmpBackBld",
         Which::Id(119),
-        "the building behind the planet pane",
+        "the pictures an empty design slot wears",
     ),
     ("hbmpMsg", Which::Id(134), "the message pane's own marks"),
     (

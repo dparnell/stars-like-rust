@@ -196,7 +196,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             let mut child = ui.child_ui(inner, egui::Layout::top_down(egui::Align::Min), None);
             child.set_clip_rect(inner);
             child.label(egui::RichText::new(&design.name).strong());
-            crate::views::designer::schematic(app, &mut child, false);
+            crate::views::designer::schematic(app, &mut child, false, crate::views::designer::CELL);
             crate::views::designer::stats(app, &mut child);
             app.designer_peek = None;
         }

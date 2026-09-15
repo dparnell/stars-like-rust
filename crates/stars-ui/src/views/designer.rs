@@ -18,9 +18,12 @@
 
 use crate::{App, DesignView, DesignerDrag, PartRow};
 
-/// One cell of the schematic grid, in points. The original's is 32 pixels and
-/// a slot is two cells square.
-const CELL: f32 = 17.0;
+/// One cell of the schematic grid, in points, where the grid has to fit a
+/// pane that was not laid out for it — the browser and the popup. The
+/// original's is 32 pixels and a slot is two cells square; the editor,
+/// laid out from `ptslotGlob` like the original's, uses the original's
+/// size scaled with the frame.
+pub(crate) const CELL: f32 = 17.0;
 
 /// Draw the designer's contents into whatever the shell gives it.
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
@@ -95,10 +98,10 @@ fn browser(app: &mut App, ui: &mut egui::Ui) {
         if components {
             egui::ScrollArea::vertical()
                 .id_source("designer-components")
-                .show(&mut child, |ui| parts_list(app, ui));
+                .show(&mut child, |ui| parts_list(app, ui, false));
         } else {
-            picture(app, &mut child, false);
-            schematic(app, &mut child, false);
+            picture(app, &mut child, false, true);
+            schematic(app, &mut child, false, CELL);
             if let Some((alive, built)) = app.designer_plaque() {
                 child.add_space(2.0);
                 child.label(
@@ -244,20 +247,37 @@ fn editor(app: &mut App, ui: &mut egui::Ui) {
     let dropped_on_list: Option<DesignerDrag>;
     let mut dropped_on_slot: Option<usize> = None;
 
-    let template = &crate::dialog::DESIGNER;
-    let (rect, at, caption) = crate::views::dialog_frame(ui, template);
-
     // The editor is laid out from `ptslotGlob`, the designer's client size
     // of 610 by 450 (`ShipBuilder`, `1020:4e14`), not from the template:
     // `SlotDlg`'s edit branch (`10c8:1f67`) moves the parts list to
     // (16, 32) with the category filter at (16, 8) above it — the column
     // the radios had — and the name field to (610 - 264, 8), 240 wide;
     // `DrawSlotDlg` draws the hull's picture at (610 - 338, 6) and
-    // `UpdateSlotGlobals` starts the slot grid at (610 - 330, 32).
+    // `UpdateSlotGlobals` starts the slot grid at (610 - 330, 32); OK,
+    // Cancel and Help sit along the foot at 610 − 226, − 148 and − 74,
+    // 68 wide and a line and a half tall (`SlotDlg`'s `WM_INITDIALOG`).
     // Everything scales with the width the frame has.
-    let k = rect.width() / crate::dialog::SLOT_CLIENT.0;
+    let template = &crate::dialog::DESIGNER;
+    let (client_w, client_h) = crate::dialog::SLOT_CLIENT;
+    let k = ui.available_width() / client_w;
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(client_w * k, client_h * k), egui::Sense::hover());
     let px = |x: f32, y: f32| egui::pos2(rect.left() + x * k, rect.top() + y * k);
-    let tall = at(0x81a).height().min(24.0);
+    let caption = |id: u16| {
+        template
+            .control(id)
+            .map_or_else(String::new, crate::dialog::Control::label)
+    };
+    let tall = (20.0 * k).clamp(16.0, 24.0);
+    let button_h = (20.0 * k).clamp(16.0, 24.0);
+    let button = |x: f32| {
+        egui::Rect::from_min_size(
+            px(x, client_h - 6.0) - egui::vec2(0.0, button_h),
+            egui::vec2(68.0 * k, button_h),
+        )
+    };
+    let ok_rect = button(384.0);
+    let cancel_rect = button(462.0);
     name_field(
         app,
         ui,
@@ -280,24 +300,36 @@ fn editor(app: &mut App, ui: &mut egui::Ui) {
         let (_, payload) = child.dnd_drop_zone::<DesignerDrag, ()>(inner, |ui| {
             egui::ScrollArea::vertical()
                 .id_source("designer-parts")
-                .show(ui, |ui| parts_list(app, ui));
+                .show(ui, |ui| parts_list(app, ui, true));
         });
         // `dnd_drop_zone` takes the payload itself, so this is the one chance
         // to read it.
         dropped_on_list = payload.map(|p| *p);
     }
 
-    // The picture and the schematic to the right of the list, above the
-    // row of buttons along the foot; the cost and statistics under them.
-    let right = egui::Rect::from_min_max(
-        px(272.0, 8.0 + tall / k + 4.0),
-        egui::pos2(rect.right() - 4.0, at(0x1).top() - 6.0),
-    );
-    if right.width() > 40.0 {
-        let mut child = ui.child_ui(right, egui::Layout::top_down(egui::Align::Min), None);
-        child.set_clip_rect(right);
-        picture(app, &mut child, true);
-        dropped_on_slot = schematic(app, &mut child, true);
+    // The hull's picture at (610 − 338, 6) with its two arrows under it,
+    // and the slot grid from (610 − 330, 32) — the same origin, so the
+    // hull's own `rgbrc` table keeps its slots clear of the picture — down
+    // to the row of buttons along the foot.
+    let foot = ok_rect.top() - 6.0;
+    let picture_rect = egui::Rect::from_min_max(px(272.0, 6.0), px(272.0 + 66.0, 96.0));
+    if picture_rect.height() > 8.0 {
+        let mut child = ui.child_ui(picture_rect, egui::Layout::top_down(egui::Align::Min), None);
+        child.set_clip_rect(picture_rect);
+        picture(app, &mut child, true, false);
+    }
+    let grid = egui::Rect::from_min_max(px(280.0, 32.0), egui::pos2(rect.right() - 4.0, foot));
+    if grid.width() > 40.0 && grid.height() > 8.0 {
+        let mut child = ui.child_ui(grid, egui::Layout::top_down(egui::Align::Min), None);
+        child.set_clip_rect(grid);
+        dropped_on_slot = schematic(app, &mut child, true, 32.0 * k);
+    }
+    // The cost and statistics (`DrawBuildSelHull`) fill the left half of
+    // the client from `yBuildInfoSum` (340) down, under the parts list.
+    let numbers = egui::Rect::from_min_max(px(16.0, 340.0), egui::pos2(rect.center().x, foot));
+    if numbers.height() > 8.0 {
+        let mut child = ui.child_ui(numbers, egui::Layout::top_down(egui::Align::Min), None);
+        child.set_clip_rect(numbers);
         stats(app, &mut child);
         if let Some(complaint) = app.designer.as_ref().and_then(|d| d.complaint.clone()) {
             child.label(
@@ -319,10 +351,10 @@ fn editor(app: &mut App, ui: &mut egui::Ui) {
 
     // `ShowMainControls` shows OK for the editor and relabels the button
     // beside it `Cancel`.
-    if crate::views::placed_button(app, ui, at(0x1), &caption(0x1), true).clicked() {
+    if crate::views::placed_button(app, ui, ok_rect, &caption(0x1), true).clicked() {
         app.designer_ok();
     }
-    if crate::views::placed_button(app, ui, at(0x2), crate::dialog::DESIGNER_CLOSE.1, true)
+    if crate::views::placed_button(app, ui, cancel_rect, crate::dialog::DESIGNER_CLOSE.1, true)
         .clicked()
     {
         app.designer_cancel();
@@ -361,10 +393,17 @@ fn filter_dropdown(app: &mut App, ui: &mut egui::Ui, rect: egui::Rect) {
     }
 }
 
-fn parts_list(app: &mut App, ui: &mut egui::Ui) {
+/// The parts list. Its rows can be picked up and dragged only in the
+/// editor (`FTrackSlot`, `IDropPart`); the browser's Components view lists
+/// the same parts as a plain list.
+fn parts_list(app: &mut App, ui: &mut egui::Ui, draggable: bool) {
     let parts = app.designer_parts();
     let held = held_count(ui);
     for (index, part) in parts.iter().enumerate() {
+        if !draggable {
+            ui.push_id(index, |ui| part_row(app, ui, part, index));
+            continue;
+        }
         let id = egui::Id::new(("designer-part", index));
         let drag = DesignerDrag {
             category: part.category,
@@ -451,7 +490,12 @@ fn name_field(app: &mut App, ui: &mut egui::Ui, rect: egui::Rect) {
 /// between the four pictures the hull owns. Without a copy of the original to
 /// read the bitmaps out of, the frame holds the picture's number instead —
 /// which is still what the arrows change.
-fn picture(app: &mut App, ui: &mut egui::Ui, editing: bool) {
+///
+/// The browser names the hull beside the picture; the editor, laid out as
+/// the original's, has the name in its own field and puts the two arrows
+/// under the picture (`rgrcBuildSpin`, at (610 − 317, 75) and 14 to the
+/// right), so `beside` is false there.
+fn picture(app: &mut App, ui: &mut egui::Ui, editing: bool, beside: bool) {
     let Some(design) = app.designer_subject() else {
         return;
     };
@@ -495,27 +539,41 @@ fn picture(app: &mut App, ui: &mut egui::Ui, editing: bool) {
                 ui.visuals().weak_text_color(),
             );
         }
-        ui.vertical(|ui| {
-            ui.label(
-                egui::RichText::new(hull.map_or("", |h| h.name))
-                    .small()
-                    .strong(),
-            );
-            if editing {
-                ui.horizontal(|ui| {
-                    let left = ui.small_button("◀");
-                    crate::views::record(app, ui, "picture left", &left);
-                    if left.clicked() {
-                        app.designer_next_picture(false);
-                    }
-                    let right = ui.small_button("▶");
-                    crate::views::record(app, ui, "picture right", &right);
-                    if right.clicked() {
-                        app.designer_next_picture(true);
-                    }
-                });
-            }
+        if beside {
+            ui.vertical(|ui| {
+                ui.label(
+                    egui::RichText::new(hull.map_or("", |h| h.name))
+                        .small()
+                        .strong(),
+                );
+                if editing {
+                    picture_arrows(app, ui);
+                }
+            });
+        }
+    });
+    if editing && !beside {
+        ui.add_space(3.0);
+        ui.horizontal(|ui| {
+            ui.add_space(21.0);
+            picture_arrows(app, ui);
         });
+    }
+}
+
+/// The two arrows that spin between a hull's four pictures.
+fn picture_arrows(app: &mut App, ui: &mut egui::Ui) {
+    ui.horizontal(|ui| {
+        let left = ui.small_button("◀");
+        crate::views::record(app, ui, "picture left", &left);
+        if left.clicked() {
+            app.designer_next_picture(false);
+        }
+        let right = ui.small_button("▶");
+        crate::views::record(app, ui, "picture right", &right);
+        if right.clicked() {
+            app.designer_next_picture(true);
+        }
     });
 }
 
@@ -545,7 +603,12 @@ pub(crate) fn schematic_size(app: &App) -> egui::Vec2 {
     egui::vec2(cols as f32 * CELL, rows as f32 * CELL)
 }
 
-pub(crate) fn schematic(app: &mut App, ui: &mut egui::Ui, editing: bool) -> Option<usize> {
+pub(crate) fn schematic(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    editing: bool,
+    cell: f32,
+) -> Option<usize> {
     let slots = app.designer_schematic();
     let design = app.designer_subject()?;
     let hull = App::designer_hull(&design)?;
@@ -566,17 +629,17 @@ pub(crate) fn schematic(app: &mut App, ui: &mut egui::Ui, editing: bool) -> Opti
         rows = rows.max(bottom);
     }
 
-    let size = egui::vec2(cols as f32 * CELL, rows as f32 * CELL);
+    let size = egui::vec2(cols as f32 * cell, rows as f32 * cell);
     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
     let origin = rect.min;
     let cell_rect = |(col, row): (i32, i32)| {
         egui::Rect::from_min_size(
-            origin + egui::vec2(col as f32 * CELL, row as f32 * CELL),
-            egui::vec2(CELL * 2.0, CELL * 2.0),
+            origin + egui::vec2(col as f32 * cell, row as f32 * cell),
+            egui::vec2(cell * 2.0, cell * 2.0),
         )
     };
 
-    cargo_box(app, ui, hull, &design, origin);
+    cargo_box(app, ui, hull, &design, origin, cell);
 
     let mut dropped = None;
     for (index, slot) in slots.iter().enumerate() {
@@ -597,13 +660,14 @@ fn cargo_box(
     hull: &'static stars_core::components::Hull,
     design: &stars_core::design::ShipDesign,
     origin: egui::Pos2,
+    cell: f32,
 ) {
     let Some(((left, top), (right, bottom))) = hull.cargo_cells() else {
         return;
     };
     let rect = egui::Rect::from_min_max(
-        origin + egui::vec2(left as f32 * CELL, top as f32 * CELL),
-        origin + egui::vec2(right as f32 * CELL, bottom as f32 * CELL),
+        origin + egui::vec2(left as f32 * cell, top as f32 * cell),
+        origin + egui::vec2(right as f32 * cell, bottom as f32 * cell),
     );
     let painter = ui.painter();
     let stroke = ui.visuals().widgets.noninteractive.fg_stroke;
@@ -635,7 +699,7 @@ fn cargo_box(
         ["Cargo".into(), capacity, "max".into()]
     };
     let colour = ui.visuals().text_color();
-    let font = egui::FontId::proportional(9.0);
+    let font = egui::FontId::proportional(slot_font(cell));
     for (i, line) in lines.iter().enumerate() {
         let y = rect.top() + rect.height() * (i as f32 + 0.5) / 3.0;
         painter.text(
@@ -666,8 +730,20 @@ fn slot_widget(
         .as_ref()
         .is_some_and(|d| d.selected_slot == Some(index));
 
+    ui.painter()
+        .rect_filled(rect, 1.0, ui.visuals().extreme_bg_color);
+    // `DrawSlotDlg` blits the picture — the component's, or the
+    // category's off the empty-slot sheet — into the slot and prints the
+    // line over its foot. Without the game's pictures the slot names what
+    // it holds or takes instead.
+    let font = slot_font(rect.width() / 2.0);
+    let ctx = ui.ctx().clone();
+    let drawn = slot
+        .picture
+        .and_then(|cell| app.art.as_mut()?.sprite(&ctx, cell, rect.width()))
+        .map(|image| image.paint_at(ui, rect))
+        .is_some();
     let painter = ui.painter();
-    painter.rect_filled(rect, 1.0, ui.visuals().extreme_bg_color);
     let stroke = if selected {
         egui::Stroke::new(2.0_f32, ui.visuals().selection.bg_fill)
     } else {
@@ -675,23 +751,30 @@ fn slot_widget(
     };
     painter.rect_stroke(rect, 1.0, stroke);
 
-    let title = match &slot.fitted {
-        Some((name, _)) => name.clone(),
-        None => App::designer_slot_kinds(slot.allowed),
-    };
+    if !drawn {
+        let title = match &slot.fitted {
+            Some((name, _)) => name.clone(),
+            None => App::designer_slot_kinds(slot.allowed),
+        };
+        painter.text(
+            egui::pos2(rect.center().x, rect.top() + rect.height() * 0.35),
+            egui::Align2::CENTER_CENTER,
+            shorten(&title),
+            egui::FontId::proportional(font),
+            ui.visuals().text_color(),
+        );
+    }
+    // The line sits `dyArial6 + 4` above the slot's foot, over the picture.
     painter.text(
-        egui::pos2(rect.center().x, rect.top() + rect.height() * 0.35),
-        egui::Align2::CENTER_CENTER,
-        shorten(&title),
-        egui::FontId::proportional(9.0),
-        ui.visuals().text_color(),
-    );
-    painter.text(
-        egui::pos2(rect.center().x, rect.bottom() - 8.0),
+        egui::pos2(rect.center().x, rect.bottom() - font * 0.5 - 4.0),
         egui::Align2::CENTER_CENTER,
         &slot.label,
-        egui::FontId::proportional(9.0),
-        ui.visuals().weak_text_color(),
+        egui::FontId::proportional(font),
+        if drawn {
+            egui::Color32::BLACK
+        } else {
+            ui.visuals().weak_text_color()
+        },
     );
 
     if response.clicked() {
@@ -724,9 +807,17 @@ fn slot_widget(
         }
     }
 
-    let hovered = ui.rect_contains_pointer(rect);
+    // `contains_pointer` rather than `hovered`: egui reports nothing as
+    // hovered while something is being dragged, which is exactly when a
+    // drop has to be seen.
     let released = ui.input(|i| i.pointer.any_released());
-    hovered && released && egui::DragAndDrop::has_any_payload(ui.ctx())
+    response.contains_pointer() && released && egui::DragAndDrop::has_any_payload(ui.ctx())
+}
+
+/// The size of the lettering on a slot, from the size of its cells: Arial 6
+/// on the original's 32-pixel cells.
+fn slot_font(cell: f32) -> f32 {
+    (cell * 0.3).clamp(8.0, 11.0)
 }
 
 /// Slot pictures are small; a long list of categories will not fit.

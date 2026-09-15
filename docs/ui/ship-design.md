@@ -131,6 +131,14 @@ transcription by `crates/stars-core/tests/ship_design.rs`.
 with one exception: a starbase special in a slot that holds exactly one, with
 exactly one fitted, gets **no** line at all.
 
+The category's bitmap is a cell of bitmap 119 chosen by `IEmptyBmpFromGrhst`
+(`10c8:6716`) — see `../formats/resources.md`, *The empty design slots*, for
+the table and the four byte-swapped entries that leave an empty Elect, Mech,
+Orbital-or-Elect or Mine-Elect-Mech slot wearing the *Combo* picture. The
+component's is its `ibmp` cell of the seven component sheets. Both are drawn
+here, scaled with the grid, and the line is printed over the picture's foot as
+the original prints it (`bottom − dyArial6 − 4`).
+
 The cargo space reads three lines: `Cargo` / `<n>kT` / `max` on a ship, and
 `<n>kT` (or `Unlimited`) / `Space` / `Dock` on a starbase. Its figure is the
 *design's* capacity, cargo pods included, not the bare hull's.
@@ -282,11 +290,12 @@ warning, and the cost and statistics panel with true costs.
 
 ## What is not
 
-* **The slot pictures.** A slot is a blit in the original; here it names the
-  categories it accepts. The **hull picture** and the **parts list** are drawn
-  from the game's own sheets when a copy of the original has been found — see
-  `../formats/resources.md` — and fall back to a box with the picture number in
-  it, and to plain rows, when it has not.
+* **The pictures without the game's own sheets.** The slot pictures, the
+  **hull picture** and the **parts list** are drawn from the game's own
+  sheets when a copy of the original has been found — see
+  `../formats/resources.md` — and fall back to a slot naming the categories
+  it accepts, a box with the picture number in it, and plain rows, when it
+  has not.
 
   The two arrows under the hull picture are real: every hull owns **four**
   pictures and `BuildDlg` walks those four. It splits the index into the hull's
@@ -310,10 +319,16 @@ warning, and the cost and statistics panel with true costs.
   list to (16, 32) with the category filter at (16, 8) — the column the
   radios had, both 240 wide, the list 266 tall — and the name field to
   (610 − 264, 8); `DrawSlotDlg` draws the hull's picture at (610 − 338, 6)
-  and `UpdateSlotGlobals` starts the slot grid at (610 − 330, 32), with OK,
-  Cancel and Help along the foot at 610 − 226, − 148 and − 74. On the way
-  out of the editor the list goes back to the right (610 − 256, 32) and is
-  hidden unless the view is Components. Everything scales with the width
-  the window has.
+  with the two arrows under it at (610 − 317, 75) and 14 to the right
+  (`rgrcBuildSpin`), and `UpdateSlotGlobals` starts the slot grid at
+  (610 − 330, 32) — the same origin, so each hull's `rgbrc` table keeps
+  its slots clear of the picture — in 32-pixel half-cells; the numbers
+  panel (`DrawBuildSelHull`) fills the left half of the client from
+  `yBuildInfoSum` (340) down, under the list; OK, Cancel and Help sit
+  along the foot at 610 − 226, − 148 and − 74, 68 wide. On the way out of
+  the editor the list goes back to the right (610 − 256, 32) and is hidden
+  unless the view is Components. The editor here takes a 610 by 450 client
+  scaled with the width the window has and places every piece so; the
+  browser still keeps the template's own proportions.
 * Tutorial gating (`FTutorialEnabledShipBuilder`), the help file, and the
   sticky dialog position.

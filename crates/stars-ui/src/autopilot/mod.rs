@@ -335,6 +335,11 @@ impl Shell {
             .memory(|m| m.area_rect(egui::Id::new("Stars! Tutor")))
     }
 
+    /// Queue a raw input event for the next frame.
+    pub fn push_event(&mut self, event: egui::Event) {
+        self.events.push(event);
+    }
+
     /// A left-drag from one point to another.
     pub fn drag(&mut self, from: egui::Pos2, to: egui::Pos2) {
         self.events.push(egui::Event::PointerMoved(from));

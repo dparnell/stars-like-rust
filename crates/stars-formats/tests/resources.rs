@@ -161,6 +161,35 @@ fn the_race_emblems_tile_eight_across() {
     }
 }
 
+/// The empty-slot pictures: bitmap 119, twenty-one cells eight to a row,
+/// one per mask `IEmptyBmpFromGrhst` knows, and the Combo cell for any
+/// other — including the four whose table entries are byte-swapped.
+#[test]
+fn the_empty_slot_pictures_follow_the_mask_table() {
+    let engine = art::empty_slot(0x0001);
+    assert_eq!((engine.resource, engine.x, engine.y), (119, 64, 0));
+    let bomb = art::empty_slot(0x0040);
+    assert_eq!((bomb.x, bomb.y), (0, 64), "index 8 starts the second row");
+    let shield_elect_mech = art::empty_slot(0x1804);
+    assert_eq!((shield_elect_mech.x, shield_elect_mech.y), (256, 128));
+    for swapped in [0x0800u16, 0x1000, 0x0a00, 0x1900] {
+        let cell = art::empty_slot(swapped);
+        assert_eq!((cell.x, cell.y), (0, 0), "{swapped:#06x} wears Combo");
+    }
+    assert_eq!(art::EMPTY_SLOT_MASKS[16], 0x000a);
+
+    let Some(exe) = executable() else { return };
+    let picture = bitmap(&exe, Name::Id(art::EMPTY_SLOT_SHEET));
+    assert_eq!((picture.width, picture.height), (576, 192));
+    for mask in art::EMPTY_SLOT_MASKS {
+        let cell = art::empty_slot(mask);
+        assert!(
+            picture.crop(cell.x, cell.y, 64, 64).is_some(),
+            "{mask:#06x}"
+        );
+    }
+}
+
 /// The component pictures are thirty-two to a sheet, eight across.
 #[test]
 fn the_component_pictures_are_thirty_two_to_a_sheet() {

@@ -157,6 +157,19 @@ used, so this does not guess: the crop fails and the caller draws nothing.
   16 pixels on the 64-pixel picture, 8 on the 32-pixel one — from the medium
   and small emblem sheets.
 
+* **The empty design slots** — `hbmpBackBld`, bitmap **119**, loaded as
+  `LoadBitmap(hInst, 0x77)` in `FCreateStuff` (`1000:07b2`): 576x192,
+  twenty-one 64-pixel cells drawn eight to a row, one per category mask.
+  `DrawSlotDlg` (`10c8:2650`) picks the cell with `IEmptyBmpFromGrhst`
+  (`10c8:6716`), the position of the slot's mask in the 21-word table at
+  `1120:0c52`, and blits it from `((i & 7) << 6, ((i >> 3) & 3) << 6)`; a
+  mask the table does not hold gets cell 0, *Combo*. Entries 16 to 19 of
+  that table are byte-swapped in the binary — `0x000a`, `0x0019`, `0x0008`,
+  `0x0010` under the cells lettered *Orbital or Elect*, *Mine Elect Mech*,
+  *Elect* and *Mech* — so those four cells are never drawn and an empty
+  Elect, Mech, Orbital-or-Elect or Mine-Elect-Mech slot wears *Combo*. See
+  `art::empty_slot`, which keeps the table as the binary has it.
+
 * **The scanner's own glyphs** — `ScannerBmp`, a 48x101 sheet the map draws
   several things out of, by fixed corner rather than by index:
 
