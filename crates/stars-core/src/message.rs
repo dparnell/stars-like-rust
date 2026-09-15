@@ -240,6 +240,24 @@ pub mod id {
     pub const TRADER_GAVE_SHIP: u16 = 0x14F;
     /// The Trader meant to give a ship and could not (`1110:133b`).
     pub const TRADER_TRIED_SHIP: u16 = 0x150;
+
+    // Random events — see [`crate::events`]. `MeteorStrike` (`10b8:560e`)
+    // sends `0x83 + size` to everyone but the (non-AR) owner, who gets
+    // `0x87 + size`; the Exodus game's `.m6` holds `0x84` with the planet
+    // as its one parameter.
+    /// A meteor struck a planet; add the size (0 to 3).
+    pub const METEOR: u16 = 0x83;
+    /// A meteor struck *your* planet; add the size (0 to 3).
+    pub const METEOR_YOURS: u16 = 0x87;
+    /// Your planet's climate changed (`PlanetaryClimateChange`,
+    /// `10b8:5c54`): the planet, then the variable.
+    pub const CLIMATE_CHANGE: u16 = 0xfd;
+    /// New minerals were found on your planet (`DiscoverNewMinerals`,
+    /// `10b8:5e0c`): the planet, then the mineral.
+    pub const NEW_MINERALS: u16 = 0xfe;
+    /// A Mystery Trader has set out (`10b8:5efa`), told to everyone with
+    /// [`super::THING_OBJECT`] and the Trader's full id.
+    pub const TRADER_APPEARED: u16 = 0x12b;
 }
 
 /// The families of message ids the filter treats as one thing.
@@ -387,6 +405,9 @@ pub enum Goto {
 ///
 /// `DoResearch` (`turn2.c`) passes `-2` with every tech-level report.
 pub const RESEARCH_OBJECT: i16 = -2;
+/// The object word of a message about a `THING`, whose full id is the
+/// first parameter.
+pub const THING_OBJECT: i16 = -6;
 
 /// How a summary names the things it mentions. The engine has only ids;
 /// a frontend that knows the universe's planet names and its fleets'
@@ -630,6 +651,47 @@ impl Message {
             id::TRADER_TRIED_SHIP => {
                 "The Mystery Trader meant to give a ship and could not.".to_string()
             }
+            id::TRADER_APPEARED => {
+                "A Mystery Trader has entered the galaxy. Send a fleet carrying at \
+                 least 1,200kT of minerals to meet it and it may trade you something \
+                 for them."
+                    .to_string()
+            }
+            0x83..=0x86 => {
+                let size = ["small", "medium-sized", "large", "huge"]
+                    [usize::from(self.id - 0x83)];
+                format!(
+                    "A {size} meteor has struck {}. The planet's surface minerals and \
+                     climate have changed.",
+                    planet(param(0))
+                )
+            }
+            0x87..=0x8a => {
+                let size = ["small", "medium-sized", "large", "huge"]
+                    [usize::from(self.id - 0x87)];
+                format!(
+                    "A {size} meteor has struck your planet {}: colonists were killed, \
+                     the climate and the surface minerals have changed, and anything in \
+                     the production queue that was not an auto-build item has been \
+                     dropped.",
+                    planet(param(0))
+                )
+            }
+            id::CLIMATE_CHANGE => format!(
+                "The {} of {} has shifted; check its habitability, and its \
+                 production queue has been reduced to auto-build items.",
+                ["gravity", "temperature", "radiation"]
+                    .get(usize::try_from(param(1)).unwrap_or(usize::MAX))
+                    .copied()
+                    .unwrap_or("climate"),
+                planet(param(0))
+            ),
+            id::NEW_MINERALS => format!(
+                "Your miners have found a new vein of {} on {}, and its \
+                 concentration has risen.",
+                cargo_kind(param(1)),
+                planet(param(0))
+            ),
             // The four playing tips and the home-planet greeting every new
             // game opens with. This wording is this project's, not the game's.
             id::TIP_FILTERING => {

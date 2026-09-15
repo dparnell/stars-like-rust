@@ -88,11 +88,11 @@ generated year 2425
   planet 187 built 1 of item 8, 3 of item 0
   ...
   player 5 put 571 into research, gaining 1 levels
-  not simulated: [RandomEvents]
 ```
 
-The last line is deliberate: the engine reports the parts of a turn it does not
-yet simulate rather than quietly leaving them out.
+Had the engine skipped a step, a last line `not simulated: [...]` would name
+it: the engine reports the parts of a turn it does not simulate rather than
+quietly leaving them out.
 
 ## Development status
 
@@ -108,9 +108,9 @@ minefields, packets, wormholes and the Mystery Trader move, planets mine,
 build, grow and research, fleets carry out their tasks on arrival —
 transport, colonise, remote mine, lay mines, scrap, patrol, route —
 **battles** are fought on the original's board and recorded for the VCR,
-planets are **bombed**, terraforming runs, and the scores are kept. What
-is still missing is the random events (comets and the like), the
-wreckage's tech, and a handful of corners named in the specs.
+planets are **bombed**, terraforming runs, the year's **random events**
+strike, and the scores are kept. What is still missing is the wreckage's
+tech and a handful of corners named in the specs.
 
 The **computer players** are in: `DoAiTurn` and the TurinDrone personality
 — its research plan, its ship designs from the AI part tables, its queue
@@ -168,8 +168,8 @@ own input — the tests press, drag and click what the panes drew, as a
 hand would — and the workspace's suite stands at about 120 test binaries
 that run on every push.
 
-What is still not the original's, and says so in its spec: the random
-events, the wreckage's tech, the VCR's text panel, the Help buttons, and
+What is still not the original's, and says so in its spec: the wreckage's
+tech, the VCR's text panel, the Help buttons, and
 the dialogs' colours — the shell is on a dark theme where the original is
 button-face grey, though the tiles keep the original's black-on-grey.
 

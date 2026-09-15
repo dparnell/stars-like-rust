@@ -373,6 +373,7 @@ pub fn generate(config: &NewGame, rng: &mut Rng) -> Result<Created, NewGameError
 
     let mut state = GameState::new(config.id);
     state.slow_tech = config.slow_tech;
+    state.random_events = config.random_events;
     state.tutorial_game = config.tutorial_game;
     state.galaxy_size = config.size as i16;
     state.start_distance = config.start_distance as i16;

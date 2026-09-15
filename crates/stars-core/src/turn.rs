@@ -23,7 +23,9 @@
 //! [`generate_turn`] implements the steps whose formulas are recovered. The
 //! steps that need fleets, orders, ship designs or the components table are
 //! listed in [`TurnReport::skipped`] rather than silently omitted, so a caller
-//! can never mistake a partial turn for a complete one.
+//! can never mistake a partial turn for a complete one. `RandomEvents`
+//! (see [`crate::events`]) is skipped only when the game was set up
+//! without random events.
 
 use crate::fleet::Fleet;
 use crate::mining::mine_minerals;
@@ -54,7 +56,8 @@ pub enum SkippedStep {
     BuildQueue,
     /// Battle resolution.
     Combat,
-    /// Random events (comet strikes and the like).
+    /// Random events (meteor strikes and the like) — skipped only when the
+    /// game was set up without them.
     RandomEvents,
     /// Score calculation.
     Scores,
@@ -147,6 +150,8 @@ pub struct TurnReport {
     pub victory: Vec<crate::victory::Met>,
     /// Players who have won, if the game is old enough for anyone to.
     pub winners: Vec<usize>,
+    /// The year's random events — see [`crate::events`].
+    pub events: crate::events::EventReport,
     /// Pipeline steps not performed, and therefore not reflected above.
     pub skipped: Vec<SkippedStep>,
 }
@@ -703,6 +708,13 @@ pub fn generate_turn_with_orders(
             }
         }
         report.breakthroughs[index] = gained;
+    }
+
+    // --- Produce: random events, the last thing `Produce` does
+    // (`10b8:0c87`), unless the game was set up without them.
+    if state.random_events {
+        report.events = crate::events::random_events(state, rng);
+        report.skipped.retain(|s| *s != SkippedStep::RandomEvents);
     }
 
     // --- DoOrders(1) -> DoBattles: fleets that have come to share a place
