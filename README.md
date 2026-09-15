@@ -64,10 +64,14 @@ cargo run --release -p stars-desktop --example autoplay_tutorial
 ```
 
 The window reproduces the original's screen: its panes, tiles, dialogs,
-reports and menus are laid out from the original's own dialog templates,
-and its pictures and text are read from a copy of `stars.exe` at run
-time — one under `binary/`, beside the game being opened, or named by
-`STARS_EXE` — so nothing of the original's art is in this repository.
+reports and menus are laid out from the original's own dialog templates
+and the pixel offsets its code places things at, and its pictures and
+text are read from a copy of `stars.exe` at run time — one under
+`binary/`, beside the game being opened, or named by `STARS_EXE` — so
+nothing of the original's art is in this repository. The bitmaps, icons
+and their masks are decoded straight out of the executable's resource
+table (`crates/stars-formats/src/resources/`), including the colour-table
+rewrites the original makes at start-up.
 
 `--turn` prints something like:
 
@@ -129,18 +133,29 @@ the colony ships' targets in nineteen legs of twenty, the queues wherever
 no random draw gates them (*What the corpus confirms of the
 personalities*).
 
-Step 5, the frontend, is a playable game: the scanner with its views and
-overlays, the planet and fleet panes and their tiles, the production
-dialog, the Ship Designer, research, the technology browser, cargo and
-ship transfer, battle plans, player relations, the reports, the score
-sheet, the Battle VCR, host mode and a new-game wizard with the race
-designer. The **tutorial** is wired up — the original's tutor machine,
-all eighty of its pages and its world — and a test plays it through the
-panes from the first page to the last, pressing what each page names
-where the pane drew it; where this engine's game parts from the
-original's (the ships come out under other numbers) the run does what
-the page asks and says so (`docs/ui/tutorial.md`, *The run, to the
-end*).
+Step 5, the frontend, is a playable game: the scanner with its six views
+and its overlays, scrolled with its own bars past 100% as the original's
+window is; the toolbar with the game's own pictures; the planet and fleet
+panes and their tiles at the sizes the original's tables give them; the
+production dialog with its templates; the **Ship and Starbase Designer**
+on the original's 610-by-450 client, its slots wearing the component
+pictures and the empty-slot sheet, parts dragged from the palette under
+the original's rules (`IDropPart`: what stacks, what fills, what is
+refused); research, the technology browser, cargo and ship transfer,
+battle plans, player relations, the four reports, the score sheet, host
+mode, and a new-game wizard with the six-page race designer. The
+**Battle VCR** plays the recordings back on the original's board — the
+ships' pictures with their owners' emblems, the beams as `AnimateAttack`
+draws them, the torpedoes flying frame by frame from the game's own icons
+and the bursts landing where they hit. The **tutorial** is wired up — the
+original's tutor machine, all eighty of its pages and its world — and a
+test plays it through the panes from the first page to the last, pressing
+what each page names where the pane drew it; where this engine's game
+parts from the original's (the ships come out under other numbers) the
+run does what the page asks and says so (`docs/ui/tutorial.md`, *The run,
+to the end*). Every dialog and pane has been rasterised through the test
+harness's own software renderer and looked over for overlaps; the same
+renderer films the tutorial (`docs/ui/tutorial.md`).
 
 Verification is differential where a fixture allows it: replaying a year
 of a real game against the file the original engine wrote reproduces the
@@ -148,11 +163,21 @@ economy to the unit on the tutorial's fixtures and the bulk of the
 sixteen-player corpus, and the computer players' turns are run on the
 corpus players' own files and compared with what the original wrote;
 combat is transcribed from the binary and unit-tested, and is not yet
-checked against a recorded battle.
+checked against a recorded battle. The frontend is tested through egui's
+own input — the tests press, drag and click what the panes drew, as a
+hand would — and the workspace's suite stands at about 120 test binaries
+that run on every push.
+
+What is still not the original's, and says so in its spec: the random
+events, the wreckage's tech, the VCR's text panel, the Help buttons, and
+the dialogs' colours — the shell is on a dark theme where the original is
+button-face grey, though the tiles keep the original's black-on-grey.
 
 See `docs/plans/stars-re-reimplementation.md` for the delivery plan,
 `docs/formats/README.md`, `docs/formulas/README.md` and `docs/ui/` for
-the specs, and `docs/ghidra-triage.md` for the map of the original binary.
+the specs (two dozen each of format, formula and screen specs, every
+fact with its Ghidra address, manual page or fixture offset), and
+`docs/ghidra-triage.md` for the map of the original binary.
 
 ## Contributing
 
