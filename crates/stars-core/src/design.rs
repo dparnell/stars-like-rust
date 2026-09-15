@@ -420,7 +420,7 @@ impl ShipDesign {
     }
 
     /// What wreckage of this design teaches — `MarkTechsSeen`
-    /// (`1080:36c8`): the highest technology the hull and every fitted
+    /// (`1080:36b6`): the highest technology the hull and every fitted
     /// part asks for, field by field, folded into `seen`; and the Mystery
     /// Trader parts fitted, counted by copy into `trader_seen` (capped at
     /// 25), by the [`crate::wormhole::part`] bit each one is.

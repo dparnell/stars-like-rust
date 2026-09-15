@@ -939,7 +939,7 @@ parameters; spectators get `0xf9`/`0xfa`; a player whose fleets were
 excluded `0x180`; and wreckage teaches tech (`ITechLearnATech`,
 `10f0:9918` — see `ground.md`, *Wreckage*): every ship killed marks the
 highest technology its hull and parts asked for and the Mystery Trader
-parts it carried (`MarkTechsSeen`, `1080:36c8`, from `KillShips`), and
+parts it carried (`MarkTechsSeen`, `1080:36b6`, from `KillShips`), and
 then a player who fought and was not beaten to the last ship — unless the
 battle was in orbit of somebody else's planet — picks through it (`0xef`),
 as does the planet's owner who did not fight (`0xf0`) and a spectator with
