@@ -100,17 +100,16 @@ Both columns and all their wording, the six radio buttons and the eight-choice
 dropdown with its nibble encoding, the remaining cost and the `Maxed Out` and
 `Never` cases, the year estimate with Generalized Research's halving, the four
 allocation figures including the projection with its two rules, the benefits
-list ordered and coloured by distance, and the trait notes. Nothing is
-committed until Done, and Done writes nothing when nothing changed. The Help
-button is drawn but dead, there being no help reader yet.
+list ordered and coloured by distance with the component pop-up a press on a
+line raises (`technology-browser.md`, *The hover help is this panel*), and
+the trait notes. Nothing is committed until Done, and Done writes nothing
+when nothing changed. The Help button is drawn but dead, there being no help
+reader yet.
 
 ## What is not
 
 * **The Technology Browser** (F2), which is `BrowserDlg` (`research.c`) and a
   screen of its own rather than part of this dialog.
-* The **hover help** over the benefits list and the trait note, which puts up a
-  component's details from `rghsFutureTech` — that needs the browser's
-  `DisplayComponentInfo`.
 * The two **spin buttons** are a slider here, which is the same control with
   its whole range on show.
 * The dialog's exact pixel geometry, which the original computes from the

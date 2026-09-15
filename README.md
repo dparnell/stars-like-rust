@@ -110,7 +110,8 @@ transport, colonise, remote mine, lay mines, scrap, patrol, route —
 **battles** are fought on the original's board and recorded for the VCR
 and their wreckage picked over for technology, planets are **bombed**,
 mineral **packets** are thrown, caught and felt, minefields hurt what flies
-into them, cloaks hide fleets from scanners, terraforming runs, the year's
+into them, cloaks hide fleets from scanners, terraforming runs, scanners
+and the Genesis Device go up when they are paid for, the year's
 **random events** strike, and the scores are kept. What is still missing
 is a handful of corners named in the specs.
 
@@ -144,7 +145,8 @@ on the original's 610-by-450 client, its slots wearing the component
 pictures and the empty-slot sheet, parts dragged from the palette under
 the original's rules (`IDropPart`: what stacks, what fills, what is
 refused); research, the technology browser, cargo and ship transfer
-between a fleet and its planet or two fleets standing together,
+between a fleet and its planet, two fleets standing together, a packet
+or salvage, or deep space,
 battle plans, player relations, the four reports, the score sheet, host
 mode, and a new-game wizard with the six-page race designer. The
 **Battle VCR** plays the recordings back on the original's board — the
