@@ -99,13 +99,49 @@ pub fn pct_planet_desirability(planet: &Planet, race: &Race) -> i16 {
 /// An optimal (100%) planet supports 10_000 = 1,000,000 colonists. Planets
 /// below 5% habitability are all treated as 5%, and Alternate Reality races
 /// live on their starbase instead — for them this returns `None`, because the
-/// answer depends on the starbase hull, which the ship-design layer owns.
+/// answer depends on the starbase hull, which [`calc_planet_max_pop_with_starbase`]
+/// takes.
 #[must_use]
 pub fn calc_planet_max_pop(planet: &Planet, race: &Race) -> Option<i32> {
+    calc_planet_max_pop_with_starbase(planet, race, None)
+}
+
+/// `rglPopMac` (`1120:08cc`): the most colonists an Alternate Reality race
+/// keeps on each starbase hull, in hundreds — the Orbital Fort 250,000, the
+/// Space Dock 500,000, the Space Station a million, the Ultra Station two
+/// and the Death Star three (`MANUAL.PDF` p. 22-1). Indexed by the hull id
+/// less [`FIRST_STARBASE_HULL`].
+pub const AR_STARBASE_MAX_POP: [i32; 5] = [2500, 5000, 10_000, 20_000, 30_000];
+
+/// The id of the first starbase hull, the Orbital Fort, which the table
+/// above is indexed from (`CalcPlanetMaxPop`, `1048:7096`: `hull − 0x20`).
+pub const FIRST_STARBASE_HULL: i16 = 32;
+
+/// [`calc_planet_max_pop`], told the hull of the planet's starbase.
+///
+/// `CalcPlanetMaxPop` (`1048:7096`). For an Alternate Reality race the
+/// planet must be the player's own and have a starbase (`det` bit 9); then
+/// the maximum is the hull's entry in [`AR_STARBASE_MAX_POP`], and Only
+/// Basic Remote Mining's tenth is added on top as for everyone else. An AR
+/// planet with no starbase, or one whose hull is not given, supports
+/// nobody: `Some(0)`.
+#[must_use]
+pub fn calc_planet_max_pop_with_starbase(
+    planet: &Planet,
+    race: &Race,
+    starbase_hull: Option<i16>,
+) -> Option<i32> {
     if race.is_ar() {
-        // AR maximum population comes from `rglPopMac[hull]`; not modelled
-        // until ship designs are (delivery Step 5).
-        return None;
+        let hull = starbase_hull?;
+        if !planet.starbase {
+            return Some(0);
+        }
+        let index = usize::try_from(hull - FIRST_STARBASE_HULL).ok()?;
+        let mut max_pop = *AR_STARBASE_MAX_POP.get(index)?;
+        if race.has_lrt(lrt::OBRM) {
+            max_pop += max_pop / 10;
+        }
+        return Some(max_pop);
     }
 
     Some(max_pop_for_hab(pct_planet_desirability(planet, race), race))

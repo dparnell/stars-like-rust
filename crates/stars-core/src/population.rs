@@ -10,7 +10,7 @@
 //! planet's [`Planet::delta_pop`] accumulator, so that a colony growing by less
 //! than one stored unit a year still grows.
 
-use crate::hab::{calc_planet_max_pop, pct_planet_desirability};
+use crate::hab::{calc_planet_max_pop_with_starbase, pct_planet_desirability};
 use crate::planet::Planet;
 use crate::race::{Prt, Race};
 
@@ -41,11 +41,28 @@ pub fn pct_true_max_growth(race: &Race) -> i16 {
 /// Compute one year of population change for a planet, without applying it.
 ///
 /// Returns `None` for an unowned or empty planet, and for Alternate Reality
-/// races (whose maximum population depends on the starbase hull).
+/// races (whose maximum population depends on the starbase hull — see
+/// [`chg_pop_from_planet_with_starbase`]).
 ///
 /// Use [`apply_pop_change`] to write the result back.
 #[must_use]
 pub fn chg_pop_from_planet(planet: &Planet, race: &Race) -> Option<PopChange> {
+    chg_pop_from_planet_with_starbase(planet, race, None)
+}
+
+/// [`chg_pop_from_planet`], told the hull of the planet's starbase so an
+/// Alternate Reality race's maximum is known.
+///
+/// `ChgPopFromPlanet` (`1038:7096`) grows an AR planet by the same rule as
+/// any other against `CalcPlanetMaxPop`'s figure; a maximum of nothing
+/// (no starbase) leaves the growth uncrowded, as the original's `max / 4 <
+/// pop` test followed by a division by that maximum would not survive.
+#[must_use]
+pub fn chg_pop_from_planet_with_starbase(
+    planet: &Planet,
+    race: &Race,
+    starbase_hull: Option<i16>,
+) -> Option<PopChange> {
     let pop_old = planet.pop;
     if planet.owner.is_none() || pop_old == 0 {
         return None;
@@ -79,7 +96,7 @@ pub fn chg_pop_from_planet(planet: &Planet, race: &Race) -> Option<PopChange> {
         -whole
     } else {
         // ---- growth ----
-        let max_pop = calc_planet_max_pop(planet, race)?;
+        let max_pop = calc_planet_max_pop_with_starbase(planet, race, starbase_hull)?;
         // Growth is the race's maximum rate scaled by habitability, so the
         // units here are hundredths of a percent.
         let mut pct_grow = i32::from(pct_true_max_growth(race)) * i32::from(hab);
@@ -158,7 +175,16 @@ pub fn apply_pop_change(planet: &mut Planet, change: PopChange) {
 
 /// Advance a planet's population by one year, returning the change applied.
 pub fn update_population(planet: &mut Planet, race: &Race) -> Option<PopChange> {
-    let change = chg_pop_from_planet(planet, race)?;
+    update_population_with_starbase(planet, race, None)
+}
+
+/// [`update_population`], told the hull of the planet's starbase.
+pub fn update_population_with_starbase(
+    planet: &mut Planet,
+    race: &Race,
+    starbase_hull: Option<i16>,
+) -> Option<PopChange> {
+    let change = chg_pop_from_planet_with_starbase(planet, race, starbase_hull)?;
     apply_pop_change(planet, change);
     Some(change)
 }

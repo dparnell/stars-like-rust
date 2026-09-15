@@ -11,7 +11,6 @@
 
 use crate::planet::Planet;
 use crate::race::Race;
-use crate::resources::resources_at_planet;
 
 /// A planet's resource budget for one year.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -68,7 +67,35 @@ pub fn planet_budget(
     no_research: bool,
     energy_tech: i16,
 ) -> Option<PlanetBudget> {
-    let base = i32::from(resources_at_planet(planet, race, energy_tech)?);
+    planet_budget_with_starbase(
+        planet,
+        race,
+        research_pct,
+        extra,
+        no_research,
+        energy_tech,
+        None,
+    )
+}
+
+/// [`planet_budget`], told the hull of the planet's starbase, which an
+/// Alternate Reality planet's overcrowding is measured against.
+#[must_use]
+pub fn planet_budget_with_starbase(
+    planet: &Planet,
+    race: &Race,
+    research_pct: u8,
+    extra: i32,
+    no_research: bool,
+    energy_tech: i16,
+    starbase_hull: Option<i16>,
+) -> Option<PlanetBudget> {
+    let base = i32::from(crate::resources::resources_at_planet_with_starbase(
+        planet,
+        race,
+        energy_tech,
+        starbase_hull,
+    )?);
     let total = with_recycled(base, extra);
     if total == 0 {
         return Some(PlanetBudget::default());
@@ -898,6 +925,23 @@ pub struct MassDriver {
     /// `IWarpMAFromLppl` walks the slots and never looks at a slot's count
     /// beyond checking that it is not empty.
     pub paired: bool,
+}
+
+/// The hull of the planet's starbase, from its owner's designs.
+///
+/// `None` without a starbase, an owner, or a design in the slot the planet
+/// names — `starbase_design` counts from [`crate::startup::FIRST_STARBASE_SLOT`].
+#[must_use]
+pub fn starbase_hull(planet: &Planet, designs: &[crate::design::ShipDesign]) -> Option<i16> {
+    if !planet.starbase || planet.owner.is_none() {
+        return None;
+    }
+    planet
+        .starbase_design
+        .map(usize::from)
+        .map(|s| usize::from(crate::startup::FIRST_STARBASE_SLOT) + s)
+        .and_then(|s| designs.get(s))
+        .map(|d| d.hull_id)
 }
 
 /// The warp a planet's mass driver flings at, or `0` when it has none.

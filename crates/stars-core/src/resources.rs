@@ -134,33 +134,49 @@ pub fn factories_operating(planet: &Planet, race: &Race) -> i16 {
 /// determined.
 #[must_use]
 pub fn resources_at_planet(planet: &Planet, race: &Race, energy_tech: i16) -> Option<i16> {
+    resources_at_planet_with_starbase(planet, race, energy_tech, None)
+}
+
+/// [`resources_at_planet`], told the hull of the planet's starbase.
+///
+/// `CResourcesAtPlanet` (`1048:788e`) applies the overcrowding clamp before
+/// it asks which race it is, so an Alternate Reality planet holding more
+/// than its starbase supports works at half efficiency past the cap like
+/// anyone else — which needs the hull. Without it an AR planet is taken at
+/// its full population, as before.
+#[must_use]
+pub fn resources_at_planet_with_starbase(
+    planet: &Planet,
+    race: &Race,
+    energy_tech: i16,
+    starbase_hull: Option<i16>,
+) -> Option<i16> {
     if planet.pop == 0 {
         return Some(0);
     }
-    if race.is_ar() {
-        // The overcrowding clamp below needs a maximum population, which for
-        // an AR race comes from its starbase hull and is not modelled yet.
-        // Skipping it only matters for a planet holding more than its
-        // starbase supports.
-        return Some(ar_resources_at_planet(
-            planet,
-            race,
-            i64::from(planet.pop),
-            energy_tech,
-        ));
-    }
-
-    let max_pop = calc_planet_max_pop(planet, race)?;
+    let mut pop = i64::from(planet.pop);
+    let max_pop = if race.is_ar() {
+        match starbase_hull {
+            Some(hull) => {
+                crate::hab::calc_planet_max_pop_with_starbase(planet, race, Some(hull)).unwrap_or(0)
+            }
+            None => 0,
+        }
+    } else {
+        calc_planet_max_pop(planet, race)?
+    };
 
     // Overcrowding: colonists between 100% and 300% of capacity work at half
     // efficiency, and anything past 300% not at all.
-    let mut pop = i64::from(planet.pop);
     let cap = i64::from(max_pop);
-    if pop > cap {
+    if cap > 0 && pop > cap {
         pop = cap + (pop - cap) / 2;
         if pop > 2 * cap {
             pop = 2 * cap;
         }
+    }
+    if race.is_ar() {
+        return Some(ar_resources_at_planet(planet, race, pop, energy_tech));
     }
 
     let per_resource = i64::from(race.stat(RaceStat::ResGen));

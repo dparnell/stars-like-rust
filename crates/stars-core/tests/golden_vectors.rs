@@ -227,3 +227,67 @@ fn fleets_travel_warp_squared_light_years_a_year() {
         );
     }
 }
+
+/// An Alternate Reality race lives on its starbase: the hull sets the
+/// maximum (`MANUAL.PDF` p. 22-1, `rglPopMac` at `1120:08cc`), Only Basic
+/// Remote Mining adds a tenth as for everyone, and a planet without a
+/// starbase holds nobody.
+#[test]
+fn alternate_reality_lives_on_its_starbase() {
+    use stars_core::hab::{calc_planet_max_pop_with_starbase, FIRST_STARBASE_HULL};
+    use stars_core::population::chg_pop_from_planet_with_starbase;
+    use stars_core::resources::resources_at_planet_with_starbase;
+
+    let race = race_with(Prt::Ar, false);
+    let mut planet = optimal_planet(&race);
+    planet.starbase = true;
+    planet.starbase_design = Some(0);
+    assert_eq!(
+        calc_planet_max_pop(&planet, &race),
+        None,
+        "the hull is not known"
+    );
+    for (hull, expect) in [
+        (0, 2_500),
+        (1, 5_000),
+        (2, 10_000),
+        (3, 20_000),
+        (4, 30_000),
+    ] {
+        assert_eq!(
+            calc_planet_max_pop_with_starbase(&planet, &race, Some(FIRST_STARBASE_HULL + hull)),
+            Some(expect)
+        );
+    }
+    let obrm = race_with(Prt::Ar, true);
+    assert_eq!(
+        calc_planet_max_pop_with_starbase(&planet, &obrm, Some(FIRST_STARBASE_HULL)),
+        Some(2_750)
+    );
+    let mut bare = planet.clone();
+    bare.starbase = false;
+    assert_eq!(
+        calc_planet_max_pop_with_starbase(&bare, &race, Some(FIRST_STARBASE_HULL)),
+        Some(0)
+    );
+
+    // Four times an Orbital Fort's 250,000 loses the same 12% anyone does.
+    planet.pop = 10_000;
+    let change = chg_pop_from_planet_with_starbase(&planet, &race, Some(FIRST_STARBASE_HULL))
+        .expect("owned and populated");
+    assert_eq!(change.delta, -1_200, "12% of 10000");
+
+    // And works at half efficiency past the cap: 250,000 over the fort's
+    // 250,000 counts as 375,000.
+    planet.pop = 5_000;
+    let capped = resources_at_planet_with_starbase(&planet, &race, 1, Some(FIRST_STARBASE_HULL))
+        .expect("resources");
+    let uncapped = resources_at_planet(&planet, &race, 1).expect("resources");
+    assert!(capped < uncapped, "{capped} < {uncapped}");
+    assert_eq!(
+        i64::from(capped),
+        i64::from(stars_core::resources::ar_resources_at_planet(
+            &planet, &race, 3_750, 1
+        ))
+    );
+}

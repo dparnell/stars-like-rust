@@ -704,6 +704,18 @@ impl Data<'_> {
         self.game.players.get(self.player).map(|p| &p.race)
     }
 
+    /// `CalcPlanetMaxPop` for this player, the starbase hull known — which
+    /// is what an Alternate Reality race's maximum hangs on.
+    fn max_pop(&self, planet: &stars_core::Planet) -> Option<i32> {
+        let race = self.race()?;
+        let hull = self
+            .game
+            .designs
+            .get(self.player)
+            .and_then(|designs| stars_core::production::starbase_hull(planet, designs));
+        stars_core::hab::calc_planet_max_pop_with_starbase(planet, race, hull)
+    }
+
     fn tech(&self) -> [u8; 6] {
         self.game
             .players
@@ -739,14 +751,12 @@ impl Data<'_> {
                 _ => Key::Missing,
             },
             2 => Key::Num(i64::from(planet.pop)),
-            3 => match (self.race(), planet.pop) {
-                (Some(race), pop) => stars_core::hab::calc_planet_max_pop(planet, race)
-                    .filter(|max| *max > 0)
-                    .map_or(Key::Num(0), |max| {
-                        Key::Num(i64::from(pop) * 100 / i64::from(max))
-                    }),
-                _ => Key::Num(0),
-            },
+            3 => self
+                .max_pop(planet)
+                .filter(|max| *max > 0)
+                .map_or(Key::Num(0), |max| {
+                    Key::Num(i64::from(planet.pop) * 100 / i64::from(max))
+                }),
             4 => self.race().map_or(Key::Num(0), |race| {
                 Key::Num(i64::from(stars_core::hab::pct_planet_desirability(
                     planet, race,
@@ -1225,10 +1235,7 @@ impl Data<'_> {
             }
             1 => Painted::left(base.map_or(DOUBLE_DASH.to_string(), |d| d.name.clone())),
             2 => {
-                let max = self
-                    .race()
-                    .and_then(|race| stars_core::hab::calc_planet_max_pop(planet, race))
-                    .unwrap_or(0);
+                let max = self.max_pop(planet).unwrap_or(0);
                 // `pop * 100`: the file counts colonists in hundreds and the
                 // report shows people.
                 Painted {
@@ -1352,8 +1359,7 @@ impl Data<'_> {
     /// `PctPlanetCapacity`: how full the planet is, against what this race
     /// could ever put there.
     fn capacity(&self, planet: &stars_core::Planet) -> i64 {
-        self.race()
-            .and_then(|race| stars_core::hab::calc_planet_max_pop(planet, race))
+        self.max_pop(planet)
             .filter(|max| *max > 0)
             .map_or(0, |max| i64::from(planet.pop) * 100 / i64::from(max))
     }

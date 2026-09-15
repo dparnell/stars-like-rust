@@ -32,9 +32,7 @@ use crate::mining::mine_minerals;
 use crate::movement::{advance, distance, travel_this_year};
 use crate::planet::Planet;
 use crate::population::update_population;
-use crate::production::{
-    auto_build_cap, build_item, item, planet_budget, planetary_item_cost, COST_PARTS,
-};
+use crate::production::{auto_build_cap, build_item, item, planetary_item_cost, COST_PARTS};
 use crate::research::{add_research, Breakthrough};
 use crate::rng::Rng;
 use crate::{GameState, Player};
@@ -461,13 +459,15 @@ pub fn generate_turn_with_orders(
         let energy_tech = i16::from(player.research.levels[0]);
 
         let no_research = state.planets[index].no_research;
-        let Some(budget) = planet_budget(
+        let hull = starbase_hull_of(state, index);
+        let Some(budget) = crate::production::planet_budget_with_starbase(
             &state.planets[index],
             &race,
             research_pct,
             0,
             no_research,
             energy_tech,
+            hull,
         ) else {
             continue;
         };
@@ -600,7 +600,12 @@ pub fn generate_turn_with_orders(
         let Some(race) = owner_race(state, index) else {
             continue;
         };
-        let change = update_population(&mut state.planets[index], &race);
+        let hull = starbase_hull_of(state, index);
+        let change = crate::population::update_population_with_starbase(
+            &mut state.planets[index],
+            &race,
+            hull,
+        );
         if let Some(change) = change {
             let id = state.planets[index].id;
             report.population.push((id, change.delta));
@@ -911,6 +916,13 @@ pub fn generate_turn_with_orders(
 }
 
 /// The race owning `planets[index]`, cloned so the planet can be mutated.
+/// The hull of a planet's starbase, for the Alternate Reality maximum.
+fn starbase_hull_of(state: &GameState, index: usize) -> Option<i16> {
+    let planet = &state.planets[index];
+    let owner = usize::try_from(planet.owner?).ok()?;
+    crate::production::starbase_hull(planet, state.designs.get(owner)?)
+}
+
 fn owner_race(state: &GameState, index: usize) -> Option<crate::Race> {
     let owner = state.planets[index].owner?;
     let owner_index = usize::try_from(owner).ok()?;

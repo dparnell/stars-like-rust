@@ -8830,8 +8830,13 @@ impl App {
             owner if owner == me => Inhabited::Ours(i64::from(found.pop) * 100),
             _ => Inhabited::Enemy(found.detail.is_full().then(|| i64::from(found.pop) * 100)),
         };
+        // An Alternate Reality race's maximum hangs on its starbase hull.
+        let hull = game
+            .designs
+            .get(self.local_player())
+            .and_then(|designs| stars_core::production::starbase_hull(found, designs));
         let capacity = race
-            .and_then(|race| stars_core::hab::calc_planet_max_pop(found, race))
+            .and_then(|race| stars_core::hab::calc_planet_max_pop_with_starbase(found, race, hull))
             .map(|max| i64::from(max) * 100);
         let value = scanned
             .then(|| race.map(|race| stars_core::hab::pct_planet_desirability(found, race)))
@@ -8842,12 +8847,14 @@ impl App {
             (Inhabited::Ours(pop), Some(value), Some(capacity), Some(race))
                 if value >= 0 && *pop < capacity =>
             {
-                stars_core::population::chg_pop_from_planet(found, race).map(|change| {
-                    (
-                        i64::from(change.delta) * 100,
-                        pop + i64::from(change.delta) * 100,
-                    )
-                })
+                stars_core::population::chg_pop_from_planet_with_starbase(found, race, hull).map(
+                    |change| {
+                        (
+                            i64::from(change.delta) * 100,
+                            pop + i64::from(change.delta) * 100,
+                        )
+                    },
+                )
             }
             _ => None,
         };
