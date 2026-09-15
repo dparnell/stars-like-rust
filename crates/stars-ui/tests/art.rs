@@ -144,3 +144,46 @@ fn the_toolbar_wears_the_button_face_not_magenta() {
         .count();
     assert_eq!(magenta, 0);
 }
+
+/// A minefield is a disc filled with one of the game's pattern brushes —
+/// a textured mesh. Building it once went through `Mesh::colored_vertex`,
+/// which is for untextured meshes and asserts so in a debug build; the map
+/// then panicked the moment a minefield was in view with the pictures
+/// loaded.
+#[test]
+fn a_minefield_draws_with_its_pattern_brush() {
+    let Some(exe) = executable() else { return };
+    let mut app = a_game();
+    app.load_art(exe, "the test's own copy")
+        .expect("the executable has pictures in it");
+    let home = app
+        .game
+        .as_ref()
+        .and_then(|g| g.planets.iter().find(|p| p.owner == Some(0)))
+        .and_then(|p| p.position)
+        .expect("a homeworld with a position");
+    if let Some(game) = app.game.as_mut() {
+        for kind in 0..3u8 {
+            game.minefields.push(stars_core::minefield::Minefield {
+                id: u16::from(kind) + 1,
+                owner: 0,
+                position: home,
+                mines: 2500,
+                kind,
+                detonating: false,
+                detected_by: 0xFFFF,
+                visible_to: 0xFFFF,
+                turn: 0,
+            });
+        }
+    }
+    app.scan_overlays.minefields = true;
+    let ctx = egui::Context::default();
+    for _ in 0..2 {
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                stars_ui::views::galaxy::view(&mut app, ui);
+            });
+        });
+    }
+}

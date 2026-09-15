@@ -1122,20 +1122,24 @@ fn pattern_disc(
     colour: Color32,
 ) -> egui::Shape {
     let mut mesh = egui::Mesh::with_texture(texture);
-    let uv = |p: egui::Pos2| egui::pos2((p.x - origin.x) / tile.x, (p.y - origin.y) / tile.y);
-    mesh.colored_vertex(at, colour);
-    mesh.vertices[0].uv = uv(at);
+    // The vertices are pushed by hand: `Mesh::colored_vertex` is for an
+    // untextured mesh and asserts as much in a debug build.
+    let vertex = |p: egui::Pos2| egui::epaint::Vertex {
+        pos: p,
+        uv: egui::pos2((p.x - origin.x) / tile.x, (p.y - origin.y) / tile.y),
+        color: colour,
+    };
+    mesh.vertices.push(vertex(at));
     // A fan, fine enough that the edge reads as a circle at any zoom.
     let steps = ((radius * 1.5) as usize).clamp(16, 96);
     for step in 0..=steps {
         #[allow(clippy::cast_precision_loss)]
         let angle = step as f32 / steps as f32 * std::f32::consts::TAU;
         let p = at + Vec2::new(angle.cos(), angle.sin()) * radius;
-        mesh.colored_vertex(p, colour);
-        let last = mesh.vertices.len() - 1;
-        mesh.vertices[last].uv = uv(p);
+        mesh.vertices.push(vertex(p));
+        let last = u32::try_from(mesh.vertices.len() - 1).unwrap_or(0);
         if step > 0 {
-            mesh.add_triangle(0, last as u32 - 1, last as u32);
+            mesh.add_triangle(0, last - 1, last);
         }
     }
     egui::Shape::mesh(mesh)
