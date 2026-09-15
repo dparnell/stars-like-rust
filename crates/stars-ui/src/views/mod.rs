@@ -28,6 +28,7 @@ pub mod relations;
 pub mod report;
 pub mod research;
 pub mod score;
+pub mod scrollbar;
 pub mod split;
 pub mod statusbar;
 pub mod survey;

@@ -73,24 +73,45 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     let bar_height = crate::views::statusbar::height(ui);
     let (response, painter) = ui.allocate_painter(available, Sense::click_and_drag());
     let whole = response.rect;
-    let rect = egui::Rect::from_min_max(
+    let map_area = egui::Rect::from_min_max(
         whole.min,
         egui::pos2(
             whole.right(),
             (whole.bottom() - bar_height).max(whole.top()),
         ),
     );
-    painter.rect_filled(rect, 0.0, Color32::from_rgb(8, 10, 18));
 
     // Fit the universe into the panel at 100%, keeping it square so distances
     // read true, then apply the scanner's own zoom on top. The y axis is
     // mirrored, as `LogicalToScan` mirrors it.
     let span = (max_x - min_x).max(max_y - min_y).max(1.0);
     let margin = 16.0;
-    let fit = (rect.width().min(rect.height()) - margin * 2.0) / span;
+    let fit = (map_area.width().min(map_area.height()) - margin * 2.0) / span;
     #[allow(clippy::cast_precision_loss)]
     let zoom = app.scan_scale(1024) as f32 / 1024.0;
     let scale = fit * zoom;
+
+    // The scanner is a scrolled window: when the galaxy runs past the
+    // panel a scroll bar takes the right edge, and another the foot, each
+    // narrowing the map by its width.
+    let full = (max_x - min_x) * scale;
+    let tall = (max_y - min_y) * scale;
+    let scrolls_x = full + 2.0 * margin > map_area.width();
+    let scrolls_y = tall + 2.0 * margin > map_area.height();
+    let bar = crate::views::scrollbar::WIDTH;
+    let rect = egui::Rect::from_min_max(
+        map_area.min,
+        egui::pos2(
+            map_area.right() - if scrolls_y { bar } else { 0.0 },
+            map_area.bottom() - if scrolls_x { bar } else { 0.0 },
+        ),
+    );
+    // Everything the map draws stays on the map: zoomed in, its marks
+    // would otherwise run over the toolbar and the status bar.
+    let outer_clip = ui.clip_rect();
+    ui.set_clip_rect(rect);
+    let painter = painter.with_clip_rect(rect);
+    painter.rect_filled(rect, 0.0, Color32::from_rgb(8, 10, 18));
 
     // Where the galaxy's top-left corner falls on screen. At 100% the whole
     // galaxy fits the panel and sits at its margin; zoomed in, more of it
@@ -120,20 +141,83 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         .map_or(((min_x + max_x) / 2.0, (min_y + max_y) / 2.0), |c| {
             (f32::from(c.x), f32::from(c.y))
         });
-    let full = (max_x - min_x) * scale;
-    let tall = (max_y - min_y) * scale;
-    let origin_x = if full + 2.0 * margin <= rect.width() {
-        rect.left() + margin
-    } else {
+    let mut origin_x = if scrolls_x {
         (rect.center().x - (centre.0 - min_x) * scale)
             .clamp(rect.right() - margin - full, rect.left() + margin)
-    };
-    let origin_y = if tall + 2.0 * margin <= rect.height() {
-        rect.top() + margin
     } else {
+        rect.left() + margin
+    };
+    let mut origin_y = if scrolls_y {
         (rect.center().y - (max_y - centre.1) * scale)
             .clamp(rect.bottom() - margin - tall, rect.top() + margin)
+    } else {
+        rect.top() + margin
     };
+    // The scroll bars, over the strips the map gave up. A moved bar
+    // re-centres the map, as `CtrPointScan` does, and the frame is drawn
+    // from the new place at once.
+    {
+        ui.set_clip_rect(outer_clip);
+        let mut recentre: Option<(f32, f32)> = None;
+        if scrolls_x {
+            let strip = egui::Rect::from_min_max(
+                egui::pos2(rect.left(), rect.bottom()),
+                egui::pos2(rect.right(), map_area.bottom()),
+            );
+            let total = full + 2.0 * margin;
+            let pos = rect.left() + margin - origin_x;
+            if let Some(moved) = crate::views::scrollbar::scroll_bar(
+                ui,
+                ui.id().with("scanner-hscroll"),
+                strip,
+                true,
+                pos,
+                rect.width(),
+                total,
+            ) {
+                origin_x = rect.left() + margin - moved;
+                let centre_x = min_x + (rect.center().x - origin_x) / scale;
+                recentre = Some((centre_x, recentre.map_or(centre.1, |c| c.1)));
+            }
+        }
+        if scrolls_y {
+            let strip = egui::Rect::from_min_max(
+                egui::pos2(rect.right(), rect.top()),
+                egui::pos2(map_area.right(), rect.bottom()),
+            );
+            let total = tall + 2.0 * margin;
+            let pos = rect.top() + margin - origin_y;
+            if let Some(moved) = crate::views::scrollbar::scroll_bar(
+                ui,
+                ui.id().with("scanner-vscroll"),
+                strip,
+                false,
+                pos,
+                rect.height(),
+                total,
+            ) {
+                origin_y = rect.top() + margin - moved;
+                let centre_y = max_y - (rect.center().y - origin_y) / scale;
+                recentre = Some((recentre.map_or(centre.0, |c| c.0), centre_y));
+            }
+        }
+        if scrolls_x && scrolls_y {
+            // The corner both bars leave, in the button face.
+            let [r, g, b] = crate::toolbar::FACE;
+            ui.painter().rect_filled(
+                egui::Rect::from_min_max(rect.max, map_area.max),
+                0.0,
+                Color32::from_rgb(r, g, b),
+            );
+        }
+        if let Some((x, y)) = recentre {
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                app.scan_center = Some(stars_core::movement::Point::new(x as i16, y as i16));
+            }
+        }
+        ui.set_clip_rect(rect);
+    }
     app.map_frame = Some(crate::app::MapFrame {
         rect,
         origin: egui::pos2(origin_x, origin_y),
@@ -891,10 +975,11 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     }
 
     // The status bar, across the strip the map left for it.
+    ui.set_clip_rect(outer_clip);
     crate::views::statusbar::view(
         app,
         ui,
-        egui::Rect::from_min_max(egui::pos2(whole.left(), rect.bottom()), whole.max),
+        egui::Rect::from_min_max(egui::pos2(whole.left(), map_area.bottom()), whole.max),
     );
 }
 

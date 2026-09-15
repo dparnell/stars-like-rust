@@ -998,9 +998,17 @@ all call it, so whatever they just selected is on screen. This map keeps a
 `scan_center` for the same purpose: the walkers and Gotos set it to what
 they selected, the wheel moves it, and the map is drawn about it, clamped so
 the panel never shows past the galaxy's edge while there is galaxy enough to
-fill it. At 100% the whole galaxy fits and nothing scrolls. Before this the
-map had no scroll at all, and at the zoom the tutorial picks for a wide
-screen half its planets could not be clicked.
+fill it. At 100% the whole galaxy fits and nothing scrolls. Past that the
+window's own scroll bars appear, as they do on the original's
+`WS_HSCROLL | WS_VSCROLL` scanner: one along the foot and one down the right
+edge, sixteen pixels each (`SM_CXVSCROLL`), an arrow button at either end
+that moves a tenth of a page, a thumb the size of what is in view that drags,
+and a track that pages when clicked — `views::scrollbar`. Each moves
+`scan_center`, and the map is redrawn from the new place in the same frame.
+Everything the map draws is clipped to the map: zoomed in, its marks would
+otherwise run over the toolbar and the status bar. Before this the map had no
+scroll at all, and at the zoom the tutorial picks for a wide screen half its
+planets could not be clicked.
 
 ## The measuring tape
 
