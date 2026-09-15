@@ -48,12 +48,20 @@ pub fn panes(app: &mut App, ctx: &egui::Context) {
                 .default_height(160.0)
                 .show_inside(ui, |ui| crate::views::messages::view(app, ui));
             // Below the messages, the survey pane: whatever is selected,
-            // summarised.
+            // summarised. It stands as tall as its contents, which it
+            // measured the frame before — `RefitFrameChildren` gives each
+            // pane the room it needs, not a share to scroll in.
+            let margin = ctx.style().spacing.window_margin.sum().y;
+            let wanted = app
+                .survey_height
+                .map_or(190.0, |h| (h + margin + 2.0).clamp(60.0, 480.0));
             egui::TopBottomPanel::bottom("survey")
-                .resizable(true)
-                .default_height(190.0)
+                .resizable(false)
+                .exact_height(wanted)
                 .show_inside(ui, |ui| {
-                    egui::ScrollArea::vertical().show(ui, |ui| crate::views::survey::view(app, ui));
+                    let output = egui::ScrollArea::vertical()
+                        .show(ui, |ui| crate::views::survey::view(app, ui));
+                    app.survey_height = Some(output.content_size.y);
                 });
             // One pane, two tile tables: the original swaps the planet's
             // tiles for the fleet's when a fleet is selected.

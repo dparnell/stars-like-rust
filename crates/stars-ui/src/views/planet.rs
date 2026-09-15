@@ -446,12 +446,13 @@ pub fn tile_frame(
         shadow,
     );
 
-    // What is left for the body.
+    // What is left for the body: from the line under the title bar to a
+    // pixel above the tile's foot. The rows are laid a `line` apart with
+    // no leading of their own, where the original's `dyArial8` carries
+    // two pixels of it, so the body keeps every pixel the bar and the
+    // frame can spare — the last row's descenders were being cut off.
     egui::Rect::from_min_max(
-        egui::pos2(
-            rect.left() + 2.0,
-            rect.top() + line + crate::tiles::BODY_EXTRA,
-        ),
-        egui::pos2(rect.right() - 2.0, rect.bottom() - 2.0),
+        egui::pos2(rect.left() + 2.0, bar.bottom() + 1.0),
+        egui::pos2(rect.right() - 2.0, rect.bottom() - 1.0),
     )
 }

@@ -601,6 +601,11 @@ pub struct App {
     pub vcr: Option<Vcr>,
     /// Whether playback is running.
     pub playing: bool,
+    /// How tall the survey pane's contents came out last frame, so the pane
+    /// can be given exactly that: `RefitFrameChildren` sizes the panes to
+    /// their contents, and a pane cut short hid the mineral graph's
+    /// figures until it was scrolled.
+    pub survey_height: Option<f32>,
     /// When the VCR's current frame was entered, in egui's seconds: the
     /// frame is held for [`VCR_FRAME`] while playing, and the torpedoes
     /// fly across the first half of that.
@@ -707,6 +712,7 @@ impl App {
             open_ship_tiles: [true; 7],
             scan_minefield_filter: 0xf,
             vcr_frame_entered: 0.0,
+            survey_height: None,
             mineral_scale: MINERAL_GRAPH_MAX,
             mineral_menu: None,
             scan_overlays: ScanOverlays {

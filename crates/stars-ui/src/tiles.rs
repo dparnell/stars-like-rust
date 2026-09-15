@@ -37,6 +37,10 @@ pub const TITLE_EXTRA: f32 = 2.0;
 pub const CLOSED_EXTRA: f32 = 3.0;
 /// What the body's top is past the tile's own (`prc->top + dyArial8 + 4`).
 pub const BODY_EXTRA: f32 = 4.0;
+/// The leading `dyArial8` carries over its glyphs, kept once per open tile
+/// — see [`Tile::height`].
+pub const LEADING: f32 = 2.0;
+
 /// How wide the button at the right end of the title bar is, and where the
 /// shadow line beside it goes (`right - 0x12`).
 pub const BUTTON_WIDTH: f32 = 0x11 as f32;
@@ -158,7 +162,11 @@ impl Tile {
             let (lines, plus) = self.resize;
             height -= f32::from(lines) * line + f32::from(plus);
         }
-        height.max(line + CLOSED_EXTRA)
+        // The table's pixels were counted for `dyArial8`, whose thirteen
+        // pixels carry two of leading over the glyphs; a `line` here is the
+        // glyphs alone, so an open tile keeps the leading of one row for
+        // the descenders of its last.
+        (height + LEADING).max(line + CLOSED_EXTRA)
     }
 
     /// How tall it stands when it is closed: the title bar alone.

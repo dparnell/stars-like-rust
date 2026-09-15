@@ -31,7 +31,12 @@ fn a_tiles_height_is_its_lines_plus_its_remainder() {
     let minerals = PLANET_TILES[1];
     assert_eq!(minerals.lines, 6);
     assert_eq!(minerals.extra, 5);
-    assert_eq!(minerals.height(13.0, false), 5.0 + 6.0 * 13.0);
+    // — with the leading of one row kept for the last row's descenders,
+    // since a line here is the glyphs alone.
+    assert_eq!(
+        minerals.height(13.0, false),
+        5.0 + 6.0 * 13.0 + tiles::LEADING
+    );
     // It has no `EnsureTileSize` adjustment in the planet table, so the small
     // layout leaves it be — even though the fleet table's tile with the same
     // `grbit` does move.
@@ -65,10 +70,10 @@ fn the_small_layout_shrinks_three_of_them() {
         "(dyArial8 + 2) * 2 for the queue"
     );
 
-    // And the large size is the table's own, untouched.
+    // And the large size is the table's own, plus the leading kept.
     assert_eq!(
         picture.height(13.0, false),
-        f32::from(picture.extra) + f32::from(picture.lines) * 13.0
+        f32::from(picture.extra) + f32::from(picture.lines) * 13.0 + tiles::LEADING
     );
 }
 
