@@ -101,6 +101,10 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     let name_of = |app: &App, object: crate::app::XferObject| match object {
         crate::app::XferObject::Fleet(index) => app.fleet_display_name(index),
         crate::app::XferObject::Planet(id) => app.planet_name(id),
+        crate::app::XferObject::Packet(index) => app.thing_name(crate::ScanThing::Packet(index)),
+        // `idsDeepSpace`, the title `DrawPlanetXferSide` gives a side
+        // whose planet id is -1.
+        crate::app::XferObject::Space => "Deep Space".to_string(),
     };
     let names = [
         name_of(app, dialog.objects[0]),
@@ -145,14 +149,25 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             let half = halves[which];
             let y = tops[which] + dy;
             let planet = dialog.is_planet(which);
+            let packet = dialog.is_packet(which);
             // A planet has no fuel row and no cargo total
             // (`DrawPlanetXferSide`); a fleet has all six labels, and a
             // fleet not the player's own shows figures where the gauges
             // would be, with none on the cargo row
-            // (`DrawFleetCargoXferSide`).
+            // (`DrawFleetCargoXferSide`); a packet starts a row down with
+            // `Packet Shell` over the three minerals, and has no
+            // colonists row (`DrawThingXferSide`).
             if planet && row < 2 {
                 continue;
             }
+            if packet && (row == 0 || row == 5) {
+                continue;
+            }
+            let label = if packet && row == 1 {
+                "Packet Shell"
+            } else {
+                label
+            };
             painter.text(
                 egui::pos2(half.left() + 4.0 + label_x, y),
                 egui::Align2::RIGHT_TOP,
@@ -160,7 +175,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 font.clone(),
                 ui.visuals().text_color(),
             );
-            if dialog.own[which] && !planet {
+            if (dialog.own[which] && !planet) || packet {
                 // --- a gauge, which is a control: a press or drag along
                 // it sets the hold.
                 let gauge_rect = egui::Rect::from_min_max(
@@ -193,10 +208,12 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                         let mut all: Vec<(i32, [u8; 3])> = (0..3)
                             .map(|i| (has[i], crate::survey::CARGO_COLOURS[i]))
                             .collect();
-                        all.push((
-                            has[stars_core::orders::COLONISTS],
-                            crate::survey::CARGO_COLOURS[3],
-                        ));
+                        if !packet {
+                            all.push((
+                                has[stars_core::orders::COLONISTS],
+                                crate::survey::CARGO_COLOURS[3],
+                            ));
+                        }
                         all
                     } else {
                         vec![(amount, colour)]
@@ -205,8 +222,16 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                     label: format!("{amount} of {total}{unit}"),
                 };
                 crate::views::survey::gauge_bar(ui, &painter, &gauge, gauge_rect, &font);
-                let can_drag =
-                    kind.is_some_and(|k| k != stars_core::orders::FUEL || dialog.fuel_moves());
+                // `FTrackXfer` drags a gauge of the player's own fleet, or
+                // a packet's mineral gauges, never its fuel against a
+                // planet.
+                let can_drag = kind.is_some_and(|k| {
+                    if packet {
+                        k < 3
+                    } else {
+                        k != stars_core::orders::FUEL || dialog.fuel_moves()
+                    }
+                });
                 let response = ui.interact(
                     gauge_rect,
                     ui.id().with(("xfer-gauge", which, row)),
@@ -260,16 +285,18 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         // --- the arrows between, for fuel and the four holds: the left
         // arrow moves into the left side, the right into the right. Each
         // is dead when its giver has none or its taker has no room
-        // (`UpdateXferBtns`), and the fuel pair is dead against a planet.
-        if let Some(k) = kind {
+        // (`UpdateXferBtns`); the fuel pair is dead against a planet and
+        // left out altogether against a space object (`FSetupXferBtns`).
+        let fuel_pair_shown =
+            *kind != Some(stars_core::orders::FUEL) || (0..2).all(|side| !dialog.is_packet(side));
+        if let (Some(k), true) = (kind, fuel_pair_shown) {
             let size = line + 3.0;
             let y = tops[0] + dy - 2.0;
             let into_left =
                 egui::Rect::from_min_size(egui::pos2(mid - size + 1.0, y), egui::vec2(size, size));
             let into_right =
                 egui::Rect::from_min_size(egui::pos2(mid + 3.0, y), egui::vec2(size, size));
-            let colonists_stay = *k == stars_core::orders::COLONISTS
-                && (0..2).any(|side| !dialog.own[side] && !dialog.is_planet(side));
+            let colonists_stay = *k == stars_core::orders::COLONISTS && !dialog.colonists_move();
             let live = |taker: usize, giver: usize| {
                 (*k != stars_core::orders::FUEL || dialog.fuel_moves())
                     && !colonists_stay

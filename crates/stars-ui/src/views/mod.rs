@@ -36,6 +36,7 @@ pub mod toolbar;
 pub mod transfer;
 pub mod tutorial;
 
+use crate::app::PaneFleet;
 use crate::{App, Screen};
 
 /// The name of a planetary production item.
@@ -151,18 +152,19 @@ pub fn fleets_here_body(app: &mut App, ui: &mut egui::Ui) {
             ui.label(egui::RichText::new("none").weak().small());
             return;
         }
-        let showing = chosen
-            .and_then(|index| list.iter().find(|entry| entry.index == index))
-            .map(|entry| format!("{} ({})", entry.name, entry.ships))
+        let showing_key = app.pane_choice().map(|entry| entry.key);
+        let showing = list
+            .iter()
+            .find(|entry| Some(entry.key) == showing_key)
+            .map(PaneFleet::label)
             .unwrap_or_default();
         egui::ComboBox::from_id_source("pane-fleets-here")
             .width(ui.available_width() - 8.0)
             .selected_text(egui::RichText::new(showing).small())
             .show_ui(ui, |ui| {
                 for entry in &list {
-                    let label = format!("{} ({})", entry.name, entry.ships);
                     if ui
-                        .selectable_label(Some(entry.index) == chosen, label)
+                        .selectable_label(Some(entry.key) == showing_key, entry.label())
                         .clicked()
                     {
                         choose = Some(entry.key);
@@ -170,16 +172,43 @@ pub fn fleets_here_body(app: &mut App, ui: &mut egui::Ui) {
                 }
             });
 
+        // A packet or salvage has one gauge: its minerals against its
+        // shell (`DrawThingGauge`, `1110:044e`, called from
+        // `DrawPlanetShipList` at `1048:3cb3` for a thing).
+        if let Some((minerals, capacity)) = app.pane_packet_gauge() {
+            let width = ui.fonts(|f| {
+                f.layout_no_wrap(
+                    "Cargo ".to_string(),
+                    egui::TextStyle::Small.resolve(ui.style()),
+                    egui::Color32::PLACEHOLDER,
+                )
+                .size()
+                .x
+            });
+            let bars: Vec<(i32, egui::Color32)> =
+                (0..3).map(|m| (minerals[m], mineral_colour(m))).collect();
+            gauge(
+                ui,
+                "Cargo",
+                width,
+                capacity,
+                &bars,
+                format!("{} of {capacity}kT", minerals.iter().sum::<i32>()),
+                false,
+            );
+        }
+
         match gauges {
             // Somebody else's fleet is seen, not known: the original draws no
             // gauges for anything it does not have in full detail.
-            None => {
+            None if chosen.is_some() => {
                 ui.label(
                     egui::RichText::new("Fuel and cargo are known only for your own fleets.")
                         .small()
                         .weak(),
                 );
             }
+            None => {}
             Some(gauges) => {
                 let width = ui.fonts(|f| {
                     ["Fuel ", "Cargo "]
@@ -248,14 +277,13 @@ pub fn fleets_here_body(app: &mut App, ui: &mut egui::Ui) {
     // left (`PlanetWndProc`, `rghwndBtn[0]`). Goto is the one the tutorial
     // leans on — it is how you take command of a fleet in orbit beside
     // the one you are looking at.
-    let chosen = app
+    let chosen_fleet = app
         .pane_fleet_choice()
-        .and_then(|index| app.game.as_ref()?.fleets.get(index));
-    let chosen_fleet = chosen
+        .and_then(|index| app.game.as_ref()?.fleets.get(index))
         .filter(|f| usize::try_from(f.owner).is_ok_and(|owner| owner == app.local_player()))
         .map(|f| f.id);
     let on_fleet = app.selection.on_fleet;
-    let chosen_any = chosen.is_some();
+    let chosen_any = app.pane_choice().is_some();
     // Across the foot, three abreast, `dyArial8 * 3 / 2` tall as the
     // pane's buttons all are.
     let height = (line * 3.0 / 2.0).floor();

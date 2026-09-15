@@ -39,8 +39,29 @@ pub fn split_fleet_id(word: u16) -> (i16, u16) {
 enum End {
     Planet(usize),
     Fleet(usize),
-    /// Jettisoned, or an object this crate does not model (a mineral packet).
+    /// A mineral packet or salvage, by index into [`GameState::packets`].
+    Packet(usize),
+    /// Jettisoned: the cargo left the source and went nowhere.
     Nowhere,
+}
+
+/// The word a transfer record names a mineral packet or salvage by: its
+/// `idFull` — the kind (`ithMineralPacket`, 1) in the top three bits, the
+/// owner in the four under those and the number in the low nine
+/// (`FLookupOrbitingXfer`, `1038:24fa`, copies it into the `XFER`).
+#[must_use]
+pub fn packet_word(packet: &crate::packet::Packet) -> u16 {
+    let owner = u16::try_from(packet.owner.max(0)).unwrap_or(0) & 0x0f;
+    (1 << 13) | (owner << 9) | (packet.id & 0x1ff)
+}
+
+/// How much a packet can hold: `ChgCargo` (`1050:6034`) caps a thing's
+/// minerals at `wtMax × 10`, and `wtMax` is the mass over ten rounded up
+/// (`FPacketDecay` recomputes it; see `save.rs`), so a packet can take
+/// back only up to the next ten kilotons.
+#[must_use]
+pub fn packet_capacity(packet: &crate::packet::Packet) -> i32 {
+    (packet.mass() + 9) / 10 * 10
 }
 
 fn resolve(state: &GameState, class: Option<GrobjClass>, id: u16) -> Option<End> {
@@ -61,10 +82,21 @@ fn resolve(state: &GameState, class: Option<GrobjClass>, id: u16) -> Option<End>
                 .position(|f| f.owner == owner && f.id == number)
                 .map(End::Fleet)
         }
-        // A jettison has no destination; a mineral packet is a "thing", which
-        // the simulation does not carry yet. Both are "the cargo left the
-        // source and this crate cannot follow it".
-        GrobjClass::None | GrobjClass::Thing => Some(End::Nowhere),
+        // A mineral packet or salvage, named by its `idFull`; any other
+        // kind of thing is not a cargo end.
+        GrobjClass::Thing => {
+            if id >> 13 != 1 {
+                return None;
+            }
+            state
+                .packets
+                .iter()
+                .position(|p| packet_word(p) == id)
+                .map(End::Packet)
+        }
+        // A jettison has no destination: the cargo left the source and went
+        // nowhere.
+        GrobjClass::None => Some(End::Nowhere),
     }
 }
 
@@ -73,13 +105,35 @@ fn resolve(state: &GameState, class: Option<GrobjClass>, id: u16) -> Option<End>
 /// This is `ChgCargo`. It clamps twice: an object can never give more than it
 /// holds, and a fleet can never take more than it has room for. A planet has no
 /// capacity limit and no fuel — `ChgCargo` returns 0 outright for fuel on a
-/// planet, which is why a fuel transfer to a planet silently does nothing.
+/// planet, which is why a fuel transfer to a planet silently does nothing. A
+/// packet carries minerals only, and takes no more than
+/// [`packet_capacity`] allows.
 fn chg_cargo(state: &mut GameState, end: End, kind: usize, mut delta: i32) -> i32 {
     if delta == 0 {
         return 0;
     }
     match end {
         End::Nowhere => 0,
+        End::Packet(index) => {
+            if kind >= MINERALS {
+                return 0;
+            }
+            let packet = &mut state.packets[index];
+            let current = i32::from(packet.minerals[kind]);
+            if current + delta < 0 {
+                delta = -current;
+            }
+            let free = packet_capacity(packet) - packet.mass();
+            if free < delta {
+                delta = free;
+            }
+            if delta == 0 {
+                return 0;
+            }
+            packet.minerals[kind] =
+                i16::try_from((current + delta).clamp(0, i32::from(i16::MAX))).unwrap_or(0);
+            delta
+        }
         End::Planet(index) => {
             let planet = &mut state.planets[index];
             if kind == FUEL {
@@ -1307,6 +1361,124 @@ mod tests {
         assert_eq!(state.planets[0].owner, Some(0));
         assert_eq!(state.planets[0].pop, 25);
         assert_eq!(state.fleets[0].cargo.colonists, 0);
+    }
+
+    /// A Small Freighter design (hull 0, a 70 kT hold) in slot 0 of player
+    /// 0's list, for a fleet that can carry something.
+    fn freighter(state: &mut GameState) {
+        state.designs[0] = vec![crate::design::ShipDesign {
+            name: "Teamster".to_string(),
+            picture: 0,
+            stored_armor: 0,
+            obsolete: false,
+            designed: 0,
+            built: 0,
+            hull_id: 0,
+            slots: Vec::new(),
+        }];
+    }
+
+    /// Minerals come off a packet or salvage into a fleet's hold, named by
+    /// the thing's `idFull`, and nothing goes back in past the packet's
+    /// shell. (Colonists never move on a packet — `ChgCargo` returns 0 for
+    /// any kind past the minerals — which the client's dialog respects
+    /// before it logs anything.)
+    #[test]
+    fn minerals_are_taken_from_a_packet() {
+        let mut state = game();
+        freighter(&mut state);
+        state.planets = vec![Planet::unowned(1)];
+        let mut carrier = fleet(
+            0,
+            3,
+            Cargo {
+                minerals: [0; 3],
+                colonists: 5,
+                fuel: 0,
+            },
+        );
+        carrier.orbiting = None;
+        state.fleets = vec![carrier];
+        state.packets = vec![crate::packet::Packet {
+            id: 7,
+            owner: -1,
+            position: Point::new(0, 0),
+            target: 0x3ff,
+            warp: 0,
+            minerals: [12, 0, 3],
+            decay_rate: 0,
+            moved: false,
+            include: true,
+            turn: 0,
+        }];
+        let word = packet_word(&state.packets[0]);
+        assert_eq!(word, (1 << 13) | 7);
+
+        // The client clamps its asking to what the packet has, as it does
+        // for a planet; the replay trusts the figures.
+        let mut quantities = [0i32; CARGO_KINDS];
+        quantities[0] = 12;
+        let record = CargoTransferRecord {
+            source: 3,
+            destination: word,
+            source_class: Some(GrobjClass::Fleet),
+            destination_class: Some(GrobjClass::Thing),
+            mode: 0x82,
+            selector: 1 << 0,
+            quantities,
+        };
+        let moved = apply_cargo_transfer(&mut state, &record);
+        assert_eq!(moved[0], 12);
+        assert_eq!(state.packets[0].minerals, [0, 0, 3]);
+        assert_eq!(state.fleets[0].cargo.minerals[0], 12);
+
+        // Back in: only up to the shell, which is the mass over ten rounded
+        // up — three kilotons left leaves seven of room, and that is what
+        // the client asks for.
+        assert_eq!(packet_capacity(&state.packets[0]), 10);
+        quantities = [0i32; CARGO_KINDS];
+        quantities[0] = -7;
+        let record = CargoTransferRecord {
+            selector: 1 << 0,
+            quantities,
+            ..record
+        };
+        let moved = apply_cargo_transfer(&mut state, &record);
+        assert_eq!(moved[0], -7);
+        assert_eq!(state.packets[0].minerals, [7, 0, 3]);
+    }
+
+    /// A jettison names no destination: the cargo leaves and is gone.
+    #[test]
+    fn a_jettison_goes_nowhere() {
+        let mut state = game();
+        freighter(&mut state);
+        state.planets = vec![Planet::unowned(1)];
+        let mut carrier = fleet(
+            0,
+            3,
+            Cargo {
+                minerals: [10, 0, 0],
+                colonists: 0,
+                fuel: 0,
+            },
+        );
+        carrier.orbiting = None;
+        state.fleets = vec![carrier];
+        let mut quantities = [0i32; CARGO_KINDS];
+        quantities[0] = -6;
+        let record = CargoTransferRecord {
+            source: 3,
+            destination: 0xffff,
+            source_class: Some(GrobjClass::Fleet),
+            destination_class: Some(GrobjClass::None),
+            mode: 0x42,
+            selector: 1 << 0,
+            quantities,
+        };
+        let moved = apply_cargo_transfer(&mut state, &record);
+        assert_eq!(moved[0], -6);
+        assert_eq!(state.fleets[0].cargo.minerals, [4, 0, 0]);
     }
 
     /// Moving colonists onto a planet you already own is cargo, not a landing.

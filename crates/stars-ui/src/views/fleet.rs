@@ -97,8 +97,13 @@ fn tile_body(app: &mut App, ui: &mut egui::Ui, index: usize) {
                     app.open_xfer();
                 }
             } else {
-                // Jettison has no dialog here yet.
-                crate::views::placed_button(app, ui, column(2.0), "Jettison", false);
+                // `idsJettison2` in deep space, dead while salvage lies at
+                // the spot (`DrawShipPlanet`, `1050:17b6`); it raises the
+                // same dialog with deep space on the right.
+                let can = mine && app.can_jettison();
+                if crate::views::placed_button(app, ui, column(2.0), "Jettison", can).clicked() {
+                    app.open_xfer();
+                }
             }
             ui.allocate_space(egui::vec2(ui.available_width(), tall + 4.0));
         }

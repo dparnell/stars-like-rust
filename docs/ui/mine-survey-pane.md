@@ -225,10 +225,12 @@ The packet's mineral list has that same two-column shape — `"%s: "`
 (`idsS2`) right-aligned against the amount — but at the pane's ordinary row
 spacing, and it starts a line and a half below the rows above it.
 
-**Salvage is a packet with nowhere to go.** A packet whose target planet is
-zero is salvage: it gets its own picture, and the original skips both the
-`Traveling at Warp %d` and the `Destination: ` rows and draws the minerals
-alone.
+**Salvage is a packet with nowhere to go.** A packet whose warp is zero —
+the `iWarp` nibble of its first word, bits 10–13, which is also what
+`PszGetThingName` (`1038:26de`) reads — is salvage: it gets its own picture
+(`DrawMineSurvey` picks `3 + (warp != 0)`), and the original skips both
+the `Traveling at Warp %d` and the `Destination: ` rows and draws the
+minerals alone.
 
 The Mystery Trader's notice is word-wrapped with `DrawText` across what is left
 of the pane, and the warp line follows eight pixels below whatever height that

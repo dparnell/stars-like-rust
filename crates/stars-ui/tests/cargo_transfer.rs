@@ -103,17 +103,22 @@ fn fuel_stays_put_at_a_planet() {
     assert_eq!(app.xfer_move(COLONISTS, 25), 25, "the hold is untouched");
 }
 
-/// No fleet in hand, or one in deep space, and there is nothing to open.
+/// No fleet in hand and there is nothing to open; in deep space the
+/// dialog is the jettison's, with no planet on the right.
 #[test]
-fn nothing_opens_in_deep_space() {
+fn nothing_opens_without_a_fleet_and_deep_space_jettisons() {
     let mut app = App::new();
     app.create_tutor_world(1024).expect("the tutorial's world");
+    assert!(!app.open_xfer());
     assert!(app.goto_fleet(2));
     if let Some(game) = app.game.as_mut() {
         game.fleets[2].orbiting = None;
     }
-    assert!(!app.open_xfer());
-    assert!(app.xfer.is_none());
+    assert!(app.open_xfer());
+    assert_eq!(
+        app.xfer.as_ref().expect("open").objects[1],
+        XferObject::Space
+    );
 }
 
 /// Two fleets of the player's standing together, the second put beside
@@ -324,4 +329,139 @@ fn merge_moves_ships_between_two_fleets() {
         vec![-1],
         "one ship left the fleet named first"
     );
+}
+
+/// A salvage packet at the spot, for the tile to list.
+fn salvage_at(app: &mut App, at: stars_core::movement::Point) -> u16 {
+    let game = app.game.as_mut().expect("a game");
+    let id = game.packets.iter().map(|p| p.id).max().map_or(0, |m| m + 1);
+    game.packets.push(stars_core::packet::Packet {
+        id,
+        owner: -1,
+        position: at,
+        target: 0x3ff,
+        warp: 0,
+        minerals: [40, 5, 0],
+        decay_rate: 0,
+        moved: false,
+        include: true,
+        turn: 0,
+    });
+    id
+}
+
+/// The tile lists the packets at the spot after the fleets, and Cargo on
+/// one raises the dialog with the packet on the right: minerals come off it
+/// into the hold, colonists never cross, and OK logs a record naming the
+/// thing by its `idFull`.
+#[test]
+fn minerals_are_taken_off_a_packet_in_the_tile() {
+    let mut app = colony_ship_in_hand();
+    let at = app.game.as_ref().expect("a game").fleets[2].position;
+    let id = salvage_at(&mut app, at);
+    let list = app.pane_fleet_list();
+    let entry = list
+        .iter()
+        .find(|entry| entry.packet.is_some())
+        .expect("the salvage is listed");
+    assert_eq!(entry.name, "Salvage");
+    assert_eq!(entry.label(), "Salvage (45kT)");
+    assert_eq!(entry.key, (i16::MIN, id));
+    app.choose_pane_fleet(entry.key);
+    assert_eq!(app.pane_fleet_choice(), None, "a packet is not a fleet");
+    assert_eq!(app.pane_packet_gauge(), Some(([40, 5, 0], 50)));
+
+    assert!(app.open_xfer_with_fleet_here());
+    let dialog = app.xfer.clone().expect("open");
+    assert!(matches!(dialog.objects[1], XferObject::Packet(_)));
+    assert_eq!(dialog.has[1][..3], [40, 5, 0]);
+    assert_eq!(
+        dialog.cargo_capacity[1], 50,
+        "the shell: the mass over ten, up"
+    );
+    assert!(!dialog.fuel_moves());
+    assert!(!dialog.colonists_move());
+    assert_eq!(app.xfer_move(0, 100), 25, "the hold is 25");
+    assert_eq!(app.xfer_move(COLONISTS, -1), 0);
+    // The packet's own gauge can be dragged: back up to its shell.
+    assert_eq!(app.xfer_set(1, 0, 100), 25, "no more than the shell holds");
+    assert_eq!(app.xfer_set(1, 0, 20), -20);
+    app.xfer_ok();
+    let game = app.game.as_ref().expect("a game");
+    assert_eq!(game.fleets[2].cargo.minerals, [20, 0, 0]);
+    let packet = game
+        .packets
+        .iter()
+        .find(|p| p.id == id)
+        .expect("still there");
+    assert_eq!(packet.minerals, [20, 5, 0]);
+    let order = app
+        .orders
+        .last()
+        .expect("an order")
+        .as_cargo_transfer()
+        .expect("a cargo transfer");
+    assert_eq!((order.grobj1, order.grobj2), (2, 8));
+    assert_eq!(order.id2, stars_core::orders::packet_word(packet));
+    assert_eq!(order.quantities, vec![20]);
+}
+
+/// In deep space the location tile's button is Jettison: the dialog opens
+/// with Deep Space on the right, what goes over the side is logged against
+/// no object, and it can be picked up again while the turn lasts. Salvage
+/// at the spot keeps the button dead.
+#[test]
+fn cargo_is_jettisoned_in_deep_space_and_can_be_taken_back() {
+    let mut app = colony_ship_in_hand();
+    let at = {
+        let game = app.game.as_mut().expect("a game");
+        game.fleets[2].orbiting = None;
+        game.fleets[2].position = stars_core::movement::Point::new(1000, 1000);
+        game.fleets[2].cargo.minerals = [10, 0, 0];
+        game.fleets[2].cargo.colonists = 5;
+        game.fleets[2].position
+    };
+    app.select_object(ScanObject::Fleet(2));
+    assert!(app.can_jettison());
+    assert!(app.open_xfer());
+    let dialog = app.xfer.clone().expect("open");
+    assert_eq!(dialog.objects, [XferObject::Fleet(2), XferObject::Space]);
+    assert!(
+        dialog.is_planet(1),
+        "space is drawn and clamped as a planet"
+    );
+    assert!(!dialog.fuel_moves());
+    assert_eq!(app.xfer_move(0, -6), -6);
+    assert_eq!(app.xfer_move(COLONISTS, -5), -5, "people can go overboard");
+    app.xfer_ok();
+    let game = app.game.as_ref().expect("a game");
+    assert_eq!(game.fleets[2].cargo.minerals, [4, 0, 0]);
+    assert_eq!(game.fleets[2].cargo.colonists, 0);
+    let order = app
+        .orders
+        .last()
+        .expect("an order")
+        .as_cargo_transfer()
+        .expect("a cargo transfer");
+    assert_eq!((order.grobj1, order.grobj2), (2, 4));
+    assert_eq!(order.id2, 0xffff);
+    assert_eq!(order.quantities, vec![-6, -5]);
+
+    // Open again: what went over the side is still there to pick up.
+    assert!(app.open_xfer());
+    let dialog = app.xfer.clone().expect("open");
+    assert_eq!(dialog.has[1][0], 6);
+    assert_eq!(dialog.has[1][COLONISTS], 5);
+    assert_eq!(app.xfer_move(0, 100), 6);
+    app.xfer_ok();
+    let game = app.game.as_ref().expect("a game");
+    assert_eq!(game.fleets[2].cargo.minerals, [10, 0, 0]);
+    assert!(app.open_xfer());
+    assert_eq!(app.xfer.as_ref().expect("open").has[1][0], 0);
+    app.xfer_cancel();
+
+    // Salvage at the spot, and there is no jettisoning.
+    salvage_at(&mut app, at);
+    assert!(!app.can_jettison());
+    assert!(!app.open_xfer());
 }

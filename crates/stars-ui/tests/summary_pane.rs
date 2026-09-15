@@ -287,20 +287,22 @@ fn the_fleet_labels_go_narrow_and_a_gate_leg_says_so() {
     assert_eq!(narrow.orders[2], "Use Stargate");
 }
 
-/// Salvage is a mineral packet aimed at no planet, and the pane treats it as
-/// its own thing: a picture of its own, and neither a speed nor a destination.
+/// Salvage is a mineral packet at warp zero (`DrawMineSurvey` reads the
+/// `iWarp` bits of the packet's first word, `1028:065a`), and the pane
+/// treats it as its own thing: a picture of its own, and neither a speed
+/// nor a destination.
 #[test]
 fn salvage_is_a_packet_with_nowhere_to_go() {
     use stars_core::movement::Point;
     use stars_core::packet::Packet;
 
     let mut app = a_game(Race::humanoid());
-    let packet = |id: u16, target: u16| Packet {
+    let packet = |id: u16, warp: u8| Packet {
         id,
         owner: 0,
         position: Point::new(40, 40),
-        target,
-        warp: 6,
+        target: 7,
+        warp,
         minerals: [10, 20, 30],
         decay_rate: 0,
         moved: false,
@@ -308,7 +310,7 @@ fn salvage_is_a_packet_with_nowhere_to_go() {
         turn: 0,
     };
     if let Some(game) = app.game.as_mut() {
-        game.packets = vec![packet(1, 7), packet(2, 0)];
+        game.packets = vec![packet(1, 6), packet(2, 0)];
     }
 
     app.select_object(ScanObject::Thing(ScanThing::Packet(0)));

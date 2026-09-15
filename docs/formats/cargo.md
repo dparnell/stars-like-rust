@@ -125,6 +125,14 @@ second.
 `ChgCargo`'s clamping, and `generate_turn_with_orders` runs them as `DoOrders(0)`
 — before movement and production, so a transfer feeds the same year's growth.
 
+The ends it resolves: a planet by id; a fleet by its owner-and-number
+word; a thing (`grobjThing`, 8) by its `idFull` — only a mineral packet or
+salvage (`ith` 1) counts, and `ChgCargo` moves its three minerals only,
+never past the shell of `wtMax × 10` (`orders::packet_word`,
+`orders::packet_capacity`); and `grobjOther` (4), a jettison, as nowhere —
+the source loses and nothing gains, and a later positive quantity against
+the same end is the client picking dropped cargo back up before the turn.
+
 Verification is thin, and honestly so: the only `.x` files in this repository
 are Exodus's, which record 43 transfers in forty files, all of them one fleet
 loading or unloading colonists at one planet. Scored on the 27 planet-years

@@ -1686,6 +1686,10 @@ impl App {
         if gains.iter().all(|d| *d == 0) || objects[0] == objects[1] {
             return nothing;
         }
+        let in_space = match objects {
+            [XferObject::Fleet(index), XferObject::Space] => self.jettisoned_so_far(index),
+            _ => nothing,
+        };
         let Some(game) = self.game.as_mut() else {
             return nothing;
         };
@@ -1703,6 +1707,7 @@ impl App {
         let mut have = [[0i32; CARGO_KINDS]; 2];
         let mut fuel_room = [i32::MAX / 2; 2];
         let mut hold_room = [i32::MAX / 2; 2];
+        let mut people_room = [i32::MAX / 2; 2];
         for (side, object) in objects.iter().enumerate() {
             match *object {
                 XferObject::Planet(id) => {
@@ -1714,6 +1719,29 @@ impl App {
                     have[side][..3].copy_from_slice(&planet.surface_min);
                     have[side][COLONISTS] = planet.pop;
                     // A planet has no tank: `ChgCargo` moves no fuel on one.
+                    fuel_room[side] = 0;
+                }
+                XferObject::Packet(index) => {
+                    let Some(packet) = game.packets.get(index) else {
+                        return nothing;
+                    };
+                    words[side] = stars_core::orders::packet_word(packet);
+                    classes[side] = GrobjClass::Thing;
+                    have[side][..3].copy_from_slice(&packet.minerals.map(i32::from));
+                    // A packet takes minerals back up to its shell, and
+                    // nothing else.
+                    fuel_room[side] = 0;
+                    hold_room[side] = stars_core::orders::packet_capacity(packet) - packet.mass();
+                    people_room[side] = 0;
+                }
+                XferObject::Space => {
+                    // `grobjOther`, id -1: the jettison's end. Taking back
+                    // what was dropped this turn is a positive quantity
+                    // against the same end.
+                    words[side] = 0xffff;
+                    classes[side] = GrobjClass::None;
+                    have[side] = in_space;
+                    have[side][FUEL] = 0;
                     fuel_room[side] = 0;
                 }
                 XferObject::Fleet(index) => {
@@ -1745,6 +1773,8 @@ impl App {
             let (taker, giver) = if gain > 0 { (0, 1) } else { (1, 0) };
             let room = if kind == FUEL {
                 fuel_room[taker]
+            } else if kind == COLONISTS {
+                hold_room[taker].min(people_room[taker])
             } else {
                 hold_room[taker]
             };
@@ -2768,7 +2798,22 @@ impl App {
                 name: self.fleet_display_name(index),
                 ships: fleet.stacks.iter().map(|stack| stack.count).sum(),
                 mine: usize::try_from(fleet.owner).is_ok_and(|owner| owner == me),
+                packet: None,
             })
+            .chain(
+                game.packets
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, packet)| packet.position == at)
+                    .map(|(index, packet)| PaneFleet {
+                        index: usize::MAX,
+                        key: (i16::MIN, packet.id),
+                        name: self.thing_name(ScanThing::Packet(index)),
+                        ships: packet.mass(),
+                        mine: false,
+                        packet: Some(index),
+                    }),
+            )
             .collect()
     }
 
@@ -2780,11 +2825,39 @@ impl App {
     /// buttons and draws no gauges in.
     #[must_use]
     pub fn pane_fleet_choice(&self) -> Option<usize> {
+        self.pane_choice()
+            .filter(|entry| entry.packet.is_none())
+            .map(|entry| entry.index)
+    }
+
+    /// The packet or salvage the tile's dropdown is showing, as an index
+    /// into the game's packets, when that is what is chosen.
+    #[must_use]
+    pub fn pane_packet_choice(&self) -> Option<usize> {
+        self.pane_choice().and_then(|entry| entry.packet)
+    }
+
+    /// Whatever the tile's dropdown is showing.
+    #[must_use]
+    pub fn pane_choice(&self) -> Option<PaneFleet> {
         let list = self.pane_fleet_list();
         self.pane_fleet_chosen
             .and_then(|key| list.iter().find(|entry| entry.key == key))
             .or_else(|| list.first())
-            .map(|entry| entry.index)
+            .cloned()
+    }
+
+    /// The tile's cargo gauge for a packet or salvage: what it carries
+    /// against its shell (`DrawThingGauge`, `1110:044e`, mode 5: the three
+    /// minerals segmented against `wtMax × 10`).
+    #[must_use]
+    pub fn pane_packet_gauge(&self) -> Option<([i32; 3], i32)> {
+        let index = self.pane_packet_choice()?;
+        let packet = self.game.as_ref()?.packets.get(index)?;
+        Some((
+            packet.minerals.map(i32::from),
+            stars_core::orders::packet_capacity(packet),
+        ))
     }
 
     /// Choose one from the dropdown, by the key [`PaneFleet::key`] carries.
@@ -4570,10 +4643,11 @@ impl App {
                 let Some(packet) = game.packets.get(index) else {
                     return out;
                 };
-                // A packet aimed at no planet is salvage, and salvage has its
-                // own picture, no speed and nowhere to be going: the original
-                // skips both rows and draws the minerals alone.
-                let salvage = packet.target == 0;
+                // A packet at warp zero is salvage (`PszGetThingName` reads
+                // the `iWarp` bits), and salvage has its own picture, no
+                // speed and nowhere to be going: the original skips both
+                // rows and draws the minerals alone.
+                let salvage = packet.warp == 0;
                 out.picture = if salvage { 3 } else { 4 };
                 out.emblem = true;
                 if !salvage {
@@ -8254,6 +8328,13 @@ pub enum XferObject {
     Planet(i16),
     /// A fleet, as an index into the game's fleets.
     Fleet(usize),
+    /// A mineral packet or salvage, as an index into the game's packets
+    /// (`grobjThing`; `DrawThingXferSide`, `1050:7088`).
+    Packet(usize),
+    /// Deep space, for a jettison (`grobjOther` with id `-1`, drawn by
+    /// `DrawPlanetXferSide` under the title `idsDeepSpace`): what has been
+    /// thrown overboard this turn sits here and can be taken back.
+    Space,
 }
 
 /// The **Cargo Transfer** dialog — `TransferDlg` (`1050:5686`): the
@@ -8319,10 +8400,20 @@ impl XferDialog {
         self.has[0]
     }
 
-    /// Whether a side is a planet.
+    /// Whether a side is a planet — or deep space, which `ChgCargo` and
+    /// `DrawXferDlg` treat as a planet with nothing on it.
     #[must_use]
     pub fn is_planet(&self, side: usize) -> bool {
-        matches!(self.objects[side], XferObject::Planet(_))
+        matches!(
+            self.objects[side],
+            XferObject::Planet(_) | XferObject::Space
+        )
+    }
+
+    /// Whether a side is a mineral packet or salvage.
+    #[must_use]
+    pub fn is_packet(&self, side: usize) -> bool {
+        matches!(self.objects[side], XferObject::Packet(_))
     }
 
     /// Whether fuel can move at all: `FSetupXferBtns` leaves the fuel
@@ -8331,15 +8422,31 @@ impl XferDialog {
     /// tank (`ChgCargo` returns 0 for fuel on a planet).
     #[must_use]
     pub fn fuel_moves(&self) -> bool {
-        !self.is_planet(0) && !self.is_planet(1)
+        (0..2).all(|side| !self.is_planet(side) && !self.is_packet(side))
+    }
+
+    /// Whether colonists can move: never to or from a packet (`ChgCargo`
+    /// moves nothing past the minerals on a thing) and never to or from
+    /// a fleet not known in full (`det != 7`).
+    #[must_use]
+    pub fn colonists_move(&self) -> bool {
+        (0..2).all(|side| !self.is_packet(side) && (self.own[side] || self.is_planet(side)))
     }
 
     /// How much of `kind` side `taker` can still take: `GetFuelFree` or
-    /// `GetCargoFree` for a fleet, no limit for a planet.
+    /// `GetCargoFree` for a fleet, the shell's room for a packet
+    /// (`stars_core::orders::packet_capacity`), no limit for a planet.
     #[must_use]
     pub fn room(&self, taker: usize, kind: usize) -> i32 {
         if self.is_planet(taker) {
             return i32::MAX / 2;
+        }
+        if self.is_packet(taker) {
+            return if kind < 3 {
+                (self.cargo_capacity[taker] - self.cargo(taker)).max(0)
+            } else {
+                0
+            };
         }
         if kind == stars_core::orders::FUEL {
             self.fuel_capacity[taker] - self.has[taker][stars_core::orders::FUEL]
@@ -8688,25 +8795,86 @@ impl App {
         self.split = None;
     }
 
-    /// **Xfer**: open the Cargo Transfer dialog for the fleet in the pane
-    /// and the planet it orbits (`ShipCommandProc`, `rghwndBtn[7]`:
-    /// `TransferStuff(fleet, grobjFleet, idPlanet, grobjPlanet, 0)`).
-    /// Nothing opens for a fleet in deep space, or one that is not the
-    /// player's.
+    /// **Xfer**, or **Jettison** in deep space: open the Cargo Transfer
+    /// dialog for the fleet in the pane and the planet it orbits
+    /// (`ShipCommandProc`, `rghwndBtn[7]`: `TransferStuff(fleet,
+    /// grobjFleet, idPlanet, grobjPlanet, 0)`), or, with no planet under
+    /// it, for the fleet and deep space (`TransferStuff(fleet, grobjFleet,
+    /// -1, grobjOther, 0)`) — unless salvage lies at the spot, when the
+    /// button is dead (`DrawShipPlanet`, `1050:17b6`) and a click in the
+    /// tile only beeps (`ClickInShipOrders`). Nothing opens for a fleet
+    /// that is not the player's.
     pub fn open_xfer(&mut self) -> bool {
         let Some(index) = self.survey_subject().fleet_index() else {
             return false;
         };
-        let Some(planet) = self
-            .game
-            .as_ref()
-            .and_then(|g| g.fleets.get(index))
-            .and_then(|f| f.orbiting)
-            .and_then(|p| i16::try_from(p).ok())
+        let Some(fleet) = self.game.as_ref().and_then(|g| g.fleets.get(index)) else {
+            return false;
+        };
+        match fleet.orbiting.and_then(|p| i16::try_from(p).ok()) {
+            Some(planet) => {
+                self.open_xfer_between([XferObject::Fleet(index), XferObject::Planet(planet)])
+            }
+            None => {
+                if !self.can_jettison() {
+                    return false;
+                }
+                self.open_xfer_between([XferObject::Fleet(index), XferObject::Space])
+            }
+        }
+    }
+
+    /// Whether the fleet in hand may jettison: it is in deep space and
+    /// no packet or salvage lies where it is (`DrawShipPlanet` walks the
+    /// things of kind 1 at the fleet's point; the manual, page 14-3: "You
+    /// cannot jettison cargo if there is salvage at the same location").
+    #[must_use]
+    pub fn can_jettison(&self) -> bool {
+        let Some(fleet) = self
+            .survey_subject()
+            .fleet_index()
+            .and_then(|index| self.game.as_ref().and_then(|g| g.fleets.get(index)))
         else {
             return false;
         };
-        self.open_xfer_between([XferObject::Fleet(index), XferObject::Planet(planet)])
+        if fleet.orbiting.is_some() {
+            return false;
+        }
+        !self
+            .game
+            .as_ref()
+            .is_some_and(|g| g.packets.iter().any(|p| p.position == fleet.position))
+    }
+
+    /// What the fleet in hand has thrown overboard this turn, kind by
+    /// kind: the sum of this session's jettison orders from it.
+    /// `TransferStuff` rebuilds the space side the same way, walking the
+    /// log (`EnumLogRts`) so that what was dropped can be picked up again.
+    #[must_use]
+    pub fn jettisoned_so_far(&self, fleet: usize) -> [i32; stars_core::orders::CARGO_KINDS] {
+        let mut out = [0i32; stars_core::orders::CARGO_KINDS];
+        let Some(word) = self.fleet_word(fleet) else {
+            return out;
+        };
+        for record in &self.orders {
+            let Some(transfer) = record.as_cargo_transfer() else {
+                continue;
+            };
+            if transfer.id1 != word || transfer.grobj1 != FLEET_CLASS || transfer.grobj2 != 4 {
+                continue;
+            }
+            let mut next = transfer.quantities.iter();
+            for (kind, lying) in out.iter_mut().enumerate() {
+                if transfer.items_mask & (1 << kind) != 0 {
+                    if let Some(q) = next.next() {
+                        // The record holds the fleet's gain; what lies in
+                        // space is its loss.
+                        *lying -= q;
+                    }
+                }
+            }
+        }
+        out
     }
 
     /// **Cargo** on the fleets-here tile: the fleet in hand on the left
@@ -8716,19 +8884,21 @@ impl App {
     /// From the planet pane the planet is on the left and the chosen
     /// fleet on the right (`PlanetWndProc`, the same button).
     pub fn open_xfer_with_fleet_here(&mut self) -> bool {
-        let Some(other) = self.pane_fleet_choice() else {
-            return false;
+        let other = match (self.pane_fleet_choice(), self.pane_packet_choice()) {
+            (Some(fleet), _) => XferObject::Fleet(fleet),
+            (None, Some(packet)) => XferObject::Packet(packet),
+            (None, None) => return false,
         };
         if self.selection.on_fleet {
             let Some(index) = self.survey_subject().fleet_index() else {
                 return false;
             };
-            self.open_xfer_between([XferObject::Fleet(index), XferObject::Fleet(other)])
+            self.open_xfer_between([XferObject::Fleet(index), other])
         } else {
             let Some(planet) = self.selection.planet else {
                 return false;
             };
-            self.open_xfer_between([XferObject::Planet(planet), XferObject::Fleet(other)])
+            self.open_xfer_between([XferObject::Planet(planet), other])
         }
     }
 
@@ -8774,7 +8944,26 @@ impl App {
                     cargo_capacity[side] = fleet.cargo_capacity(designs);
                     own[side] = owner == me;
                 }
+                XferObject::Packet(index) => {
+                    let Some(packet) = game.packets.get(index) else {
+                        return false;
+                    };
+                    has[side][..3].copy_from_slice(&packet.minerals.map(i32::from));
+                    fuel_capacity[side] = 0;
+                    cargo_capacity[side] = stars_core::orders::packet_capacity(packet);
+                    own[side] = false;
+                }
+                XferObject::Space => {
+                    fuel_capacity[side] = 0;
+                    cargo_capacity[side] = i32::MAX / 2;
+                    own[side] = false;
+                }
             }
+        }
+        // Deep space holds what this fleet has already thrown overboard.
+        if let (XferObject::Fleet(index), XferObject::Space) = (objects[0], objects[1]) {
+            has[1] = self.jettisoned_so_far(index);
+            has[1][FUEL] = 0;
         }
         // One side at least has to be the player's own: the dialog is
         // only ever raised over the fleet or planet in hand.
@@ -8831,18 +9020,22 @@ impl App {
 
     /// Set what one side carries of one kind, as a drag in its gauge
     /// does: `FTrackXfer` reads the pointer's place along the gauge as a
-    /// share of the tank or hold and moves the difference. Only a fleet
-    /// of the player's own has gauges to drag. Returns what that side
-    /// gained.
+    /// share of the tank or hold — or of a packet's shell — and moves the
+    /// difference. Only a fleet of the player's own, or a packet's three
+    /// mineral rows, has gauges to drag. Returns what that side gained.
     pub fn xfer_set(&mut self, side: usize, kind: usize, amount: i32) -> i32 {
         let Some(dialog) = self.xfer.as_ref() else {
             return 0;
         };
-        if side >= 2
-            || kind >= stars_core::orders::CARGO_KINDS
-            || !dialog.own[side]
-            || dialog.is_planet(side)
-        {
+        if side >= 2 || kind >= stars_core::orders::CARGO_KINDS {
+            return 0;
+        }
+        let draggable = if dialog.is_packet(side) {
+            kind < 3
+        } else {
+            dialog.own[side] && !dialog.is_planet(side)
+        };
+        if !draggable {
             return 0;
         }
         let delta = amount - dialog.has[side][kind];
@@ -11694,7 +11887,7 @@ impl App {
     /// string table: a minefield is `"%s%s Mine Field"` (`idsSSMineField`)
     /// with the owner and the kind from [`MINEFIELD_KINDS`], a packet is
     /// `"%sMineral Packet"` (`idsSmineralPacket`) — or `Salvage`
-    /// (`idsSalvage`, trailing space and all) when it is aimed at no planet —
+    /// (`idsSalvage`, trailing space and all) when its warp is zero —
     /// and a wormhole and the Mystery Trader are named outright.
     ///
     /// The owner prefix is `"%s "` (`DS:0x518`) and is left off **your own**
@@ -11726,9 +11919,10 @@ impl App {
                 None => String::new(),
             },
             ScanThing::Packet(index) => match game.packets.get(index) {
-                // A packet aimed at no planet is salvage, and salvage is not
-                // named for whoever dropped it.
-                Some(packet) if packet.target == 0 => "Salvage".to_string(),
+                // A packet going nowhere — warp 0, `iWarp` in the packet's
+                // first word — is salvage, and salvage is not named for
+                // whoever dropped it.
+                Some(packet) if packet.warp == 0 => "Salvage".to_string(),
                 Some(packet) => format!("{}Mineral Packet", prefix(packet.owner)),
                 None => String::new(),
             },
@@ -13574,10 +13768,11 @@ impl App {
 /// One fleet in the pane's last tile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaneFleet {
-    /// Where it is in the game's fleet list.
+    /// Where it is in the game's fleet list; meaningless for a packet.
     pub index: usize,
     /// Its owner and id, which together are what the dropdown remembers: a
-    /// fleet id is only unique within one player's fleets.
+    /// fleet id is only unique within one player's fleets. A packet's key
+    /// has `i16::MIN` for the owner, which no fleet has.
     pub key: (i16, u16),
     /// Its name, as the game writes it.
     pub name: String,
@@ -13585,6 +13780,25 @@ pub struct PaneFleet {
     pub ships: i32,
     /// Whether it is the local player's.
     pub mine: bool,
+    /// A mineral packet or salvage at the spot, by index into the game's
+    /// packets: `FLookupOrbitingXfer` (`1038:24fa`) lists the things of
+    /// kind 1 at the place after the fleets, and the manual (page 5-5)
+    /// says the tile "lists all other fleets and mineral packets in the
+    /// same location".
+    pub packet: Option<usize>,
+}
+
+impl PaneFleet {
+    /// The dropdown's text: a fleet's name and ship count, a packet's name
+    /// and mass.
+    #[must_use]
+    pub fn label(&self) -> String {
+        if self.packet.is_some() {
+            format!("{} ({}kT)", self.name, self.ships)
+        } else {
+            format!("{} ({})", self.name, self.ships)
+        }
+    }
 }
 
 /// What the tutorial's halo should ring: a button or row a pane drew, by

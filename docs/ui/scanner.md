@@ -1214,7 +1214,7 @@ the Selection Summary's title all go through:
 | kind | format |
 | --- | --- |
 | minefield | `"%s%s Mine Field"` (`idsSSMineField`) — owner, then `Standard`, `Heavy` or `Speed Bump` |
-| packet | `"%sMineral Packet"` (`idsSmineralPacket`), or `Salvage ` (`idsSalvage`) when it is aimed at no planet |
+| packet | `"%sMineral Packet"` (`idsSmineralPacket`), or `Salvage ` (`idsSalvage`) when its warp is zero |
 | wormhole | `Wormhole` |
 | trader | `Mystery Trader` |
 | anything else | `Mystery Object` |

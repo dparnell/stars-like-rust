@@ -104,9 +104,15 @@ Transfer dialog over the two fleets (`TransferStuff(…, 1)`). In the planet
 pane (`PlanetWndProc`) Cargo raises the same dialog with the **planet** on
 the left. Both dialogs are in `cargo-transfer.md`. The manual (page 5-5)
 describes the three in that order: drag the Fuel gauge to move fuel,
-Goto to take command, Merge to move ships, Cargo to move cargo. Not
-reproduced: mineral packets in the dropdown (`FLookupOrbitingXfer` lists
-the things at the spot after the fleets).
+Goto to take command, Merge to move ships, Cargo to move cargo.
+
+The dropdown lists the mineral packets and salvage at the spot after the
+fleets (`FLookupOrbitingXfer` walks the things of kind 1 at `sel.pt`),
+named by `PszGetThingName`; for one of those the tile draws a single
+gauge, its minerals against its shell (`DrawThingGauge` from
+`1048:3cb3`), Goto is dead, and Cargo raises the dialog over the fleet in
+hand and the packet. Reproduced: `PaneFleet::packet`, `pane_packet_choice`
+and `pane_packet_gauge`.
 
 ### The Fuel gauge is a control
 
@@ -351,11 +357,11 @@ dropdown, which is the other half of that task's payload; persisting the open
 tiles to `stars.ini`; the small-window
 layout, since the frame has no `fSmallTiles` to set; the mining rate row, the
 *Fuel & Cargo* tile's own gauges (that tile gives the figures as text), and
-the Battle Plans and Jettison buttons on tile 4, whose dialogs this project
-does not have. The location tile's own **Xfer** is there, and opens the
+the Battle Plans button on tile 4, whose dialog this project does not
+have. The location tile's own **Xfer** is there, and opens the
 Cargo Transfer dialog (`cargo-transfer.md`), as do the last tile's
 **Cargo** and **Merge**; the location tile's **Jettison**, for a fleet in
-deep space, is drawn but dead.
+deep space, opens the same dialog on deep space.
 
 One thing this project has to say that the original does not: a fleet id is the
 **player's own numbering**, so two players each have a fleet 1. The dropdown
