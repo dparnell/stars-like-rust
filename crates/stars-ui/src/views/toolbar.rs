@@ -284,7 +284,7 @@ fn zoom_menu(app: &mut App, ui: &mut egui::Ui, response: &egui::Response, _click
     egui::popup::popup_below_widget(
         ui,
         id,
-        response,
+        &menu_anchor(response),
         egui::popup::PopupCloseBehavior::CloseOnClick,
         |ui| {
             ui.set_min_width(70.0);
@@ -347,6 +347,18 @@ fn short_label(button: Button) -> &'static str {
     }
 }
 
+/// The response a menu hangs from, widened to the popup frame's margins:
+/// egui sets the popup's minimum width from the anchor's width less the
+/// frame's, and asserts it is not negative — which the eleven-pixel
+/// dropdown arrows would make it.
+fn menu_anchor(response: &egui::Response) -> egui::Response {
+    let rect = egui::Rect::from_min_size(
+        response.rect.min,
+        egui::vec2(response.rect.width().max(40.0), response.rect.height()),
+    );
+    response.clone().with_new_rect(rect)
+}
+
 /// One of the two ship filters' menus: three commands, a rule, then a tick per
 /// entry.
 ///
@@ -373,12 +385,14 @@ fn filter_menu(app: &mut App, ui: &mut egui::Ui, response: &egui::Response, enem
     egui::popup::popup_below_widget(
         ui,
         id,
-        response,
+        &menu_anchor(response),
         egui::popup::PopupCloseBehavior::CloseOnClick,
         |ui| {
             ui.set_min_width(140.0);
             for (which, label) in crate::FilterCommand::ALL {
-                if ui.button(label).clicked() {
+                let button = ui.button(label);
+                crate::views::record(app, ui, label, &button);
+                if button.clicked() {
                     command = Some(which);
                 }
             }
@@ -387,7 +401,9 @@ fn filter_menu(app: &mut App, ui: &mut egui::Ui, response: &egui::Response, enem
                 ui.label(egui::RichText::new("no designs yet").weak().small());
             }
             for entry in &entries {
-                if ui.selectable_label(entry.on, &entry.name).clicked() {
+                let row = ui.selectable_label(entry.on, &entry.name);
+                crate::views::record(app, ui, &entry.name, &row);
+                if row.clicked() {
                     toggled = Some(entry.bit);
                 }
             }
@@ -437,7 +453,7 @@ fn minefield_menu(app: &mut App, ui: &mut egui::Ui, response: &egui::Response) -
     egui::popup::popup_below_widget(
         ui,
         id,
-        response,
+        &menu_anchor(response),
         egui::popup::PopupCloseBehavior::CloseOnClick,
         |ui| {
             ui.set_min_width(170.0);

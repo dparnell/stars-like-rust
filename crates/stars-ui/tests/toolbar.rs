@@ -479,3 +479,44 @@ fn the_whole_toolbar_survives_a_restart() {
         );
     }
 }
+
+/// The two filter menus open from their eleven-pixel arrows — narrower
+/// than egui's popup frame, which once tripped its minimum-width
+/// assertion — and their commands act: All Designs on the design filter,
+/// No Designs on the class filter.
+#[test]
+fn the_filter_menus_open_from_their_arrows() {
+    let mut shell = stars_ui::autopilot::Shell::new(a_game());
+    shell.frame();
+    shell.frame();
+    let arrows: Vec<egui::Rect> = shell
+        .app
+        .drawn
+        .iter()
+        .filter(|w| w.scope == "toolbar" && w.label == "▾")
+        .map(|w| w.rect)
+        .collect();
+    assert_eq!(arrows.len(), 2, "the design and the enemy class arrows");
+
+    shell.click_at(arrows[0].center());
+    shell.frame();
+    assert!(
+        shell.app.drawn.iter().any(|w| w.label == "All Designs"),
+        "the design menu is open"
+    );
+    shell.press_unchecked("toolbar", "All Designs");
+    shell.frame();
+    assert_eq!(shell.app.scan_design_filter, u16::MAX);
+    assert!(shell.app.scan_overlays.ship_design_filter);
+
+    shell.app.scan_class_filter = 0b101;
+    shell.click_at(arrows[1].center());
+    shell.frame();
+    assert!(
+        shell.app.drawn.iter().any(|w| w.label == "Scout"),
+        "the class menu lists the classes"
+    );
+    shell.press_unchecked("toolbar", "No Designs");
+    shell.frame();
+    assert_eq!(shell.app.scan_class_filter, 0);
+}
