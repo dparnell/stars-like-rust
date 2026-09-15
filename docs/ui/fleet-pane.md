@@ -147,7 +147,10 @@ A table of the leg the fleet is on:
 | `Travel Time` | the distance over the square of the warp |
 | `Est Fuel Usage` | `%ldkT` |
 
-There is a **Battle Plans...** button on this tile.
+Under the table sit the **Repeat Orders** checkbox (`hwndRepCB`, checked
+from bit 9 of the fleet's `det`) and the blue diamond at the right
+(`rgrcRef[12]`); the battle-plan dropdown is the Fleet Composition tile's,
+not this one's.
 
 ## Waypoint Task
 
@@ -298,7 +301,25 @@ colour. A press in either gauge is the Xfer button.
 
 ## Fleet Composition
 
-One row per design in the fleet, with how many of it.
+`DrawFleetComp` (`1050:1e72`): the ship list (`hwndFleetCompLB`, five
+lines; three in the small layout), one row per design in the fleet with
+how many of it; then a row **`Battle Plan:`** in bold with `hwndBattleDD`
+filling the rest of the width — `FillBattleDD` (`1050:9a36`) puts
+`Battle Plans...` (`idsBattlePlans`) first and then the player's plans by
+name, and selects the fleet's plan one down; `ShipCommandProc` answers a
+pick of the first entry by raising the Battle Plans dialog and any other
+by setting the fleet's `iplan` to the index less one. Under it, in the
+full layout, **`Est Range`** — `EstFuelUse` with `fRangeOnly` at
+`IFindIdealWarp`'s warp, the fleet's fuel over what a thousand light
+years would burn, `%ld LY`, or `Infinite` when they would burn nothing
+(the figure `0x3b9aca00`) — and **`Percent Cloaked`**
+(`PctCloakFromLpfl`), `None` or `%d%%`, both right-aligned against the
+width of `9999 LY`. Then Split, Split All and Merge across the foot,
+each `(width − 10) / 3` wide.
+
+Reproduced: `App::fleet_composition_figures` and the dropdown in
+`fleet.rs::battle_plan_row`, recorded as `Battle Plan` with its entries
+by name.
 
 ## What this project does
 
@@ -355,10 +376,8 @@ Remote Mining's, which is either a mining-rate estimate in the three mineral
 colours or one of three warnings; the patrol **warp** gauge under the Intercept
 dropdown, which is the other half of that task's payload; persisting the open
 tiles to `stars.ini`; the small-window
-layout, since the frame has no `fSmallTiles` to set; the mining rate row, the
-*Fuel & Cargo* tile's own gauges (that tile gives the figures as text), and
-the Battle Plans button on tile 4, whose dialog this project does not
-have. The location tile's own **Xfer** is there, and opens the
+layout, since the frame has no `fSmallTiles` to set; and the mining rate
+row. The location tile's own **Xfer** is there, and opens the
 Cargo Transfer dialog (`cargo-transfer.md`), as do the last tile's
 **Cargo** and **Merge**; the location tile's **Jettison**, for a fleet in
 deep space, opens the same dialog on deep space.

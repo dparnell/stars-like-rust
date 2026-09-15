@@ -4526,6 +4526,49 @@ impl App {
             .collect()
     }
 
+    /// The rows `DrawFleetComp` (`1050:1e72`) writes under the ship list
+    /// and the battle-plan dropdown: **Est Range**, the fleet's fuel over
+    /// what 1,000 light years at its ideal warp would burn (`EstFuelUse`
+    /// with `fRangeOnly`, after `IFindIdealWarp`), `%ld LY` or `Infinite`
+    /// when the leg would burn nothing; and **Percent Cloaked**
+    /// (`PctCloakFromLpfl`), `None` or `%d%%`. Nothing for a fleet that is
+    /// not the player's own, whose designs are not on file in full.
+    #[must_use]
+    pub fn fleet_composition_figures(&self) -> Vec<(String, String)> {
+        let Some(fleet) = self.pane_fleet() else {
+            return Vec::new();
+        };
+        let me = self.local_player();
+        if !usize::try_from(fleet.owner).is_ok_and(|o| o == me) {
+            return Vec::new();
+        }
+        let Some(player) = self.game.as_ref().and_then(|g| g.players.get(me)) else {
+            return Vec::new();
+        };
+        let designs = self.pane_fleet_designs();
+        let ife = player.race.has_lrt(stars_core::race::lrt::IFE);
+        let warp = stars_core::movement::ideal_warp(&fleet.stacks, designs, false);
+        let range = match u8::try_from(warp) {
+            Ok(warp) if warp > 0 => fleet.fuel_range(designs, warp, ife),
+            _ => 0,
+        };
+        let range = if range == i32::MAX {
+            "Infinite".to_string()
+        } else {
+            format!("{range} LY")
+        };
+        let cloak = fleet.cloak_pct(designs, &player.race);
+        let cloak = if cloak == 0 {
+            "None".to_string()
+        } else {
+            format!("{cloak}%")
+        };
+        vec![
+            ("Est Range".to_string(), range),
+            ("Percent Cloaked".to_string(), cloak),
+        ]
+    }
+
     // --- The mine survey pane ---------------------------------------------
     //
     // `DrawMineSurvey` (`1028:065a`): whatever is selected, summarised — a

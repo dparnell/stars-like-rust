@@ -112,6 +112,13 @@ fn tile_body(app: &mut App, ui: &mut egui::Ui, index: usize) {
         4 => fuel_and_cargo(app, ui),
         5 => {
             crate::views::planet::grid(ui, "composition", &app.fleet_composition_tile(), false);
+            battle_plan_row(app, ui);
+            crate::views::planet::grid(
+                ui,
+                "composition-figures",
+                &app.fleet_composition_figures(),
+                false,
+            );
             split_buttons(app, ui);
         }
         _ => crate::views::fleets_here_body(app, ui),
@@ -755,6 +762,69 @@ fn waypoints(app: &mut App, ui: &mut egui::Ui) {
     crate::views::record(app, ui, "Repeat Orders", &response);
     if response.changed() {
         app.set_repeat_orders(index, on);
+    }
+}
+
+/// The **Battle Plan:** row under the Fleet Composition tile's ship list
+/// (`DrawFleetComp`, `1050:1e72`): the label in bold and `hwndBattleDD`
+/// beside it, filled by `FillBattleDD` (`1050:9a36`) with `Battle Plans...`
+/// first and then the player's plans by name, the fleet's plan selected
+/// one down. `ShipCommandProc` answers a pick: the first entry raises the
+/// Battle Plans dialog, any other sets the fleet's `iplan` to its index
+/// less one. Recorded as `Battle Plan`, with the entries by their names.
+fn battle_plan_row(app: &mut App, ui: &mut egui::Ui) {
+    let Some(fleet) = app.pane_fleet() else {
+        return;
+    };
+    let mine = usize::try_from(fleet.owner).is_ok_and(|o| o == app.local_player());
+    let current = usize::from(fleet.battle_plan);
+    let names: Vec<String> = app
+        .battle_plan_list()
+        .iter()
+        .map(|plan| plan.name.clone())
+        .collect();
+    let showing = names
+        .get(current)
+        .cloned()
+        .unwrap_or_else(|| "Battle Plans...".to_string());
+    let mut pick: Option<usize> = None;
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Battle Plan:").small().strong());
+        ui.add_enabled_ui(mine, |ui| {
+            let dropdown = egui::ComboBox::from_id_source("fleet-battle-plan")
+                .width(ui.available_width() - 8.0)
+                .selected_text(egui::RichText::new(showing).small())
+                .show_ui(ui, |ui| {
+                    let response =
+                        ui.selectable_label(false, egui::RichText::new("Battle Plans...").small());
+                    crate::views::record(app, ui, "Battle Plans...", &response);
+                    if response.clicked() {
+                        pick = Some(0);
+                    }
+                    for (slot, name) in names.iter().enumerate() {
+                        let response =
+                            ui.selectable_label(slot == current, egui::RichText::new(name).small());
+                        crate::views::record(app, ui, name, &response);
+                        if response.clicked() {
+                            pick = Some(slot + 1);
+                        }
+                    }
+                });
+            crate::views::record(app, ui, "Battle Plan", &dropdown.response);
+        });
+    });
+    match pick {
+        Some(0) => app.open_battle_plans(),
+        Some(entry) => {
+            if let Some(index) = app.survey_subject().fleet_index() {
+                if let Ok(slot) = u8::try_from(entry - 1) {
+                    if usize::from(slot) != current {
+                        app.set_battle_plan(index, slot);
+                    }
+                }
+            }
+        }
+        None => {}
     }
 }
 

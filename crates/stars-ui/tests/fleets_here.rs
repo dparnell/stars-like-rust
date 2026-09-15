@@ -166,3 +166,112 @@ fn nothing_here_is_an_empty_list_and_no_gauges() {
     assert_eq!(app.pane_fleet_choice(), None);
     assert!(app.pane_fleet_gauges().is_none());
 }
+
+/// The Fleet Composition tile writes the range and the cloak under its list
+/// (`DrawFleetComp`, `1050:1e72`): the fuel over a thousand light years at
+/// the ideal warp, and `None` for an uncloaked fleet.
+#[test]
+fn the_composition_tile_gives_range_and_cloak() {
+    let mut app = a_game();
+    let (index, _) = a_fleet(&app);
+    app.select_object(stars_ui::ScanObject::Fleet(index));
+    let figures = app.fleet_composition_figures();
+    assert_eq!(figures.len(), 2);
+    assert_eq!(figures[0].0, "Est Range");
+    assert!(
+        figures[0].1 == "Infinite" || figures[0].1.ends_with(" LY"),
+        "{}",
+        figures[0].1
+    );
+    assert_eq!(
+        figures[1],
+        ("Percent Cloaked".to_string(), "None".to_string())
+    );
+
+    // Not for another player's fleet.
+    let theirs = app
+        .game
+        .as_ref()
+        .expect("a game")
+        .fleets
+        .iter()
+        .position(|f| f.owner == 1)
+        .expect("a fleet of theirs");
+    app.select_object(stars_ui::ScanObject::Fleet(theirs));
+    assert!(app.fleet_composition_figures().is_empty());
+}
+
+/// The Battle Plan dropdown under the list picks the fleet's plan
+/// (`hwndBattleDD`, `FillBattleDD`): the first entry raises the dialog and
+/// the others set `iplan` one down.
+#[test]
+fn the_battle_plan_dropdown_sets_the_plan() {
+    let mut app = a_game();
+    let (index, _) = a_fleet(&app);
+    app.select_object(stars_ui::ScanObject::Fleet(index));
+    app.show_screen(stars_ui::Screen::Galaxy);
+    let plans = app.battle_plan_count();
+    assert!(plans >= 1, "a starting plan");
+    let ctx = egui::Context::default();
+    let frame = |app: &mut App, events: Vec<egui::Event>| {
+        app.start_frame();
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1400.0, 900.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                stars_ui::views::frame::game_screen(app, ctx);
+            },
+        );
+    };
+    frame(&mut app, Vec::new());
+    assert!(
+        app.drawn_button("fleet", "Battle Plan").is_some(),
+        "the dropdown is drawn"
+    );
+    let plan_name = app.battle_plan_list()[0].name.clone();
+    // Open it, then pick the first plan; the pick logs a plan order.
+    let click = |at: egui::Pos2| {
+        vec![
+            egui::Event::PointerMoved(at),
+            egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+            egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]
+    };
+    let at = app
+        .drawn_button("fleet", "Battle Plan")
+        .unwrap()
+        .rect
+        .center();
+    frame(&mut app, click(at));
+    frame(&mut app, Vec::new());
+    let at = app
+        .drawn_button("fleet", &plan_name)
+        .map(|w| w.rect.center())
+        .expect("the plan entry is drawn once the list is open");
+    // The fleet already has plan 0, so first push it elsewhere.
+    app.set_battle_plan(index, 1);
+    let before = app.orders.len();
+    frame(&mut app, click(at));
+    frame(&mut app, Vec::new());
+    assert_eq!(
+        app.game.as_ref().expect("a game").fleets[index].battle_plan,
+        0
+    );
+    assert!(app.orders.len() > before, "the pick was logged");
+}
