@@ -1,7 +1,7 @@
 # The battle VCR
 
-Status: **playback, transport, layout and the board's drawing recovered**;
-the panel beside the board is not yet the original's.
+Status: **playback, transport, layout, the board's drawing and the text
+panel recovered**; the panel's Goto button and Help are not.
 
 `BattleVCR` (`10e8:0000`) opens it and `VCRDlg` (`10e8:0e90`) runs it, with
 `DrawVCR` (`10e8:1c62`) painting the board and `SetVCRBoard` (`10e8:08d8`)

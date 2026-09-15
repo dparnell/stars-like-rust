@@ -390,9 +390,5 @@ In `crates/stars-core/src/production.rs`:
   original recomputes it whenever it refills the list. It costs about a
   millisecond for a seven-row queue in a debug build, which is affordable; a
   very long queue on a slow machine would want caching.
-* **Building what the new inventory rows offer.** A queued packet, planetary
-  scanner or Genesis Device is priced and can be ordered, but the turn
-  generator does not yet build any of them: `run_queue` skips an item it has no
-  effect for. Packets are already on the plan's list of what is missing.
 * The starbase **upgrade** discount, which is `GetProductionCosts` rather than
   the dialog: rebuilding on the same hull credits the parts already in orbit.

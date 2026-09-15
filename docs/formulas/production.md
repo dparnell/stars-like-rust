@@ -167,6 +167,35 @@ and up) goes up over the planet, `turn::install_starbase`:
 `tests/differential_production.rs::a_queued_starbase_goes_up_over_the_planet`
 covers it; before it a queued base was launched as a ship.
 
+The rest of `FBuildObject`'s planetary arms, each with the message it sends:
+
+- a **planetary scanner** (`0x12`–`0x1a`, or the generic `0x1b`, which
+  `LookupBestPlanetaryScanner` resolves to the owner's best) sets the
+  planet's `iScanner` to the scanner's index — Viewer 50 is 0, which is
+  what every corpus home world stores — and tells the owner
+  (`idmHasBuiltNewPlanetaryScanner`, `0x7c`, `[planet, -0x8000, index]`);
+  `turn::install_planetary_scanner`;
+- the **Genesis Device** (`0xd`) tells every player
+  (`idmStrongFundamentalForcesHaveRebirthed`, `0x11b`); unless the owner
+  is Alternate Reality it levels the mines, factories and defences and
+  sets `iScanner` to 31; and for each of the three axes it empties the
+  surface minerals and redraws the climate — `rgEnvVarOrig` and
+  `rgEnvVar` alike — as `Random(50) + Random(50) + 1` and the
+  concentration as `Random(40) + Random(40) + 25`. The population is not
+  touched. `turn::genesis_device`, drawing from the turn's generator;
+- the **packets** (`0xe`–`0x11`, and the auto packet `6`) are thrown
+  (`packets.md`, `packet::fling`).
+
+The queue costs these through `GetProductionCosts` like anything else —
+`production::item_cost`, which covers the packets, the scanners and the
+Genesis Device (the last two miniaturised as components) as well as the
+installations — so they are paid for over the years and then built. Until
+this was wired the queue costed only the installations, and a queued
+packet, scanner or device sat unpriced and was never finished.
+`tests/differential_production.rs::a_queued_planetary_scanner_is_installed`,
+`::a_genesis_device_remakes_the_planet` and the packet half of the
+starbase test cover the three.
+
 ## Where the queue stops
 
 `CBuildProdItem` returns an `mdProdStat` alongside the count, and `Produce`

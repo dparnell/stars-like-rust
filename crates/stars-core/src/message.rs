@@ -27,6 +27,14 @@ pub mod id {
     /// you to filter: *"Your first message is quite common and we don't need
     /// to look at it every year."*
     pub const BUILT_FACTORIES: u16 = 54;
+    /// `idmHasBuiltNewPlanetaryScanner`: a planetary scanner went up
+    /// (`FBuildObject`, `10b8:1a5c`, the scanner arm); the planet is the
+    /// object and the parameters `[planet, -0x8000, scanner index]`.
+    pub const BUILT_PLANETARY_SCANNER: u16 = 0x7c;
+    /// `idmStrongFundamentalForcesHaveRebirthed`: a Genesis Device went
+    /// off on the planet, which every player is told about
+    /// (`FBuildObject`, the Genesis arm).
+    pub const GENESIS_DEVICE: u16 = 0x11b;
     /// `idmHaveBuiltMine` and `idmHaveBuiltMines`, its two neighbours.
     pub const BUILT_MINE: u16 = 55;
     /// Several mines.
@@ -1075,6 +1083,17 @@ impl Message {
                 object_planet()
             ),
             id::BUILT_MINE => format!("A mine has been built on {}.", object_planet()),
+            id::BUILT_PLANETARY_SCANNER => format!(
+                "{} has a new planetary scanner, a {}.",
+                object_planet(),
+                crate::components::PLANETARY
+                    .get(usize::try_from(param(2)).unwrap_or(usize::MAX))
+                    .map_or("scanner", |p| p.name)
+            ),
+            id::GENESIS_DEVICE => format!(
+                "A Genesis Device has remade {}: its climate and its minerals are new.",
+                object_planet()
+            ),
             id::BUILT_MINES => format!(
                 "{} mines have been built on {}.",
                 param(0),

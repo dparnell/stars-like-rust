@@ -1353,4 +1353,158 @@ fn a_queued_starbase_goes_up_over_the_planet() {
     assert!(state.messages.iter().any(|m| {
         m.id == stars_core::message::id::STARBASE_BUILT_WITH_DOCK && m.params == vec![7, 16, 200]
     }));
+
+    // With the driver up, a packet in the queue is costed
+    // (`GetProductionCosts`) and thrown when it is paid for
+    // (`FBuildObject`'s packet arm), at a planet the setting names.
+    let mut target = Planet::unowned(8);
+    target.position = Some(Point { x: 200, y: 0 });
+    state.planets.push(target);
+    state.planets[0].fling_dest = Some(8);
+    state.planets[0].queue = vec![stars_core::production::QueueItem {
+        count: 1,
+        item: item::PACKET_IRONIUM,
+        ship: false,
+        completion: 0,
+    }];
+    state.random_events = false;
+    let mut flung = Vec::new();
+    for _ in 0..10 {
+        let report = generate_turn(&mut state, &mut rng);
+        flung.extend(report.packets_flung);
+        if !flung.is_empty() {
+            break;
+        }
+    }
+    assert_eq!(flung.len(), 1, "one packet went up");
+    let packet = state
+        .packets
+        .iter()
+        .find(|p| p.owner == 0 && p.target == 8)
+        .expect("a packet bound for the target");
+    assert_eq!(packet.minerals, [100, 0, 0], "100 kT of ironium");
+}
+
+/// A planetary scanner in the queue is installed when it is paid for
+/// (`FBuildObject`'s scanner arm): the generic item resolves to the owner's
+/// best, the planet's `iScanner` takes its index and the owner is told.
+#[test]
+fn a_queued_planetary_scanner_is_installed() {
+    use stars_core::rng::Rng;
+    use stars_core::Point;
+    use stars_core::{generate_turn, GameState};
+
+    let race = Race::humanoid();
+    let mut planet = Planet::unowned(7);
+    planet.position = Some(Point { x: 0, y: 0 });
+    planet.owner = Some(0);
+    planet.pop = 30_000;
+    planet.factories = 50;
+    planet.surface_min = [50_000, 50_000, 50_000];
+    planet.scanner = None;
+    planet.queue = vec![stars_core::production::QueueItem {
+        count: 1,
+        item: item::PLANETARY_SCANNER,
+        ship: false,
+        completion: 0,
+    }];
+    let mut state = GameState::new(0x1234);
+    state.turn = 20;
+    let mut player = stars_core::Player::new(race);
+    // Electronics 3: the Scoper 150 (id 3) is the best on offer.
+    player.research.levels = [0, 0, 0, 0, 3, 0];
+    state.players = vec![player];
+    state.designs = vec![Vec::new()];
+    state.planets = vec![planet];
+
+    let mut rng = Rng::randomize(1);
+    for _ in 0..30 {
+        generate_turn(&mut state, &mut rng);
+        if state.planets[0].scanner.is_some() {
+            break;
+        }
+    }
+    assert_eq!(state.planets[0].scanner, Some(2), "the Scoper 150, index 2");
+    assert!(state.messages.iter().any(|m| {
+        m.id == stars_core::message::id::BUILT_PLANETARY_SCANNER
+            && m.object == 7
+            && m.params == vec![7, -0x8000, 2]
+    }));
+    assert!(
+        state.planets[0].queue.is_empty(),
+        "built once: {:?}",
+        state.planets[0].queue
+    );
+}
+
+/// A Genesis Device remakes the planet (`FBuildObject`'s `0xd` arm): the
+/// installations and the scanner go, the surface minerals go, the climate
+/// and the concentrations are drawn afresh, the people stay, and every
+/// player hears of it.
+#[test]
+fn a_genesis_device_remakes_the_planet() {
+    use stars_core::rng::Rng;
+    use stars_core::Point;
+    use stars_core::{generate_turn, GameState};
+
+    let race = Race::humanoid();
+    let mut planet = Planet::unowned(7);
+    planet.position = Some(Point { x: 0, y: 0 });
+    planet.owner = Some(0);
+    planet.pop = 30_000;
+    planet.factories = 50;
+    planet.mines = 40;
+    planet.defenses = 5;
+    planet.scanner = Some(0);
+    planet.env = [10, 20, 30];
+    planet.env_orig = Some([10, 20, 30]);
+    planet.min_conc = [5, 5, 5];
+    planet.surface_min = [50_000, 50_000, 50_000];
+    planet.queue = vec![stars_core::production::QueueItem {
+        count: 1,
+        item: item::GENESIS,
+        ship: false,
+        completion: 0,
+    }];
+    let mut state = GameState::new(0x1234);
+    state.turn = 20;
+    let mut player = stars_core::Player::new(race);
+    player.trader_parts = stars_core::wormhole::part::GENESIS;
+    // Everything to production: the device costs 5,000 resources.
+    player.research_pct = 0;
+    state.players = vec![player, stars_core::Player::new(Race::humanoid())];
+    state.designs = vec![Vec::new(), Vec::new()];
+    state.planets = vec![planet];
+
+    // No meteor may clear the queue while the device is paid for.
+    state.random_events = false;
+    let mut rng = Rng::randomize(1);
+    for _ in 0..60 {
+        generate_turn(&mut state, &mut rng);
+        if state.planets[0].mines == 0 {
+            break;
+        }
+    }
+    let planet = &state.planets[0];
+    assert_eq!(
+        (
+            planet.mines,
+            planet.factories,
+            planet.defenses,
+            planet.scanner
+        ),
+        (0, 0, 0, None),
+        "queue {:?}",
+        planet.queue
+    );
+    assert_ne!(planet.env, [10, 20, 30], "a new climate");
+    assert_eq!(planet.env_orig, Some(planet.env));
+    assert!(planet.env.iter().all(|e| (1..=99).contains(e)));
+    assert!(planet.min_conc.iter().all(|c| (25..=103).contains(c)));
+    assert!(planet.pop > 0, "the people stay");
+    for who in 0..2 {
+        assert!(state.messages.iter().any(|m| {
+            m.player == who && m.id == stars_core::message::id::GENESIS_DEVICE && m.object == 7
+        }));
+    }
 }

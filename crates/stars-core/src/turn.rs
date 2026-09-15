@@ -494,11 +494,13 @@ pub fn generate_turn_with_orders(
             .players
             .get(owner_index)
             .map_or([0u8; 6], |p| p.research.levels);
+        let trader_parts = state.players.get(owner_index).map_or(0, |p| p.trader_parts);
         let built = run_queue(
             &mut state.planets[index],
             &race,
             &designs,
             tech,
+            trader_parts,
             state.tutorial,
             &mut available,
             &mut ships_built,
@@ -560,13 +562,22 @@ pub fn generate_turn_with_orders(
                 params: vec![id],
             });
         }
-        // Packets go up as they are finished (`FBuildObject`'s packet arm).
+        // Packets go up as they are finished (`FBuildObject`'s packet arm);
+        // a planetary scanner is installed and a Genesis Device goes off.
         for (item, count) in &built {
             if (item::PACKET_IRONIUM..=item::PACKET_MIXED).contains(item)
                 || *item == item::AUTO_PACKET
             {
                 if let Some(flung) = crate::packet::fling(state, index, *item, *count) {
                     report.packets_flung.push(flung);
+                }
+            } else if *item == item::PLANETARY_SCANNER
+                || (item::PLANETARY_SCANNER_FIRST..=item::PLANETARY_SCANNER_LAST).contains(item)
+            {
+                install_planetary_scanner(state, index, *item);
+            } else if *item == item::GENESIS {
+                for _ in 0..*count {
+                    genesis_device(state, index, rng);
                 }
             }
         }
@@ -2876,6 +2887,7 @@ fn run_queue(
     race: &crate::Race,
     designs: &[crate::design::ShipDesign],
     tech: [u8; 6],
+    trader_parts: u16,
     tutorial: bool,
     available: &mut [i32; COST_PARTS],
     ships_built: &mut Vec<(u8, i32)>,
@@ -2953,8 +2965,19 @@ fn run_queue(
             }
             continue;
         }
-        let Some(cost) = planetary_item_cost(entry.item, race, tutorial) else {
-            continue; // an item this does not cost yet, such as a packet
+        // `GetProductionCosts`: the installations, and the packets, the
+        // planetary scanners and the Genesis Device, which are costed as
+        // parts and miniaturised like any other component.
+        let who = crate::parts::Builder {
+            race,
+            levels: tech,
+            researching: 0,
+            trader_parts,
+            starbase: false,
+            tutorial,
+        };
+        let Some(cost) = crate::production::item_cost(entry.item, &who) else {
+            continue;
         };
         let auto = entry.is_auto();
 
@@ -3039,6 +3062,83 @@ fn run_queue(
     queue.retain(|e| e.count > 0 || e.is_auto());
     planet.queue = queue;
     completed
+}
+
+/// A planetary scanner finished on a planet (`FBuildObject`, `10b8:1a5c`,
+/// its `0x12..=0x1b` arm): the generic item (`0x1b`) is resolved to the
+/// owner's best planetary scanner (`LookupBestPlanetaryScanner`), the
+/// specific ones name theirs, and the planet's `iScanner` becomes that
+/// scanner's index — Viewer 50 is 0, as the corpus's home worlds store.
+/// The owner is told (`idmHasBuiltNewPlanetaryScanner`, parameters
+/// `[planet, -0x8000, index]`).
+fn install_planetary_scanner(state: &mut GameState, index: usize, item: u16) {
+    let Some(owner) = state.planets[index]
+        .owner
+        .and_then(|o| usize::try_from(o).ok())
+    else {
+        return;
+    };
+    let scanner = if item == item::PLANETARY_SCANNER {
+        let levels = state
+            .players
+            .get(owner)
+            .map_or([0u8; 6], |p| p.research.levels);
+        crate::components::best_planetary_scanner(&levels)
+            .map_or(0, |p| u8::try_from(p.id - 1).unwrap_or(0))
+    } else {
+        u8::try_from(item - item::PLANETARY_SCANNER_FIRST).unwrap_or(0)
+    };
+    state.planets[index].scanner = Some(scanner);
+    let id = state.planets[index].id;
+    state.messages.push(crate::message::Message {
+        player: owner,
+        id: crate::message::id::BUILT_PLANETARY_SCANNER,
+        object: id,
+        params: vec![id, -0x8000, i16::from(scanner)],
+    });
+}
+
+/// A Genesis Device finished (`FBuildObject`'s `0xd` arm): every player is
+/// told (`idmStrongFundamentalForcesHaveRebirthed`); unless the owner is
+/// Alternate Reality the mines, factories and defences are levelled and
+/// the scanner lost (`iScanner` set to 31); and for each of the three
+/// axes the surface minerals are emptied, the climate — original and
+/// current alike — becomes `Random(50) + Random(50) + 1` and the
+/// concentration `Random(40) + Random(40) + 25`. The people stay.
+fn genesis_device(state: &mut GameState, index: usize, rng: &mut Rng) {
+    let id = state.planets[index].id;
+    for player in 0..state.players.len() {
+        state.messages.push(crate::message::Message {
+            player,
+            id: crate::message::id::GENESIS_DEVICE,
+            object: id,
+            params: vec![id],
+        });
+    }
+    let ar = state.planets[index]
+        .owner
+        .and_then(|o| usize::try_from(o).ok())
+        .and_then(|o| state.players.get(o))
+        .is_some_and(|p| p.race.prt() == Some(crate::race::Prt::Ar));
+    let planet = &mut state.planets[index];
+    if !ar {
+        planet.mines = 0;
+        planet.factories = 0;
+        planet.defenses = 0;
+        planet.scanner = None;
+    }
+    let mut env = [0i8; 3];
+    for axis in 0..3 {
+        planet.surface_min[axis] = 0;
+        let a = rng.random(50);
+        let b = rng.random(50);
+        env[axis] = i8::try_from(a + b + 1).unwrap_or(i8::MAX);
+        let a = rng.random(40);
+        let b = rng.random(40);
+        planet.min_conc[axis] = u8::try_from(a + b + 25).unwrap_or(u8::MAX);
+    }
+    planet.env = env;
+    planet.env_orig = Some(env);
 }
 
 /// What running out of fuel did to a fleet's leg.
