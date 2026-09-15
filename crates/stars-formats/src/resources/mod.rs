@@ -235,6 +235,41 @@ impl Image {
 /// [`FormatError::Malformed`] for a header this does not understand, a
 /// compressed bitmap, or one whose pixels run off the end of the resource.
 pub fn read_dib(data: &[u8]) -> Result<Image> {
+    read_dib_recoloured(data, &[])
+}
+
+/// A bitmap resource by name, with some of its colour-table entries
+/// replaced — see [`read_dib_recoloured`].
+///
+/// # Errors
+/// As [`read_bitmap`].
+pub fn read_bitmap_recoloured(
+    exe: &[u8],
+    name: &Name,
+    recolour: &[(usize, [u8; 3])],
+) -> Result<Image> {
+    let resource = find(exe, RT_BITMAP, name).ok_or_else(|| {
+        FormatError::Malformed(format!("the executable has no bitmap named {name:?}"))
+    })?;
+    let data = resource
+        .data(exe)
+        .ok_or_else(|| FormatError::Malformed("the bitmap runs off the end".to_string()))?;
+    read_dib_recoloured(data, recolour)
+}
+
+/// [`read_dib`], with the colour-table entries named in `recolour` — an
+/// index and the red, green and blue to put there — replaced before the
+/// pixels are looked up.
+///
+/// That is what the game does to two of its own sheets: `FGetSystemColors`
+/// (`1018:08d2`) writes `COLOR_BTNFACE` into entry 253 of the toolbar's
+/// palette and entry 249 of the plaque's, so the magenta the artist keyed
+/// the toolbar's background with comes out as the button face. See
+/// [`art::SYSTEM_COLOURED`].
+///
+/// # Errors
+/// As [`read_dib`].
+pub fn read_dib_recoloured(data: &[u8], recolour: &[(usize, [u8; 3])]) -> Result<Image> {
     let bad = |what: &str| FormatError::Malformed(format!("not a readable bitmap: {what}"));
     let u32_at = |at: usize| -> Result<u32> {
         let b = data
@@ -279,6 +314,11 @@ pub fn read_dib(data: &[u8]) -> Result<Image> {
             .get(at..at + 4)
             .ok_or_else(|| bad("truncated palette"))?;
         palette.push([entry[2], entry[1], entry[0], 0xff]);
+    }
+    for &(index, [r, g, b]) in recolour {
+        if let Some(entry) = palette.get_mut(index) {
+            *entry = [r, g, b, 0xff];
+        }
     }
 
     // Rows are padded out to four bytes.

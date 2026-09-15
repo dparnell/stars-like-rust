@@ -69,6 +69,13 @@ pub fn component(ibmp: u16) -> Option<Cell> {
     })
 }
 
+/// The two sheets whose colour table the game rewrites with the button
+/// face when it reads the system colours (`FGetSystemColors`, `1018:08d2`):
+/// entry 253 of the toolbar (id 178), which is the magenta its background
+/// is keyed with, and entry 249 of the designer's plaque (id 449). Each is
+/// `(bitmap id, colour-table entry)`; see [`super::read_bitmap_recoloured`].
+pub const SYSTEM_COLOURED: [(u16, usize); 2] = [(178, 253), (449, 249)];
+
 /// The sheet of pictures an empty design slot wears (`hbmpBackBld`,
 /// `FCreateStuff` loads id 119 at `1000:07b2`): 576 by 192, twenty-one
 /// 64-pixel cells drawn eight to a row.

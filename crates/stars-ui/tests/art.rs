@@ -120,3 +120,27 @@ fn rubbish_is_refused() {
     assert!(app.load_art(vec![0u8; 1024], "not-a-program").is_err());
     assert!(!app.has_art(), "and nothing is left half-loaded");
 }
+
+/// The toolbar's sheet comes out of the app's pictures with the button
+/// face where the artist keyed magenta — `FGetSystemColors` writes
+/// `COLOR_BTNFACE` into that entry of the palette, and so does `Art`.
+#[test]
+fn the_toolbar_wears_the_button_face_not_magenta() {
+    let Some(exe) = executable() else { return };
+    let mut app = App::new();
+    app.load_art(exe, "the test's copy")
+        .expect("the pictures load");
+    let art = app.art.as_mut().expect("loaded");
+    let sheet = art
+        .sheet(&stars_formats::resources::Name::Id(178))
+        .expect("the toolbar");
+    assert_eq!(
+        sheet.pixel(0, 0).map(|(r, g, b, _)| [r, g, b]),
+        Some(stars_ui::toolbar::FACE)
+    );
+    let magenta = (0..sheet.height)
+        .flat_map(|y| (0..sheet.width).map(move |x| (x, y)))
+        .filter(|&(x, y)| sheet.pixel(x, y).map(|(r, g, b, _)| (r, g, b)) == Some((255, 0, 255)))
+        .count();
+    assert_eq!(magenta, 0);
+}

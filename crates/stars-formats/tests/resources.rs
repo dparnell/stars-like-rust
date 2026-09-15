@@ -190,6 +190,42 @@ fn the_empty_slot_pictures_follow_the_mask_table() {
     }
 }
 
+/// The colour-table entry `FGetSystemColors` overwrites in the toolbar is
+/// the magenta its background is keyed with, and recolouring it takes
+/// every one of those pixels with it.
+#[test]
+fn the_toolbars_keyed_entry_is_the_magenta_one() {
+    let Some(exe) = executable() else { return };
+    let (id, entry) = art::SYSTEM_COLOURED[0];
+    assert_eq!(id, 178);
+    let plain = bitmap(&exe, Name::Id(id));
+    let magenta = (0..plain.height)
+        .flat_map(|y| (0..plain.width).map(move |x| (x, y)))
+        .filter(|&(x, y)| plain.pixel(x, y).map(|(r, g, b, _)| (r, g, b)) == Some((255, 0, 255)))
+        .count();
+    assert!(
+        magenta > 5000,
+        "{magenta} magenta pixels: the background is keyed"
+    );
+
+    let face = [0xc0, 0xc0, 0xc0];
+    let recoloured =
+        stars_formats::resources::read_bitmap_recoloured(&exe, &Name::Id(id), &[(entry, face)])
+            .expect("the toolbar reads");
+    let left = (0..recoloured.height)
+        .flat_map(|y| (0..recoloured.width).map(move |x| (x, y)))
+        .filter(|&(x, y)| {
+            recoloured.pixel(x, y).map(|(r, g, b, _)| (r, g, b)) == Some((255, 0, 255))
+        })
+        .count();
+    assert_eq!(left, 0, "no magenta survives the button face");
+    assert_eq!(
+        recoloured.pixel(0, 0).map(|(r, g, b, _)| [r, g, b]),
+        Some(face),
+        "the corner is the face"
+    );
+}
+
 /// The component pictures are thirty-two to a sheet, eight across.
 #[test]
 fn the_component_pictures_are_thirty_two_to_a_sheet() {

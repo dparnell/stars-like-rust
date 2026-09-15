@@ -157,6 +157,13 @@ used, so this does not guess: the crop fails and the caller draws nothing.
   16 pixels on the 64-pixel picture, 8 on the 32-pixel one — from the medium
   and small emblem sheets.
 
+* **Two sheets recoloured by the system colours** — the toolbar (178) and
+  the designer's plaque (449). `FGetSystemColors` (`1018:08d2`) writes
+  `COLOR_BTNFACE` into colour-table entry 253 of the toolbar's DIB (the
+  magenta its background is keyed with) and entry 249 of the plaque's, so a
+  plain `SRCCOPY` blit lands the button face there. `art::SYSTEM_COLOURED`
+  names the two and `read_bitmap_recoloured` does the writing.
+
 * **The empty design slots** — `hbmpBackBld`, bitmap **119**, loaded as
   `LoadBitmap(hInst, 0x77)` in `FCreateStuff` (`1000:07b2`): 576x192,
   twenty-one 64-pixel cells drawn eight to a row, one per category mask.

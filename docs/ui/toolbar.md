@@ -67,9 +67,16 @@ leaving every overlay alone. Pressing the view already showing does nothing.
 
 `hdibToolbar` (id 178) is 432 by 23 — **eighteen cells of 24 by 23, one row**,
 and every button's picture is used exactly once. `DrawBitmapButton`
-(`1068:078c`) draws a 3-D frame, then blits `ibtn * 0x18` from it. A narrow
-button gets only the first **7** pixels of its cell, and a pressed button has
-both frame and picture nudged a pixel down and right.
+(`1068:078c`) draws a 3-D frame, then blits `ibtn * 0x18` from it with a plain
+`SRCCOPY`. A narrow button gets only the first **7** pixels of its cell, and a
+pressed button has both frame and picture nudged a pixel down and right.
+
+The sheet's background is keyed **magenta** (`FF00FF`, colour-table entry
+253), and nothing in the blit is transparent: what makes it disappear is
+`FGetSystemColors` (`1018:08d2`), which writes `COLOR_BTNFACE` straight into
+that entry of the DIB's colour table when the system colours are read — and
+entry 249 of the designer's plaque (id 449) with it. `Art` does the same at
+load, with the 3.1 face (`art::SYSTEM_COLOURED`, `read_bitmap_recoloured`).
 
 ## How a button is drawn
 

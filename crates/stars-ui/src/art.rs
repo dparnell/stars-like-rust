@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 
-use stars_formats::resources::{art::Cell, read_bitmap, resources, Image, Name, RT_BITMAP};
+use stars_formats::resources::{art::Cell, resources, Image, Name, RT_BITMAP};
 
 /// The pictures out of one copy of the game.
 pub struct Art {
@@ -95,7 +95,17 @@ impl Art {
     /// One decoded sheet, decoding it the first time it is asked for.
     pub fn sheet(&mut self, name: &Name) -> Option<&Image> {
         if !self.decoded.contains_key(name) {
-            let image = read_bitmap(&self.executable, name).ok();
+            // The toolbar and the plaque get the button face written into
+            // one entry of their palette, as `FGetSystemColors` writes it —
+            // the 3.1 default face, as the toolbar's bevels use.
+            let recolour: Vec<(usize, [u8; 3])> = stars_formats::resources::art::SYSTEM_COLOURED
+                .iter()
+                .filter(|(id, _)| name.matches(&Name::Id(*id)))
+                .map(|(_, entry)| (*entry, crate::toolbar::FACE))
+                .collect();
+            let image =
+                stars_formats::resources::read_bitmap_recoloured(&self.executable, name, &recolour)
+                    .ok();
             self.decoded.insert(name.clone(), image);
         }
         self.decoded.get(name).and_then(Option::as_ref)
