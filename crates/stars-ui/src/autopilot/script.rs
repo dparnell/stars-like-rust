@@ -1450,17 +1450,31 @@ pub fn tutorial(shell: &mut Shell) {
     // The Mini-Miner is fleet 1 here — Mini-Miner #2, in the number Long
     // Range Scout #2 left — where the original's was fleet 7, so the
     // page's merge rung is not seen done; the order is given all the
-    // same.
-    let miner = {
+    // same. Stove Top may have finished it a year before the original's
+    // did (the freighter's loads at Prune come out a little ahead), in
+    // which case there is no message this year to Goto from and it is
+    // picked out by hand, as the page's *Goto* would have.
+    let (miner, built_this_year) = {
         let game = shell.app.game.as_ref().expect("a game");
-        game.fleets
+        let miner = game
+            .fleets
             .iter()
             .find(|f| f.owner == 0 && f.stacks.iter().any(|s| s.design == 6))
             .map(|f| f.id)
-            .expect("the Mini-Miner")
+            .expect("the Mini-Miner");
+        let built_this_year = game
+            .messages
+            .iter()
+            .any(|m| m.player == 0 && m.goto(&[1]) == stars_core::message::Goto::Fleet(miner));
+        (miner, built_this_year)
     };
-    shell.next_message_until(stars_core::message::Goto::Fleet(miner));
-    shell.press("messages", "Goto");
+    if built_this_year {
+        shell.next_message_until(stars_core::message::Goto::Fleet(miner));
+        shell.press("messages", "Goto");
+    } else {
+        assert!(shell.app.goto_fleet(miner), "the Mini-Miner is ours");
+        shell.frame();
+    }
     assert_eq!(shell.selected_fleet_id(), Some(miner), "the Mini-Miner");
     shell.shift_click_planet(PRUNE);
     shell.press("fleet", "Waypoint Task");
@@ -2014,7 +2028,25 @@ pub fn tutorial(shell: &mut Shell) {
         .expect("the colonists gauge")
         .rect;
     shell.click_at(egui::pos2(gauge.right() - 1.0, gauge.center().y));
-    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard[3], 210);
+    // Filled to the hold: a Teamster's 210, twice that when Stove Top
+    // built the pair together.
+    let hold = {
+        let game = shell.app.game.as_ref().expect("a game");
+        let fleet = &game.fleets[shell.app.selection.fleet.expect("in hand")];
+        fleet
+            .stacks
+            .iter()
+            .map(|s| {
+                game.designs[0]
+                    .get(usize::from(s.design))
+                    .and_then(stars_core::design::ShipDesign::cargo_capacity)
+                    .unwrap_or(0)
+                    * s.count
+            })
+            .sum::<i32>()
+    };
+    assert_eq!(hold % 210, 0, "Teamsters");
+    assert_eq!(shell.app.xfer.as_ref().expect("up").aboard[3], hold);
     shell.press("xfer", "OK");
     shell.frame();
     assert_eq!(shell.page(), 60, "the loaded freighter turns the page");
@@ -2035,28 +2067,57 @@ pub fn tutorial(shell: &mut Shell) {
             "DropCol unloads the colonists"
         );
     }
+    // Which Teamster waits at home to be merged into #4 depends on how
+    // Stove Top's queue fell: Teamster #3 when the freighters came one a
+    // year, or none at all when the year's pair came out as one fleet and
+    // has just been sent off. The merge pane lists whoever is here.
     shell.right_click_planet_and_pick(STOVE_TOP, "Teamster #4");
     assert_eq!(shell.selected_fleet_id(), Some(3), "Teamster #4");
-    shell.press("fleet", "Merge");
-    shell.press("merge", "Teamster #3");
-    shell.press("merge", "OK");
-    shell.frame();
-    {
-        let game = shell.app.game.as_ref().expect("a game");
-        let merged = game
-            .fleets
+    let sent = shell.app.game.as_ref().and_then(|game| {
+        game.fleets
             .iter()
-            .find(|f| f.owner == 0 && f.id == 3)
-            .expect("Teamster #4");
-        assert_eq!(
-            merged.stacks.iter().map(|s| s.count).sum::<i32>(),
-            2,
-            "two Teamsters in the one fleet"
-        );
-        assert!(
-            !game.fleets.iter().any(|f| f.owner == 0 && f.id == 2),
-            "Teamster #3 absorbed"
-        );
+            .find(|f| f.owner == 0 && f.waypoints.len() > 1 && f.cargo.colonists > 0)
+            .map(|f| f.id)
+    });
+    shell.press("fleet", "Merge");
+    let rows: Vec<String> = shell
+        .app
+        .drawn
+        .iter()
+        .filter(|w| w.scope == "merge" && w.label.starts_with("Teamster #"))
+        .map(|w| w.label.clone())
+        .collect();
+    let partner = rows
+        .iter()
+        .find(|label| {
+            !label.starts_with("Teamster #4")
+                && sent.is_none_or(|id| !label.starts_with(&format!("Teamster #{} ", id + 1)))
+        })
+        .cloned();
+    match partner {
+        Some(label) => {
+            // With two fleets at the spot both start ticked; with more,
+            // only the one in hand, and the partner is ticked by hand.
+            if rows.len() > 2 {
+                shell.press("merge", &label);
+            }
+            shell.press("merge", "OK");
+            shell.frame();
+            let game = shell.app.game.as_ref().expect("a game");
+            let merged = game
+                .fleets
+                .iter()
+                .find(|f| f.owner == 0 && f.id == 3)
+                .expect("Teamster #4");
+            assert!(
+                merged.stacks.iter().map(|s| s.count).sum::<i32>() >= 2,
+                "two Teamsters in the one fleet"
+            );
+        }
+        None => {
+            shell.press("merge", "Cancel");
+            shell.frame();
+        }
     }
 
     // Page 61: a Mini-Miner into Stove Top's queue; Armed Probe #9's
@@ -2608,15 +2669,34 @@ pub fn tutorial(shell: &mut Shell) {
         shell.press("messages", "Next");
     }
     // Teamster #7, its colonists put down at Sea Squared and too little
-    // fuel to come home, scrapped where it sits.
-    shell.right_click_planet_and_pick(SEA_SQUARED, "Teamster #7");
+    // fuel to come home, scrapped where it sits — which is Sea Squared
+    // with one Teamster's tank, and wherever a pair's larger tank got it.
+    let at_sea_squared = shell.app.game.as_ref().is_some_and(|game| {
+        game.fleets
+            .iter()
+            .any(|f| f.owner == 0 && f.id == 6 && f.orbiting == Some(SEA_SQUARED as u16))
+    });
+    if at_sea_squared {
+        shell.right_click_planet_and_pick(SEA_SQUARED, "Teamster #7");
+    } else {
+        assert!(shell.app.goto_fleet(6), "Teamster #7 is still ours");
+        shell.frame();
+    }
     assert_eq!(shell.selected_fleet_id(), Some(6), "Teamster #7");
     shell.press("fleet", "Waypoint Task");
     shell.press("fleet", "Scrap Fleet");
     {
         let game = shell.app.game.as_ref().expect("a game");
         let fleet = &game.fleets[shell.app.selection.fleet.expect("in hand")];
-        assert_eq!(fleet.waypoints[0].task, stars_formats::task::SCRAP);
+        // On the waypoint in hand: where it sits, or where it is bound.
+        assert!(
+            fleet
+                .waypoints
+                .iter()
+                .any(|w| w.task == stars_formats::task::SCRAP),
+            "{:?}",
+            fleet.waypoints
+        );
     }
 
     // Page 73, still 2429: the B-17 Bomber — Radiating Hydro-Ram Scoops,
