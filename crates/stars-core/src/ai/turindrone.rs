@@ -95,6 +95,9 @@ pub struct Report {
     /// Queues unblocked by `AddMinesToBlockedQueues`, as `(planet, mines)`
     /// — `0` mines is auto alchemy put in front instead.
     pub unblocked: Vec<(i16, i32)>,
+    /// Planets fortified by `FixPlanetsUnderAttack`, as
+    /// `(planet, defences, alchemy)` put at the front of the queue.
+    pub fortified: Vec<(i16, i32, i32)>,
     /// Fleets split by `SplitOutShdefs`, as `(fleet, new fleet)`.
     pub split: Vec<(u16, u16)>,
     /// Fleets whose stale orders the first pass cut, by fleet id.
@@ -2280,8 +2283,8 @@ pub(crate) fn target_armada_as(
 ///   `FQueueAiScanner` — which never queues one, see [`queue_ai_scanner`] —
 ///   or defences by [`queue_ai_defenses`]; and when none of those wrote,
 ///   terraforming by [`crate::ai::production::queue_ai_terraforming`];
-/// * `FixPlanetsUnderAttack`, which never runs in a tutorial game (flag
-///   bit 3) and is not written;
+/// * [`fix_planets_under_attack`], from turn `20 + 10 × size` and never in
+///   a tutorial game;
 /// * [`add_mines_to_blocked_queues`].
 pub(crate) fn basic_tasks(
     state: &mut GameState,
@@ -2435,7 +2438,144 @@ pub(crate) fn basic_tasks(
         }
     }
 
+    // `1090:9776`: not in a tutorial game, and only from the turn the
+    // galaxy's size sets.
+    if !state.tutorial_game && i32::from(state.turn) >= 20 + 10 * i32::from(state.galaxy_size) {
+        fix_planets_under_attack(state, player, me, report);
+    }
+
     add_mines_to_blocked_queues(state, player, me, report);
+}
+
+/// `MarkPlanetsUnderAttack` (`1090:6982`), run by `DoAiTurn` before the
+/// personality's turn: an own planet is under attack when another
+/// player's fleet in orbit of it carries a **bomber** — any stack whose
+/// design's hull is 16 to 19, the Mini Bomber through the B-52.
+pub(crate) fn planets_under_attack(state: &GameState, me: i16) -> Vec<i16> {
+    let mut out = Vec::new();
+    for fleet in state.fleets.iter().filter(|f| f.owner != me) {
+        let Some(orbiting) = fleet.orbiting.and_then(|p| i16::try_from(p).ok()) else {
+            continue;
+        };
+        let designs = usize::try_from(fleet.owner)
+            .ok()
+            .and_then(|o| state.designs.get(o))
+            .map_or(&[][..], Vec::as_slice);
+        let bombers = fleet.stacks.iter().any(|s| {
+            s.count > 0
+                && designs
+                    .get(usize::from(s.design))
+                    .is_some_and(|d| (16..=19).contains(&d.hull_id))
+        });
+        if !bombers {
+            continue;
+        }
+        if state
+            .planets
+            .iter()
+            .any(|p| p.id == orbiting && p.owner == Some(me))
+            && !out.contains(&orbiting)
+        {
+            out.push(orbiting);
+        }
+    }
+    out
+}
+
+/// `FixPlanetsUnderAttack` (`1090:69e6`) and `QuickBuildDefenses`
+/// (`1090:6a7e`): every own planet a bomber fleet sits over gets defences
+/// rushed to the front of its queue.
+///
+/// Nothing is done for a planet whose queue already holds defences, or
+/// with fewer than fifty resources available, or with no room for more
+/// (`CMaxDefenses` less those built). Otherwise the planet can afford
+/// `min(minerals / 5)` defences by its minerals (at most 100) and
+/// `resources / 25` by its resources — less a sixth of that when it is
+/// more than five — capped at the room; and after a tenth of the
+/// resources is set aside, if the minerals are the shorter, mineral
+/// alchemy makes up the difference: `(resources − alchemy cost ×
+/// mineral count) / 150` more defences, and five units of alchemy for
+/// each. The alchemy goes in front of the defences, both in front of
+/// everything else (`AddItemToQueue` with `mdAddItem` 0).
+fn fix_planets_under_attack(state: &mut GameState, player: usize, me: i16, report: &mut Report) {
+    use crate::production::item;
+    use crate::race::lrt;
+
+    let attacked = planets_under_attack(state, me);
+    if attacked.is_empty() {
+        return;
+    }
+    let race = state.players[player].race.clone();
+    let research_pct = state.players[player].research_pct;
+    let energy = i16::from(state.players[player].research.levels[0]);
+    let alchemy_cost = if race.has_lrt(lrt::MINERAL_ALCHEMY) {
+        25
+    } else {
+        100
+    };
+    for id in attacked {
+        let Some(index) = state.planets.iter().position(|p| p.id == id) else {
+            continue;
+        };
+        let planet = &state.planets[index];
+        if planet
+            .queue
+            .iter()
+            .any(|e| !e.ship && e.item == item::DEFENSE)
+        {
+            continue;
+        }
+        let available =
+            crate::ai::production::resources_available(planet, &race, research_pct, energy);
+        let mut resources = available[3];
+        if resources < 50 {
+            continue;
+        }
+        let room =
+            i32::from(crate::resources::max_defenses(planet, &race)) - i32::from(planet.defenses);
+        if room <= 0 {
+            continue;
+        }
+        let by_minerals = (0..3).map(|k| available[k] / 5).fold(100, i32::min);
+        let mut by_resources = resources / 25;
+        if by_resources > 5 {
+            by_resources -= by_resources / 6;
+        }
+        resources -= resources / 10;
+        let by_resources = by_resources.min(room);
+        let (defenses, alchemy) = if by_minerals < by_resources {
+            let more = ((resources - alchemy_cost * by_minerals) / 150).max(0);
+            (by_minerals + more, more * 5)
+        } else {
+            (by_resources, 0)
+        };
+        let queue = &mut state.planets[index].queue;
+        if defenses > 0 {
+            queue.insert(
+                0,
+                QueueItem {
+                    count: defenses,
+                    item: item::DEFENSE,
+                    ship: false,
+                    completion: 0,
+                },
+            );
+        }
+        if alchemy > 0 {
+            queue.insert(
+                0,
+                QueueItem {
+                    count: alchemy,
+                    item: item::ALCHEMY,
+                    ship: false,
+                    completion: 0,
+                },
+            );
+        }
+        if defenses > 0 || alchemy > 0 {
+            report.fortified.push((id, defenses, alchemy));
+        }
+    }
 }
 
 /// `FQueueAiScanner` (`1090:90d6`): a planetary scanner for a planet without

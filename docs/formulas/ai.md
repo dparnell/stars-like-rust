@@ -1034,8 +1034,26 @@ colony ship's planet (`Claimed`, so the next colony ship of the turn
 goes elsewhere). `[+2] & 0x80`, which `IdTargetFreighter` tests on a
 hostile own planet, is set by nothing in the TurinDrone's turn.
 
-Not yet: `FixPlanetsUnderAttack`, which never runs in a tutorial game
-(flag bit 3); the `det` bit 15 the first pass clears and the colonise
+`FixPlanetsUnderAttack` (`1090:69e6`), last in `HandleBasicAiTasks`
+before `AddMinesToBlockedQueues` and only from turn `20 + 10 × size`
+and never in a tutorial game (game flag bit 3, `1090:9776`): every own
+planet marked under attack gets `QuickBuildDefenses` (`1090:6a7e`). The
+mark is `MarkPlanetsUnderAttack` (`1090:6982`), which `DoAiTurn` runs
+first — scratch byte `[8]` of an own planet with another player's fleet in
+orbit carrying a **bomber**, any stack whose hull is 16 to 19. The rush:
+nothing for a planet with defences (item 9) already queued, under fifty
+resources available, or no room (`CMaxDefenses` less those built);
+otherwise `min(mineral / 5)` defences by minerals (from 100 down) and
+`resources / 25` by resources, less a sixth when over five, capped at the
+room; a tenth of the resources set aside; and when the minerals are the
+shorter, `(resources − alchemy cost × mineral count) / 150` more, with
+five units of mineral alchemy each. The alchemy goes in front of the
+defences and both in front of the queue (`AddItemToQueue`, mode 0).
+`turindrone::fix_planets_under_attack` and `planets_under_attack`, with
+`tests/turindrone.rs::a_planet_under_bombers_rushes_its_defences`. The
+differential runs over the two corpus games come out as before with it in.
+
+Not yet: the `det` bit 15 the first pass clears and the colonise
 and armada targeting set (nothing in the TurinDrone's turn reads it). A
 fleet of
 battleships or Rogues with no bombers

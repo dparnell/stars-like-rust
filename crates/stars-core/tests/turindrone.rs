@@ -1010,3 +1010,115 @@ fn colony_ships_of_one_turn_claim_their_planets() {
         report.colonising
     );
 }
+
+/// `FixPlanetsUnderAttack`: an own planet with a bomber fleet of somebody
+/// else's in orbit gets defences rushed to the front of its queue —
+/// mineral alchemy ahead of them when the minerals are short — but only
+/// from turn `20 + 10 × size`, never in a tutorial game, never with
+/// defences already queued, and never with under fifty resources.
+#[test]
+fn a_planet_under_bombers_rushes_its_defences() {
+    use stars_core::fleet::{Fleet, ShipStack};
+    use stars_core::production::item;
+
+    let setup = || {
+        let mut state = tutorial_world();
+        state.tutorial_game = false;
+        state.turn = 20 + 10 * state.galaxy_size;
+        let home = state
+            .planets
+            .iter()
+            .position(|p| p.owner == Some(1))
+            .expect("home");
+        // Player 0's Gadfly — a Mini Bomber — parked over the Berserkers'
+        // home world.
+        let slot = state.designs[0].len();
+        state.designs[0]
+            .push(stars_core::startup::SHIPS[stars_core::startup::ship::GADFLY].design());
+        let at = state.planets[home].position.expect("placed");
+        state.fleets.push(Fleet {
+            id: 200,
+            owner: 0,
+            position: at,
+            orbiting: Some(u16::try_from(state.planets[home].id).unwrap()),
+            stacks: vec![ShipStack {
+                design: u8::try_from(slot).unwrap(),
+                count: 1,
+                damaged_pct: 0,
+                damage_pct: 0,
+            }],
+            cargo: Default::default(),
+            battle_plan: 0,
+            warp: None,
+            waypoints: Vec::new(),
+            name: None,
+            repeat_orders: false,
+            direction: None,
+        });
+        state.planets[home].queue.clear();
+        state.planets[home].defenses = 0;
+        state.planets[home].surface_min = [5000, 5000, 5000];
+        (state, home)
+    };
+
+    let (mut state, home) = setup();
+    let id = state.planets[home].id;
+    let mut rng = stars_core::rng::Rng::randomize(7);
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert_eq!(report.fortified.len(), 1, "{:?}", report.fortified);
+    let (planet, defenses, alchemy) = report.fortified[0];
+    assert_eq!(planet, id);
+    assert!(defenses > 0);
+    assert_eq!(alchemy, 0, "minerals aplenty: no alchemy");
+    let queue = &state.planets[home].queue;
+    assert!(!queue.is_empty());
+    assert_eq!(queue[0].item, item::DEFENSE, "at the front: {queue:?}");
+    assert_eq!(queue[0].count, defenses);
+
+    // With no minerals at all, alchemy goes in front of the defences: the
+    // resources over the tenth set aside buy a defence's worth per 150.
+    let (mut state, home) = setup();
+    state.planets[home].surface_min = [0, 0, 0];
+    state.planets[home].mines = 0;
+    // Under 160,000 people, so `FQueueAiDefenses` queues nothing first;
+    // the factories make the resources.
+    state.planets[home].pop = 1500;
+    state.planets[home].factories = 300;
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert!(
+        !report.fortified.is_empty(),
+        "queue {:?}",
+        state.planets[home].queue
+    );
+    let (_, defenses, alchemy) = report.fortified[0];
+    assert!(alchemy > 0, "{:?}", report.fortified);
+    assert_eq!(alchemy % 5, 0, "five units a defence");
+    let queue = &state.planets[home].queue;
+    assert_eq!(queue[0].item, item::ALCHEMY);
+    assert_eq!(queue[1].item, item::DEFENSE);
+    assert_eq!(queue[1].count, defenses);
+
+    // Too early: nothing.
+    let (mut state, _) = setup();
+    state.turn -= 1;
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert!(report.fortified.is_empty());
+
+    // A tutorial game: nothing.
+    let (mut state, _) = setup();
+    state.tutorial_game = true;
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert!(report.fortified.is_empty());
+
+    // No bombers aboard — a scout instead — and the planet is not under
+    // attack.
+    let (mut state, _) = setup();
+    let scout = state.designs[0]
+        .iter()
+        .position(|d| d.hull_id == 4)
+        .expect("a scout design");
+    let last = state.fleets.len() - 1;
+    state.fleets[last].stacks[0].design = u8::try_from(scout).unwrap();
+    let report = turindrone::turn(&mut state, 1, &mut rng);
+    assert!(report.fortified.is_empty());
+}
