@@ -116,7 +116,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     // Advance while playing, a frame every `VCR_FRAME` seconds — longer
     // when the frame's torpedoes are still flying; the shell keeps the
     // repaints coming whenever `playing` is set.
-    let hold = crate::app::VCR_FRAME
+    let hold = crate::app::vcr_frame_hold(app.vcr_speed)
         .max(flight_seconds(vcr.frame().map(|f| &f.event), vcr.tokens()) + 0.15);
     if app.playing && now - app.vcr_frame_entered >= hold {
         if vcr.step() {
@@ -131,22 +131,6 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     if app.playing {
         ui.ctx().request_repaint();
     }
-
-    // `DrawVCR` (`10e8:1c62`): "Phase %d/%d Round %d/%d" over the panel,
-    // then what the frame did.
-    ui.label(format!(
-        "Phase {}/{}  Round {}/{}",
-        vcr.position(),
-        vcr.len(),
-        u32::from(vcr.round()) + 1,
-        vcr.frames().last().map_or(1, |f| u32::from(f.round) + 1)
-    ));
-    if let Some(frame) = vcr.frame() {
-        ui.label(describe(&frame.event));
-    } else {
-        ui.label("before the first move");
-    }
-    ui.separator();
 
     // The board, `DrawVCR`'s way: ten squares of `dxyVCRSquare` three
     // apart from an origin of (10, 10), each framed in black; an empty one
@@ -310,62 +294,13 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             }
         }
 
-        // The panel beside it.
+        // The panel beside it, as `DrawVCR` writes it.
         ui.vertical(|ui| {
             ui.set_min_width(220.0);
-            let Some(vcr) = app.vcr.as_ref() else {
-                return;
-            };
-            if let Some(index) = vcr.focus {
-                if let Some(token) = vcr.tokens().get(index) {
-                    if let Some((x, y)) = token.square {
-                        ui.label(format!("Selection {x},{y}"));
-                    }
-                    ui.colored_label(
-                        player_colour(i16::from(token.player)),
-                        app.player_name(usize::from(token.player)),
-                    );
-                    ui.label(format!("{} ({})", design_name(app, token), token.ships));
-                    if !token.active || token.ships == 0 {
-                        ui.label("Dead");
-                    } else {
-                        ui.label(format!("Shields: {}", token.shields * token.ships));
-                    }
-                    ui.separator();
-                }
-            }
-            ui.heading("tokens");
-            for token in vcr.tokens() {
-                let colour = player_colour(i16::from(token.player));
-                let state = if !token.active || token.ships == 0 {
-                    "destroyed".to_string()
-                } else {
-                    format!("{} ships", token.ships)
-                };
-                let row = ui.selectable_label(
-                    vcr.focus == Some(token.index),
-                    egui::RichText::new(format!(
-                        "{}: {} — {state}{}",
-                        token.index,
-                        design_name(app, token),
-                        if token.armed { "" } else { ", unarmed" }
-                    ))
-                    .color(colour),
-                );
-                if row.clicked() {
-                    clicked_token = Some(token.index);
-                }
-            }
-            ui.separator();
-            ui.heading("losses");
-            let Some(vcr) = app.vcr.as_ref() else {
-                return;
-            };
-            for (player, lost) in vcr.losses() {
-                ui.colored_label(
-                    player_colour(i16::from(player)),
-                    format!("{}: {lost} ships", app.player_name(usize::from(player))),
-                );
+            let mut speed_change: i8 = 0;
+            text_panel(app, ui, &mut speed_change, &mut clicked_token);
+            if speed_change != 0 {
+                app.vcr_speed = app.vcr_speed.saturating_add_signed(speed_change).min(3);
             }
         });
     });
@@ -379,6 +314,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     // when the square's stack is already the focus, as `VCRDlg`'s
     // `WM_LBUTTONDOWN` cycles them.
     if let Some(at) = clicked_square {
+        app.vcr_square = Some(at);
         if let Some(vcr) = app.vcr.as_mut() {
             let here: Vec<usize> = vcr
                 .tokens()
@@ -391,6 +327,248 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                 None => here.first().copied(),
             };
         }
+    }
+}
+
+/// The panel beside the board, line for line as `DrawVCR` (`10e8:1c62`)
+/// writes it in Arial 8 to the right of the board.
+///
+/// First the phase and round — `viStepVCRCur + 2` of `vcStepVCR + 2`, so
+/// the board before anything has happened reads phase 1 — and the
+/// playback speed with its two spin buttons. Then, once a step stands on
+/// the board, whose token acted: the owner's name, the design (and the
+/// ships, when more than one; blue when it is the focus) and, for a shot,
+/// `attacks <owner>`, the target's design (red for a kill), where it stood,
+/// and what the shot did — the shield damage, the armour damage, the ships
+/// destroyed, `no damage` for torpedoes that all missed, and the deflection
+/// line in red. From 200 pixels down, the selection: the square, the
+/// focus token's owner and design (the ships lost since the start after a
+/// plus), `Dead`, or its initiative and moves on one line, armour and
+/// damage on the next, shields, jamming when it has any, tactic and the
+/// two target classes. The `Goto` button the original ends on is not
+/// drawn.
+fn text_panel(
+    app: &App,
+    ui: &mut egui::Ui,
+    speed_change: &mut i8,
+    clicked_token: &mut Option<usize>,
+) {
+    let Some(vcr) = app.vcr.as_ref() else {
+        return;
+    };
+    let small = |text: String| egui::RichText::new(text).small();
+    let steps = vcr.len();
+    ui.label(small(format!(
+        "Phase {}/{}, Round {}/{}",
+        vcr.position() + 1,
+        steps + 1,
+        u32::from(vcr.round()) + 1,
+        vcr.frames().last().map_or(1, |f| u32::from(f.round) + 1)
+    )));
+    ui.horizontal(|ui| {
+        ui.label(small(format!("Playback speed: {}", app.vcr_speed + 1)));
+        let spin = Vec2::new(14.0, 14.0);
+        if bevel_button(ui, "speed up", Glyph::Up, app.vcr_speed < 3, spin).clicked() {
+            *speed_change = 1;
+        }
+        if bevel_button(ui, "speed down", Glyph::Down, app.vcr_speed > 0, spin).clicked() {
+            *speed_change = -1;
+        }
+    });
+
+    let name_of = |token: &crate::vcr::Token| -> String {
+        let name = design_name(app, token);
+        if token.ships >= 2 {
+            format!("{name} ({})", token.ships)
+        } else {
+            name
+        }
+    };
+    // The original's dark blue and dark red on button-face grey, lifted
+    // to read on this shell's dark ground.
+    let blue = egui::Color32::from_rgb(0x80, 0xb0, 0xff);
+    let red = egui::Color32::from_rgb(0xff, 0x70, 0x70);
+
+    if let Some(frame) = vcr.frame() {
+        ui.add_space(4.0);
+        let actor = match &frame.event {
+            Event::Move { token, .. } | Event::Disengage { token } => *token,
+            Event::Fire { attacker, .. } => *attacker,
+        };
+        if let Some(token) = vcr.tokens().get(actor) {
+            ui.label(small(possessive(
+                &app.player_name(usize::from(token.player)),
+            )));
+            let line = small(name_of(token));
+            if vcr.focus == Some(actor) {
+                ui.label(line.color(blue));
+            } else {
+                ui.label(line);
+            }
+        }
+        if let Event::Fire { target, shots, .. } = &frame.event {
+            if let Some(hit) = vcr.tokens().get(*target) {
+                ui.label(small(format!(
+                    "attacks {}",
+                    possessive(&app.player_name(usize::from(hit.player)))
+                )));
+                let killed: u32 = shots.iter().map(|s| s.ships_killed).sum();
+                let line = small(name_of(hit));
+                if killed > 0 {
+                    ui.label(line.color(red));
+                } else {
+                    ui.label(line);
+                }
+                if let Some((x, y)) = hit.square {
+                    ui.label(small(format!("at {x},{y} doing")));
+                }
+                let shields: u32 = shots.iter().map(|s| s.shield_damage).sum();
+                let armor: u32 = shots.iter().map(|s| s.armor_damage).sum();
+                let deflected = shots.iter().any(|s| s.deflected());
+                if shields > 0 {
+                    let tail = if armor > 0 {
+                        " and"
+                    } else if killed > 0 {
+                        ","
+                    } else {
+                        "."
+                    };
+                    ui.label(small(format!("{shields} damage to shields{tail}")));
+                }
+                if armor > 0 {
+                    ui.label(small(format!(
+                        "{armor} damage to armor{}",
+                        if killed > 0 { "," } else { "." }
+                    )));
+                }
+                if deflected && shields == 0 && armor == 0 {
+                    ui.label(small("no damage.".to_string()));
+                }
+                if killed > 0 {
+                    ui.label(small(format!(
+                        "destroying {killed} ship{}.",
+                        if killed == 1 { "" } else { "s" }
+                    )));
+                }
+                if deflected {
+                    ui.label(small("Torpedoes deflected.".to_string()).color(red));
+                }
+            }
+        }
+    }
+
+    // The selection block, 200 pixels down the panel.
+    ui.add_space(12.0);
+    let focused = vcr.focus.and_then(|i| vcr.tokens().get(i).copied());
+    let square = focused.and_then(|t| t.square).or(app.vcr_square);
+    if let Some((x, y)) = square {
+        ui.label(small(format!("Selection: {x},{y}")));
+    }
+    if let Some(token) = focused {
+        ui.label(small(app.player_name(usize::from(token.player))));
+        let mut line = name_of(&token);
+        let lost = token.ships_at_start - token.ships;
+        if lost > 0 {
+            line.push_str(&format!(" +{lost}"));
+        }
+        ui.label(small(line).color(blue));
+        if !token.active || token.ships == 0 {
+            ui.label(small("Dead".to_string()));
+        } else {
+            let moves = if token.starbase {
+                "--".to_string()
+            } else {
+                crate::app::battle_moves(token.speed).to_string()
+            };
+            let initiative = if token.initiative == 0xff {
+                0
+            } else {
+                token.initiative
+            };
+            ui.horizontal(|ui| {
+                ui.label(small(format!("Initiative: {initiative}")));
+                ui.label(small(format!("Movement: {moves}")));
+            });
+            let armor = app
+                .game
+                .as_ref()
+                .and_then(|g| g.designs.get(usize::from(token.player)))
+                .and_then(|d| d.get(usize::from(token.design)))
+                .and_then(|d| d.armor(false))
+                .map(|a| i64::from(a) * i64::from(token.ships));
+            ui.horizontal(|ui| {
+                ui.label(small(match armor {
+                    Some(a) => format!("Armor: {a}"),
+                    None => "Armor: ?".to_string(),
+                }));
+                let pct_ships = token.damage_at_start & 0x7f;
+                let pct_dp = token.damage_at_start >> 7;
+                if pct_dp == 0 {
+                    ui.label(small("Damage: none".to_string()));
+                } else {
+                    let damaged = (i64::from(token.ships) * i64::from(pct_ships) / 100).max(1);
+                    let pct = (u32::from(pct_dp) / 5).max(1);
+                    ui.label(
+                        small(if token.starbase {
+                            format!("Damage: {pct}%")
+                        } else {
+                            format!("Damage: {damaged} @ {pct}%")
+                        })
+                        .color(red),
+                    );
+                }
+            });
+            let shields = i64::from(token.shields) * i64::from(token.ships);
+            ui.label(small(if shields > 0 {
+                format!("Shields: {shields}")
+            } else {
+                "Shields: none".to_string()
+            }));
+            if token.jam > 0 {
+                ui.label(small(format!("Jamming: {}%", token.jam)));
+            }
+            if !token.starbase {
+                let tactic = token.tactic().map_or("Disengage", |t| t.name());
+                ui.label(small(format!("Tactic: {tactic}")));
+                let (primary, secondary) = token.targets();
+                ui.label(small(format!("Primary target: {}", primary.name())));
+                ui.label(small(format!("Secondary target: {}", secondary.name())));
+            }
+        }
+    }
+
+    // The tokens, to pick one out by name — this project's own list.
+    ui.separator();
+    for token in vcr.tokens() {
+        let colour = player_colour(i16::from(token.player));
+        let state = if !token.active || token.ships == 0 {
+            "destroyed".to_string()
+        } else {
+            format!("{} ships", token.ships)
+        };
+        let row = ui.selectable_label(
+            vcr.focus == Some(token.index),
+            egui::RichText::new(format!(
+                "{}: {} — {state}",
+                token.index,
+                design_name(app, token)
+            ))
+            .small()
+            .color(colour),
+        );
+        if row.clicked() {
+            *clicked_token = Some(token.index);
+        }
+    }
+}
+
+/// A player's name as the owner of something: `PszPlayerName` with its
+/// possessive flag, an `'s` on the end.
+fn possessive(name: &str) -> String {
+    if name.ends_with('s') {
+        format!("{name}'")
+    } else {
+        format!("{name}'s")
     }
 }
 
@@ -677,6 +855,10 @@ enum Glyph {
     End,
     /// A caption in words.
     Text,
+    /// A spin button's upward triangle.
+    Up,
+    /// A spin button's downward triangle.
+    Down,
 }
 
 impl Glyph {
@@ -698,7 +880,18 @@ impl Glyph {
 /// pressed a pixel down and right while held, its lettering engraved when
 /// it is disabled.
 fn transport_button(ui: &mut egui::Ui, label: &str, glyph: Glyph, enabled: bool) -> egui::Response {
-    let size = Vec2::new(48.0, 22.0);
+    bevel_button(ui, label, glyph, enabled, Vec2::new(48.0, 22.0))
+}
+
+/// A push button in the Windows face at any size — the transport's, and
+/// the two small spin buttons beside the playback speed.
+fn bevel_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    glyph: Glyph,
+    enabled: bool,
+    size: Vec2,
+) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(
         size,
         if enabled {
@@ -828,6 +1021,23 @@ fn transport_button(ui: &mut egui::Ui, label: &str, glyph: Glyph, enabled: bool)
                 tri(painter, c.x + 3.0, true, colour);
                 bar(painter, c.x + 9.0, colour);
             }
+            Glyph::Up | Glyph::Down => {
+                let s = 3.0;
+                let (tip, base) = if glyph == Glyph::Up {
+                    (c.y - s, c.y + s)
+                } else {
+                    (c.y + s, c.y - s)
+                };
+                painter.add(egui::Shape::convex_polygon(
+                    vec![
+                        Pos2::new(c.x - s, base),
+                        Pos2::new(c.x, tip),
+                        Pos2::new(c.x + s, base),
+                    ],
+                    colour,
+                    Stroke::NONE,
+                ));
+            }
             Glyph::Text => {
                 painter.text(
                     c,
@@ -847,30 +1057,4 @@ fn transport_button(ui: &mut egui::Ui, label: &str, glyph: Glyph, enabled: bool)
         draw(painter, Vec2::ZERO, ink);
     }
     response
-}
-
-/// One line describing what a frame did.
-fn describe(event: &Event) -> String {
-    match event {
-        Event::Move { token, from, to } => format!(
-            "token {token} moves ({}, {}) → ({}, {})",
-            from.0, from.1, to.0, to.1
-        ),
-        Event::Fire {
-            attacker,
-            target,
-            range,
-            ships_killed,
-            ..
-        } => {
-            if *ships_killed > 0 {
-                format!(
-                    "token {attacker} fires on {target} at range {range} — {ships_killed} destroyed"
-                )
-            } else {
-                format!("token {attacker} fires on {target} at range {range}")
-            }
-        }
-        Event::Disengage { token } => format!("token {token} leaves the battle"),
-    }
 }

@@ -86,6 +86,13 @@ impl Screen {
 /// is the middle of its range.
 pub const VCR_FRAME: f64 = 0.6;
 
+/// How long a VCR frame is held at a playback speed: [`VCR_FRAME`] at
+/// speed 2 (shown as 3), twice that at the slowest, half at the fastest.
+#[must_use]
+pub fn vcr_frame_hold(speed: u8) -> f64 {
+    VCR_FRAME * f64::from(4 - speed.min(3)) / 2.0
+}
+
 /// Where a planet's starbase design sits in the flattened design list.
 ///
 /// `PLANET.isb` counts within the **starbase** designs — the original reads
@@ -610,6 +617,14 @@ pub struct App {
     /// frame is held for [`VCR_FRAME`] while playing, and the torpedoes
     /// fly across the first half of that.
     pub vcr_frame_entered: f64,
+    /// The VCR's playback speed, `viSpeedVCR`, 0 to 3 — shown one higher
+    /// beside its spin buttons, and stretching a frame's hold at the slow
+    /// end.
+    pub vcr_speed: u8,
+    /// The square the VCR's selection frame stands on when no token is in
+    /// hand (`vbrcVCRFocus` with `viVCRFocus == -1`): a click on an empty
+    /// square.
+    pub vcr_square: Option<(u8, u8)>,
     /// The most recent error, for the frontend to show.
     pub error: Option<String>,
     /// What the last generated turn did, for the frontend to show.
@@ -712,6 +727,8 @@ impl App {
             open_ship_tiles: [true; 7],
             scan_minefield_filter: 0xf,
             vcr_frame_entered: 0.0,
+            vcr_speed: 2,
+            vcr_square: None,
             survey_height: None,
             mineral_scale: MINERAL_GRAPH_MAX,
             mineral_menu: None,
@@ -7445,6 +7462,12 @@ impl App {
 /// `1120:0ca0`: quarter-squares a round, from a half to two and a half. A
 /// hull with no engine shows the entry before them, `--`.
 const BATTLE_MOVES: [&str; 9] = ["½", "¾", "1", "1¼", "1½", "1¾", "2", "2¼", "2½"];
+
+/// The moves a battle speed is worth, as the designer and the VCR write it.
+#[must_use]
+pub fn battle_moves(speed: u8) -> &'static str {
+    BATTLE_MOVES[usize::from(speed).min(BATTLE_MOVES.len() - 1)]
+}
 
 // --- The Production dialog -----------------------------------------------
 

@@ -47,6 +47,23 @@ pub struct Token {
     pub armed: bool,
     /// Whether it is still in the battle.
     pub active: bool,
+    /// Ships it began the battle with.
+    pub ships_at_start: i32,
+    /// Hull initiative, as recorded (`0xff` for none).
+    pub initiative: u8,
+    /// Battle speed index, `0..=8`, from the movement word.
+    pub speed: u8,
+    /// Torpedo jamming, in percent.
+    pub jam: u8,
+    /// The packed tactics word: primary target in the low nibble, the
+    /// secondary in the next, the tactic in the third.
+    pub tactics: u16,
+    /// The packed damage word the token began with: `pctSh:7, pctDp:9`.
+    pub damage_at_start: u16,
+    /// Whether it is a starbase.
+    pub starbase: bool,
+    /// Shield points per ship at the start.
+    pub shields_at_start: i32,
 }
 
 impl Token {
@@ -60,7 +77,35 @@ impl Token {
             shields: i32::from(t.shields),
             armed: t.initiative_min != 0xFF,
             active: true,
+            ships_at_start: i32::from(t.ships),
+            initiative: t.initiative_base,
+            speed: t.speed(),
+            jam: t.pct_jam,
+            tactics: t.tactics,
+            damage_at_start: t.damage,
+            starbase: t.is_starbase(),
+            shields_at_start: i32::from(t.shields),
         }
+    }
+
+    /// The tactic the token fights by, from its packed word.
+    #[must_use]
+    pub fn tactic(&self) -> Option<stars_core::battle::Tactic> {
+        stars_core::battle::Tactic::from_raw(((self.tactics >> 8) & 0xf) as u8)
+    }
+
+    /// The primary and secondary target classes, from the packed word.
+    #[must_use]
+    pub fn targets(
+        &self,
+    ) -> (
+        stars_core::battle::TargetClass,
+        stars_core::battle::TargetClass,
+    ) {
+        (
+            stars_core::battle::TargetClass::from_raw((self.tactics & 0xf) as u8),
+            stars_core::battle::TargetClass::from_raw(((self.tactics >> 4) & 0xf) as u8),
+        )
     }
 }
 
@@ -109,6 +154,10 @@ pub struct Shot {
     pub weapon: u8,
     /// Ships destroyed on it.
     pub ships_killed: u32,
+    /// Shield points stripped from it.
+    pub shield_damage: u32,
+    /// Armour damage done to it.
+    pub armor_damage: u32,
 }
 
 impl Shot {
@@ -151,11 +200,15 @@ fn shots_of(kills: &[stars_formats::Kill]) -> Vec<Shot> {
             Some(shot) => {
                 shot.weapon |= kill.weapon;
                 shot.ships_killed += u32::from(kill.ships_killed);
+                shot.shield_damage += u32::from(kill.shield_damage);
+                shot.armor_damage += u32::from(kill.damage);
             }
             None => shots.push(Shot {
                 target,
                 weapon: kill.weapon,
                 ships_killed: u32::from(kill.ships_killed),
+                shield_damage: u32::from(kill.shield_damage),
+                armor_damage: u32::from(kill.damage),
             }),
         }
     }

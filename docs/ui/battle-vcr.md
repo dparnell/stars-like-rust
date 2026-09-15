@@ -127,8 +127,23 @@ from the step button's lone triangle — on push buttons in the Windows
 face with its bevel, engraved when disabled, which reads as the original's
 intent rather than its lettering.
 
-Not reproduced: the text
-panel beside the board — the original's phase, speed, attacker, target and
-damage lines, and the focus token's figures — which is a roster of the tokens
-and a selection summary here; and the Help button, which has nothing behind
-it.
+The text panel beside the board follows `DrawVCR`'s lines: `Phase n/N,
+Round r/R` (the step and its count both counted from one, so the board
+before anything has happened reads phase 1); `Playback speed: s` with its
+two spin buttons (`viSpeedVCR` 0 to 3, shown one higher; here it scales
+the hold of a played frame from twice the resting six tenths of a second
+down to half); then, once a step stands on the board, whose token acted —
+the owner's name in the possessive, the design with its ship count when
+more than one, blue when it is the focus — and for a shot `attacks
+<owner's>`, the target's design (red when ships died), `at x,y doing`, the
+shield damage, the armour damage, `no damage.` for torpedoes that all
+missed, `destroying n ship(s).` and the deflection line in red; and, from
+200 pixels down, the selection: `Selection: x,y`, the focus token's owner
+and design (the ships lost since the start after a plus) in blue, `Dead`
+or its initiative and moves on one line, armour (from the design, when the
+player holds it) and damage on the next, shields, jamming when it has
+any, tactic, and the primary and secondary target classes. The original's
+dark blue and dark red are lifted to read on this shell's dark ground. Not
+reproduced: the `Goto` button under the selection, and the Help button,
+which has nothing behind it. Below the original's lines this project adds
+its own list of the tokens, to pick one out by name.
