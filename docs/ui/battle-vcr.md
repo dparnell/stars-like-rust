@@ -91,7 +91,7 @@ It works through the kills a target at a time, or-ing their `grfWeapon` flags
 | bit | meaning | drawn |
 |-----|---------|-------|
 | 0 or 1 | a beam | two lines from the near edge of the attacker's square — a third of a square either side of its centre, on the edge facing the target — to the target's centre, in `hpenEnemy` (red) or, with bit 1, `hpenStarbase` (blue); then icon 0 on the target |
-| 2 | a torpedo | while `fAnimate` (the VCR playing), one of the four torpedo icons flown from the beam's point to the target in eight steps a square, paced by `viSpeedVCR`; then icon 1 on the target |
+| 2 | a torpedo | while `fAnimate`, one of the four torpedo icons flown from the beam's point to the target in eight steps a square, each held `0x23 − 10 × viSpeedVCR` ticks; then icon 1 on the target |
 | 6 | torpedoes deflected | no landing burst |
 
 and last, on every target, icon 2 where ships were destroyed and icon 0 where
@@ -114,8 +114,10 @@ last frame, which is what the forward buttons dying amounts to; the playback
 itself, which is the module's own business; the board as `DrawVCR` paints it,
 with the game's pictures, emblems and icons when a copy of the original is at
 hand (coloured squares and red bursts when not); the shots as `AnimateAttack`
-draws them, the torpedoes flying across the first half of a frame's
-`VCR_FRAME` while the VCR plays; and the focus, picked by clicking a square.
+draws them, the torpedoes flying from the moment a frame is entered —
+stepped to or played — at fifteen milliseconds a step, the bursts landing
+when they arrive, and a played frame held until they have; and the focus,
+picked by clicking a square.
 
 Not reproduced: the button **icons**, which need the game's own; the text
 panel beside the board — the original's phase, speed, attacker, target and

@@ -112,9 +112,12 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         app.playing = false;
     }
 
-    // Advance while playing, a frame every `VCR_FRAME` seconds; the shell
-    // keeps the repaints coming whenever `playing` is set.
-    if app.playing && now - app.vcr_frame_entered >= crate::app::VCR_FRAME {
+    // Advance while playing, a frame every `VCR_FRAME` seconds — longer
+    // when the frame's torpedoes are still flying; the shell keeps the
+    // repaints coming whenever `playing` is set.
+    let hold = crate::app::VCR_FRAME
+        .max(flight_seconds(vcr.frame().map(|f| &f.event), vcr.tokens()) + 0.15);
+    if app.playing && now - app.vcr_frame_entered >= hold {
         if vcr.step() {
             app.vcr_frame_entered = now;
         } else {
@@ -390,6 +393,38 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
+/// How long a torpedo's flight across `dx`, `dy` squares takes: eight
+/// steps a square at fifteen milliseconds, and never under a fifth of a
+/// second so a shot at the next square can be seen.
+fn flight_of(dx: i32, dy: i32) -> f64 {
+    (f64::from(dx.abs().max(dy.abs()) * 8) * 0.015).max(0.2)
+}
+
+/// The longest torpedo flight a frame draws, in seconds — nothing for a
+/// frame with no torpedoes in it.
+fn flight_seconds(event: Option<&Event>, tokens: &[crate::vcr::Token]) -> f64 {
+    let Some(Event::Fire {
+        attacker, shots, ..
+    }) = event
+    else {
+        return 0.0;
+    };
+    let Some(from) = tokens.get(*attacker).and_then(|t| t.square) else {
+        return 0.0;
+    };
+    shots
+        .iter()
+        .filter(|shot| shot.torpedo())
+        .filter_map(|shot| tokens.get(shot.target).and_then(|t| t.square))
+        .map(|to| {
+            flight_of(
+                i32::from(to.0) - i32::from(from.0),
+                i32::from(to.1) - i32::from(from.1),
+            )
+        })
+        .fold(0.0, f64::max)
+}
+
 /// The name of the design a token was built to.
 fn design_name(app: &App, token: &crate::vcr::Token) -> String {
     app.game
@@ -545,6 +580,7 @@ fn animate_attack(
     };
     let here = centre_of(from.0, from.1);
     let third = square / 3.0;
+    let mut in_flight = false;
     for shot in shots {
         let Some(to) = tokens.get(shot.target).and_then(|t| t.square) else {
             continue;
@@ -582,12 +618,13 @@ fn animate_attack(
             icon(app, ui, 0, there);
         }
         if shot.torpedo() {
-            // The flight takes eight steps a square while playing; a
-            // frame is held for `VCR_FRAME` seconds, so the torpedo crosses
-            // in the first half of that.
+            // The flight: eight steps a square, each held `0x23 − 10 ×
+            // viSpeedVCR` ticks in the original — a middling fifteen
+            // milliseconds here — from the moment the frame was entered,
+            // whether it was stepped to or played.
             let steps = f64::from(dx.abs().max(dy.abs()) * 8);
-            let flight = crate::app::VCR_FRAME * 0.5;
-            let t = if app.playing && elapsed < flight {
+            let flight = flight_of(dx, dy);
+            let t = if elapsed < flight {
                 (elapsed / flight).clamp(0.0, 1.0)
             } else {
                 1.0
@@ -597,11 +634,16 @@ fn animate_attack(
                 let step = (t * steps) as usize;
                 let at = a + (there - a) * t as f32;
                 icon(app, ui, 3 + (step & 3), at);
+                in_flight = true;
                 ctx.request_repaint();
             } else if !shot.deflected() {
                 icon(app, ui, 1, there);
             }
         }
+    }
+    // The bursts land once everything has arrived.
+    if in_flight {
+        return;
     }
     for shot in shots {
         let Some(to) = tokens.get(shot.target).and_then(|t| t.square) else {
