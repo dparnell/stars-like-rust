@@ -166,6 +166,8 @@ planets whose colonists move both before and after the growth step.
 
 ## Open questions
 
-- The Alternate Reality growth path is not implemented (see `habitability.md`).
+- The Alternate Reality growth path runs against the starbase hull's maximum
+  (see `habitability.md`) and is not differentially checked, there being no
+  AR player in the fixtures.
 - The remaining 35 unexplained planet-years should resolve once order
   processing lands in Step 4; they are worth re-checking then.

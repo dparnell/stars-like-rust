@@ -55,11 +55,12 @@ rather than integer operations. The trailing `0.999` is the double stored at
 Output therefore grows with the *square root* of population, which is why an AR
 empire spreads across many planets instead of packing a few.
 
-One piece is still missing: the overcrowding clamp above needs a maximum
-population, and for an AR race that comes from the starbase hull
-(`rglPopMac[hull]`), which the ship-design layer does not expose yet. The
-implementation skips the clamp for AR, which only matters on a planet holding
-more than its starbase supports.
+The overcrowding clamp above is applied before the race is asked
+(`CResourcesAtPlanet`, `1048:788e`), so it reaches an AR planet too, against
+the starbase hull's maximum (`rglPopMac[hull]`, see `habitability.md`):
+`resources_at_planet_with_starbase` takes the hull, and the turn passes it
+from the owner's designs. Without the hull the plain call takes an AR planet
+at its full population.
 
 ## Units
 

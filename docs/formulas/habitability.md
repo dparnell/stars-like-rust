@@ -94,8 +94,23 @@ if OBRM:           maxPop += maxPop / 10     # +10%, applied after the PRT
 ```
 
 Alternate Reality races are the exception: their maximum population comes from
-`rglPopMac[]` indexed by their starbase hull, so it depends on ship designs
-rather than on the planet at all.
+`rglPopMac[]` (`1120:08cc`) indexed by their starbase hull less `0x20`, so it
+depends on the starbase rather than on the planet at all — and the planet
+must be the player's own with a starbase up (`det` bit 9), else nobody:
+
+| hull | `rglPopMac` | colonists |
+|------|------------:|----------:|
+| Orbital Fort | 2,500 | 250,000 |
+| Space Dock | 5,000 | 500,000 |
+| Space Station | 10,000 | 1,000,000 |
+| Ultra Station | 20,000 | 2,000,000 |
+| Death Star | 30,000 | 3,000,000 |
+
+`MANUAL.PDF` p. 22-1 gives the two ends, 250,000 and 3,000,000. The OBRM
+tenth is added on top as for everyone else; the PRT adjustments are not
+reached. Implemented as `hab::calc_planet_max_pop_with_starbase`, which the
+turn and the frontend call with the hull from the owner's designs; the
+plain `calc_planet_max_pop` still answers `None` for AR, not knowing it.
 
 ## Edge cases & clamps
 
@@ -125,5 +140,6 @@ Captured at: `../vectors/planetary-economy.json` (`max_population`).
 
 ## Open questions
 
-- The Alternate Reality branch (`rglPopMac`, starbase hull) is not implemented;
-  it needs the ship-design layer from delivery Step 5.
+- The Alternate Reality maximum is unit-tested against the table
+  (`golden_vectors::alternate_reality_lives_on_its_starbase`) but not
+  differentially checked: no fixture game has an AR player.
