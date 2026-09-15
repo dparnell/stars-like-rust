@@ -119,7 +119,13 @@ stepped to or played — at fifteen milliseconds a step, the bursts landing
 when they arrive, and a played frame held until they have; and the focus,
 picked by clicking a square.
 
-Not reproduced: the button **icons**, which need the game's own; the text
+The transport's captions are the resource's ASCII marks in the dialog font.
+They are drawn here as the same marks in shapes — a bar and a triangle or two,
+and the pause's two bars while the VCR plays — on push buttons in the Windows
+face with its bevel, engraved when disabled, which reads as the original's
+intent rather than its lettering.
+
+Not reproduced: the text
 panel beside the board — the original's phase, speed, attacker, target and
 damage lines, and the focus token's figures — which is a roster of the tokens
 and a selection summary here; and the Help button, which has nothing behind

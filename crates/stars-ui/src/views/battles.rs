@@ -39,12 +39,13 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     app.drawn_scope = "vcr";
     let mut action: Option<u16> = None;
     let mut seek: Option<usize> = None;
+    let playing = app.playing;
     ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
         let mut button = |ui: &mut egui::Ui, id: u16, enabled: bool, tip: &str| {
             let label = caption(id);
-            let response = ui
-                .add_enabled(enabled, egui::Button::new(&label))
-                .on_hover_text(tip);
+            let glyph = Glyph::of(id, playing);
+            let response = transport_button(ui, &label, glyph, enabled).on_hover_text(tip);
             crate::views::note_widget(app, ui, &label, response.rect, enabled);
             if response.clicked() {
                 action = Some(id);
@@ -652,6 +653,183 @@ fn animate_attack(
         let there = centre_of(to.0, to.1);
         icon(app, ui, if shot.ships_killed > 0 { 2 } else { 0 }, there);
     }
+}
+
+/// What a transport button shows: the resource captions are `|<<`, `<`,
+/// `>/||`, `>` and `>>|` in the dialog font, and these are the same marks
+/// drawn as shapes — a bar and a triangle or two, and the pause's two bars
+/// while the VCR plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Glyph {
+    /// `|<<`
+    Start,
+    /// `<`
+    Back,
+    /// `>` — playing, the `||` half of `>/||`.
+    Play,
+    /// `||`
+    Pause,
+    /// `>`
+    Step,
+    /// `>>|`
+    End,
+    /// A caption in words.
+    Text,
+}
+
+impl Glyph {
+    fn of(id: u16, playing: bool) -> Self {
+        match id {
+            0xa1 => Glyph::Start,
+            0xa2 => Glyph::Back,
+            0xa3 if playing => Glyph::Pause,
+            0xa3 => Glyph::Play,
+            0xa4 => Glyph::Step,
+            0xa5 => Glyph::End,
+            _ => Glyph::Text,
+        }
+    }
+}
+
+/// A push button in the Windows face with its bevel, the width the dialog
+/// gives its transport (32 units) and a glyph drawn in the middle —
+/// pressed a pixel down and right while held, its lettering engraved when
+/// it is disabled.
+fn transport_button(ui: &mut egui::Ui, label: &str, glyph: Glyph, enabled: bool) -> egui::Response {
+    let size = Vec2::new(48.0, 22.0);
+    let (rect, response) = ui.allocate_exact_size(
+        size,
+        if enabled {
+            Sense::click()
+        } else {
+            Sense::hover()
+        },
+    );
+    let colour = |[r, g, b]: [u8; 3]| Color32::from_rgb(r, g, b);
+    let face = colour(crate::toolbar::FACE);
+    let lit = colour(crate::toolbar::HILITE);
+    let dark = colour(crate::toolbar::SHADOW);
+    let down = enabled && response.is_pointer_button_down_on();
+    let painter = ui.painter();
+    painter.rect_filled(rect, 0.0, Color32::BLACK);
+    let inner = rect.shrink(1.0);
+    painter.rect_filled(inner, 0.0, face);
+    let (top_left, bottom_right) = if down { (dark, lit) } else { (lit, dark) };
+    painter.rect_filled(
+        Rect::from_min_size(inner.min, Vec2::new(inner.width(), 1.0)),
+        0.0,
+        top_left,
+    );
+    painter.rect_filled(
+        Rect::from_min_size(inner.min, Vec2::new(1.0, inner.height())),
+        0.0,
+        top_left,
+    );
+    painter.rect_filled(
+        Rect::from_min_size(
+            Pos2::new(inner.left(), inner.bottom() - 1.0),
+            Vec2::new(inner.width(), 1.0),
+        ),
+        0.0,
+        bottom_right,
+    );
+    painter.rect_filled(
+        Rect::from_min_size(
+            Pos2::new(inner.right() - 1.0, inner.top()),
+            Vec2::new(1.0, inner.height()),
+        ),
+        0.0,
+        bottom_right,
+    );
+    // A second, softer line inside the shadowed edges, as a Windows button
+    // has when it is up.
+    if !down {
+        painter.rect_filled(
+            Rect::from_min_size(
+                Pos2::new(inner.left() + 1.0, inner.bottom() - 2.0),
+                Vec2::new(inner.width() - 2.0, 1.0),
+            ),
+            0.0,
+            dark,
+        );
+        painter.rect_filled(
+            Rect::from_min_size(
+                Pos2::new(inner.right() - 2.0, inner.top() + 1.0),
+                Vec2::new(1.0, inner.height() - 2.0),
+            ),
+            0.0,
+            dark,
+        );
+    }
+
+    let nudge = if down { Vec2::splat(1.0) } else { Vec2::ZERO };
+    let centre = rect.center() + nudge;
+    let ink = if enabled { Color32::BLACK } else { dark };
+    // The marks: triangles eight pixels tall, bars two wide, laid out
+    // around the centre.
+    let h = 4.0;
+    let tri = |painter: &egui::Painter, x: f32, right: bool, colour: Color32| {
+        let (tip, base) = if right {
+            (x + h, x - h)
+        } else {
+            (x - h, x + h)
+        };
+        painter.add(egui::Shape::convex_polygon(
+            vec![
+                Pos2::new(base, centre.y - h),
+                Pos2::new(tip, centre.y),
+                Pos2::new(base, centre.y + h),
+            ],
+            colour,
+            Stroke::NONE,
+        ));
+    };
+    let bar = |painter: &egui::Painter, x: f32, colour: Color32| {
+        painter.rect_filled(
+            Rect::from_center_size(Pos2::new(x, centre.y), Vec2::new(2.0, 2.0 * h)),
+            0.0,
+            colour,
+        );
+    };
+    let draw = |painter: &egui::Painter, offset: Vec2, colour: Color32| {
+        let c = centre + offset;
+        match glyph {
+            Glyph::Start => {
+                bar(painter, c.x - 9.0, colour);
+                tri(painter, c.x - 3.0, false, colour);
+                tri(painter, c.x + 5.0, false, colour);
+            }
+            Glyph::Back => tri(painter, c.x, false, colour),
+            Glyph::Play => tri(painter, c.x, true, colour),
+            Glyph::Pause => {
+                bar(painter, c.x - 2.5, colour);
+                bar(painter, c.x + 2.5, colour);
+            }
+            Glyph::Step => tri(painter, c.x, true, colour),
+            Glyph::End => {
+                tri(painter, c.x - 5.0, true, colour);
+                tri(painter, c.x + 3.0, true, colour);
+                bar(painter, c.x + 9.0, colour);
+            }
+            Glyph::Text => {
+                painter.text(
+                    c,
+                    egui::Align2::CENTER_CENTER,
+                    label,
+                    egui::TextStyle::Small.resolve(ui.style()),
+                    colour,
+                );
+            }
+        }
+    };
+    if enabled {
+        draw(painter, Vec2::ZERO, ink);
+    } else {
+        // Engraved: the highlight a pixel down and right, the shadow over it.
+        draw(painter, Vec2::splat(1.0), lit);
+        draw(painter, Vec2::ZERO, ink);
+    }
+    response
 }
 
 /// One line describing what a frame did.
