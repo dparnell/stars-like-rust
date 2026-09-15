@@ -90,16 +90,27 @@ Demolition two, Super Stealth one (`10b0:4f94`).
 
 Only fields belonging to **another player who is not a friend** are tested; your
 own and your friends' are flown through freely. Each field the leg crosses gives
-an interval of light years, and every light year inside one is a separate roll:
+an interval of light years (`FIntersectCircleLine`), which goes into a list
+kept **per kind** — three lists of up to eight, sorted by start
+(`10b0:5049`–`10b0:52a0`). An interval that overlaps or touches one already
+there (its end no earlier than that one's start less one) is merged into it,
+widening it and swallowing whatever later intervals it now reaches; a ninth
+disjoint interval of a kind is dropped. So two fields of a kind on top of
+each other are rolled once. The lists are then walked together, always the
+earliest start next (`10b0:56b6`), and every light year inside an interval
+is a separate roll:
 
 ```
 hit if Random(1000) < (warp - safe warp - expertise) × chance
 ```
 
-The first hit stops the fleet where it happened.
-
-One thing the original does that this does not yet: it merges overlapping
-intervals of the same kind so two fields on top of each other are rolled once.
+The first hit stops the fleet where it happened — `from + (to − from) × hit /
+length` (`10b0:5a2e`) — and the field it hit is the **deepest** enemy field
+of that kind at that point, the least `distance² − mines` (`10b0:5cc0`):
+a fleet caught in the overlap of two fields is charged to the one whose
+centre it is nearest, radius for radius. `minefield::traverse` and
+`merge_span`, with unit tests for the merging and for two overlapping
+fields rolling as one.
 
 A hit costs the **field** as well: `cMines / 20`, or `cMines / 100` once the
 first would pass fifty, with floors of ten and fifty — about 5% of a small field

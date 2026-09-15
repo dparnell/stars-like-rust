@@ -415,15 +415,19 @@ pub fn mine_expertise(race: &crate::race::Race) -> i32 {
 /// slow enough, or one whose expertise covers the difference, is never at risk.
 /// Only fields belonging to **someone else who is not a friend** are tested.
 ///
-/// Each field the leg crosses gives an interval of light years; the intervals
-/// are walked in order and each light year inside one is a separate roll of
-/// `Random(1000) < (warp - safe - expertise) × chance`. The first hit stops the
-/// fleet there.
-///
-/// One thing the original does that this does not: it merges overlapping
-/// intervals of the **same kind** so that two fields on top of each other are
-/// rolled once. Returns the index of the field hit and how far along the leg
-/// the hit was; [`apply_damage`] does the rest.
+/// Each field the leg crosses gives an interval of light years, kept **per
+/// kind** in a list of up to eight sorted by start (`10b0:5049`–`10b0:52a0`):
+/// an interval overlapping or touching one already there — its end no
+/// earlier than the other's start less one — is merged into it, swallowing
+/// any later intervals it now reaches, so two fields of a kind on top of each
+/// other are rolled once; a ninth disjoint interval of a kind is dropped.
+/// The intervals are then walked in order of start across the kinds, and
+/// each light year inside one is a separate roll of
+/// `Random(1000) < (warp - safe - expertise) × chance` (`10b0:5713`). The
+/// first hit stops the fleet there, and the field hit is the **deepest**
+/// enemy field of that kind at the hit point — the least
+/// `distance² − radius²` (`10b0:5cc0`). Returns the index of that field and
+/// how far along the leg the hit was; [`apply_damage`] does the rest.
 #[must_use]
 pub fn traverse(
     minefields: &[Minefield],
@@ -449,20 +453,32 @@ pub fn traverse(
         return None;
     }
 
-    let mut crossings: Vec<(i32, i32, usize)> = Vec::new();
-    for (index, field) in minefields.iter().enumerate() {
-        if field.owner == fleet.owner || friendly(field.owner) {
-            continue;
-        }
-        if let Some((start, end)) = crossing(from, to, field, travelled) {
-            crossings.push((start, end, index));
+    let enemy = |field: &Minefield| field.owner != fleet.owner && !friendly(field.owner);
+    let mut spans: [Vec<(i32, i32)>; MINE_KINDS] = Default::default();
+    for field in minefields.iter().filter(|f| enemy(f)) {
+        if let Some(span) = crossing(from, to, field, travelled) {
+            let kind = usize::from(field.kind).min(MINE_KINDS - 1);
+            merge_span(&mut spans[kind], span);
         }
     }
-    crossings.sort_unstable();
+    if spans.iter().all(Vec::is_empty) {
+        return None;
+    }
 
-    for (start, end, index) in crossings {
-        let field = &minefields[index];
-        let kind = usize::from(field.kind).min(MINE_KINDS - 1);
+    // Walk the kinds' lists together, the earliest start first.
+    let mut next = [0usize; MINE_KINDS];
+    loop {
+        let mut pick: Option<(i32, usize)> = None;
+        for (kind, list) in spans.iter().enumerate() {
+            if let Some((start, _)) = list.get(next[kind]) {
+                if pick.is_none_or(|(best, _)| *start < best) {
+                    pick = Some((*start, kind));
+                }
+            }
+        }
+        let (start, kind) = pick?;
+        let (_, end) = spans[kind][next[kind]];
+        next[kind] += 1;
         let over = warp - SAFE_WARP[kind] - expertise;
         if over <= 0 {
             continue;
@@ -470,11 +486,81 @@ pub fn traverse(
         let chance = over * HIT_PER_MILLE[kind];
         for step in 0..(end - start).max(0) {
             if i32::from(rng.random(1000)) < chance {
-                return Some((index, start + step));
+                let at = start + step;
+                // Where the fleet is when it goes off, and which field of
+                // the kind it is deepest inside.
+                let hit = leg_point(from, to, at);
+                let field = minefields
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, f)| enemy(f) && usize::from(f.kind).min(MINE_KINDS - 1) == kind)
+                    .min_by_key(|(_, f)| {
+                        let dx = i64::from(f.position.x) - i64::from(hit.x);
+                        let dy = i64::from(f.position.y) - i64::from(hit.y);
+                        dx * dx + dy * dy - i64::from(f.mines.max(0))
+                    })
+                    .map(|(index, _)| index)?;
+                return Some((field, at));
             }
         }
     }
-    None
+}
+
+/// Fold one field's crossing into a kind's sorted list of intervals, as
+/// `FTravelThroughMineFields` keeps them: eight at most, merged where they
+/// overlap or touch.
+fn merge_span(list: &mut Vec<(i32, i32)>, (start, end): (i32, i32)) {
+    // Past every interval that ends before this one starts.
+    let mut at = 0;
+    while at < list.len() && list[at].1 < start {
+        at += 1;
+    }
+    if at == list.len() {
+        if list.len() < 8 {
+            list.push((start, end));
+        }
+        return;
+    }
+    if end < list[at].0 - 1 {
+        if list.len() < 8 {
+            list.insert(at, (start, end));
+        }
+        return;
+    }
+    // Overlapping: widen the interval at `at`, and swallow what follows.
+    if start < list[at].0 {
+        list[at].0 = start;
+    }
+    if list[at].1 < end {
+        list[at].1 = end;
+        let mut last = at + 1;
+        while last < list.len() && list[last].0 <= end {
+            last += 1;
+        }
+        if end < list[last - 1].1 {
+            list[at].1 = list[last - 1].1;
+        }
+        list.drain(at + 1..last);
+    }
+}
+
+/// The point `at` light years along a leg (`10b0:5a2e`: `MulDiv` of each
+/// difference by the distance over the leg's length).
+fn leg_point(from: Point, to: Point, at: i32) -> Point {
+    let dx = i64::from(to.x) - i64::from(from.x);
+    let dy = i64::from(to.y) - i64::from(from.y);
+    let length = ((dx * dx + dy * dy) as f64).sqrt();
+    #[allow(clippy::cast_possible_truncation)]
+    let scale = |d: i64| -> i16 {
+        if length <= 0.0 {
+            return 0;
+        }
+        ((d as f64) * f64::from(at) / length).round() as i16
+    };
+    Point::new(
+        from.x.saturating_add(scale(dx)),
+        from.y.saturating_add(scale(dy)),
+    )
 }
 
 /// Where a leg enters and leaves a field, in light years from its start.
@@ -850,6 +936,84 @@ mod tests {
         assert_eq!(hit.field, 7);
         assert_eq!(hit.kind, 0);
         assert_eq!(hit.damage, 100 * 10, "100 a ship, ten ships");
+    }
+
+    /// The per-kind interval list merges what overlaps or touches, keeps
+    /// what is apart in order, and holds eight at most.
+    #[test]
+    fn crossings_of_a_kind_merge_where_they_overlap() {
+        let mut list = Vec::new();
+        merge_span(&mut list, (10, 20));
+        merge_span(&mut list, (40, 50));
+        assert_eq!(list, vec![(10, 20), (40, 50)]);
+        // Overlapping the first: widened.
+        merge_span(&mut list, (15, 30));
+        assert_eq!(list, vec![(10, 30), (40, 50)]);
+        // Touching the second's start less one: merged, not inserted.
+        merge_span(&mut list, (33, 39));
+        assert_eq!(list, vec![(10, 30), (33, 50)]);
+        // Bridging both: one interval.
+        merge_span(&mut list, (25, 45));
+        assert_eq!(list, vec![(10, 50)]);
+        // Wholly inside: nothing changes.
+        merge_span(&mut list, (20, 30));
+        assert_eq!(list, vec![(10, 50)]);
+        // Ahead of everything: inserted in front.
+        merge_span(&mut list, (0, 5));
+        assert_eq!(list, vec![(0, 5), (10, 50)]);
+        // Eight at most.
+        for start in (100..).step_by(10).take(10) {
+            merge_span(&mut list, (start, start + 3));
+        }
+        assert_eq!(list.len(), 8);
+    }
+
+    /// Two fields of one kind on top of each other are rolled once — the
+    /// same draws hit at the same point as with one field — and the field
+    /// hit is the deeper one at the point.
+    #[test]
+    fn overlapping_fields_of_a_kind_roll_once() {
+        let field = |id: u16, x: i16, mines: i32| Minefield {
+            id,
+            owner: 1,
+            position: Point::new(x, 1000),
+            mines,
+            kind: 0,
+            detonating: false,
+            detected_by: 0,
+            visible_to: 0,
+            turn: 0,
+        };
+        let fleet = fleet(vec![stack(0, 10)]);
+        let never = |_: i16| false;
+        let leg = Leg {
+            from: Point::new(1000, 1000),
+            to: Point::new(1081, 1000),
+            travelled: 81,
+        };
+        let one = {
+            let mut rng = crate::rng::Rng::from_seeds(3, 4);
+            traverse(&[field(7, 1050, 10_000)], &fleet, leg, 0, &never, &mut rng)
+        };
+        let two = {
+            let mut rng = crate::rng::Rng::from_seeds(3, 4);
+            traverse(
+                &[field(7, 1050, 10_000), field(8, 1060, 10_000)],
+                &fleet,
+                leg,
+                0,
+                &never,
+                &mut rng,
+            )
+        };
+        let (_, at_one) = one.expect("a hit");
+        let (hit, at_two) = two.expect("a hit");
+        assert_eq!(at_one, at_two, "one roll a light year, not two");
+        // The deeper field at the hit point: distance² less radius².
+        let hit_x = 1000 + at_two;
+        let depth = |x: i32| (x - hit_x).pow(2) - 10_000;
+        let deeper = if depth(1050) <= depth(1060) { 0 } else { 1 };
+        assert_eq!(hit, deeper);
     }
 
     /// A friend's minefield is not a hazard, and neither is your own.
