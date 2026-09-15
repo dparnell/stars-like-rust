@@ -7094,52 +7094,10 @@ impl App {
     /// Returns whether the design changed. A refused drop is where the original
     /// beeps: the slot is full, or it already holds something else, or it does
     /// not take that kind of component at all. Only identical components stack.
-    pub fn designer_drop_on_slot(&mut self, mut drag: DesignerDrag, target: usize) -> bool {
-        use stars_core::components::slot as cat;
-        let Some(designer) = self.designer.as_ref() else {
+    pub fn designer_drop_on_slot(&mut self, drag: DesignerDrag, target: usize) -> bool {
+        let Some((new, moved)) = self.designer_drop_plan(drag, target) else {
             return false;
         };
-        let Some(editing) = designer.editing.as_ref() else {
-            return false;
-        };
-        let Some(hull) = Self::designer_hull(&editing.design) else {
-            return false;
-        };
-        let Some(hull_slot) = hull.real_slots().get(target).copied() else {
-            return false;
-        };
-        if drag.from_slot == Some(target) {
-            return false;
-        }
-        // An engine slot is all or nothing: whatever the drag was carrying, it
-        // fills.
-        if hull_slot.allowed & cat::ENGINE != 0 {
-            drag.count = 100;
-        }
-
-        let current = editing
-            .design
-            .slots
-            .get(target)
-            .map_or((0u16, 0usize, 0u8), |s| {
-                (s.category, usize::from(s.item), s.count)
-            });
-        let (have_category, have_item, have_count) = current;
-
-        if have_count >= hull_slot.capacity {
-            return false;
-        }
-        let stackable =
-            have_count == 0 || (have_category == drag.category && have_item == drag.item);
-        let accepted = have_count != 0 || drag.category & hull_slot.allowed != 0;
-        if !stackable || !accepted {
-            return false;
-        }
-
-        let want = u16::from(have_count) + u16::from(drag.count);
-        let new = want.min(u16::from(hull_slot.capacity)) as u8;
-        let moved = new - have_count;
-
         let Some(designer) = self.designer.as_mut() else {
             return false;
         };
@@ -7158,6 +7116,79 @@ impl App {
         }
         designer.selected_slot = Some(target);
         true
+    }
+
+    /// Whether a slot would take what is being dragged — the three rules of
+    /// `IDropPart` — without changing anything. The original answers a
+    /// refusal with `MessageBeep` and shows the no-way cursor while the
+    /// drag hangs over such a slot; this is what the cursor asks.
+    #[must_use]
+    pub fn designer_accepts_drop(&self, drag: DesignerDrag, target: usize) -> bool {
+        self.designer_drop_plan(drag, target).is_some()
+    }
+
+    /// What a drop on `target` would do: the slot's new count and how many
+    /// the drag gives up, or `None` when the slot refuses it.
+    fn designer_drop_plan(&self, mut drag: DesignerDrag, target: usize) -> Option<(u8, u8)> {
+        use stars_core::components::slot as cat;
+        let editing = self.designer.as_ref()?.editing.as_ref()?;
+        let hull = Self::designer_hull(&editing.design)?;
+        let hull_slot = hull.real_slots().get(target).copied()?;
+        if drag.from_slot == Some(target) {
+            return None;
+        }
+        // An engine slot is all or nothing: whatever the drag was carrying, it
+        // fills.
+        if hull_slot.allowed & cat::ENGINE != 0 {
+            drag.count = 100;
+        }
+
+        let (have_category, have_item, have_count) = editing
+            .design
+            .slots
+            .get(target)
+            .map_or((0u16, 0usize, 0u8), |s| {
+                (s.category, usize::from(s.item), s.count)
+            });
+
+        if have_count >= hull_slot.capacity {
+            return None;
+        }
+        let stackable =
+            have_count == 0 || (have_category == drag.category && have_item == drag.item);
+        let accepted = have_count != 0 || drag.category & hull_slot.allowed != 0;
+        if !stackable || !accepted {
+            return None;
+        }
+
+        let want = u16::from(have_count) + u16::from(drag.count);
+        let new = u8::try_from(want.min(u16::from(hull_slot.capacity))).unwrap_or(u8::MAX);
+        Some((new, new - have_count))
+    }
+
+    /// The count a drag carries, read at the moment of the drop as
+    /// `IDropPart` reads the keys with `GetAsyncKeyState`: the stack it
+    /// came off, or one from the list, through [`Self::designer_drag_count`].
+    #[must_use]
+    pub fn designer_drag_at_drop(
+        &self,
+        drag: DesignerDrag,
+        ctrl: bool,
+        shift: bool,
+    ) -> DesignerDrag {
+        let held = match drag.from_slot {
+            Some(from) => self
+                .designer
+                .as_ref()
+                .and_then(|d| d.editing.as_ref())
+                .and_then(|e| e.design.slots.get(from))
+                .map_or(drag.count, |s| s.count),
+            None => 1,
+        };
+        DesignerDrag {
+            count: Self::designer_drag_count(drag.from_slot, held, ctrl, shift),
+            ..drag
+        }
     }
 
     /// Drop a dragged component back on the parts list, which takes it off the

@@ -173,8 +173,17 @@ one.
 `IDropPart` (`10c8:5476`) is the whole interaction, and it is short enough to
 state completely.
 
+**What a drag looks like.** `FTrackSlot` (`10c8:306a`) captures the mouse and
+carries the component's 64-pixel picture, offset by where it was grabbed,
+setting the cursor from `IDropPart`'s answer as it goes — the trash can where
+letting go would take the part off, the no-way cursor where the slot would
+refuse it. Here the picture rides **centred on the pointer** (the pointer is
+what the drop is judged by, so the part stays visibly under it) and a slot
+that would refuse the drop shows the not-allowed cursor.
+
 **How many a drag carries.** Checked with `GetAsyncKeyState` at the moment of
-the drop, not the pick-up:
+the drop, not the pick-up — read here at the drop too
+(`App::designer_drag_at_drop`):
 
 | held | from the parts list | off a slot |
 |------|---------------------|------------|

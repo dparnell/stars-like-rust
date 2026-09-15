@@ -847,3 +847,78 @@ fn a_stack_let_go_on_the_left_comes_off() {
         "the engine came off"
     );
 }
+
+/// The keys are read at the drop, not the pick-up: a part dragged with
+/// nothing held and Ctrl pressed before letting go fills the slot.
+#[test]
+fn the_keys_are_read_at_the_drop() {
+    let mut app = a_game();
+    app.open_designer();
+    app.designer.as_mut().expect("open").view = DesignView::Hulls;
+    // The first hull the player can build with an armour slot that holds
+    // several — a new game starts with the Destroyer at hand.
+    let hulls = app.designer_hulls();
+    let (hull, weapons) = (0..hulls.len())
+        .find_map(|h| {
+            app.designer.as_mut().expect("open").selected = h;
+            app.designer_schematic()
+                .iter()
+                .position(|s| s.allowed & slot::ARMOR != 0 && s.capacity > 1)
+                .map(|w| (h, w))
+        })
+        .expect("a hull with an armour slot that holds several");
+    app.designer.as_mut().expect("open").selected = hull;
+    app.designer_copy();
+    let schematic = app.designer_schematic();
+    let capacity = schematic[weapons].capacity;
+    let mut shell = stars_ui::autopilot::Shell::new(app);
+    shell.frame();
+    shell.frame();
+    let row = shell
+        .app
+        .drawn
+        .iter()
+        .find(|w| w.label == "Tritanium")
+        .map(|w| w.rect)
+        .expect("a Tritanium row");
+    let target = shell
+        .app
+        .drawn
+        .iter()
+        .find(|w| w.label == format!("slot {weapons}"))
+        .map(|w| w.rect)
+        .expect("the weapon slot");
+    let from = row.center();
+    let to = target.center();
+    shell.push_event(egui::Event::PointerMoved(from));
+    shell.frame();
+    shell.push_event(egui::Event::PointerButton {
+        pos: from,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    shell.frame();
+    for step in 1..=6 {
+        let t = step as f32 / 6.0;
+        shell.push_event(egui::Event::PointerMoved(from + (to - from) * t));
+        shell.frame();
+    }
+    // Ctrl goes down only now.
+    shell.modifiers = egui::Modifiers::COMMAND;
+    shell.frame();
+    shell.push_event(egui::Event::PointerButton {
+        pos: to,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::COMMAND,
+    });
+    shell.frame();
+    shell.modifiers = egui::Modifiers::NONE;
+    shell.frame();
+    let (_, count) = shell.app.designer_schematic()[weapons]
+        .fitted
+        .clone()
+        .expect("the armour went in");
+    assert_eq!(count, capacity, "Ctrl at the drop filled the slot");
+}

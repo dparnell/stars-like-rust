@@ -340,11 +340,14 @@ fn editor(app: &mut App, ui: &mut egui::Ui) {
         }
     }
 
+    let (ctrl, shift) = ui.input(|i| (i.modifiers.command, i.modifiers.shift));
     if let Some(drag) = dropped_on_list {
+        let drag = app.designer_drag_at_drop(drag, ctrl, shift);
         app.designer_drop_on_list(drag);
     }
     if let Some(target) = dropped_on_slot {
         if let Some(drag) = taken_payload(ui) {
+            let drag = app.designer_drag_at_drop(drag, ctrl, shift);
             app.designer_drop_on_slot(drag, target);
         }
     }
@@ -359,11 +362,13 @@ fn editor(app: &mut App, ui: &mut egui::Ui) {
         if on_left {
             if let Some(drag) = taken_payload(ui) {
                 if drag.from_slot.is_some() {
+                    let drag = app.designer_drag_at_drop(drag, ctrl, shift);
                     app.designer_drop_on_list(drag);
                 }
             }
         }
     }
+    drag_preview(app, ui, 64.0 * k);
     // Delete or Backspace empties the slot selected. The original has no
     // key for it — a stack is dragged off — so this is an addition; it
     // stands aside for a text field, as the shell's own keys do.
@@ -395,6 +400,48 @@ fn editor(app: &mut App, ui: &mut egui::Ui) {
 /// The payload of the drag that just ended, if it was one of ours.
 fn taken_payload(ui: &egui::Ui) -> Option<DesignerDrag> {
     egui::DragAndDrop::take_payload::<DesignerDrag>(ui.ctx()).map(|p| *p)
+}
+
+/// What a drag carries, drawn under the pointer: the component's picture,
+/// `size` square, centred on it. `FTrackSlot` carries the 64-pixel picture
+/// offset by where it was grabbed; centring it keeps the pointer — which is
+/// what the drop is judged by — visibly on the part.
+fn drag_preview(app: &mut App, ui: &mut egui::Ui, size: f32) {
+    let Some(drag) = egui::DragAndDrop::payload::<DesignerDrag>(ui.ctx()) else {
+        return;
+    };
+    let Some(at) = ui.input(|i| i.pointer.interact_pos()) else {
+        return;
+    };
+    let Some(part) = stars_core::parts::part(drag.category, drag.item) else {
+        return;
+    };
+    let rect = egui::Rect::from_center_size(at, egui::vec2(size, size));
+    let layer = egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("designer-drag"));
+    let ctx = ui.ctx().clone();
+    let cell = stars_core::parts::picture_cell(part.category, part.picture, 0);
+    let image = cell.and_then(|cell| app.art.as_mut()?.sprite(&ctx, cell, size));
+    match image {
+        Some(image) => {
+            // A `Ui` on the tooltip layer, so the picture rides over the
+            // dialog and whatever else is under the pointer.
+            let mut over = ui.child_ui(rect, egui::Layout::top_down(egui::Align::Min), None);
+            over.set_clip_rect(egui::Rect::EVERYTHING);
+            over.with_layer_id(layer, |ui| image.paint_at(ui, rect));
+        }
+        None => {
+            let painter = ctx.layer_painter(layer);
+            painter.rect_filled(rect, 2.0, ui.visuals().extreme_bg_color);
+            painter.rect_stroke(rect, 2.0, ui.visuals().widgets.active.bg_stroke);
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                shorten(part.name),
+                egui::FontId::proportional(9.0),
+                ui.visuals().text_color(),
+            );
+        }
+    }
 }
 
 fn filter_dropdown(app: &mut App, ui: &mut egui::Ui, rect: egui::Rect) {
@@ -429,26 +476,32 @@ fn filter_dropdown(app: &mut App, ui: &mut egui::Ui, rect: egui::Rect) {
 /// the same parts as a plain list.
 fn parts_list(app: &mut App, ui: &mut egui::Ui, draggable: bool) {
     let parts = app.designer_parts();
-    let held = held_count(ui);
     for (index, part) in parts.iter().enumerate() {
+        let row = ui
+            .push_id(index, |ui| part_row(app, ui, part, index))
+            .response;
         if !draggable {
-            ui.push_id(index, |ui| part_row(app, ui, part, index));
             continue;
         }
+        // The row is a drag source of its own rather than egui's
+        // `dnd_drag_source`, which carries a picture of the whole row: the
+        // original (`FTrackSlot`) carries the component's picture alone,
+        // and `drag_preview` paints that one at the pointer.
         let id = egui::Id::new(("designer-part", index));
-        let drag = DesignerDrag {
-            category: part.category,
-            item: part.item,
-            count: held,
-            from_slot: None,
-        };
-        // Each row under an id of its own: a row being dragged is drawn
-        // on egui's tooltip layer, and a child `Ui` that shared its id
-        // with a row still on the base layer would trip egui's check that
-        // a widget keeps to one layer a frame.
-        ui.dnd_drag_source(id, drag, |ui| {
-            ui.push_id(index, |ui| part_row(app, ui, part, index));
-        });
+        let response = ui
+            .interact(row.rect, id, egui::Sense::drag())
+            .on_hover_cursor(egui::CursorIcon::Grab);
+        if response.drag_started() {
+            egui::DragAndDrop::set_payload(
+                ui.ctx(),
+                DesignerDrag {
+                    category: part.category,
+                    item: part.item,
+                    count: 1,
+                    from_slot: None,
+                },
+            );
+        }
     }
     if parts.is_empty() {
         ui.label(
@@ -482,12 +535,6 @@ fn part_row(app: &mut App, ui: &mut egui::Ui, part: &PartRow, index: usize) {
             designer.selected_part = Some(index);
         }
     }
-}
-
-/// How many a drag from the list carries, given what is held down.
-fn held_count(ui: &egui::Ui) -> u8 {
-    let (ctrl, shift) = ui.input(|i| (i.modifiers.command, i.modifiers.shift));
-    App::designer_drag_count(None, 1, ctrl, shift)
 }
 
 fn name_field(app: &mut App, ui: &mut egui::Ui, rect: egui::Rect) {
@@ -818,22 +865,30 @@ fn slot_widget(
         return false;
     }
 
-    // Dragging a fitted component off its slot, and dropping one on.
-    if let Some((_, count)) = &slot.fitted {
-        if response.drag_started() {
-            let (ctrl, shift) = ui.input(|i| (i.modifiers.command, i.modifiers.shift));
-            if let Some(part) = app
-                .designer_subject()
-                .and_then(|d| d.slots.get(index).copied())
-                .and_then(|s| stars_core::design::slot_part(&s))
-            {
-                let drag = DesignerDrag {
-                    category: part.category,
-                    item: part.item,
-                    count: App::designer_drag_count(Some(index), *count, ctrl, shift),
-                    from_slot: Some(index),
-                };
-                egui::DragAndDrop::set_payload(ui.ctx(), drag);
+    // Dragging a fitted component off its slot, and dropping one on. The
+    // count is read at the drop (`designer_drag_at_drop`), as the original
+    // reads the keys then.
+    if slot.fitted.is_some() && response.drag_started() {
+        if let Some(part) = app
+            .designer_subject()
+            .and_then(|d| d.slots.get(index).copied())
+            .and_then(|s| stars_core::design::slot_part(&s))
+        {
+            let drag = DesignerDrag {
+                category: part.category,
+                item: part.item,
+                count: 1,
+                from_slot: Some(index),
+            };
+            egui::DragAndDrop::set_payload(ui.ctx(), drag);
+        }
+    }
+    // The no-way cursor over a slot that would refuse what is carried
+    // (`FTrackSlot` sets `hcurNoWay` from `IDropPart`'s answer).
+    if response.contains_pointer() {
+        if let Some(drag) = egui::DragAndDrop::payload::<DesignerDrag>(ui.ctx()) {
+            if !app.designer_accepts_drop(*drag, index) {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::NotAllowed);
             }
         }
     }
