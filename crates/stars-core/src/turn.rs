@@ -2882,6 +2882,7 @@ pub fn next_fleet_id(state: &GameState, owner: i16) -> u16 {
 ///
 /// `designs` is the owning player's design list, indexed by slot; a ship entry
 /// naming a slot the list does not hold is skipped rather than guessed at.
+#[allow(clippy::too_many_arguments)]
 fn run_queue(
     planet: &mut Planet,
     race: &crate::Race,
@@ -3128,11 +3129,11 @@ fn genesis_device(state: &mut GameState, index: usize, rng: &mut Rng) {
         planet.scanner = None;
     }
     let mut env = [0i8; 3];
-    for axis in 0..3 {
+    for (axis, climate) in env.iter_mut().enumerate() {
         planet.surface_min[axis] = 0;
         let a = rng.random(50);
         let b = rng.random(50);
-        env[axis] = i8::try_from(a + b + 1).unwrap_or(i8::MAX);
+        *climate = i8::try_from(a + b + 1).unwrap_or(i8::MAX);
         let a = rng.random(40);
         let b = rng.random(40);
         planet.min_conc[axis] = u8::try_from(a + b + 25).unwrap_or(u8::MAX);
