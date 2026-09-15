@@ -120,8 +120,10 @@ when they arrive, and a played frame held until they have; and the focus,
 picked by clicking a square.
 
 The transport's captions are the resource's ASCII marks in the dialog font.
-They are drawn here as the same marks in shapes — a bar and a triangle or two,
-and the pause's two bars while the VCR plays — on push buttons in the Windows
+They are drawn here as the same marks in shapes — a bar and a triangle or two;
+the play button carries both halves of `>/||`, the triangle and the two bars,
+with the half a press would do next in ink and the other faint, so it is told
+from the step button's lone triangle — on push buttons in the Windows
 face with its bevel, engraved when disabled, which reads as the original's
 intent rather than its lettering.
 

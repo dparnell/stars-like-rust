@@ -657,17 +657,19 @@ fn animate_attack(
 
 /// What a transport button shows: the resource captions are `|<<`, `<`,
 /// `>/||`, `>` and `>>|` in the dialog font, and these are the same marks
-/// drawn as shapes — a bar and a triangle or two, and the pause's two bars
-/// while the VCR plays.
+/// drawn as shapes — a bar and a triangle or two. The play button carries
+/// both halves of its caption, the triangle and the two bars, with the
+/// half a press would do next drawn in ink and the other in the shadow
+/// colour; the step button is the lone triangle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Glyph {
     /// `|<<`
     Start,
     /// `<`
     Back,
-    /// `>` — playing, the `||` half of `>/||`.
+    /// `>/||` with the `>` half live: press to play.
     Play,
-    /// `||`
+    /// `>/||` with the `||` half live: press to pause.
     Pause,
     /// `>`
     Step,
@@ -791,8 +793,26 @@ fn transport_button(ui: &mut egui::Ui, label: &str, glyph: Glyph, enabled: bool)
             colour,
         );
     };
+    let faint = if enabled {
+        dark
+    } else {
+        colour([0xa0, 0xa0, 0xa0])
+    };
     let draw = |painter: &egui::Painter, offset: Vec2, colour: Color32| {
         let c = centre + offset;
+        // `>/||`: the triangle to the left, the two bars to the right, the
+        // half that a press would do next in the caller's colour and the
+        // other faint.
+        let play_pause = |live_play: bool| {
+            let (play, pause) = if live_play {
+                (colour, faint)
+            } else {
+                (faint, colour)
+            };
+            tri(painter, c.x - 6.0, true, play);
+            bar(painter, c.x + 4.0, pause);
+            bar(painter, c.x + 9.0, pause);
+        };
         match glyph {
             Glyph::Start => {
                 bar(painter, c.x - 9.0, colour);
@@ -800,11 +820,8 @@ fn transport_button(ui: &mut egui::Ui, label: &str, glyph: Glyph, enabled: bool)
                 tri(painter, c.x + 5.0, false, colour);
             }
             Glyph::Back => tri(painter, c.x, false, colour),
-            Glyph::Play => tri(painter, c.x, true, colour),
-            Glyph::Pause => {
-                bar(painter, c.x - 2.5, colour);
-                bar(painter, c.x + 2.5, colour);
-            }
+            Glyph::Play => play_pause(true),
+            Glyph::Pause => play_pause(false),
             Glyph::Step => tri(painter, c.x, true, colour),
             Glyph::End => {
                 tri(painter, c.x - 5.0, true, colour);
