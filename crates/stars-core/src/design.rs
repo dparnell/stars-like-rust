@@ -419,6 +419,50 @@ impl ShipDesign {
         i32::from(TACHYON_PCT[detectors.min(TACHYON_PCT.len() - 1)])
     }
 
+    /// What wreckage of this design teaches — `MarkTechsSeen`
+    /// (`1080:36c8`): the highest technology the hull and every fitted
+    /// part asks for, field by field, folded into `seen`; and the Mystery
+    /// Trader parts fitted, counted by copy into `trader_seen` (capped at
+    /// 25), by the [`crate::wormhole::part`] bit each one is.
+    pub fn mark_techs_seen(&self, seen: &mut [u8; 6], trader_seen: &mut [u8; 13]) {
+        let fold = |seen: &mut [u8; 6], tech: &crate::components::TechRequirement| {
+            for (have, need) in seen.iter_mut().zip(tech.iter()) {
+                *have = (*have).max(u8::try_from(*need).unwrap_or(0));
+            }
+        };
+        if let Some(hull) = self.hull() {
+            fold(seen, &hull.tech);
+        }
+        for s in &self.slots {
+            if s.count == 0 {
+                continue;
+            }
+            if let Some(part) = slot_part(s) {
+                fold(seen, &part.tech);
+            }
+            let item = usize::from(s.item);
+            let bit: Option<usize> = match s.category {
+                c if c == slot::ENGINE && item == 8 => Some(9),
+                c if c == slot::SHIELD && item == 6 => Some(2),
+                c if c == slot::ARMOR && item == 9 => Some(3),
+                c if c == slot::BEAM && item == 18 => Some(7),
+                c if c == slot::TORPEDO && item == 7 => Some(6),
+                c if c == slot::BOMB && item == 8 => Some(5),
+                c if c == slot::MINING && item == 6 => Some(4),
+                c if c == slot::SPECIAL_E && item == 4 => Some(1),
+                c if c == slot::SPECIAL_M && item == 4 => Some(0),
+                c if c == slot::SPECIAL_M && item == 9 => Some(11),
+                _ => None,
+            };
+            if let Some(bit) = bit {
+                let count = &mut trader_seen[bit];
+                if *count < 25 {
+                    *count = count.saturating_add(s.count).min(25);
+                }
+            }
+        }
+    }
+
     /// Resource and mineral cost of one ship.
     #[must_use]
     pub fn cost(&self) -> Option<Cost> {

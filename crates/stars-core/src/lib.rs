@@ -186,6 +186,11 @@ pub struct Player {
     /// The Trader checks it before handing anything over, and never gives the
     /// same part twice.
     pub trader_parts: u16,
+    /// Whether the player has learned something from wreckage this year
+    /// (`PLAYER` flag bit 3 at `+0x54`, `ITechLearnATech`): one find a
+    /// year, from a battle or a planet taken. Cleared at the top of every
+    /// turn.
+    pub learned_tech_this_year: bool,
     /// Whether this is a shareware ("crippled") game for this player
     /// (`PLAYER.fCrippled`, bit 1 of the word at offset `0x54`).
     ///
@@ -294,6 +299,7 @@ impl Player {
             password: 0,
             message_filter: stars_formats::MessageFilter::new(),
             trader_parts: 0,
+            learned_tech_this_year: false,
             crippled: false,
             battle_plans: default_battle_plans(0),
             explored: std::collections::BTreeSet::new(),

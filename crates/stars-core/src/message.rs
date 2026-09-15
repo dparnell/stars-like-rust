@@ -344,6 +344,20 @@ pub mod id {
     pub const PACKET_ADDED_TO: u16 = 0xd4;
     /// The game has no room for another packet (`10b8:2716`).
     pub const NO_ROOM_FOR_THING: u16 = 0x129;
+
+    // Wreckage — `ITechLearnATech` (`10f0:9918`), object `-2`, the place
+    // (`x, y`, or `-1` and the planet), the field, the resources as a long.
+    /// Wreckage from a battle you fought boosted your research.
+    pub const WRECKAGE_BOOSTED_RESEARCH: u16 = 0xef;
+    /// Wreckage from a battle in orbit of your planet boosted your research.
+    pub const WRECKAGE_IN_ORBIT_BOOSTED_RESEARCH: u16 = 0xf0;
+    /// Your fleet found wreckage from a battle it watched.
+    pub const FLEET_FOUND_WRECKAGE: u16 = 0xf1;
+    /// Wreckage yielded the plans of a Mystery Trader part: the Trader's
+    /// wording moved up by `0x2f`, the item word as the object.
+    pub const WRECKAGE_PLANS_PART: u16 = 0x13a;
+    /// Wreckage yielded the plans of a Mystery Trader hull.
+    pub const WRECKAGE_PLANS_HULL: u16 = 0x13b;
 }
 
 /// The families of message ids the filter treats as one thing.
@@ -872,6 +886,36 @@ impl Message {
                     planet(param(0))
                 )
             }
+            id::WRECKAGE_BOOSTED_RESEARCH
+            | id::WRECKAGE_IN_ORBIT_BOOSTED_RESEARCH
+            | id::FLEET_FOUND_WRECKAGE => {
+                let field = usize::try_from(param(2))
+                    .ok()
+                    .and_then(|i| crate::research::TechField::ALL.get(i))
+                    .map_or("?", |f| f.name());
+                format!(
+                    "{} the wreckage of the battle at {} yielded {} resources' worth of \
+                     research in {}.",
+                    match self.id {
+                        id::WRECKAGE_IN_ORBIT_BOOSTED_RESEARCH => "In orbit of your planet,",
+                        id::FLEET_FOUND_WRECKAGE => "Your fleet looked over",
+                        _ => "Picked through,",
+                    },
+                    place(),
+                    long(3),
+                    field
+                )
+            }
+            id::WRECKAGE_PLANS_PART | id::WRECKAGE_PLANS_HULL => format!(
+                "Among the wreckage of the battle at {} your engineers found the plans of \
+                 {} you could not have researched.",
+                place(),
+                if self.id == id::WRECKAGE_PLANS_HULL {
+                    "a hull"
+                } else {
+                    "a part"
+                }
+            ),
             id::PACKET_NO_DRIVER => format!(
                 "{} has built a mineral packet but has no mass driver to throw it \
                  with.",

@@ -936,9 +936,16 @@ Reality's), its queued ships and packets cancelled. `SendBattleMessages`
 wordings by outcome (ids `0x8d`–`0xa8`, `0x113`–`0x116`), with the
 battle id and bit 14 as the object and the place first among the
 parameters; spectators get `0xf9`/`0xfa`; a player whose fleets were
-excluded `0x180`; and wreckage teaches tech (`ITechLearnATech`). The
-transcription sends one wording (`0xa8`) with the two sides' ships and
-losses, and the tech is not written. The recording — header, tokens,
+excluded `0x180`; and wreckage teaches tech (`ITechLearnATech`,
+`10f0:9918` — see `ground.md`, *Wreckage*): every ship killed marks the
+highest technology its hull and parts asked for and the Mystery Trader
+parts it carried (`MarkTechsSeen`, `1080:36c8`, from `KillShips`), and
+then a player who fought and was not beaten to the last ship — unless the
+battle was in orbit of somebody else's planet — picks through it (`0xef`),
+as does the planet's owner who did not fight (`0xf0`) and a spectator with
+a fleet there (`0xf1`). The transcription sends one wording (`0xa8`) with
+the two sides' ships and losses; the wreckage is learned as the original
+learns it. The recording — header, tokens,
 actions — goes to every player in `grfSpectator` (the present mask) and
 is written to their file as type-31 blocks continued in type-39 blocks
 (`WriteBattles`, `1070:709c`).

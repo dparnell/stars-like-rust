@@ -202,6 +202,9 @@ pub fn generate_turn_with_orders(
     // *first* — the Mystery Trader's news is the earliest thing a year sends.
     state.messages.clear();
     state.battles.clear();
+    for player in &mut state.players {
+        player.learned_tech_this_year = false;
+    }
 
     // --- DoAiTurn (`1088:0000`), for each computer player: the host plays
     // their turn before the year runs, as if they had submitted orders.
@@ -250,7 +253,7 @@ pub fn generate_turn_with_orders(
         report.transfers = applied;
         // DropColonists: settle every landing together, so rival claims on one
         // planet are weighed against each other rather than one at a time.
-        report.colonised = crate::orders::resolve_colonist_drops(state, &drops);
+        report.colonised = crate::orders::resolve_colonist_drops_with(state, &drops, Some(rng));
     }
 
     // --- MoveThings(0): the Mystery Trader crosses a year, and the packets
@@ -755,7 +758,7 @@ pub fn generate_turn_with_orders(
         let (done, drops) =
             crate::orders::execute_arrival_tasks_after_moving(state, &moved_this_turn);
         report.tasks_done = done;
-        let settled = crate::orders::resolve_colonist_drops(state, &drops);
+        let settled = crate::orders::resolve_colonist_drops_with(state, &drops, Some(rng));
         report.colonised.extend(settled);
     }
 

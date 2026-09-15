@@ -245,6 +245,96 @@ pub fn learn_from_wreckage(
     None
 }
 
+/// What a player learned from wreckage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WreckageFind {
+    /// Research credited to a field.
+    Tech { field: usize, resources: i32 },
+    /// A Mystery Trader part, by its [`crate::wormhole::part`] bit.
+    Part(u16),
+}
+
+/// `ITechLearnATech` (`10f0:9918`) in full, on the game state: what a
+/// player learns from the wreckage of a battle (or a planet taken), told
+/// with message `idm` — `0xef`, `0xf0` or `0xf1` by how they came to be
+/// there — at `place` (`x, y`, or `-1` and the planet).
+///
+/// One find a year (`learned_tech_this_year`), and only when `Random(100)`
+/// comes out above 49. Then thirteen tries at a **Mystery Trader part**:
+/// `Random(13)` names one; if the wreckage held any (`trader_seen`, the
+/// count of copies seen), the player lacks it, and `Random(100)` is under
+/// that count, it is theirs — told with the Trader's own wording moved up
+/// by `0x2f` (`0x13a` a part, `0x13b` a hull), the item word as the
+/// object. Failing that, six tries at a **field**: `Random(6)` names one,
+/// and where the wreckage knew more than the player the cost of their next
+/// level is credited to it (halved in a slow-tech game as the cost table
+/// is), told with `idm`, object `-2`, the place, the field and the cost as
+/// a long.
+pub fn learn_from_battle(
+    state: &mut crate::GameState,
+    player: usize,
+    place: [i16; 2],
+    idm: u16,
+    tech_seen: [u8; TECH_FIELDS],
+    trader_seen: [u8; 13],
+    rng: &mut Rng,
+) -> Option<WreckageFind> {
+    use crate::message::Message;
+    let slow_tech = state.slow_tech;
+    let who = state.players.get_mut(player)?;
+    if who.learned_tech_this_year {
+        return None;
+    }
+    if i32::from(rng.random(100)) <= 49 {
+        return None;
+    }
+    for _ in 0..13 {
+        let i = usize::try_from(rng.random(13)).unwrap_or(0);
+        let bit = 1u16 << i;
+        if trader_seen[i] == 0 || who.trader_parts & bit != 0 {
+            continue;
+        }
+        if i32::from(rng.random(100)) >= i32::from(trader_seen[i]) {
+            continue;
+        }
+        who.trader_parts |= bit;
+        who.learned_tech_this_year = true;
+        let (id, item) = crate::wormhole::part_gift(bit);
+        state.messages.push(Message {
+            player,
+            id: id + 0x2f,
+            object: item as i16,
+            params: vec![place[0], place[1]],
+        });
+        return Some(WreckageFind::Part(bit));
+    }
+    for _ in 0..TECH_FIELDS {
+        let field = usize::try_from(rng.random(6)).unwrap_or(0);
+        let mine = who.research.levels[field];
+        if mine >= tech_seen[field] {
+            continue;
+        }
+        let resources = tech_level_cost(field, mine + 1, &who.research, &who.race, slow_tech);
+        who.research.points[field] = who.research.points[field].saturating_add(resources);
+        who.learned_tech_this_year = true;
+        let [lo, hi] = Message::long(resources);
+        state.messages.push(Message {
+            player,
+            id: idm,
+            object: crate::message::RESEARCH_OBJECT,
+            params: vec![
+                place[0],
+                place[1],
+                i16::try_from(field).unwrap_or(0),
+                lo,
+                hi,
+            ],
+        });
+        return Some(WreckageFind::Tech { field, resources });
+    }
+    None
+}
+
 /// The smallest research windfall an artifact can hold.
 pub const ARTIFACT_MIN: i32 = 100;
 
@@ -492,5 +582,88 @@ mod tests {
     fn nothing_lands_nothing_happens() {
         assert_eq!(resolve_landings(None, &[]), Outcome::Nothing);
         assert_eq!(resolve_landings(Some((500, None)), &[]), Outcome::Nothing);
+    }
+
+    /// A seed whose first draw does what the closure wants.
+    fn seed_where(mut want: impl FnMut(&mut Rng) -> bool) -> u32 {
+        (1..100_000u32)
+            .find(|s| want(&mut Rng::randomize(*s)))
+            .expect("a seed")
+    }
+
+    /// Wreckage that knew more teaches a field once a year, credited at the
+    /// cost of the player's next level and told with the place; wreckage
+    /// carrying a Trader part can hand the part over instead.
+    #[test]
+    fn wreckage_teaches_once_a_year() {
+        let mut state = crate::GameState::new(1);
+        state
+            .players
+            .push(crate::Player::new(crate::Race::humanoid()));
+        // Past the coin's toss, and the field then drawn is one the
+        // wreckage knew better.
+        let seed = seed_where(|rng| rng.random(100) > 49);
+        let mut rng = Rng::randomize(seed);
+        let find = learn_from_battle(
+            &mut state,
+            0,
+            [1200, 1300],
+            crate::message::id::WRECKAGE_BOOSTED_RESEARCH,
+            [5; 6],
+            [0; 13],
+            &mut rng,
+        )
+        .expect("something learned");
+        let WreckageFind::Tech { field, resources } = find else {
+            panic!("a field, not a part: {find:?}");
+        };
+        let expect = tech_level_cost(field, 1, &Research::default(), &Race::humanoid(), false);
+        assert_eq!(resources, expect);
+        assert_eq!(state.players[0].research.points[field], expect);
+        let msg = state.messages.last().expect("told");
+        assert_eq!(msg.id, crate::message::id::WRECKAGE_BOOSTED_RESEARCH);
+        assert_eq!(msg.object, crate::message::RESEARCH_OBJECT);
+        assert_eq!(&msg.params[..3], &[1200, 1300, field as i16]);
+        assert!(state.players[0].learned_tech_this_year);
+
+        // Nothing more this year, whatever the wreckage.
+        assert!(learn_from_battle(
+            &mut state,
+            0,
+            [1200, 1300],
+            crate::message::id::WRECKAGE_BOOSTED_RESEARCH,
+            [9; 6],
+            [25; 13],
+            &mut Rng::randomize(seed),
+        )
+        .is_none());
+
+        // Next year, wreckage full of Langston Shells: the part is found on
+        // a seed whose draws land on it.
+        state.players[0].learned_tech_this_year = false;
+        let seed =
+            seed_where(|rng| rng.random(100) > 49 && rng.random(13) == 2 && rng.random(100) < 25);
+        let mut trader_seen = [0u8; 13];
+        trader_seen[2] = 25;
+        let find = learn_from_battle(
+            &mut state,
+            0,
+            [-1, 7],
+            crate::message::id::WRECKAGE_BOOSTED_RESEARCH,
+            [0; 6],
+            trader_seen,
+            &mut Rng::randomize(seed),
+        );
+        assert_eq!(
+            find,
+            Some(WreckageFind::Part(crate::wormhole::part::SHIELD))
+        );
+        assert_ne!(
+            state.players[0].trader_parts & crate::wormhole::part::SHIELD,
+            0
+        );
+        let msg = state.messages.last().expect("told");
+        assert_eq!(msg.id, crate::message::id::WRECKAGE_PLANS_PART);
+        assert_eq!(msg.params, vec![-1, 7]);
     }
 }

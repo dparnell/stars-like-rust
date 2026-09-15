@@ -89,6 +89,14 @@ pub struct Outcome {
     pub starbase_destroyed: Option<i16>,
     /// Salvage left in space, as `(position, minerals)`.
     pub salvage: Vec<(Point, [i32; 3])>,
+    /// The highest technology the ships destroyed asked for, field by field
+    /// (`rgTechBattle`), and the Mystery Trader parts they carried
+    /// (`rgTechTrader`).
+    pub tech_seen: [u8; 6],
+    /// See [`Outcome::tech_seen`].
+    pub trader_seen: [u8; 13],
+    /// What each player learned from the wreckage.
+    pub wreckage: Vec<(usize, crate::ground::WreckageFind)>,
 }
 
 /// The relation a player holds toward another (`PLAYER.rgmdRelation`):
@@ -999,6 +1007,15 @@ fn apply(state: &mut GameState, encounter: &Encounter, board: &Board, outcome: &
                 };
                 if token.state.ships <= 0 {
                     starbase_died = true;
+                    // `KillShips` marks the techs of what it kills.
+                    if let Some(design) = state.planets[planet]
+                        .owner
+                        .and_then(|o| usize::try_from(o).ok())
+                        .and_then(|o| state.designs.get(o))
+                        .and_then(|d| d.get(usize::from(origin.design)))
+                    {
+                        design.mark_techs_seen(&mut outcome.tech_seen, &mut outcome.trader_seen);
+                    }
                     outcome.losses.push((
                         state.planets[planet].owner.unwrap_or(-1),
                         origin.design,
@@ -1013,12 +1030,13 @@ fn apply(state: &mut GameState, encounter: &Encounter, board: &Board, outcome: &
                 let owner = state.fleets[index].owner;
                 if lost > 0 {
                     outcome.losses.push((owner, origin.design, lost));
-                    // A third of the ore that built them.
+                    // A third of the ore that built them, and what they knew.
                     if let Some(design) = usize::try_from(owner)
                         .ok()
                         .and_then(|o| state.designs.get(o))
                         .and_then(|d| d.get(usize::from(origin.design)))
                     {
+                        design.mark_techs_seen(&mut outcome.tech_seen, &mut outcome.trader_seen);
                         let cost = design.cost().unwrap_or_default();
                         let entry = dead_minerals.entry(Some(index)).or_default();
                         for (e, m) in entry.iter_mut().zip(cost.minerals.iter()) {
@@ -1144,18 +1162,42 @@ pub(crate) fn drop_salvage(state: &mut GameState, at: Point, minerals: [i32; 3])
 /// coordinates), then their ships, their losses, the enemy's ships and
 /// its losses — and a spectator hears that a battle took place. The
 /// original's dozen wordings by outcome are one summary here.
+///
+/// Then the wreckage: a player who fought and has something left — not
+/// beaten to the last ship — picks through it (`ITechLearnATech`, `0xef`)
+/// unless the battle was in orbit of somebody else's planet; a player
+/// whose planet it was in orbit of, not fighting, does the same (`0xf0`);
+/// and a spectator with a fleet there (`0xf1`).
 fn send_messages(
     state: &mut GameState,
     encounter: &Encounter,
-    outcome: &Outcome,
+    outcome: &mut Outcome,
     battle_id: u16,
     board: &Board,
+    rng: &mut Rng,
 ) {
     let place: [i16; 2] = match encounter.planet {
         Some(i) => [-1, state.planets[i].id],
         None => [encounter.position.x, encounter.position.y],
     };
     let object = i16::from_le_bytes((battle_id | 0x4000).to_le_bytes());
+    let planet_owner = encounter
+        .planet
+        .and_then(|i| state.planets[i].owner)
+        .and_then(|o| usize::try_from(o).ok());
+    let mut learn = |state: &mut GameState, player: usize, idm: u16, rng: &mut Rng| {
+        if let Some(find) = crate::ground::learn_from_battle(
+            state,
+            player,
+            place,
+            idm,
+            outcome.tech_seen,
+            outcome.trader_seen,
+            rng,
+        ) {
+            outcome.wreckage.push((player, find));
+        }
+    };
     for player in 0..state.players.len().min(16) {
         let bit = 1u16 << player;
         if encounter.present & bit != 0 {
@@ -1199,6 +1241,22 @@ fn send_messages(
                     n(their_losses),
                 ],
             });
+            let starbase_stands = encounter
+                .planet
+                .is_some_and(|i| state.planets[i].starbase && planet_owner == Some(player));
+            let something_left = ours > our_losses || starbase_stands;
+            let their_ground = planet_owner.is_some_and(|o| o != player);
+            if something_left && !their_ground {
+                learn(state, player, id::WRECKAGE_BOOSTED_RESEARCH, rng);
+            }
+        } else if planet_owner == Some(player) {
+            state.messages.push(Message {
+                player,
+                id: id::BATTLE_SEEN,
+                object,
+                params: vec![place[0], place[1]],
+            });
+            learn(state, player, id::WRECKAGE_IN_ORBIT_BOOSTED_RESEARCH, rng);
         } else if encounter.spectators & bit != 0 {
             state.messages.push(Message {
                 player,
@@ -1206,6 +1264,7 @@ fn send_messages(
                 object,
                 params: vec![place[0], place[1]],
             });
+            learn(state, player, id::FLEET_FOUND_WRECKAGE, rng);
         }
     }
 }
@@ -1283,9 +1342,12 @@ pub fn do_battles(state: &mut GameState, rng: &mut Rng) -> Vec<Outcome> {
             losses: Vec::new(),
             starbase_destroyed: None,
             salvage: Vec::new(),
+            tech_seen: [0; 6],
+            trader_seen: [0; 13],
+            wreckage: Vec::new(),
         };
         apply(state, &encounter, &board, &mut outcome);
-        send_messages(state, &encounter, &outcome, battle_id, &board);
+        send_messages(state, &encounter, &mut outcome, battle_id, &board, rng);
         state.battles.push(outcome.record.clone());
         outcomes.push(outcome);
         battle_id = battle_id.wrapping_add(1);

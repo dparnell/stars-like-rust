@@ -281,6 +281,17 @@ fn colonist_landing(state: &GameState, record: &CargoTransferRecord) -> Option<(
 /// weights and the winner rule. Returns the planets whose ownership or
 /// population changed.
 pub fn resolve_colonist_drops(state: &mut GameState, drops: &[ColonistDrop]) -> Vec<i16> {
+    resolve_colonist_drops_with(state, drops, None)
+}
+
+/// [`resolve_colonist_drops`], with a generator for the wreckage a taken
+/// planet yields (`ITechLearnATech`, called by `DropColonists` with the
+/// loser's six levels as what was seen). Without one nothing is learned.
+pub fn resolve_colonist_drops_with(
+    state: &mut GameState,
+    drops: &[ColonistDrop],
+    mut rng: Option<&mut crate::rng::Rng>,
+) -> Vec<i16> {
     let mut planets: Vec<i16> = drops.iter().map(|d| d.planet).collect();
     planets.sort_unstable();
     planets.dedup();
@@ -349,11 +360,30 @@ pub fn resolve_colonist_drops(state: &mut GameState, drops: &[ColonistDrop]) -> 
                 }
             }
             crate::ground::Outcome::Taken { player, colonists } => {
+                let loser_tech = state.planets[index]
+                    .owner
+                    .and_then(|o| usize::try_from(o).ok())
+                    .and_then(|o| state.players.get(o))
+                    .map(|p| p.research.levels);
                 let planet = &mut state.planets[index];
                 planet.owner = Some(player);
                 planet.pop = colonists;
                 apply_default_queue(state, index);
                 changed.push(id);
+                // The loser's technology is the wreckage.
+                if let (Some(rng), Some(loser_tech), Ok(who)) =
+                    (rng.as_deref_mut(), loser_tech, usize::try_from(player))
+                {
+                    crate::ground::learn_from_battle(
+                        state,
+                        who,
+                        [-1, id],
+                        crate::message::id::WRECKAGE_BOOSTED_RESEARCH,
+                        loser_tech,
+                        [0; 13],
+                        rng,
+                    );
+                }
             }
             crate::ground::Outcome::Held { colonists } => {
                 state.planets[index].pop = colonists;

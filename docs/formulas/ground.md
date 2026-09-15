@@ -109,7 +109,10 @@ exact queue a settling produces needs it.
 
 Taking an inhabited planet copies the loser's six technology levels into
 `rgTechBattle` and calls `ITechLearnATech` — the "wreckage discovered, research
-boosted" message. Implemented as `ground::learn_from_wreckage`.
+boosted" message. Implemented as `ground::learn_from_wreckage` (the field
+half alone) and, on the game state with the Mystery Trader half too, as
+`ground::learn_from_battle`, which the turn runs for a planet taken and
+`combat.md`'s battles run for the ships destroyed.
 
 ```
 if the player already learned something this turn:  nothing
@@ -121,6 +124,17 @@ repeat 6 times:
         mark the player as having learned this turn
         stop
 ```
+
+Before the six field tries the routine makes thirteen at a **Mystery Trader
+part** (`10f0:9960`): `Random(13)` names a part bit; if the wreckage carried
+any copies of it (`rgTechTrader`, counted by `MarkTechsSeen` up to 25), the
+player lacks the part, and `Random(100)` comes under the count, the part is
+theirs — told with the Trader's own wording moved up by `0x2f` (`0x13a` a
+part, `0x13b` a hull), the item word as the object — and the year's find is
+spent. A planet taken carries no Trader parts, so there the tries all miss.
+The message for a field carries the place (`x, y`, or `-1` and the planet),
+the field and the cost as a long, with object `-2`; a slow-tech game's
+doubled cost is what the table gives.
 
 Three things are worth drawing out.
 
