@@ -278,7 +278,9 @@ pub fn fleet_from_record(record: &FleetRecord) -> Option<Fleet> {
             i32::try_from(c.boranium).unwrap_or(0),
             i32::try_from(c.germanium).unwrap_or(0),
         ],
-        colonists: i32::try_from(c.population).unwrap_or(0),
+        // The record gives people; the hold, like a planet's count, keeps
+        // hundreds — a kiloton of colonists.
+        colonists: i32::try_from(c.population / 100).unwrap_or(0),
         fuel: i32::try_from(c.fuel).unwrap_or(0),
     });
 
