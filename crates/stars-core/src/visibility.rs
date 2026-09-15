@@ -33,8 +33,11 @@
 //! ([`Fleet::cloak_pct`]), cut by the scanning fleet's Tachyon Detectors,
 //! shrinks the range it is seen at to `range × (100 − cloak) / 100`, and a
 //! planet's cloaked starbase shrinks the range the planet is learned at the
-//! same way. The ranges of stargates and space objects that the two passes
-//! also settle are not modelled.
+//! same way. A **Packet Physics** race's packets in flight scan as they go,
+//! penetrating, to the square of their warp, and a **Space Demolition**
+//! race's minefields show the fleets loose inside them, a cloaked one on a
+//! roll (`SetVisPFThings`, `1070:b9ee`). The ranges of stargates and the
+//! marking of space objects that the passes also settle are not modelled.
 
 use std::collections::BTreeSet;
 
@@ -270,8 +273,26 @@ fn scan_from(
 }
 
 /// Everything `player` can see this year.
+///
+/// The Space Demolition pass rolls for each cloaked fleet inside one of the
+/// player's fields, which the host does once a year with the game's
+/// generator; here the roll is seeded from the seed, the year and the
+/// player, so a frontend recomputing the view frame by frame sees the same
+/// answer all year. [`view_with`] takes the generator to use instead.
 #[must_use]
 pub fn view(state: &GameState, player: usize) -> View {
+    let mut rng = crate::rng::Rng::randomize(
+        state
+            .seed
+            .wrapping_add(u32::try_from(state.turn).unwrap_or(0).wrapping_mul(7919))
+            .wrapping_add(u32::try_from(player).unwrap_or(0).wrapping_mul(104_729)),
+    );
+    view_with(state, player, &mut rng)
+}
+
+/// [`view`], rolling the Space Demolition pass on `rng`.
+#[must_use]
+pub fn view_with(state: &GameState, player: usize, rng: &mut crate::rng::Rng) -> View {
     let mut out = View::default();
     let Ok(me) = i16::try_from(player) else {
         return out;
@@ -310,6 +331,49 @@ pub fn view(state: &GameState, player: usize) -> View {
             fleet_tachyon(state, fleet),
             &mut out,
         );
+    }
+
+    // SetVisPFThings (`1070:b9ee`): a Packet Physics race's packets in
+    // flight scan, penetrating, to the square of their warp; a Space
+    // Demolition race's minefields show the fleets loose inside them.
+    let prt = state.players.get(player).and_then(|p| p.race.prt());
+    if prt == Some(Prt::Pp) {
+        for packet in &state.packets {
+            if packet.owner != me || packet.warp == 0 {
+                continue;
+            }
+            let range = packet.speed() * packet.speed();
+            scan_from(
+                state,
+                me,
+                packet.position,
+                ScannerRange {
+                    normal: range,
+                    penetrating: range,
+                },
+                100,
+                &mut out,
+            );
+        }
+    } else if prt == Some(Prt::Sd) {
+        for field in &state.minefields {
+            if field.owner != me {
+                continue;
+            }
+            for (index, other) in state.fleets.iter().enumerate() {
+                if other.owner == me || other.stacks.is_empty() || other.orbiting.is_some() {
+                    continue;
+                }
+                if !field.contains(other.position) {
+                    continue;
+                }
+                // A cloaked fleet is caught on a roll against its cloak.
+                let cloak = fleet_cloak(state, other, 100);
+                if cloak == 0 || i32::from(rng.random(100)) >= cloak {
+                    out.fleets.insert(index);
+                }
+            }
+        }
     }
     out
 }

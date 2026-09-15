@@ -147,9 +147,16 @@ dilution by cargo, a detector's five per cent, and the manual's table.
 
 - No Advanced Scanners doubles conventional ranges and removes penetration
   entirely (`MANUAL.PDF` p. 20-13).
-- Some racial traits turn other objects into scanners: Packet Physics makes
-  mineral packets penetrating scanners, and Space Demolition makes minefields
-  normal (non-penetrating) scanners. Neither is implemented yet.
+- Some racial traits turn other objects into scanners (`SetVisPFThings`,
+  `1070:b9ee`): a **Packet Physics** race's packets in flight scan,
+  penetrating, to the **square of their warp** — fleets (cloak counted, no
+  detectors), planets (starbase cloak counted) and space objects alike; a
+  **Space Demolition** race's minefields show every fleet **loose** inside
+  them — not one in orbit — a cloaked one on a `Random(100) >= cloak` roll,
+  the one place the visibility pass draws on the generator. Both are in
+  `stars_core::visibility` (`tests/visibility.rs`); the roll is seeded from
+  the game seed, the year and the player so a frontend recomputing the view
+  sees the same answer all year, where the host rolls the game's own once.
 
 ## Worked example (becomes a test vector)
 

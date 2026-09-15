@@ -200,3 +200,72 @@ fn cloak_points_read_off_the_manuals_table() {
     assert_eq!(cloak_pct_of_points(1612), 98);
     assert_eq!(cloak_pct_of_points(30_000), 0, "the overflow guard");
 }
+
+/// A Packet Physics race's packets scan as they fly, penetrating, to the
+/// square of their warp; a Space Demolition race's minefields show the
+/// fleets loose inside them (`SetVisPFThings`, `1070:b9ee`).
+#[test]
+fn packets_and_minefields_scan_for_the_races_that_own_them() {
+    let mut state = tutorial_world();
+    state.players[1].race.attrs[stars_core::race::RaceStat::MajorAdv as usize] = 9;
+    // Everything of ours parked far from the corner in question.
+    for fleet in state.fleets.iter_mut().filter(|f| f.owner == 0) {
+        fleet.position = stars_core::movement::Point::new(1600, 1600);
+        fleet.orbiting = None;
+    }
+    let corner = stars_core::movement::Point::new(1050, 1050);
+    let enemy = state
+        .fleets
+        .iter()
+        .position(|f| f.owner == 1)
+        .expect("a Berserker fleet");
+    state.fleets[enemy].position = corner;
+    state.fleets[enemy].orbiting = None;
+    assert!(
+        !view(&state, 0).fleets.contains(&enemy),
+        "nothing of ours near"
+    );
+
+    // A warp 6 packet of ours thirty light years off: 36 reaches it.
+    state.packets.push(stars_core::packet::Packet {
+        id: 0,
+        owner: 0,
+        position: stars_core::movement::Point::new(corner.x + 30, corner.y),
+        target: 0,
+        warp: 2,
+        minerals: [100, 0, 0],
+        decay_rate: 0,
+        moved: false,
+        include: true,
+        turn: 0,
+    });
+    assert!(
+        !view(&state, 0).fleets.contains(&enemy),
+        "only for Packet Physics"
+    );
+    state.players[0].race.attrs[stars_core::race::RaceStat::MajorAdv as usize] = 6;
+    assert!(view(&state, 0).fleets.contains(&enemy));
+    state.packets[0].warp = 1; // warp 5: 25, short of 30
+    assert!(!view(&state, 0).fleets.contains(&enemy));
+    state.packets.clear();
+
+    // A minefield of ours over the corner shows the fleet for Space
+    // Demolition alone.
+    state.minefields.push(stars_core::minefield::Minefield {
+        id: 0,
+        owner: 0,
+        position: corner,
+        mines: 400,
+        kind: 0,
+        detonating: false,
+        detected_by: 0,
+        visible_to: 0,
+        turn: 0,
+    });
+    assert!(!view(&state, 0).fleets.contains(&enemy));
+    state.players[0].race.attrs[stars_core::race::RaceStat::MajorAdv as usize] = 5;
+    assert!(view(&state, 0).fleets.contains(&enemy));
+    // Not one in orbit, though.
+    state.fleets[enemy].orbiting = Some(0);
+    assert!(!view(&state, 0).fleets.contains(&enemy));
+}
