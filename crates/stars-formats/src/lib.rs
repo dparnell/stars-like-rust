@@ -58,6 +58,7 @@ pub mod design;
 pub mod file;
 pub mod fleet;
 pub mod header;
+pub mod help;
 pub mod history;
 pub mod message;
 pub mod names;
@@ -94,6 +95,7 @@ pub use design::{design_records, DesignRecord, Slot};
 pub use file::{Segment, StarsFile, FILE_FOOTER_BLOCK};
 pub use fleet::{fleet_records, Cargo, FleetRecord, ShipDamage, ShipStack, FLEET_NAME_BLOCK};
 pub use header::{FileHeader, FileType};
+pub use help::HelpFile;
 pub use history::{history_header, HistoryHeader};
 pub use message::filter::{
     message_filter, MessageFilter, MESSAGE_FILTER_BLOCK, MESSAGE_FILTER_LEN,

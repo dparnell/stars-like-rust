@@ -73,6 +73,9 @@ Per-format (payload record layouts, populated as decoded in Step 2):
   (`RTLOGHDR`, type 9) and the common `rtLog*` operations (waypoints, cargo,
   research, planet routing, fleet order edits) are **decoded & verified**
   (`stars-formats::orders`), backed by the 40-turn `EXODUS.X6` fixtures.
+- `help.md` — the player's guide, `STARS!.HLP`, a Windows 3.1 help file:
+  container, tables, topics, pictures — **verified** against every topic
+  in the file (`stars-formats::help`)
 - `race-r.md` — race definition (`.rN`): record largely decoded
 - player history (`.hN`): container round-trips; the **history header**
   (`RTHISTHDR`, type 32) is decoded & verified (`stars-formats::history`), the
