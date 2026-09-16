@@ -191,10 +191,11 @@ The five items that carry their own greying rule are asked about through
 menu is alive whenever a game is open, because this shell's scanner is not a
 window that can be absent.
 
-Not there, because there is nothing behind them yet: `Close`,
-`Save And Submit` and the whole `Dump to Text File` submenu. `Print Map`
-opens the Print Map dialog (`print-map.md`), whose pages come out as
-pictures rather than on paper.
+Not there, because there is nothing behind them yet: `Close` and
+`Save And Submit`. `Print Map` opens the Print Map dialog
+(`print-map.md`), whose pages come out as pictures rather than on
+paper; the `Dump to Text File` submenu writes its three text files
+beside the game (`dump.md`).
 `Introduction` and `Player's Guide` (F1) open the help viewer (`help.md`)
 on `0x1195` and the contents page; `About Stars!...` opens the About box
 (`about.md`). `Wait for New` opens this

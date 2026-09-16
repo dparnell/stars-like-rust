@@ -626,6 +626,9 @@ pub struct App {
     /// The preview's Save button has been pressed: the shell writes the
     /// pages out and clears this.
     pub print_save_requested: bool,
+    /// `gd.fPerPlayerDumps`: whether the text dumps carry their third
+    /// block of columns and are named by player.
+    pub per_player_dumps: bool,
     /// What the Score sheet was last set to.
     ///
     /// The original keeps the face and the timeline's figure in `gd`, which
@@ -8272,7 +8275,7 @@ impl App {
 
     /// What the game calls one queue entry.
     #[must_use]
-    fn production_item_name(&self, item: u16, ship: bool) -> String {
+    pub(crate) fn production_item_name(&self, item: u16, ship: bool) -> String {
         if !ship {
             return stars_core::production::item_name(item).to_string();
         }

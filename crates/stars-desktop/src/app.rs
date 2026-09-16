@@ -392,6 +392,44 @@ impl StarsApp {
         }
     }
 
+    /// Write one of the text dumps beside the game, and say so — or say
+    /// why not, as the original's two boxes do.
+    fn dump(&mut self, kind: DumpKind) {
+        let dump = match kind {
+            DumpKind::Universe => self.app.dump_universe(),
+            DumpKind::Planets => self.app.dump_planets(),
+            DumpKind::Fleets => self.app.dump_fleets(),
+        };
+        let what = match kind {
+            DumpKind::Universe => "the universe definition",
+            DumpKind::Planets => "the planet information",
+            DumpKind::Fleets => "the fleet information",
+        };
+        let Some(dump) = dump else {
+            self.app.error = Some(format!("Unable to write {what}: no game is open."));
+            return;
+        };
+        let dir = self
+            .app
+            .path
+            .as_ref()
+            .and_then(|p| p.parent().map(Path::to_path_buf))
+            .unwrap_or_default();
+        let file = dir.join(&dump.file_name);
+        match std::fs::write(&file, dump.text.as_bytes()) {
+            Ok(()) => {
+                self.app.error = None;
+                self.written = vec![file.display().to_string()];
+            }
+            Err(e) => {
+                self.app.error = Some(format!(
+                    "Unable to write {what} to '{}': {e}.",
+                    file.display()
+                ));
+            }
+        }
+    }
+
     /// Write the printed map's pages out as bitmaps — `<name>-1.bmp`,
     /// `<name>-2.bmp`, … — where the preview's Save asks to.
     fn save_print_pages(&mut self) {
@@ -649,6 +687,14 @@ fn screenshot_hook(ctx: &egui::Context) {
         let _ = std::fs::write(path, out);
         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
     }
+}
+
+/// Which of the three text dumps File (Dump to Text File) asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DumpKind {
+    Universe,
+    Planets,
+    Fleets,
 }
 
 /// Where the original's files are looked for: beside an explicit
@@ -1094,6 +1140,27 @@ impl eframe::App for StarsApp {
                         ui.close_menu();
                         self.save_universe();
                     }
+                    // `&Dump to Text File` ▸ Universe Definition (`0x55`),
+                    // Planet Information (`0x54`), Fleet Information
+                    // (`0x53`): each writes its text beside the game.
+                    ui.add_enabled_ui(open, |ui| {
+                        ui.menu_button("Dump to Text File", |ui| {
+                            let mut which = None;
+                            if ui.button("Universe Definition").clicked() {
+                                which = Some(DumpKind::Universe);
+                            }
+                            if ui.button("Planet Information").clicked() {
+                                which = Some(DumpKind::Planets);
+                            }
+                            if ui.button("Fleet Information").clicked() {
+                                which = Some(DumpKind::Fleets);
+                            }
+                            if let Some(kind) = which {
+                                ui.close_menu();
+                                self.dump(kind);
+                            }
+                        });
+                    });
                     // `&Print Map...`, `0xd5`: the Print Map dialog, then the
                     // pages it prints, which this shell saves as pictures.
                     if ui

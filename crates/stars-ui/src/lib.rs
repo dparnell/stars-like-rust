@@ -35,6 +35,7 @@ pub mod app;
 pub mod art;
 pub mod autopilot;
 pub mod dialog;
+pub mod dump;
 pub mod help;
 pub mod message;
 pub mod popup;
