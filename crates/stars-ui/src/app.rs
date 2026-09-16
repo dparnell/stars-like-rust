@@ -629,6 +629,11 @@ pub struct App {
     /// `gd.fPerPlayerDumps`: whether the text dumps carry their third
     /// block of columns and are named by player.
     pub per_player_dumps: bool,
+    /// `gd.fSubmit`: whether the last save was **Save And Submit**, which
+    /// is what the order file's header carries as its submitted flag
+    /// (`WriteBOF`, `1050:0e52`, bit 8 of `dts`) and what the host reads
+    /// as *turned in* rather than *partially done*.
+    pub submitted: bool,
     /// What the Score sheet was last set to.
     ///
     /// The original keeps the face and the timeline's figure in `gd`, which
@@ -1557,7 +1562,8 @@ impl App {
         let (serial, config) = existing_registration(&target);
         let log = self.order_log(serial, config);
         let header = stars_formats::FileHeader {
-            flag_done: true,
+            // `gd.fSubmit`: set by Save And Submit, clear by a plain Save.
+            flag_done: self.submitted,
             ..stars_formats::FileHeader::new(
                 game.seed,
                 stars_formats::FileType::Orders,
@@ -1574,11 +1580,61 @@ impl App {
         Ok(target)
     }
 
-    /// Write the game back to a file.
+    /// File (Save), `0xeda`: write the game back, with the orders beside
+    /// it marked **not** submitted — a save is a save, and the host will
+    /// call the turn *partially done* until it is submitted.
+    ///
+    /// `CommandHandler`'s arm (`1020:53a0`) first asks `FNewTurnAvail`: a
+    /// newer turn on disk means this one is stale, and the original says
+    /// so and loads it rather than saving; here the save is refused with
+    /// the same message, and File (Open) is the way on.
     ///
     /// # Errors
     /// Returns a message suitable for showing to the player.
     pub fn save(&mut self, path: &Path) -> Result<(), String> {
+        self.save_with(path, false)
+    }
+
+    /// File (Save And Submit), `0xedb`, Ctrl+A: the same save with
+    /// `gd.fSubmit` set, so the order file says the turn is in.
+    ///
+    /// # Errors
+    /// As [`Self::save`].
+    pub fn save_and_submit(&mut self, path: &Path) -> Result<(), String> {
+        self.save_with(path, true)
+    }
+
+    /// Whether a newer turn of this game sits beside the one open —
+    /// `FNewTurnAvail`: the player's `.mN` on disk carries a later year
+    /// than the one in memory.
+    #[must_use]
+    pub fn new_turn_available(&self) -> bool {
+        let (Some(path), Some(game)) = (self.path.as_ref(), self.game.as_ref()) else {
+            return false;
+        };
+        let directory = path.parent().unwrap_or_else(|| Path::new("."));
+        let Some(stem) = path.file_stem().map(|s| s.to_string_lossy().to_string()) else {
+            return false;
+        };
+        let file = directory.join(format!("{stem}.m{}", self.local_player() + 1));
+        let Ok(bytes) = std::fs::read(file) else {
+            return false;
+        };
+        let Ok(decoded) = StarsFile::decode(&bytes) else {
+            return false;
+        };
+        let header = &decoded.latest_segment().header;
+        header.game_id == game.seed && i16::try_from(header.turn).is_ok_and(|turn| turn > game.turn)
+    }
+
+    fn save_with(&mut self, path: &Path, submit: bool) -> Result<(), String> {
+        if self.new_turn_available() {
+            return Err(
+                "A newer turn of this game has been generated; what is open is out of date.                  Open the new turn rather than saving this one."
+                    .to_string(),
+            );
+        }
+        self.submitted = submit;
         let bytes = self.to_bytes()?;
         std::fs::write(path, bytes).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
         // The orders go beside the state file: a host replays them, and a

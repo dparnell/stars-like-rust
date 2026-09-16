@@ -89,8 +89,9 @@ fn a_turn_of_orders_is_written_and_reads_back() {
     app.queue_add(item, 3);
     app.set_research(0, 42);
 
-    // Save, which writes the state file and the orders beside it.
-    app.save(&host).expect("saves");
+    // Save And Submit, which writes the state file and the orders beside
+    // it, marked as turned in.
+    app.save_and_submit(&host).expect("saves");
     let orders = host.with_extension("x1");
     assert!(orders.is_file(), "the order file was written");
 
@@ -99,7 +100,7 @@ fn a_turn_of_orders_is_written_and_reads_back() {
     let file = StarsFile::decode(&bytes).expect("decodes");
     assert_eq!(file.header.file_type, stars_formats::FileType::Orders);
     assert_eq!(file.header.player, 0);
-    assert!(file.header.flag_done, "a written order file is submitted");
+    assert!(file.header.flag_done, "a submitted order file says so");
 
     let log = order_log(&file);
     let header = log.header.expect("a log header");
@@ -1777,4 +1778,55 @@ fn designing_a_ship_writes_a_design_order() {
     assert_eq!(state.designs[0][doomed].hull_id, -1);
 
     let _ = std::fs::remove_dir_all(host.parent().expect("a directory"));
+}
+
+/// Save and Save And Submit differ in one bit: the order file's submitted
+/// flag (`gd.fSubmit`, `WriteBOF`'s bit 8), which is what the host reads
+/// as *turned in* rather than *partially done*.
+#[test]
+fn a_plain_save_is_not_a_submission() {
+    let (mut app, host) = a_saved_game("submit");
+    app.save(&host).expect("saves");
+    let orders = host.with_extension("x1");
+    let file = StarsFile::decode(&std::fs::read(&orders).expect("reads")).expect("decodes");
+    assert!(
+        !file.header.flag_done,
+        "a plain save leaves the turn partially done"
+    );
+    assert!(!app.submitted);
+
+    app.save_and_submit(&host).expect("submits");
+    let file = StarsFile::decode(&std::fs::read(&orders).expect("reads")).expect("decodes");
+    assert!(file.header.flag_done);
+    assert!(app.submitted);
+
+    // Saving again, plainly, takes the submission back — the flag is
+    // whatever the last save set.
+    app.save(&host).expect("saves");
+    let file = StarsFile::decode(&std::fs::read(&orders).expect("reads")).expect("decodes");
+    assert!(!file.header.flag_done);
+}
+
+/// A newer turn on disk stops a save: the one in memory is stale.
+#[test]
+fn a_newer_turn_on_disk_refuses_the_save() {
+    let (mut app, host) = a_saved_game("stale");
+    assert!(!app.new_turn_available());
+    app.save(&host).expect("saves");
+    // Somebody generated the next year: the player's own .m1 moves on.
+    let turn_file = host.with_extension("m1");
+    let bytes = std::fs::read(&turn_file).expect("the turn file");
+    let decoded = StarsFile::decode(&bytes).expect("decodes");
+    let mut header = decoded.header.clone();
+    header.turn += 1;
+    let body: Vec<_> = decoded.blocks[1..decoded.blocks.len() - 1].to_vec();
+    let footer = decoded.blocks.last().expect("a footer").data.clone();
+    std::fs::write(
+        &turn_file,
+        StarsFile::build(&header, &body, footer).expect("builds"),
+    )
+    .expect("writes");
+    assert!(app.new_turn_available());
+    assert!(app.save(&host).is_err());
+    assert!(app.save_and_submit(&host).is_err());
 }

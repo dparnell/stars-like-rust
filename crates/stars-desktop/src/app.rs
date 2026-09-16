@@ -325,6 +325,31 @@ impl StarsApp {
         self.write_templates(&path);
     }
 
+    /// File (Save And Submit): the save that marks the turn as in.
+    ///
+    /// The original's item is greyed without a game or in a single-player
+    /// game (`InitializeMenu`), where there is nobody to submit to.
+    fn save_and_submit(&mut self) {
+        if !self.app.can_save_game() {
+            return;
+        }
+        let Some(path) = self.app.path.clone() else {
+            return;
+        };
+        match self.app.save_and_submit(&path) {
+            Ok(()) => {
+                self.app.error = None;
+                self.written = vec![format!(
+                    "{} — the turn is submitted",
+                    path.with_extension(format!("x{}", self.app.local_player() + 1))
+                        .display()
+                )];
+            }
+            Err(e) => self.app.error = Some(e),
+        }
+        self.write_templates(&path);
+    }
+
     /// Read the player's production templates out of `stars.ini`.
     ///
     /// The original keeps them there rather than in a save — see
@@ -936,9 +961,8 @@ impl eframe::App for StarsApp {
             self.app.find_open = true;
         }
 
-        // File's own three: `&New...\tCtrl+N`, `&Open...\tCtrl+O` and
-        // `&Save\tCtrl+S`. The fourth, Ctrl+A for Save And Submit, has
-        // nothing behind it here.
+        // File's own four: `&New...\tCtrl+N`, `&Open...\tCtrl+O`,
+        // `&Save\tCtrl+S` and `Save &And Submit\tCtrl+A`.
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::N)) {
             self.app.setup = Some(stars_core::newgame::NewGame::default());
         }
@@ -949,6 +973,13 @@ impl eframe::App for StarsApp {
             && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S))
         {
             self.save(false);
+        }
+        if self
+            .app
+            .menu_item_enabled(stars_ui::MenuItem::SaveAndSubmit)
+            && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::A))
+        {
+            self.save_and_submit();
         }
 
         // View (Race) is F8 in the original.
@@ -1129,6 +1160,22 @@ impl eframe::App for StarsApp {
                     {
                         ui.close_menu();
                         self.save(true);
+                    }
+                    // `Save &And Submit\tCtrl+A`, `0xedb`: the same save
+                    // with the order file marked submitted.
+                    if ui
+                        .add_enabled(
+                            self.app.menu_item_enabled(stars_ui::MenuItem::SaveAndSubmit),
+                            egui::Button::new("Save And Submit").shortcut_text("Ctrl+A"),
+                        )
+                        .on_hover_text(
+                            "Save, and mark the turn as turned in, which is what the host \
+                             waits for. A plain Save leaves it partially done.",
+                        )
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.save_and_submit();
                     }
                     if ui
                         .add_enabled(

@@ -191,8 +191,8 @@ The five items that carry their own greying rule are asked about through
 menu is alive whenever a game is open, because this shell's scanner is not a
 window that can be absent.
 
-Not there, because there is nothing behind them yet: `Close` and
-`Save And Submit`. `Print Map` opens the Print Map dialog
+Not there, because there is nothing behind it yet: `Close`.
+`Save And Submit` is there — see below. `Print Map` opens the Print Map dialog
 (`print-map.md`), whose pages come out as pictures rather than on
 paper; the `Dump to Text File` submenu writes its three text files
 beside the game (`dump.md`).
@@ -297,3 +297,35 @@ F3 cycle, which is the original's four and only those, though Esc leaves it
 the same way.
 
 The map is on no menu, in the original or here: Esc is the way back to it.
+
+## Save, and Save And Submit
+
+`&Save` (`0xeda`, Ctrl+S) and `Save &And Submit` (`0xedb`, Ctrl+A; the
+accelerator arrives as `0x428` and is turned into `0xedb` at
+`1020:4d98`) share one arm of `CommandHandler` (`1020:53a0`). With no
+scanner window it complains that no game is loaded; a host session
+(`idPlayer == -1`) writes the host file instead. Otherwise it first asks
+`FNewTurnAvail`: a newer turn on disk means what is open is stale, and
+it says so — `idsNewTurnAvailable`, or `idsSorryTurnHasAlreadyGenerated`
+with OK/Cancel when there are unsaved changes — and loads the new turn
+rather than saving. Failing that it sets **`gd.fSubmit` to whether the
+item was Save And Submit**, writes the log (`FWriteLogFile`) and the
+history (`FWriteHistFile`), and marks the game clean.
+
+`gd.fSubmit` is the whole difference between the two: `WriteBOF`
+(`1050:0e52`) writes it as bit 8 of the order file's `dts` word, the
+flag this project reads as `FileHeader::flag_done`, and the host's
+`CFindTurnsOutstanding` calls a file without it *partially done* and
+counts it among the turns still out. The item is greyed without a game
+or in a single-player game (`InitializeMenu`).
+
+This project: `App::save` clears `submitted` and `App::save_and_submit`
+sets it; both refuse with a message when `App::new_turn_available` finds
+a later `.mN` beside the game, and leave loading it to File (Open). The
+desktop's File menu has the item, greyed by `MenuItem::SaveAndSubmit`,
+with Ctrl+A behind it. Both saves also write the state file, which the
+original's do not — that is this project's way of keeping a generated
+game on disk (`docs/formats/writing.md`). `tests/order_files.rs::
+a_plain_save_is_not_a_submission` and `::a_newer_turn_on_disk_refuses_
+the_save`.
+
