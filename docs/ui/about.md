@@ -1,7 +1,25 @@
 # The About box — Help (About Stars!...)
 
 Status: **recovered**: the template, the version line, the rolling
-credits and the ordering box.
+credits and the ordering box — behind a box of this project's own.
+
+## This project's box first
+
+Help (About Stars!...) opens **this project's** About box, not a copy
+of the original's: the same template (resource 90, its geometry and its
+roll) with the captions replaced — *Stars-re for Windows, macOS and
+Linux*, *A reverse-engineered rewrite of Stars!*, this crate's version
+beside the original's (*Version 0.0.1 — rebuilt from Stars! 2.60j*), the
+original's copyright as a reference, *Not affiliated with its authors or
+publisher*, and a roll that opens with how this program was made (the
+reverse engineering in Ghidra with the NB09 symbols, the rewrite in
+Rust and egui, the assets read from the player's own copy) before it
+goes on to the original's seventy-seven credit lines under *Stars!
+2.60j, by*. Its **About Stars!...** button opens the original's box,
+described below, which is where its **Order Info...** lives.
+`crate::dialog::ABOUT_PROJECT`; `App::about_project_version`,
+`App::about_project_credits`; `views::about::view`. The original's box
+is `views::about::original`.
 
 `CommandHandler` answers menu id `0x63` (`1020:3050`) with
 `DialogBox(hInst, 90, hwnd, About)`; `About` is at `1018:1252`.
@@ -58,7 +76,7 @@ line nothing shows for it.
 
 ## What this project does
 
-`views::about::view` draws the template control by control: the icon
+`views::about::draw_box` draws either template control by control: the icon
 from the executable's resources (`StarsIco`, through `Art::icon`), the
 statics centred on their top line, the version from
 `stars_formats::resources::text::version` (the string table, decoded at

@@ -41,6 +41,7 @@ fn main() {
                 app.load_art(exe, "stars.2.7j.exe").expect("art");
             }
             app.open_about(0.0);
+            app.open_original_about(0.0);
             app.about.as_mut().expect("open").order_info = true;
         }
         "history" => {

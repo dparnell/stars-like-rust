@@ -2181,3 +2181,74 @@ pub const PRINT_MAP: Template = Template {
         },
     ],
 };
+
+/// This project's own About box: the original's template (resource 90)
+/// with its captions replaced by this reimplementation's, so it sits and
+/// rolls exactly as the original's does while saying what this program
+/// is. The **About Stars!...** button opens the original's box in turn.
+pub const ABOUT_PROJECT: Template = Template {
+    caption: "About Stars-re",
+    size: (192, 175),
+    controls: &[
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (8, 8, 18, 20),
+            text: "StarsIco",
+        },
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (36, 8, 156, 8),
+            text: "Stars-re for Windows, macOS and Linux",
+        },
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (36, 18, 156, 17),
+            text: "A reverse-engineered rewrite of Stars!",
+        },
+        Control {
+            id: 0x401,
+            class: Class::Static,
+            at: (4, 32, 184, 8),
+            text: "Version",
+        },
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (4, 48, 184, 8),
+            text: "After Stars! 2.60j, © 1995-2000 Jeff Johnson && Jeff McBride",
+        },
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (4, 60, 184, 66),
+            text: "Not affiliated with its authors or publisher",
+        },
+        Control {
+            id: 0x41f,
+            class: Class::Static,
+            at: (4, 70, 184, 66),
+            text: "",
+        },
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (4, 140, 184, 8),
+            text: "Reverse engineered with Ghidra; rebuilt in Rust and egui",
+        },
+        Control {
+            id: 0x76,
+            class: Class::Button,
+            at: (32, 156, 48, 14),
+            text: "About &Stars!...",
+        },
+        Control {
+            id: 0x1,
+            class: Class::Button,
+            at: (112, 156, 48, 14),
+            text: "OK",
+        },
+    ],
+};

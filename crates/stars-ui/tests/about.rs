@@ -35,22 +35,34 @@ fn draw(app: &mut App, time: f64) {
 fn the_credits_roll_as_the_timer_would() {
     let about = About {
         opened_at: 10.0,
+        original: None,
         order_info: false,
     };
+    // The original's roll: seventy-seven lines.
+    let lines = 77;
     // Before the first tick: the start, nothing scrolled.
-    assert_eq!(about.position(10.0, 13), (About::FIRST, 0));
-    assert_eq!(about.position(10.049, 13), (About::FIRST, 0));
+    assert_eq!(about.position(10.0, 13, lines), (About::FIRST, 0));
+    assert_eq!(about.position(10.049, 13, lines), (About::FIRST, 0));
     // One tick: two pixels of the first line gone.
-    assert_eq!(about.position(10.05, 13), (About::FIRST, 2));
+    assert_eq!(about.position(10.05, 13, lines), (About::FIRST, 2));
     // Seven ticks reach thirteen — the line steps and the partial resets.
-    assert_eq!(about.position(10.0 + 6.0 * 0.05, 13), (About::FIRST, 12));
-    assert_eq!(about.position(10.0 + 7.0 * 0.05, 13), (About::FIRST + 1, 0));
-    // Ninety-six lines on, it starts over.
+    assert_eq!(
+        about.position(10.0 + 6.0 * 0.05, 13, lines),
+        (About::FIRST, 12)
+    );
+    assert_eq!(
+        about.position(10.0 + 7.0 * 0.05, 13, lines),
+        (About::FIRST + 1, 0)
+    );
+    // Ninety lines on — past `0x4e` — it starts over.
     let span = About::LAST - About::FIRST + 1;
     let one_round = f64::from(span * 7) * 0.05;
-    assert_eq!(about.position(10.0 + one_round, 13), (About::FIRST, 0));
     assert_eq!(
-        about.position(10.0 + one_round - 0.05, 13),
+        about.position(10.0 + one_round, 13, lines),
+        (About::FIRST, 0)
+    );
+    assert_eq!(
+        about.position(10.0 + one_round - 0.05, 13, lines),
         (About::LAST, 12)
     );
 }
@@ -71,9 +83,11 @@ fn the_box_reads_its_lines_from_the_executable() {
     assert_eq!(credits[76], "Ross Youngs");
 }
 
-/// The menu opens it, OK closes it, and Order Info puts up the second box.
+/// The menu opens this project's box; About Stars!... opens the
+/// original's over it, whose Order Info opens the third; OK takes each
+/// down in turn.
 #[test]
-fn the_box_opens_and_closes_through_its_buttons() {
+fn the_boxes_open_and_close_through_their_buttons() {
     let mut app = App::new();
     if let Some(exe) = executable() {
         app.load_art(exe, "stars.exe")
@@ -82,19 +96,51 @@ fn the_box_opens_and_closes_through_its_buttons() {
     app.open_about(1.0);
     assert!(app.about.is_some());
     draw(&mut app, 1.3);
-    assert!(app.drawn_button("", "Order Info...").is_some());
+    assert!(app.drawn_button("", "About Stars!...").is_some());
     assert!(app.drawn_button("", "OK").is_some());
-    app.about.as_mut().unwrap().order_info = true;
+    assert!(app.drawn_button("", "Order Info...").is_none());
+    app.open_original_about(1.3);
     draw(&mut app, 1.4);
-    // Both boxes have an OK; the ordering box is drawn second.
+    assert!(app.drawn_button("", "Order Info...").is_some());
+    app.about.as_mut().unwrap().order_info = true;
+    draw(&mut app, 1.5);
+    // Three boxes, three OKs.
     let oks = app
         .drawn
         .iter()
         .filter(|w| w.scope.is_empty() && w.label == "OK")
         .count();
-    assert_eq!(oks, 2);
+    assert_eq!(oks, 3);
+    app.close_original_about();
+    assert!(app
+        .about
+        .as_ref()
+        .is_some_and(|a| a.original.is_none() && !a.order_info));
     app.close_about();
     assert!(app.about.is_none());
-    draw(&mut app, 1.5);
-    assert!(app.drawn_button("", "Order Info...").is_none());
+    draw(&mut app, 1.6);
+    assert!(app.drawn_button("", "About Stars!...").is_none());
+}
+
+/// This project's box says what it is, and its roll leads into the
+/// original's credits.
+#[test]
+fn the_project_box_names_itself_and_the_original() {
+    let mut app = App::new();
+    let version = app.about_project_version();
+    assert!(version.starts_with(&format!("Version {}", env!("CARGO_PKG_VERSION"))));
+    assert!(version.ends_with("Stars! 2.60j"), "{version}");
+    let roll = app.about_project_credits();
+    assert_eq!(roll[0], stars_ui::views::about::PROJECT);
+    assert!(roll.iter().any(|l| l.contains("Rust")));
+    assert!(roll.iter().any(|l| l == "Stars! 2.60j, by"));
+    // Without the executable, the two authors; with it, the whole roll.
+    assert_eq!(&roll[roll.len() - 2..], ["Jeff Johnson", "Jeff McBride"]);
+    if let Some(exe) = executable() {
+        app.load_art(exe, "stars.exe")
+            .expect("the game's own pictures");
+        let roll = app.about_project_credits();
+        assert_eq!(roll.last().map(String::as_str), Some("Ross Youngs"));
+        assert!(roll.len() > 77);
+    }
 }

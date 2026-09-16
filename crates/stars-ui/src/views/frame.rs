@@ -132,15 +132,29 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
     if app.about.is_some() {
         let now = ctx.input(|i| i.time);
         let mut open = true;
-        egui::Window::new(crate::dialog::ABOUT.caption)
+        egui::Window::new(crate::dialog::ABOUT_PROJECT.caption)
             .id(egui::Id::new("about"))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
-            .default_width(crate::dialog::ABOUT.pixels().x)
+            .default_width(crate::dialog::ABOUT_PROJECT.pixels().x)
             .show(ctx, |ui| crate::views::about::view(app, ui, now));
         if !open {
             app.close_about();
+        }
+        // The original's box, over this project's, from About Stars!...
+        if app.about.as_ref().is_some_and(|a| a.original.is_some()) {
+            let mut open = true;
+            egui::Window::new(crate::dialog::ABOUT.caption)
+                .id(egui::Id::new("about-original"))
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(false)
+                .default_width(crate::dialog::ABOUT.pixels().x)
+                .show(ctx, |ui| crate::views::about::original(app, ui, now));
+            if !open {
+                app.close_original_about();
+            }
         }
         if app.about.as_ref().is_some_and(|a| a.order_info) {
             let mut open = true;
