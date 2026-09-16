@@ -616,6 +616,16 @@ pub struct App {
     pub help: crate::help::Help,
     /// The About box, while it is up.
     pub about: Option<crate::views::about::About>,
+    /// The Print Map dialog, while it is up.
+    pub print_map_dialog: Option<crate::printmap::PrintMapDialog>,
+    /// `vrgcPrintMapPage`: how many pages across and down the map was
+    /// last printed over.
+    pub print_pages: [i16; 2],
+    /// The printed pages, while the preview of them is up.
+    pub print_preview: Option<crate::printmap::PrintPreview>,
+    /// The preview's Save button has been pressed: the shell writes the
+    /// pages out and clears this.
+    pub print_save_requested: bool,
     /// What the Score sheet was last set to.
     ///
     /// The original keeps the face and the timeline's figure in `gd`, which
@@ -776,6 +786,7 @@ impl App {
             scan_minefield_filter: 0xf,
             vcr_frame_entered: 0.0,
             vcr_speed: 2,
+            print_pages: crate::printmap::DEFAULT_PAGES,
             vcr_square: None,
             survey_height: None,
             mineral_scale: MINERAL_GRAPH_MAX,
@@ -12197,7 +12208,7 @@ impl App {
     }
 
     /// The hull a planet's starbase is built on.
-    fn starbase_hull(&self, planet: &Planet) -> Option<i16> {
+    pub(crate) fn starbase_hull(&self, planet: &Planet) -> Option<i16> {
         let game = self.game.as_ref()?;
         let owner = usize::try_from(planet.owner?).ok()?;
         let design = planet.starbase_design?;

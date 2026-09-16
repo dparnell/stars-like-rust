@@ -370,6 +370,46 @@ pub fn read_dib_recoloured(data: &[u8], recolour: &[(usize, [u8; 3])]) -> Result
     })
 }
 
+/// Write a picture out as a Windows bitmap file: a `BITMAPFILEHEADER`, a
+/// `BITMAPINFOHEADER` and the rows bottom-up, twenty-four bits a pixel,
+/// each row padded to four bytes — the plainest `.bmp` there is, which
+/// anything that opens one reads.
+#[must_use]
+pub fn write_bmp(image: &Image) -> Vec<u8> {
+    let width = image.width as usize;
+    let height = image.height as usize;
+    let stride = (width * 3).div_ceil(4) * 4;
+    let bits = stride * height;
+    let mut out = Vec::with_capacity(54 + bits);
+    // BITMAPFILEHEADER: type, size, two reserved words, offset of the bits.
+    out.extend_from_slice(b"BM");
+    out.extend_from_slice(&u32::try_from(54 + bits).unwrap_or(u32::MAX).to_le_bytes());
+    out.extend_from_slice(&[0, 0, 0, 0]);
+    out.extend_from_slice(&54u32.to_le_bytes());
+    // BITMAPINFOHEADER.
+    out.extend_from_slice(&40u32.to_le_bytes());
+    out.extend_from_slice(&image.width.to_le_bytes());
+    out.extend_from_slice(&image.height.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&24u16.to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(bits).unwrap_or(u32::MAX).to_le_bytes());
+    // 96 dots an inch, as pixels a metre.
+    out.extend_from_slice(&3780u32.to_le_bytes());
+    out.extend_from_slice(&3780u32.to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes());
+    for row in (0..height).rev() {
+        for column in 0..width {
+            let at = (row * width + column) * 4;
+            let p = image.pixels.get(at..at + 3).unwrap_or(&[0, 0, 0]);
+            out.extend_from_slice(&[p[2], p[1], p[0]]);
+        }
+        out.resize(out.len() + stride - width * 3, 0);
+    }
+    out
+}
+
 /// The resource type of an icon group (`RT_GROUP_ICON`).
 pub const RT_GROUP_ICON: u16 = 14;
 

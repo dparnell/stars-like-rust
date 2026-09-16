@@ -23,6 +23,7 @@ pub mod password;
 pub mod planet;
 pub mod players;
 pub mod popup;
+pub mod printmap;
 pub mod production;
 pub mod race;
 pub mod race_wizard;

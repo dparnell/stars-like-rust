@@ -88,6 +88,37 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
     // notices it puts up instead.
     crate::views::help::windows(app, ctx);
 
+    // Print Map: the dialog, and the preview of the pages it prints.
+    if app.print_map_dialog.is_some() {
+        let mut open = true;
+        let mut complaint = None;
+        egui::Window::new(crate::dialog::PRINT_MAP.caption)
+            .id(egui::Id::new("print-map"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(crate::dialog::PRINT_MAP.pixels().x)
+            .show(ctx, |ui| complaint = crate::views::printmap::view(app, ui));
+        if !open {
+            app.close_print_map();
+        }
+        if let Some(complaint) = complaint {
+            app.error = Some(complaint);
+        }
+    }
+    if app.print_preview.is_some() {
+        let mut open = true;
+        egui::Window::new("Print Map")
+            .id(egui::Id::new("print-preview"))
+            .open(&mut open)
+            .resizable(true)
+            .default_size(egui::vec2(480.0, 660.0))
+            .show(ctx, |ui| crate::views::printmap::preview(app, ui));
+        if !open {
+            app.close_print_preview();
+        }
+    }
+
     // The About box, and the ordering information it puts up over
     // itself. Modal in the original; a window here, like the rest.
     if app.about.is_some() {

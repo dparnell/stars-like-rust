@@ -2128,3 +2128,56 @@ pub const ORDER_INFO: Template = Template {
         },
     ],
 };
+
+/// `Print Map`, dialog resource 214.
+///
+/// Seven controls: two one-character boxes with `by` between and `pages.`
+/// after, and **Print**, **Cancel** and **Help** down the right.
+pub const PRINT_MAP: Template = Template {
+    caption: "Print Map",
+    size: (180, 70),
+    controls: &[
+        Control {
+            id: 0x10c,
+            class: Class::Edit,
+            at: (10, 6, 24, 12),
+            text: "",
+        },
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (36, 8, 20, 12),
+            text: "by",
+        },
+        Control {
+            id: 0x10d,
+            class: Class::Edit,
+            at: (58, 6, 24, 12),
+            text: "",
+        },
+        Control {
+            id: 0xfffe,
+            class: Class::Static,
+            at: (90, 8, 30, 12),
+            text: "pages.",
+        },
+        Control {
+            id: 0x1,
+            class: Class::Button,
+            at: (130, 6, 40, 14),
+            text: "&Print",
+        },
+        Control {
+            id: 0x2,
+            class: Class::Button,
+            at: (130, 24, 40, 14),
+            text: "Cancel",
+        },
+        Control {
+            id: 0x76,
+            class: Class::Button,
+            at: (130, 50, 40, 14),
+            text: "&Help",
+        },
+    ],
+};

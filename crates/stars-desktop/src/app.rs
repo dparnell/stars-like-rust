@@ -392,6 +392,47 @@ impl StarsApp {
         }
     }
 
+    /// Write the printed map's pages out as bitmaps — `<name>-1.bmp`,
+    /// `<name>-2.bmp`, … — where the preview's Save asks to.
+    fn save_print_pages(&mut self) {
+        self.app.print_save_requested = false;
+        let Some(preview) = self.app.print_preview.clone() else {
+            return;
+        };
+        let suggestion = format!("{}-map.bmp", sanitise(&self.app.game_name()));
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Save the printed map")
+            .set_file_name(suggestion)
+            .add_filter("Windows bitmap", &["bmp"])
+            .save_file()
+        else {
+            return;
+        };
+        let stem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "map".to_string());
+        let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+        let mut written = Vec::new();
+        for page in 0..preview.pages() {
+            let image = self.app.print_page_image(page);
+            let file = if preview.pages() == 1 {
+                dir.join(format!("{stem}.bmp"))
+            } else {
+                dir.join(format!("{stem}-{}.bmp", page + 1))
+            };
+            let bytes = stars_formats::resources::write_bmp(&image);
+            match std::fs::write(&file, bytes) {
+                Ok(()) => written.push(file.display().to_string()),
+                Err(e) => {
+                    self.app.error = Some(format!("{}: {e}", file.display()));
+                    return;
+                }
+            }
+        }
+        self.written = written;
+    }
+
     /// Write the race the wizard is holding, and close it.
     ///
     /// The original's own file filter is `"Stars! Race Files|*.R*|"` (string
@@ -676,6 +717,10 @@ impl eframe::App for StarsApp {
             } else {
                 self.app.open_designer();
             }
+        }
+
+        if self.app.print_save_requested {
+            self.save_print_pages();
         }
 
         // F1 is the Player's Guide — `WINHELP(HELP_INDEX)` — with or
@@ -1048,6 +1093,15 @@ impl eframe::App for StarsApp {
                     {
                         ui.close_menu();
                         self.save_universe();
+                    }
+                    // `&Print Map...`, `0xd5`: the Print Map dialog, then the
+                    // pages it prints, which this shell saves as pictures.
+                    if ui
+                        .add_enabled(open, egui::Button::new("Print Map…"))
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.app.open_print_map();
                     }
                     ui.separator();
                     // The game's own pictures are read out of a copy of the

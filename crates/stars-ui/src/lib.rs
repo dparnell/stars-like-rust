@@ -38,6 +38,8 @@ pub mod dialog;
 pub mod help;
 pub mod message;
 pub mod popup;
+pub mod printmap;
+pub mod raster;
 pub mod recent;
 pub mod report;
 pub mod score;
