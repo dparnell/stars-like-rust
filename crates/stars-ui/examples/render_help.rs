@@ -7,7 +7,8 @@
 //!
 //! `cargo run -p stars-ui --example render_help -- binary/STARS!.HLP 0x433 out.ppm`
 //! (`contents` for the contents page; a decimal number is a topic offset;
-//! `popup:<offset>` raises that topic as a popup over the contents page).
+//! `popup:<offset>` raises that topic as a popup over the contents page;
+//! `search` and `history` open those windows over it).
 
 use std::collections::HashMap;
 
@@ -27,6 +28,20 @@ fn main() {
         "contents" => app.help_contents(),
         s if s.starts_with("0x") => {
             app.help_context(u32::from_str_radix(&s[2..], 16).expect("hex"));
+        }
+        "search" => {
+            app.help_contents();
+            app.help_search_open();
+            app.help.search.as_mut().expect("open").text = "cargo".to_string();
+            let first = app.help_keyword_matches()[0];
+            app.help.search.as_mut().expect("open").keyword = Some(first);
+            app.help_show_topics();
+        }
+        "history" => {
+            app.help_contents();
+            app.help_context(0x433);
+            app.help_context(0x43a);
+            app.help.history_open = true;
         }
         s if s.starts_with("popup:") => {
             app.help_contents();
