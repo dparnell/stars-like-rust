@@ -12,6 +12,7 @@ pub mod designer;
 pub mod fleet;
 pub mod frame;
 pub mod galaxy;
+pub mod help;
 pub mod host;
 pub mod menubar;
 pub mod messages;

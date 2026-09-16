@@ -188,6 +188,19 @@ pub fn game_menus(app: &mut App, ui: &mut egui::Ui) -> Option<String> {
     record(app, ui, "Report", &header.response);
 
     let header = ui.menu_button("Help", |ui| {
+        // Resource `0x6d4`'s Help menu: Introduction, Player's Guide (F1),
+        // a rule, Technology Browser (F2), Tutorial, a rule, About.
+        // Introduction is `WINHELP(HELP_CONTEXT, 0x1195)` and the guide
+        // `WINHELP(HELP_INDEX)` (`CommandHandler`, `1020:47ab`, `1020:47c9`).
+        if item(app, ui, true, "Introduction", "").clicked() {
+            ui.close_menu();
+            app.help_context(crate::help::context::INTRODUCTION);
+        }
+        if item(app, ui, true, "Player's Guide", "F1").clicked() {
+            ui.close_menu();
+            app.help_contents();
+        }
+        ui.separator();
         if item(app, ui, playing, "Technology Browser…", "F2").clicked() {
             ui.close_menu();
             app.open_browser();

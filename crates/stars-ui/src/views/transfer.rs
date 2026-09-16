@@ -352,8 +352,11 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     if crate::views::placed_button(app, ui, at(0x2), &caption(0x2), true).clicked() {
         app.xfer_cancel();
     }
-    // Help opens the help file in the original; there is no reader here.
-    crate::views::placed_button(app, ui, at(0x76), &caption(0x76), false);
+    // Help is `WINHELP(HELP_CONTEXT, 0x433)` (`1050:59be`): the cargo
+    // transfer page of the player's guide.
+    if crate::views::placed_button(app, ui, at(0x76), &caption(0x76), true).clicked() {
+        app.help_context(crate::help::context::CARGO_TRANSFER);
+    }
 }
 
 /// `_Draw3dFrame(hdc, rc, 0)`: one ring, lit along the top and left and

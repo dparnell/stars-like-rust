@@ -59,6 +59,17 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         button(ui, 0xa4, on, "step");
         button(ui, 0xa5, on, "to the end");
         button(ui, 0x1, true, "close the VCR");
+        // The template's Help (`0x76`): `VCRDlg` asks for `0x43a`
+        // (`10e8:18b3`), the Battle VCR page.
+        {
+            let label = caption(0x76);
+            let response = transport_button(ui, &label, Glyph::Text, true)
+                .on_hover_text("the Battle VCR page of the player's guide");
+            crate::views::note_widget(app, ui, &label, response.rect, true);
+            if response.clicked() {
+                action = Some(0x76);
+            }
+        }
         ui.separator();
         let mut position = position_now;
         if ui
@@ -102,6 +113,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             app.close_battle();
             return;
         }
+        Some(0x76) => app.help_context(crate::help::context::BATTLE_VCR),
         _ => {}
     }
     let Some(vcr) = app.vcr.as_mut() else {

@@ -152,4 +152,9 @@ test that re-encodes them all is exactly this case.
   on the next save rather than the instant OK is pressed, which is the one
   difference from the original's host branch.
 * **Validate mode**, which fails rather than asking.
-* The **Help** buttons.
+
+The **Help** buttons work: Change Password asks for `0x43c`
+(`NewPasswordDlg`, `1040:5f65`) and gets its page; the prompt asks for
+`0x441` (`PasswordDlg`, `1040:5c5f`), which the file has no page for, so it
+gets the *no such topic* notice, as WinHelp gives the original. See
+`help.md`.

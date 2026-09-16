@@ -969,6 +969,7 @@ fn merge_dialog(app: &mut App, ui: &mut egui::Ui) {
     app.drawn_scope = "merge";
     let mut ticked = dialog.ticked.clone();
     let mut done: Option<bool> = None;
+    let mut help = false;
     let mut open = true;
     egui::Window::new("Merge Fleets")
         .open(&mut open)
@@ -1001,9 +1002,16 @@ fn merge_dialog(app: &mut App, ui: &mut egui::Ui) {
                 if crate::views::flow_button(app, ui, "Cancel", true).clicked() {
                     done = Some(false);
                 }
+                // `MergeFleetsDlg`'s Help: `0x453` (`1080:35f7`).
+                if crate::views::flow_button(app, ui, "Help", true).clicked() {
+                    help = true;
+                }
             });
         });
     app.drawn_scope = was;
+    if help {
+        app.help_context(crate::help::context::MERGE_FLEETS);
+    }
     if let Some(dialog) = app.merge.as_mut() {
         dialog.ticked = ticked;
     }

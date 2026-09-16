@@ -610,6 +610,10 @@ pub struct App {
     /// drawing without it, so this being `None` costs nothing but the
     /// pictures.
     pub art: Option<crate::art::Art>,
+    /// The help viewer — the player's guide, when a copy of `STARS!.HLP`
+    /// has been found to read it out of. Without one every Help button
+    /// puts up the notice WinHelp would.
+    pub help: crate::help::Help,
     /// What the Score sheet was last set to.
     ///
     /// The original keeps the face and the timeline's figure in `gd`, which

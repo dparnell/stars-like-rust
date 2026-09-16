@@ -178,6 +178,10 @@ kept, the centre held between the half-width and 100 less it. Growth is
 `adjust_hab_range`, `drag_hab_range`; the wizard's figure boxes take the
 bounds and each axis has the four buttons under its row.
 
+The **Help** button opens the page's own step of the guide — each
+`RaceWizardDlg` asks for its own number, `0x3ff`, `0x41d`, `0x420`,
+`0x408`, `0x411`, `0x421` (`help.md`).
+
 ## What is not
 
 * The **appearance**: the sliders, the bars and the eight race buttons are
@@ -185,7 +189,6 @@ bounds and each axis has the four buttons under its row.
 * The **password**. Page 1 has the box, but what a race file stores is a salt
   of the password rather than the password (`docs/formats/orders-x.md`), and
   nothing is written from the box yet.
-* The **Help** button, which the original wires to its own help file.
 
 ## A name this project had wrong
 

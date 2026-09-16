@@ -140,6 +140,10 @@ pub fn view(app: &mut App, ui: &mut egui::Ui, elapsed: f64) -> Option<Action> {
             if ui.button("Close").clicked() {
                 action = Some(Action::Close);
             }
+            // `HostModeDialog`'s Help: `0x440` (`1020:753f`).
+            if ui.button("Help").clicked() {
+                app.help_context(crate::help::context::HOST_MODE);
+            }
         });
     });
 

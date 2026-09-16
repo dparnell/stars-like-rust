@@ -175,5 +175,9 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     if crate::views::placed_button(app, ui, at(0x2), &caption(0x2), true).clicked() {
         app.split_cancel();
     }
-    crate::views::placed_button(app, ui, at(0x76), &caption(0x76), false);
+    // The same routine's other page: `0x438` when it is the ship transfer
+    // (`1050:59b7`).
+    if crate::views::placed_button(app, ui, at(0x76), &caption(0x76), true).clicked() {
+        app.help_context(crate::help::context::SHIP_TRANSFER);
+    }
 }

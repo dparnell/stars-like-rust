@@ -49,8 +49,12 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     }
 
     // The footer. This is a viewer, so the three buttons that would change
-    // something are dead and `Cancel` is the way out.
-    crate::views::dialog_button(ui, at(0x76), &caption(0x76), false);
+    // something are dead and `Cancel` is the way out. Help is the step's
+    // page of the player's guide, as in `NewGameDlg`…`3`.
+    if crate::views::dialog_button(ui, at(0x76), &caption(0x76), true).clicked() {
+        let steps = crate::help::context::NEW_GAME_STEPS;
+        app.help_context(steps[page.min(steps.len() - 1)]);
+    }
     if crate::views::dialog_button(ui, at(0x2), "Close", true).clicked() {
         app.screen = crate::Screen::Galaxy;
     }

@@ -82,8 +82,11 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
 
     submit |= crate::views::dialog_button(ui, at(0x1), &caption(0x1), true).clicked();
     cancel |= crate::views::dialog_button(ui, at(0x2), &caption(0x2), true).clicked();
-    // The Help button has nothing behind it here.
-    crate::views::dialog_button(ui, at(0x76), &caption(0x76), false);
+    // Help is `NewPasswordDlg`'s `0x43c` (`1040:5f65`): the Change
+    // Password page.
+    if crate::views::dialog_button(ui, at(0x76), &caption(0x76), true).clicked() {
+        app.help_context(crate::help::context::CHANGE_PASSWORD);
+    }
 
     // An empty password is how the original clears one, so `Clear` is only a
     // shortcut for typing nothing in both boxes — it is this project's, not
@@ -185,7 +188,12 @@ pub fn prompt(app: &mut App, ui: &mut egui::Ui, now: f64) {
 
     submit |= crate::views::dialog_button(ui, at(0x1), &caption(0x1), wait <= 0.0).clicked();
     let cancel = crate::views::dialog_button(ui, at(0x2), &caption(0x2), true).clicked();
-    crate::views::dialog_button(ui, at(0x76), &caption(0x76), false);
+    // `PasswordDlg` asks for `0x441` (`1040:5c5f`), which the file has no
+    // page for — so the button puts up WinHelp's notice, as the original's
+    // does.
+    if crate::views::dialog_button(ui, at(0x76), &caption(0x76), true).clicked() {
+        app.help_context(crate::help::context::PASSWORD);
+    }
 
     if cancel {
         app.cancel_password_prompt();

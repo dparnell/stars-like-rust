@@ -42,6 +42,10 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         if ui.button("Close").clicked() {
             app.close_score_sheet();
         }
+        // `ScoreXDlg`'s Help: `0x455` (`1108:12c1`), the Score sheet page.
+        if ui.button("Help").clicked() {
+            app.help_context(crate::help::context::SCORE);
+        }
     });
 }
 

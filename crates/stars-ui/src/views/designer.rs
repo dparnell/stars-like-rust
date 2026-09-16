@@ -242,6 +242,11 @@ fn browser(app: &mut App, ui: &mut egui::Ui) {
     {
         app.close_designer();
     }
+    // Help, 74 from the right edge: `SlotDlg` asks for `0x42a`
+    // (`10c8:25cf`), the Ship Designer page.
+    if crate::views::placed_button(app, ui, client.foot_button(536.0), "Help", true).clicked() {
+        app.help_context(crate::help::context::SHIP_DESIGNER);
+    }
 
     if let Some(question) = app.designer.as_ref().and_then(|d| d.confirm.clone()) {
         confirm(app, ui, rect, &question);
@@ -537,6 +542,11 @@ fn editor(app: &mut App, ui: &mut egui::Ui) {
         .clicked()
     {
         app.designer_cancel();
+    }
+    // In the editor (`mdBuild == mdBuildEdit`) Help asks for `0xbdf`
+    // instead (`10c8:25c8`): the page on designing a ship from scratch.
+    if crate::views::placed_button(app, ui, client.foot_button(536.0), "Help", true).clicked() {
+        app.help_context(crate::help::context::SHIP_DESIGNER_EDIT);
     }
 }
 

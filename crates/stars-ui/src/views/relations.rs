@@ -118,12 +118,14 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         }
     }
 
-    // Close commits — there is no Cancel. Help goes to context `0x43b` in the
-    // original and has nothing behind it here.
+    // Close commits — there is no Cancel. Help goes to context `0x43b`
+    // (`10f0:0434`), the Player Relations page.
     if crate::views::dialog_button(ui, at(0x2), &caption(0x2), true).clicked() {
         app.close_relations();
     }
-    crate::views::dialog_button(ui, at(0x76), &caption(0x76), false);
+    if crate::views::dialog_button(ui, at(0x76), &caption(0x76), true).clicked() {
+        app.help_context(crate::help::context::RELATIONS);
+    }
 }
 
 /// `COLOR_WINDOW`, which is also `COLOR_HIGHLIGHTTEXT`.

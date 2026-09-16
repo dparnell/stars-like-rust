@@ -84,6 +84,10 @@ pub fn panes(app: &mut App, ctx: &egui::Context) {
 /// original's close does — Research keeps what was set, the tutor hides
 /// rather than stops, the transfers and the queue are dropped.
 pub fn dialogs(app: &mut App, ctx: &egui::Context) {
+    // The help viewer, which every Help button below opens, and the
+    // notices it puts up instead.
+    crate::views::help::windows(app, ctx);
+
     if app.designer.is_some() {
         let mut open = true;
         egui::Window::new("Ship and Starbase Designer")

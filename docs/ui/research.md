@@ -103,8 +103,8 @@ allocation figures including the projection with its two rules, the benefits
 list ordered and coloured by distance with the component pop-up a press on a
 line raises (`technology-browser.md`, *The hover help is this panel*), and
 the trait notes. Nothing is committed until Done, and Done writes nothing
-when nothing changed. The Help button is drawn but dead, there being no help
-reader yet.
+when nothing changed. The Help button is `WINHELP(HELP_CONTEXT, 0x42e)`
+(`10d8:088f`), the Research Dialog page of the guide (`help.md`).
 
 ## What is not
 

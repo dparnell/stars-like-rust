@@ -176,4 +176,6 @@ then `m:ss`, then `h:mm:ss`, then `d days h:mm:ss`.
   `../formats/hst.md#the-hosts-password-changepassword-type-36`.
 * **Right-clicking a player** to switch them between a person and a computer
   player, which flips their password salt and re-marks the files.
-* The **Help** button.
+
+The **Help** button is `WINHELP(HELP_CONTEXT, 0x440)` (`1020:753f`), the
+Host Mode page of the guide (`help.md`).

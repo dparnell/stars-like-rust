@@ -105,9 +105,11 @@ grouping did not move.
   plan (`LogChangeBtlplan`); this logs per change and collapses a run of edits
   to the same plan into the last of them, which the host applies identically.
 
+The **Help** button opens the Battle Plans page of the guide
+(`WINHELP(HELP_CONTEXT, 0x439)`, `10f0:16ac`; `help.md`).
+
 ## What is not
 
-* The **Help** button.
 * The rename box is drawn **in the dialog** rather than as the separate modal
   `IDD_RENAME` the original puts up.
 * The plan list is not shown while a plan is being renamed, since there is only

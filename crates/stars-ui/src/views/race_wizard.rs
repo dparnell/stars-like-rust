@@ -75,11 +75,15 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) -> bool {
     }
 
     // The five buttons every page carries, each where its own template puts
-    // it: Help, Cancel, `< Back`, `Next >`, Finish. Help is the one this
-    // project has nothing to put behind it, and the first page's `< Back` and
-    // the last's `Next >` are disabled in the templates themselves.
+    // it: Help, Cancel, `< Back`, `Next >`, Finish. Help opens the page's
+    // own step of the player's guide (`RaceWizardDlg1`…`6`, one context
+    // number each), and the first page's `< Back` and the last's `Next >`
+    // are disabled in the templates themselves.
     let mut finish = false;
-    crate::views::dialog_button(ui, at(0x76), &caption(0x76), false);
+    if crate::views::dialog_button(ui, at(0x76), &caption(0x76), true).clicked() {
+        let pages = crate::help::context::RACE_WIZARD_PAGES;
+        app.help_context(pages[page.min(pages.len() - 1)]);
+    }
     if crate::views::dialog_button(ui, at(0x2), &caption(0x2), true).clicked() {
         app.close_race_wizard();
     }

@@ -358,5 +358,7 @@ warning, and the cost and statistics panel with true costs.
   of `hdibPlaque`) and numbers panel where the editor has them, and Done
   in Cancel's place along the foot. Both take the 610 by 450 client scaled
   with the width the window has.
-* Tutorial gating (`FTutorialEnabledShipBuilder`), the help file, and the
-  sticky dialog position.
+* Tutorial gating (`FTutorialEnabledShipBuilder`) and the sticky dialog
+  position. Help is there: `0x42a` from the browser, `0xbdf` — the page on
+  designing a ship from scratch — from the editor (`SlotDlg`, `10c8:25be`;
+  `help.md`).

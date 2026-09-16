@@ -183,6 +183,9 @@ radios in the original's stacking order with the original's values, the seeding
 on the first other player, the mapping that skips the local player, the
 single-player refusal, and the one-record log with the whole table in it.
 
+The **Help** button goes to help context `0x43b` (`10f0:0434`), the
+Player Relations page of the guide (`help.md`).
+
 ## What is not
 
 * The **sticky position**: the dialog is a window the shell places, so it does
@@ -191,7 +194,6 @@ single-player refusal, and the one-record log with the whole table in it.
   original selects `rghfontArial8[1]`, Arial 8 **bold**; egui's default font
   set has no bold proportional face, which is the same gap the status bar
   works around.
-* The **Help** button, which goes to help context `0x43b`.
 * The **tutorial hook**: `LogChangeRelations` advances the tutorial when player
   0 changes a relation.
 * The dialog is drawn as a window rather than a true modal; nothing else on

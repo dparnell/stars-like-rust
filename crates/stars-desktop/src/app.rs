@@ -74,6 +74,7 @@ impl StarsApp {
             this.note_opened(path);
         }
         this.find_art(opened.as_deref());
+        this.find_help(opened.as_deref());
         this
     }
 
@@ -155,6 +156,7 @@ impl StarsApp {
             self.note_opened(path);
             self.app.read_selection_ini(&read_ini());
             self.find_art(Some(path));
+            self.find_help(Some(path));
         }
     }
 
@@ -172,36 +174,14 @@ impl StarsApp {
         if self.app.has_art() {
             return;
         }
-        let mut roots: Vec<PathBuf> = Vec::new();
         if let Ok(explicit) = std::env::var("STARS_EXE") {
             let path = PathBuf::from(explicit);
             if let Some(art) = read_art(&path) {
                 self.load_art(&path, art);
                 return;
             }
-            if let Some(dir) = path.parent() {
-                roots.push(dir.to_path_buf());
-            }
         }
-        if let Some(dir) = beside.and_then(Path::parent) {
-            roots.push(dir.to_path_buf());
-            if let Some(up) = dir.parent() {
-                roots.push(up.to_path_buf());
-            }
-        }
-        roots.push(PathBuf::from("."));
-        roots.push(PathBuf::from("binary"));
-        if let Some(here) = std::env::current_exe()
-            .ok()
-            .and_then(|exe| exe.parent().map(Path::to_path_buf))
-        {
-            for above in here.ancestors() {
-                roots.push(above.to_path_buf());
-                roots.push(above.join("binary"));
-            }
-        }
-
-        for root in roots {
+        for root in asset_roots(beside) {
             let Ok(entries) = std::fs::read_dir(&root) else {
                 continue;
             };
@@ -225,6 +205,48 @@ impl StarsApp {
             for path in found {
                 if let Some(bytes) = read_art(&path) {
                     self.load_art(&path, bytes);
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Find `STARS!.HLP`, the player's guide, in the same places as the
+    /// executable — beside the game, beside the original, or under
+    /// `binary/` — and hand it to the app. Without it every Help button
+    /// puts up a notice instead.
+    fn find_help(&mut self, beside: Option<&Path>) {
+        if self.app.has_help() {
+            return;
+        }
+        for root in asset_roots(beside) {
+            let Ok(entries) = std::fs::read_dir(&root) else {
+                continue;
+            };
+            let mut found: Vec<PathBuf> = entries
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.extension()
+                        .and_then(|e| e.to_str())
+                        .is_some_and(|e| e.eq_ignore_ascii_case("hlp"))
+                })
+                .filter(|path| {
+                    path.file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n.to_ascii_lowercase().starts_with("stars"))
+                })
+                .collect();
+            found.sort();
+            for path in found {
+                let Ok(bytes) = std::fs::read(&path) else {
+                    continue;
+                };
+                if self
+                    .app
+                    .load_help(bytes, &path.display().to_string())
+                    .is_ok()
+                {
                     return;
                 }
             }
@@ -549,6 +571,36 @@ impl StarsApp {
 
 /// Read a candidate executable, refusing anything implausible before the whole
 /// file is pulled into memory.
+/// Where the original's files are looked for: beside an explicit
+/// `STARS_EXE`, beside the game opened and one level up, the working
+/// directory and its `binary/`, and the same pair above this executable.
+fn asset_roots(beside: Option<&Path>) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    if let Ok(explicit) = std::env::var("STARS_EXE") {
+        if let Some(dir) = PathBuf::from(explicit).parent() {
+            roots.push(dir.to_path_buf());
+        }
+    }
+    if let Some(dir) = beside.and_then(Path::parent) {
+        roots.push(dir.to_path_buf());
+        if let Some(up) = dir.parent() {
+            roots.push(up.to_path_buf());
+        }
+    }
+    roots.push(PathBuf::from("."));
+    roots.push(PathBuf::from("binary"));
+    if let Some(here) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf))
+    {
+        for above in here.ancestors() {
+            roots.push(above.to_path_buf());
+            roots.push(above.join("binary"));
+        }
+    }
+    roots
+}
+
 fn read_art(path: &Path) -> Option<Vec<u8>> {
     let size = std::fs::metadata(path).ok()?.len();
     // The real thing is about four megabytes, nearly all of it pictures.
@@ -584,6 +636,12 @@ impl eframe::App for StarsApp {
             } else {
                 self.app.open_designer();
             }
+        }
+
+        // F1 is the Player's Guide — `WINHELP(HELP_INDEX)` — with or
+        // without a game up.
+        if ctx.input(|i| i.key_pressed(egui::Key::F1)) {
+            self.app.help_contents();
         }
 
         if self.app.game.is_some()
@@ -798,7 +856,14 @@ impl eframe::App for StarsApp {
                     let entered =
                         field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                     self.app.find_text = text;
-                    let pressed = ui.button("Find").clicked();
+                    let mut pressed = false;
+                    ui.horizontal(|ui| {
+                        pressed = ui.button("Find").clicked();
+                        // `FindDlg`'s Help: `0x43d` (`1058:9400`).
+                        if ui.button("Help").clicked() {
+                            self.app.help_context(stars_ui::help::context::FIND);
+                        }
+                    });
                     if entered || pressed {
                         let typed = self.app.find_text.clone();
                         self.app.find(&typed);

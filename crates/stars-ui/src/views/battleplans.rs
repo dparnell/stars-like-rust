@@ -164,6 +164,10 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         if ui.button("Close").clicked() {
             command = Some(Command::Close);
         }
+        // `BattlePlansDlg`'s Help: `0x439` (`10f0:16ac`).
+        if ui.button("Help").clicked() {
+            app.help_context(crate::help::context::BATTLE_PLANS);
+        }
     });
 
     // The rename box, which the original puts up as a modal dialog of its own

@@ -607,6 +607,13 @@ impl HelpFile {
     }
 
     /// Where a topic's header record is, as a topic position.
+    ///
+    /// The block's links are walked from its first, adding up the text
+    /// records' lengths until the wanted character count is reached. A
+    /// count that lands on a header is that topic; one that lands inside a
+    /// text record is the topic that record belongs to, whose header is
+    /// the last one passed — or, before any, the header the block names
+    /// as the last one of the block before (`LastTopicHeader`).
     fn find_topic(&self, offset: i32) -> Result<i32> {
         let block = (offset >> 15) as usize;
         let wanted = u32::from((offset & 0x7fff) as u16);
@@ -618,7 +625,7 @@ impl HelpFile {
         let mut c = Cursor::new(&self.bytes, self.topic.0 + block_at);
         let _last_link = c.i32()?;
         let first_link = c.i32()?;
-        let _last_header = c.i32()?;
+        let mut last_header = c.i32()?;
         let mut pos = first_link;
         let mut count = 0;
         loop {
@@ -627,10 +634,15 @@ impl HelpFile {
                 if count == wanted {
                     return Ok(pos);
                 }
+                last_header = pos;
             } else if matches!(link.record, RECORD_TEXT | RECORD_TABLE) {
                 let mut c = Cursor::new(&link.data1, 0);
                 let _size = c.csl()?;
-                count += u32::from(c.cus()?);
+                let length = u32::from(c.cus()?);
+                if wanted >= count && wanted < count + length && last_header > 0 {
+                    return Ok(last_header);
+                }
+                count += length;
             }
             if count > wanted {
                 break;

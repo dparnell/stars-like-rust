@@ -174,10 +174,11 @@ own input — the tests press, drag and click what the panes drew, as a
 hand would — and the workspace's suite stands at about 120 test binaries
 that run on every push.
 
-What is still not the original's, and says so in its spec: the Help
-buttons, and
-the dialogs' colours — the shell is on a dark theme where the original is
-button-face grey, though the tiles keep the original's black-on-grey.
+What is still not the original's, and says so in its spec: the dialogs'
+colours — the shell is on a dark theme where the original is button-face
+grey, though the tiles keep the original's black-on-grey. The Help
+buttons open the player's guide, read out of the original's `STARS!.HLP`
+by this project's own viewer (`docs/ui/help.md`).
 
 See `docs/plans/stars-re-reimplementation.md` for the delivery plan,
 `docs/formats/README.md`, `docs/formulas/README.md` and `docs/ui/` for

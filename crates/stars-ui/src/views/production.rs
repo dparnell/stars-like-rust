@@ -160,6 +160,11 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     if button(app, ui, at(0x2), &caption(0x2)).clicked() {
         app.production_cancel();
     }
+    // Help is `ProdCommandHandler`'s `WINHELP(HELP_CONTEXT, 0x423)`
+    // (`10d0:3393`), the Production Dialog page.
+    if button(app, ui, at(0x76), &caption(0x76)).clicked() {
+        app.help_context(crate::help::context::PRODUCTION);
+    }
 }
 
 /// One of the template's buttons, at the size the template gives it, and
@@ -641,6 +646,12 @@ fn customize_panel(app: &mut App, ui: &mut egui::Ui) {
                         crate::views::record(app, ui, "Cancel", &cancel);
                         if cancel.clicked() {
                             app.production_customize_close(false);
+                        }
+                        // `ZipProdDlg`'s Help: `0x452` (`10d0:5d8e`).
+                        let help = ui.button(egui::RichText::new("Help").small());
+                        crate::views::record(app, ui, "Help", &help);
+                        if help.clicked() {
+                            app.help_context(crate::help::context::PRODUCTION_TEMPLATES);
                         }
                     });
 

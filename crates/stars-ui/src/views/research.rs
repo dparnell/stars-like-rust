@@ -71,10 +71,11 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         if crate::views::flow_button(app, ui, "Done", true).clicked() {
             app.research_ok();
         }
-        // The original's second button opens the help file, which this
-        // project has no reader for yet; it is drawn where it belongs and
-        // left dead rather than dropped.
-        crate::views::flow_button(app, ui, "Help", false);
+        // The original's second button is `WINHELP(HELP_CONTEXT, 0x42e)`
+        // (`10d8:088f`): the Research Dialog page.
+        if crate::views::flow_button(app, ui, "Help", true).clicked() {
+            app.help_context(crate::help::context::RESEARCH);
+        }
     });
 }
 

@@ -56,13 +56,18 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
     if crate::views::dialog_button(ui, at(0x2).translate(down), &caption(0x2), true).clicked() {
         app.tutor_notice = app.hide_tutor().map(str::to_string);
     }
-    // Hint opens the page's help topic, which this project has no help file
-    // for, so it says which topic it would have opened.
+    // Hint opens the page's own help topic — `TutorDlg` hands `WINHELP`
+    // `tutor.idh` (`10f8:01bd`), which the page checks set as they work
+    // out what is wanted. The checks here do not set one yet, so a page
+    // with none opens the guide's contents rather than nothing.
     let help = app.tutor.as_ref().map_or(0, |t| t.help);
-    crate::views::dialog_button(ui, at(0x76).translate(down), &caption(0x76), false)
-        .on_disabled_hover_text(format!(
-            "Help topic {help:#x}, which this project has no file for."
-        ));
+    if crate::views::dialog_button(ui, at(0x76).translate(down), &caption(0x76), true).clicked() {
+        if help == 0 {
+            app.help_contents();
+        } else {
+            app.help_context(u32::from(help));
+        }
+    }
     if crate::views::dialog_button(ui, at(0x9c7).translate(down), &caption(0x9c7), true).clicked() {
         app.tutor_panic = true;
     }

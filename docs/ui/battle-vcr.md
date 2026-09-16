@@ -1,7 +1,7 @@
 # The battle VCR
 
-Status: **playback, transport, layout, the board's drawing and the text
-panel recovered**; Help is not.
+Status: **playback, transport, layout, the board's drawing, the text
+panel and Help recovered**.
 
 `BattleVCR` (`10e8:0000`) opens it and `VCRDlg` (`10e8:0e90`) runs it, with
 `DrawVCR` (`10e8:1c62`) painting the board and `SetVCRBoard` (`10e8:08d8`)
@@ -151,6 +151,7 @@ on the panel while a token is the focus with the `grPopupShdef` pop-up —
 the token's design drawn with the designer's own panel, read-only,
 `iPlanMin` set when the design is another player's. Reproduced: the
 button, recorded as `?` in the `vcr` scope, raises `Popup::Design` of the
-focus token's design. Not reproduced: the Help button, which has nothing
-behind it. Below the original's lines this project adds
-its own list of the tokens, to pick one out by name.
+focus token's design. The Help button (`0x76`) is `WINHELP(HELP_CONTEXT,
+0x43a)` (`10e8:18b3`), the Battle VCR page of the guide (`help.md`), and
+sits with the transport buttons. Below the original's lines this project
+adds its own list of the tokens, to pick one out by name.
