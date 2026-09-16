@@ -119,9 +119,20 @@ fn empty(app: &mut App, ui: &mut egui::Ui) {
         );
         ui.add_space(16.0);
         if ui.button("Start a new game…").clicked() {
-            app.setup = Some(stars_core::newgame::NewGame::default());
+            let ms = egui_clock_ms(ui);
+            app.start_new_game(ms);
         }
     });
+}
+
+/// egui's clock in milliseconds, for a shell with no clock of its own —
+/// seconds since the program started, as `GetTickCount` counts them since
+/// the system did.
+#[must_use]
+pub fn egui_clock_ms(ui: &egui::Ui) -> u32 {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let ms = (ui.input(|i| i.time) * 1000.0).max(0.0) as u64;
+    (ms & 0xffff_ffff) as u32
 }
 
 /// The colour a player's things are drawn in.

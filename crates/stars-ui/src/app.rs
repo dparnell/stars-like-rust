@@ -631,6 +631,11 @@ pub struct App {
     pub per_player_dumps: bool,
     /// Whether a host file was opened as such — see [`Self::host_session`].
     hosting: bool,
+    /// What `GetTickCount` would say: milliseconds on a clock the shell
+    /// keeps up to date, which is where a new game's id comes from
+    /// (`GenerateWorld`, `1078:43cc`). `None` in a shell with no clock,
+    /// which falls back to egui's.
+    pub clock_ms: Option<u32>,
     /// `gd.fSubmit`: whether the last save was **Save And Submit**, which
     /// is what the order file's header carries as its submitted flag
     /// (`WriteBOF`, `1050:0e52`, bit 8 of `dts`) and what the host reads
@@ -1310,6 +1315,31 @@ impl App {
             Some(name) => stars_formats::encode_user_string(name),
             None => Vec::new(),
         })
+    }
+
+    /// File (New): open the New Game wizard with a fresh game id.
+    ///
+    /// `GenerateWorld` (`1078:43cc`) gives every game but the tutorial
+    /// `GetTickCount()` as its `lid` — the milliseconds on the clock —
+    /// and seeds the universe from it, so no two games come out alike.
+    /// The wizard shows the number and lets it be changed, which the
+    /// original's does not: a game generated from a chosen seed can be
+    /// generated again.
+    ///
+    /// `fallback_ms` is the clock to use when the shell keeps none
+    /// ([`Self::clock_ms`]) — egui's, in milliseconds.
+    pub fn start_new_game(&mut self, fallback_ms: u32) {
+        let id = self.clock_ms.unwrap_or(fallback_ms);
+        self.setup = Some(NewGame {
+            id,
+            ..NewGame::default()
+        });
+    }
+
+    /// A fresh id for the wizard's Seed field — the clock again.
+    #[must_use]
+    pub fn fresh_game_id(&self, fallback_ms: u32) -> u32 {
+        self.clock_ms.unwrap_or(fallback_ms)
     }
 
     /// Create a brand-new game and make it the loaded one.

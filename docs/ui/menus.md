@@ -329,3 +329,15 @@ game on disk (`docs/formats/writing.md`). `tests/order_files.rs::
 a_plain_save_is_not_a_submission` and `::a_newer_turn_on_disk_refuses_
 the_save`.
 
+## New Game: the seed
+
+`GenerateWorld` (`1078:43b8`–`43d4`) gives every game but the tutorial
+`GetTickCount()` as its `GAME.lid` — the milliseconds on the clock — and the
+universe is generated from it, so no two games come out alike and none can
+be generated again. This project's New Game page takes the same: the shell's
+clock in milliseconds (`App::clock_ms`, kept up to date by the desktop;
+egui's clock where a shell has none) when the wizard opens
+(`App::start_new_game`), and shows it as a **Seed** the player can type over
+or renew with *New seed*. The same settings and seed give the same universe,
+which the original never could. `tests/new_game_seed.rs`.
+

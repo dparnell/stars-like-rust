@@ -30,8 +30,19 @@ pub enum Action {
 /// than being handled here.
 #[must_use]
 pub fn view(app: &mut App, ui: &mut egui::Ui) -> Option<Action> {
+    let fallback_ms = crate::views::egui_clock_ms(ui);
+    let fresh = app.fresh_game_id(fallback_ms);
     let config = app.setup.as_mut()?;
     let mut action = None;
+    // The seed as typed, kept while it does not parse so a half-typed
+    // number is not snapped back.
+    let mut seed_text = ui.memory_mut(|m| {
+        m.data
+            .get_temp::<String>(egui::Id::new("new-game-seed-text"))
+            .filter(|t| t.trim().parse::<u32>().ok() == Some(config.id))
+            .unwrap_or_else(|| config.id.to_string())
+    });
+    let mut new_seed = false;
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.heading("New game");
@@ -83,6 +94,41 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) -> Option<Action> {
                 ui.label(
                     stars_core::newgame::planet_count(config.size, config.density).to_string(),
                 );
+                ui.end_row();
+
+                // The game's id, which seeds its universe: the clock's
+                // milliseconds when the wizard opened, as `GenerateWorld`
+                // takes `GetTickCount()`, and any number typed in its
+                // place. The same settings and seed give the same universe.
+                ui.label("Seed");
+                ui.horizontal(|ui| {
+                    let mut text = seed_text.clone();
+                    let field = ui.add(
+                        egui::TextEdit::singleline(&mut text)
+                            .desired_width(110.0)
+                            .char_limit(10),
+                    );
+                    if field.changed() {
+                        seed_text = text;
+                        if let Ok(id) = seed_text.trim().parse::<u32>() {
+                            config.id = id;
+                        }
+                    }
+                    let bad = seed_text.trim().parse::<u32>().is_err();
+                    if bad {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(0xff, 0x8a, 0x8a),
+                            "a whole number up to 4294967295",
+                        );
+                    }
+                    if ui
+                        .button("New seed")
+                        .on_hover_text("Another from the clock.")
+                        .clicked()
+                    {
+                        new_seed = true;
+                    }
+                });
                 ui.end_row();
             });
 
@@ -172,6 +218,14 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) -> Option<Action> {
         );
     });
 
+    if new_seed {
+        config.id = fresh;
+        seed_text = fresh.to_string();
+    }
+    ui.memory_mut(|m| {
+        m.data
+            .insert_temp(egui::Id::new("new-game-seed-text"), seed_text);
+    });
     action
 }
 

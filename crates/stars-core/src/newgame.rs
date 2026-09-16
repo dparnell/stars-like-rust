@@ -260,7 +260,11 @@ impl NewPlayer {
 pub struct NewGame {
     /// The game's name, as it appears in the `.xy`.
     pub name: String,
-    /// The per-game id (`GAME.lid`), which also seeds every file's cipher.
+    /// The per-game id (`GAME.lid`), which seeds the universe and every
+    /// file's cipher. `GenerateWorld` (`1078:43cc`) takes `GetTickCount()`
+    /// for it — the clock's milliseconds — so the wizard fills it from the
+    /// shell's clock and lets it be typed over; the default here is one
+    /// fixed value, for tests that want the same universe every time.
     pub id: u32,
     /// Universe size.
     pub size: Size,

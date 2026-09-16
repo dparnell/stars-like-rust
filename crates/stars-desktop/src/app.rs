@@ -771,6 +771,12 @@ impl eframe::App for StarsApp {
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.app.start_frame();
+        // `GetTickCount` for a new game's id: the wall clock's milliseconds,
+        // low word first, so two games started a moment apart differ.
+        self.app.clock_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|d| (d.as_millis() & 0xffff_ffff) as u32);
         self.note_frame(ctx);
         screenshot_hook(ctx);
         // Playback needs a steady stream of frames; everything else is happy to
@@ -945,7 +951,7 @@ impl eframe::App for StarsApp {
         // File's own four: `&New...\tCtrl+N`, `&Open...\tCtrl+O`,
         // `&Save\tCtrl+S` and `Save &And Submit\tCtrl+A`.
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::N)) {
-            self.app.setup = Some(stars_core::newgame::NewGame::default());
+            self.app.start_new_game(0);
         }
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O)) {
             self.pick_file();
@@ -1096,7 +1102,7 @@ impl eframe::App for StarsApp {
                         .clicked()
                     {
                         ui.close_menu();
-                        self.app.setup = Some(stars_core::newgame::NewGame::default());
+                        self.app.start_new_game(0);
                     }
                     if ui
                         .button("Custom Race Wizard…")
