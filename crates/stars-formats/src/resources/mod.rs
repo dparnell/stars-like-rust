@@ -449,6 +449,7 @@ pub fn read_bitmap(exe: &[u8], name: &Name) -> Result<Image> {
 }
 
 pub mod art;
+pub mod text;
 
 /// Where a segment of an NE executable starts in the file.
 ///

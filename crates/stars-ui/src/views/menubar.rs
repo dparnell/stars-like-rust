@@ -231,6 +231,13 @@ pub fn game_menus(app: &mut App, ui: &mut egui::Ui) -> Option<String> {
             ui.close_menu();
             app.end_tutor();
         }
+        ui.separator();
+        // `&About Stars!...`, `0x63`: `DIALOGBOX(..., About, hwnd, 0x5a)`.
+        if item(app, ui, true, "About Stars!...", "").clicked() {
+            ui.close_menu();
+            let now = ui.input(|i| i.time);
+            app.open_about(now);
+        }
     });
     record(app, ui, "Help", &header.response);
 

@@ -192,9 +192,10 @@ menu is alive whenever a game is open, because this shell's scanner is not a
 window that can be absent.
 
 Not there, because there is nothing behind them yet: `Close`,
-`Save And Submit`, `Print Map`, the whole `Dump to Text File` submenu and
-`About Stars!`. `Introduction` and `Player's Guide` (F1) open the help
-viewer (`help.md`) on `0x1195` and the contents page. `Wait for New` opens this
+`Save And Submit`, `Print Map` and the whole `Dump to Text File` submenu.
+`Introduction` and `Player's Guide` (F1) open the help viewer (`help.md`)
+on `0x1195` and the contents page; `About Stars!...` opens the About box
+(`about.md`). `Wait for New` opens this
 project's host mode, which is the nearest thing it has.
 
 The File menu's recently-used list is there, with all three of the rules

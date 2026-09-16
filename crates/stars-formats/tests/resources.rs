@@ -367,3 +367,23 @@ fn rubbish_is_refused() {
     assert!(read_dib(&[]).is_err());
     assert!(read_dib(&[0u8; 40]).is_err(), "a header claiming nothing");
 }
+
+/// The string table: the About box's version line and its credits.
+#[test]
+fn the_string_table_reads_the_version_and_the_credits() {
+    let Some(exe) = executable() else { return };
+    use stars_formats::resources::text;
+    assert_eq!(
+        text::string(&exe, text::VERSION_FORMAT).as_deref(),
+        Some("Version %d.%02d%c")
+    );
+    assert_eq!(text::version(&exe).as_deref(), Some("Version 2.60j"));
+    let credits = text::credits(&exe).expect("the credits");
+    assert_eq!(credits.len(), 77);
+    assert_eq!(credits[0], "Design and Programming");
+    assert_eq!(credits[2], "Jeff Johnson");
+    assert_eq!(credits[76], "Ross Youngs");
+    assert!(credits[1].is_empty());
+    // Not the game: nothing.
+    assert_eq!(text::string(b"MZ\0\0", 0), None);
+}

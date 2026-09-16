@@ -614,6 +614,8 @@ pub struct App {
     /// has been found to read it out of. Without one every Help button
     /// puts up the notice WinHelp would.
     pub help: crate::help::Help,
+    /// The About box, while it is up.
+    pub about: Option<crate::views::about::About>,
     /// What the Score sheet was last set to.
     ///
     /// The original keeps the face and the timeline's figure in `gd`, which

@@ -2000,3 +2000,131 @@ pub fn tutor_text_area(client: egui::Rect, hide_top: f32, line: f32) -> egui::Re
     );
     frame.shrink((line / 2.0).floor())
 }
+
+/// `About Stars!`, dialog resource 90.
+///
+/// Ten controls: the game's icon, three centred lines of title, the version
+/// line (`0x401`, which `About` fills from `SzVersion`), the copyright and
+/// publisher, the credits (`0x41f`, an empty static the timer scrolls the
+/// string table's seventy-seven lines through), the web address, and
+/// **Order Info...** and **OK**. The publisher's static is 66 units tall in
+/// the resource and overlaps the credits; that is the file as shipped.
+pub const ABOUT: Template = Template {
+    caption: "About Stars!",
+    size: (192, 175),
+    controls: &[
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (8, 8, 18, 20),
+            text: "StarsIco",
+        },
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (36, 8, 156, 8),
+            text: "Stars! for Microsoft Windows",
+        },
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (36, 18, 156, 17),
+            text: "The Advanced Interstellar Strategy Game",
+        },
+        Control {
+            id: 0x401,
+            class: Class::Static,
+            at: (4, 32, 184, 8),
+            text: "Demo Version",
+        },
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (4, 48, 184, 8),
+            text: "Copyright © 1995-2000  Jeff Johnson && Jeff McBride",
+        },
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (4, 60, 184, 66),
+            text: "Published by empire Interactive",
+        },
+        Control {
+            id: 0x41f,
+            class: Class::Static,
+            at: (4, 70, 184, 66),
+            text: "",
+        },
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (4, 140, 184, 8),
+            text: "http://www.webmap.com/stars!",
+        },
+        Control {
+            id: 0x76,
+            class: Class::Button,
+            at: (32, 156, 48, 14),
+            text: "&Order Info...",
+        },
+        Control {
+            id: 0x1,
+            class: Class::Button,
+            at: (112, 156, 48, 14),
+            text: "OK",
+        },
+    ],
+};
+
+/// `empire Interactive Ordering Information`, dialog resource 97 — what
+/// the About box's **Order Info...** opens (`About`, `1018:12ea`).
+///
+/// Seven controls, all centred statics but the OK.
+pub const ORDER_INFO: Template = Template {
+    caption: "empire Interactive Ordering Information",
+    size: (172, 124),
+    controls: &[
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (10, 10, 152, 8),
+            text: "To purchase Stars!:",
+        },
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (10, 20, 152, 8),
+            text: "See your local software retailer or",
+        },
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (10, 35, 152, 8),
+            text: "In the U.S. call 1-800-216-9706",
+        },
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (10, 50, 152, 8),
+            text: "In Europe call +44 181 343-9143",
+        },
+        Control {
+            id: 0x401,
+            class: Class::Static,
+            at: (10, 75, 152, 8),
+            text: "or visit the empire Stars! order page at:",
+        },
+        Control {
+            id: 0xffff,
+            class: Class::Static,
+            at: (10, 85, 152, 8),
+            text: "http://www.empire.co.uk/stars/order.htm",
+        },
+        Control {
+            id: 0x1,
+            class: Class::Button,
+            at: (70, 100, 32, 14),
+            text: "OK",
+        },
+    ],
+};

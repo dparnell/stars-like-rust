@@ -59,39 +59,7 @@ pub fn paragraph(exe: &[u8], idt: usize) -> Option<String> {
     }
     let (base, len) = segment_offset(exe, SEGMENT)?;
     let seg = exe.get(base..base + len)?;
-    let (block, index) = (idt / 64, idt % 64);
-
-    // Where this paragraph's nibbles start, counted in nibbles from the
-    // block's own start.
-    let lengths = LENGTHS + block * 0x40;
-    let start: usize = (0..index)
-        .map(|i| seg.get(lengths + i).copied().map_or(0, usize::from))
-        .sum();
-    let mut count = usize::from(*seg.get(lengths + index)?);
-
-    let word = seg.get(BLOCKS + block * 2..BLOCKS + block * 2 + 2)?;
-    let mut at = usize::from(u16::from_le_bytes([word[0], word[1]])) + start / 2;
-    let mut high = start.is_multiple_of(2);
-
-    let mut out = String::new();
-    let mut sum = 0usize;
-    while count > 0 {
-        let byte = *seg.get(at)?;
-        let nibble = if high {
-            usize::from(byte >> 4)
-        } else {
-            at += 1;
-            usize::from(byte & 0x0f)
-        };
-        high = !high;
-        count -= 1;
-        sum += nibble;
-        if nibble != 0x0f {
-            out.push(char::from(*seg.get(CHARACTERS + sum)?));
-            sum = 0;
-        }
-    }
-    Some(out)
+    crate::resources::text::nibble_string(seg, LENGTHS, BLOCKS, CHARACTERS, idt)
 }
 
 /// Read a whole page: its eight paragraphs, in order.

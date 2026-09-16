@@ -5,6 +5,7 @@
 //! [`crate::App`], so a frontend can save and restore it, and so the views stay
 //! testable through that state rather than through the widgets.
 
+pub mod about;
 pub mod battleplans;
 pub mod battles;
 pub mod browser;

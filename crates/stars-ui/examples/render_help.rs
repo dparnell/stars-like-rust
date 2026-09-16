@@ -8,7 +8,8 @@
 //! `cargo run -p stars-ui --example render_help -- binary/STARS!.HLP 0x433 out.ppm`
 //! (`contents` for the contents page; a decimal number is a topic offset;
 //! `popup:<offset>` raises that topic as a popup over the contents page;
-//! `search` and `history` open those windows over it).
+//! `search` and `history` open those windows over it; `about` is the About
+//! box with its ordering information, a few seconds in).
 
 use std::collections::HashMap;
 
@@ -36,6 +37,14 @@ fn main() {
             let first = app.help_keyword_matches()[0];
             app.help.search.as_mut().expect("open").keyword = Some(first);
             app.help_show_topics();
+        }
+        "about" => {
+            let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../binary");
+            if let Ok(exe) = std::fs::read(root.join("stars.2.7j.exe")) {
+                app.load_art(exe, "stars.2.7j.exe").expect("art");
+            }
+            app.open_about(0.0);
+            app.about.as_mut().expect("open").order_info = true;
         }
         "history" => {
             app.help_contents();
@@ -73,7 +82,7 @@ fn main() {
         for (id, delta) in &output.textures_delta.set {
             apply(&mut textures, *id, delta);
         }
-        input.time = Some(input.time.unwrap_or(0.0) + 0.5);
+        input.time = Some(input.time.unwrap_or(0.0) + 1.5);
         full = Some(output);
     }
     let output = full.expect("a frame");

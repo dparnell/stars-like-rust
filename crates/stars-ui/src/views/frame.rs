@@ -88,6 +88,38 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
     // notices it puts up instead.
     crate::views::help::windows(app, ctx);
 
+    // The About box, and the ordering information it puts up over
+    // itself. Modal in the original; a window here, like the rest.
+    if app.about.is_some() {
+        let now = ctx.input(|i| i.time);
+        let mut open = true;
+        egui::Window::new(crate::dialog::ABOUT.caption)
+            .id(egui::Id::new("about"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(crate::dialog::ABOUT.pixels().x)
+            .show(ctx, |ui| crate::views::about::view(app, ui, now));
+        if !open {
+            app.close_about();
+        }
+        if app.about.as_ref().is_some_and(|a| a.order_info) {
+            let mut open = true;
+            egui::Window::new(crate::dialog::ORDER_INFO.caption)
+                .id(egui::Id::new("order-info"))
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(false)
+                .default_width(crate::dialog::ORDER_INFO.pixels().x)
+                .show(ctx, |ui| crate::views::about::order_info(app, ui));
+            if !open {
+                if let Some(about) = app.about.as_mut() {
+                    about.order_info = false;
+                }
+            }
+        }
+    }
+
     if app.designer.is_some() {
         let mut open = true;
         egui::Window::new("Ship and Starbase Designer")
