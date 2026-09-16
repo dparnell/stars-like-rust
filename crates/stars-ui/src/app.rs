@@ -15485,13 +15485,291 @@ impl App {
             self.show_tutor();
         }
         // Whatever page we have landed on says which of its paragraphs to
-        // embolden.
-        if let Some(bold) = self.tutor_bold() {
-            if let Some(tutor) = self.tutor.as_mut() {
+        // embolden, and which help topic Hint opens.
+        let bold = self.tutor_bold();
+        let help = self.tutor_help();
+        if let Some(tutor) = self.tutor.as_mut() {
+            if let Some(bold) = bold {
                 tutor.bold = bold;
+            }
+            if let Some(help) = help {
+                tutor.help = help;
             }
         }
         self.tutor.as_ref().is_some_and(|t| t.idt != was)
+    }
+
+    /// The help topic the page offers right now — `tutor.idh`, as the
+    /// checks leave it.
+    ///
+    /// The original's arms run their `FCheck*` helpers in a chain, each
+    /// saving `idh` on entry, setting its own topic as it fails and
+    /// putting the saved one back as it passes, so what is left is the
+    /// topic of the check that stopped the chain — the one whose
+    /// paragraph is emboldened. A few arms set a topic outright instead
+    /// (`Stage::help`), and `AdvanceTutor` sets `0xdb6` while the page is
+    /// waiting for the turn (`10f8:0aff`). `None` when nothing would have
+    /// set it, which leaves the last topic standing, as the original's
+    /// global does.
+    #[must_use]
+    pub fn tutor_help(&self) -> Option<u16> {
+        use crate::tutorial::topic;
+        let step = self.tutor_step()?;
+        let turn = self.game.as_ref().map_or(-1_i16, |game| game.turn);
+        if step.turn != turn {
+            return None;
+        }
+        if self.tutor_waiting() {
+            return Some(topic::WAITING_FOR_THE_TURN);
+        }
+        let stage = self
+            .tutor_rungs()
+            .iter()
+            .find(|stage| stage.check.is_some() && self.tutor_stage_passes(stage) == stage.held)?;
+        if let Some(help) = stage.help {
+            return Some(help);
+        }
+        let check = stage.check.as_ref()?;
+        if stage.held {
+            // A rung that marks where the reader is passed rather than
+            // failed, so its helper put the saved topic back.
+            return None;
+        }
+        self.tutor_check_help(check)
+    }
+
+    /// The topic a failing check leaves in `tutor.idh` — each `FCheck*`
+    /// helper's own rule, transcribed.
+    #[allow(clippy::too_many_lines)]
+    fn tutor_check_help(&self, check: &crate::tutorial::Check) -> Option<u16> {
+        use crate::tutorial::{grobj, topic, Check, ANY};
+
+        let game = self.game.as_ref()?;
+        let me = self.local_player();
+        let by_id = |id: u16| {
+            game.fleets
+                .iter()
+                .find(|f| f.id == id && usize::try_from(f.owner).is_ok_and(|o| o == me))
+        };
+        let fleet_word = |f: &stars_core::fleet::Fleet| -> i16 {
+            (f.owner << 9) | i16::try_from(f.id & 0x1ff).unwrap_or(0)
+        };
+        // `FCheckSelection` (`10f8:6af4`): the Messages pane when what is
+        // wanted is what the message in front points at; the Location
+        // tile when a planet is wanted and a fleet at it is in hand; the
+        // Fleets in Orbit tile when a fleet is wanted and its planet is in
+        // hand; else the page on selecting things.
+        let selection = |class: u8, id: i16| -> u16 {
+            let pointed = match self.message_goto() {
+                stars_core::message::Goto::Planet(p) => class == grobj::PLANET && p == id,
+                stars_core::message::Goto::Fleet(f) => {
+                    class == grobj::FLEET && i16::try_from(f).is_ok_and(|f| f == id)
+                }
+                _ => false,
+            };
+            let in_hand = self
+                .selection
+                .fleet
+                .filter(|_| self.selection.on_fleet)
+                .and_then(|index| game.fleets.get(index));
+            if pointed {
+                topic::MESSAGES_PANE
+            } else if class == grobj::PLANET
+                && in_hand.is_some_and(|f| f.orbiting.is_some_and(|o| i16::try_from(o) == Ok(id)))
+            {
+                topic::LOCATION_TILE
+            } else if class == grobj::FLEET
+                && !self.selection.on_fleet
+                && u16::try_from(id)
+                    .ok()
+                    .and_then(|id| by_id(id & 0x1ff))
+                    .is_some_and(|f| {
+                        f.orbiting
+                            .is_some_and(|o| i16::try_from(o).ok() == self.selection.planet)
+                    })
+            {
+                topic::FLEETS_IN_ORBIT_TILE
+            } else {
+                topic::SELECTING_AN_OBJECT
+            }
+        };
+        // What the helpers do on the way out when they fail: ask
+        // `FCheckSelection` about the fleet or planet concerned, and take
+        // its topic if that fails too.
+        let unless_selected = |own: u16, class: u8, id: i16| -> u16 {
+            let selected = self.tutor_check(&Check::Selection { class, id });
+            if selected {
+                own
+            } else {
+                selection(class, id)
+            }
+        };
+        let fleet_selected = |fleet: u16| -> Option<i16> { by_id(fleet).map(&fleet_word) };
+        // `FCheckFleetWP` (`10f8:6df4`), condition by condition: a fleet
+        // that does not exist, a waypoint not yet laid, one at the wrong
+        // place, the wrong task — and the Fleet Waypoints tile for the
+        // wrong warp, which is all that is left.
+        let waypoint = |fleet: u16, order: usize, class: u8, id: u16, task: u16| -> u16 {
+            let Some(f) = by_id(fleet) else {
+                return topic::SELECTING_AN_OBJECT;
+            };
+            let own = match f.waypoints.get(order) {
+                None => topic::ADDING_WAYPOINTS,
+                Some(leg) => {
+                    if !(id == ANY || (leg.target_class == class && leg.target == Some(id))) {
+                        topic::MOVING_WAYPOINTS
+                    } else if !(task == ANY || u16::from(leg.task) == task) {
+                        topic::WAYPOINT_TASK_TILE
+                    } else {
+                        topic::FLEET_WAYPOINTS_TILE
+                    }
+                }
+            };
+            unless_selected(own, grobj::FLEET, fleet_word(f))
+        };
+        // `FCheckQueue` (`10f8:7442`): the tile in the first two years,
+        // the dialog after.
+        let queue = |planet: i16| -> u16 {
+            let own = if game.turn < 2 {
+                topic::PRODUCTION_TILE
+            } else {
+                topic::PRODUCTION_DIALOG
+            };
+            unless_selected(own, grobj::PLANET, planet)
+        };
+
+        Some(match check {
+            Check::Any(checks) => return checks.first().and_then(|c| self.tutor_check_help(c)),
+            Check::Selection { class, id } => selection(*class, *id),
+            Check::Summary { .. } => topic::KEY_TO_THE_SCANNER,
+            Check::Messages { .. } => topic::MESSAGES_PANE,
+            Check::FleetWaypoint {
+                fleet,
+                order,
+                class,
+                id,
+                task,
+                ..
+            } => waypoint(*fleet, *order, *class, *id, *task),
+            // `FCheckColonizeWP` (`10f8:70c0`): its own page, unless the
+            // waypoint check under it fails — or, at the home world, the
+            // cargo check it makes first, which the page asks so that a
+            // colony ship is loaded before it is sent.
+            Check::ColonizeWaypoint { fleet, id, warp } => {
+                let f = by_id(*fleet)?;
+                let empty = f.cargo.minerals == [0, 0, 0] && f.cargo.colonists == 0;
+                if f.orbiting == Some(0x0d) && empty {
+                    unless_selected(topic::CARGO_TRANSFER, grobj::FLEET, fleet_word(f))
+                } else if self.tutor_check(&Check::FleetWaypoint {
+                    fleet: *fleet,
+                    order: 1,
+                    class: grobj::PLANET,
+                    id: *id,
+                    task: u16::from(stars_formats::task::COLONIZE),
+                    warp: *warp,
+                }) {
+                    topic::COLONIZE
+                } else {
+                    waypoint(
+                        *fleet,
+                        1,
+                        grobj::PLANET,
+                        *id,
+                        u16::from(stars_formats::task::COLONIZE),
+                    )
+                }
+            }
+            // `FCheckXferWP` (`10f8:7280`): the waypoint's own trouble, else
+            // the task tile for the wrong cargo actions.
+            Check::TransportWaypoint {
+                fleet,
+                order,
+                id,
+                warp,
+                ..
+            } => {
+                let leg = Check::FleetWaypoint {
+                    fleet: *fleet,
+                    order: *order,
+                    class: grobj::PLANET,
+                    id: *id,
+                    task: u16::from(stars_formats::task::TRANSPORT),
+                    warp: *warp,
+                };
+                if self.tutor_check(&leg) {
+                    let word = fleet_selected(*fleet).unwrap_or(0);
+                    unless_selected(topic::WAYPOINT_TASK_TILE, grobj::FLEET, word)
+                } else {
+                    waypoint(
+                        *fleet,
+                        *order,
+                        grobj::PLANET,
+                        *id,
+                        u16::from(stars_formats::task::TRANSPORT),
+                    )
+                }
+            }
+            // `FCheckCargo` (`10f8:7664`).
+            Check::Cargo { fleet, .. } => {
+                let word = fleet_selected(*fleet)?;
+                unless_selected(topic::CARGO_TRANSFER, grobj::FLEET, word)
+            }
+            Check::Queue { planet, .. } | Check::QueueLength { planet, .. } => queue(*planet),
+            Check::Research { .. } | Check::ResearchDialog { .. } => topic::RESEARCH_DIALOG,
+            // `FCheckScanner` (`10f8:685c`): the view first, then the zoom.
+            Check::Scanner { view, zoom } => {
+                let view_ok = view.is_none_or(|want| {
+                    if want < 6 {
+                        u16::from(self.scan_view as u8) == want
+                    } else {
+                        self.grbit_scan() & want == want
+                    }
+                });
+                if view_ok && zoom.is_some() {
+                    topic::ZOOMING
+                } else {
+                    topic::SCANNER_VIEW
+                }
+            }
+            Check::PlanetRoute { .. } => 0x5fb,
+            Check::ShipBuilder { .. } | Check::Designer { open: true } => topic::SHIP_DESIGNER,
+            // `FCheckBuilderPart` (`10f8:77d8`) — and the arms that call it
+            // with the designer shut (`10f8:47ed`).
+            Check::DesignSlot { .. } | Check::SavedDesignSlot { .. } => match &self.designer {
+                None => topic::DESIGNER_SHUT,
+                Some(d) if d.editing.is_none() => topic::EDITING_A_DESIGN,
+                Some(_) => topic::DESIGNING_A_SHIP,
+            },
+            Check::Template { .. } => topic::PRODUCTION_TEMPLATES,
+            // `FCheckZip` (`10f8:6460`): the dialog while it is up, the
+            // Transport page while it is not, the task tile for the wrong
+            // actions in a slot already saved.
+            Check::Zip { slot, .. } => {
+                if self
+                    .zip_orders
+                    .get(*slot)
+                    .is_some_and(|z| !z.name.is_empty())
+                {
+                    topic::WAYPOINT_TASK_TILE
+                } else if self.production_customize_slot().is_some() {
+                    topic::ZIP_ORDERS
+                } else {
+                    topic::TRANSPORT
+                }
+            }
+            // What the arms set around the checks they make themselves.
+            Check::RepeatOrders { .. } => topic::FLEET_WAYPOINTS_TILE,
+            Check::Fuel { .. } => topic::OTHER_FLEETS_HERE_TILE,
+            Check::FleetCount { .. } => topic::FLEET_COMPOSITION_TILE,
+            Check::DesignCount { .. } => topic::KEYBOARD_SHORTCUTS,
+            Check::Designer { open: false }
+            | Check::FleetExists { .. }
+            | Check::FleetOrders { .. }
+            | Check::BattleVcr { .. }
+            | Check::Browser { .. }
+            | Check::ReportOpen
+            | Check::ReportSort { .. } => return None,
+        })
     }
 
     /// Begin the tutorial at its first page.

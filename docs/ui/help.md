@@ -103,7 +103,7 @@ size.
 | Host Mode | Help | `0x440` | `HostModeDialog` `1020:753f` |
 | Score sheet | Help | `0x455` | `ScoreXDlg` `1108:12c1` |
 | Find | Help | `0x43d` | `FindDlg` `1058:9400` |
-| Tutor | Hint | `tutor.idh` | `TutorDlg` `10f8:01bd` |
+| Tutor | Hint | `tutor.idh` — the topic the page's checks leave as they fail; see `tutorial.md` | `TutorDlg` `10f8:01bd` |
 
 The race wizard's first page, `0x3ff`, points into the middle of a topic
 block rather than at a topic header: the offset lands in the text of
@@ -133,8 +133,6 @@ sweep of every seventh titled topic through a real egui pass.
 * Italic text, and the five metafile pictures.
 * Bookmarks, annotations, printing, and the Find+ full-text search that
   the file's `hyprfind.dll` macros would add.
-* The tutor's `idh`: the page checks that set it are not transcribed, so
-  Hint opens the contents page rather than the page's own topic.
 * Popups are dismissed by a click anywhere or Escape; WinHelp dismisses
   one on any key. A popup taller than the screen scrolls here, where
   WinHelp cuts it off.

@@ -49,8 +49,10 @@ pub struct Tutor {
     /// A complaint, when the last thing the player did was wrong rather than
     /// merely not right yet (`TutorError`, `10f8:67ae`).
     pub error: Option<u16>,
-    /// The help topic the current page offers, which the checks set as they
-    /// work out *why* the task is not done.
+    /// The help topic the current page offers (`tutor.idh`), which the
+    /// checks set as they work out *why* the task is not done —
+    /// [`crate::App::tutor_help`], from [`topic`]. Zero until a page has
+    /// set one; the Hint button opens it.
     pub help: u16,
     /// Whether the tutorial has run off the end of page eighty.
     pub finished: bool,
@@ -357,6 +359,89 @@ pub enum Cmp {
 /// `AdvanceTutor` (`10f8:0a30`) ends the tutorial once `idt` passes this.
 pub const LAST_PARAGRAPH: usize = 0x27f;
 
+/// The help topics the tutor's **Hint** button opens — `tutor.idh`, which
+/// the `FCheck*` helpers set as they fail and a few page arms set
+/// outright. Each is a context number of `STARS!.HLP` (`docs/formats/
+/// help.md`), named here by the page it opens.
+pub mod topic {
+    /// *Keyboard Shortcuts* — the arms' fallback for a fleet that must
+    /// be picked out (`10f8:1059`, `10f8:585b`, `10f8:5e4b`).
+    pub const KEYBOARD_SHORTCUTS: u16 = 0x1771;
+    /// *Location Tile* — `FCheckSelection` when a planet is wanted and a
+    /// fleet at it is in hand.
+    pub const LOCATION_TILE: u16 = 0x5ea;
+    /// *Fleets in Orbit Tile* — `FCheckSelection` when a fleet is wanted
+    /// and its planet is in hand.
+    pub const FLEETS_IN_ORBIT_TILE: u16 = 0x5e6;
+    /// *Selecting an Object to Command* — `FCheckSelection` otherwise, and
+    /// `FCheckFleetWP` for a fleet that does not exist.
+    pub const SELECTING_AN_OBJECT: u16 = 0x5f6;
+    /// *Messages Pane* — `FCheckMessages`, and `FCheckSelection` when the
+    /// object wanted is the one the message in front points at.
+    pub const MESSAGES_PANE: u16 = 0x36b1;
+    /// *Key to the Scanner* — `FCheckSummary`.
+    pub const KEY_TO_THE_SCANNER: u16 = 0x36d2;
+    /// *Choosing Your View of the Universe* — `FCheckScanner`'s view.
+    pub const SCANNER_VIEW: u16 = 0x36b8;
+    /// *Zooming* — `FCheckScanner`'s zoom.
+    pub const ZOOMING: u16 = 0x36c6;
+    /// *Fleet Waypoints Tile* — `FCheckFleetWP` for the wrong warp, and
+    /// the arms for Repeat Orders.
+    pub const FLEET_WAYPOINTS_TILE: u16 = 0x5ee;
+    /// *Waypoint Task Tile* — `FCheckFleetWP` for the wrong task,
+    /// `FCheckXferWP` and `FCheckZip` for the wrong cargo actions.
+    pub const WAYPOINT_TASK_TILE: u16 = 0x5ef;
+    /// *Adding Fleet Waypoints* — `FCheckFleetWP` for a waypoint not yet
+    /// there.
+    pub const ADDING_WAYPOINTS: u16 = 0xbf6;
+    /// *Moving Fleet Waypoints* — `FCheckFleetWP` for one at the wrong
+    /// place.
+    pub const MOVING_WAYPOINTS: u16 = 0xbf7;
+    /// *Colonize* — `FCheckColonizeWP`.
+    pub const COLONIZE: u16 = 0x5f2;
+    /// *Transport* — `FCheckZip` with no zip dialog up, and page 60's
+    /// transport order (`10f8:4be7`).
+    pub const TRANSPORT: u16 = 0x5f0;
+    /// *Production Tile* — `FCheckQueue` in the first two years, and the
+    /// queue-length arms of pages 23 and 25.
+    pub const PRODUCTION_TILE: u16 = 0x5e3;
+    /// *Production Dialog* — `FCheckQueue` thereafter.
+    pub const PRODUCTION_DIALOG: u16 = 0x423;
+    /// *Cargo Transfer Dialogs* — `FCheckCargo`.
+    pub const CARGO_TRANSFER: u16 = 0x433;
+    /// *Ship Designer* — `FCheckShipBuilder`, and `FCheckBuilderPart` with
+    /// the designer shut.
+    pub const SHIP_DESIGNER: u16 = 0x42a;
+    /// *Editing an Existing Ship Design* — `FCheckBuilderPart` with the
+    /// designer up but not editing.
+    pub const EDITING_A_DESIGN: u16 = 0xbe0;
+    /// *Designing a New Ship from Scratch* — `FCheckBuilderPart` for the
+    /// wrong part.
+    pub const DESIGNING_A_SHIP: u16 = 0xbdf;
+    /// *Custom Zip Orders dialog* — `FCheckZip` with the dialog up.
+    pub const ZIP_ORDERS: u16 = 0x44a;
+    /// *Production Templates* — `FCheckTemplate`.
+    pub const PRODUCTION_TEMPLATES: u16 = 0xc2d;
+    /// *Research Dialog* — `FCheckResearch`.
+    pub const RESEARCH_DIALOG: u16 = 0x42e;
+    /// *Other Fleets Here Tile* — the arms for a fleet to be picked from
+    /// those at a planet (`10f8:46fa`, `10f8:4c73`).
+    pub const OTHER_FLEETS_HERE_TILE: u16 = 0x5ed;
+    /// *Fleet Composition Tile* — the arms for a split or a merge to be
+    /// started (`10f8:4c8c`, `10f8:57f0`).
+    pub const FLEET_COMPOSITION_TILE: u16 = 0x5ec;
+    /// *Merge Fleets dialog* — the arms once the merge dialog is up
+    /// (`10f8:4c95`).
+    pub const MERGE_FLEETS: u16 = 0x453;
+    /// The designer wanted and shut (`10f8:47ed`, `10f8:5104`) — a number
+    /// the help file has **no topic for**, so the original's Hint puts up
+    /// WinHelp's *topic does not exist*; so does this project's.
+    pub const DESIGNER_SHUT: u16 = 0x3e9;
+    /// Waiting for the turn (`AdvanceTutor`, `10f8:0aff`) — likewise not
+    /// in the file.
+    pub const WAITING_FOR_THE_TURN: u16 = 0xdb6;
+}
+
 /// One rung of a page's task.
 ///
 /// A page is not one check but a **chain** of them: the original writes
@@ -394,6 +479,21 @@ pub struct Stage {
     /// — the paragraph follows whichever fleet is in hand. A rung like that
     /// never gates and asks for nothing; it only says where the reader is.
     pub held: bool,
+    /// The help topic the arm sets outright while this rung is the one
+    /// waited on, where it differs from what the rung's check would set
+    /// (`tutor.idh`; [`topic`]). `None` leaves it to the check.
+    pub help: Option<u16>,
+}
+
+impl Stage {
+    /// The same rung with the arm's own help topic.
+    #[must_use]
+    pub const fn with_help(self, topic: u16) -> Stage {
+        Stage {
+            help: Some(topic),
+            ..self
+        }
+    }
 }
 
 /// One page of the tutorial.
@@ -449,6 +549,7 @@ const fn ask(bold: usize, check: Check) -> Stage {
         check: Some(check),
         gates: true,
         held: false,
+        help: None,
         sticky: false,
     }
 }
@@ -460,6 +561,7 @@ const fn hint(bold: usize, check: Check) -> Stage {
         check: Some(check),
         gates: false,
         held: false,
+        help: None,
         sticky: false,
     }
 }
@@ -471,6 +573,7 @@ const fn seen(bold: usize, check: Check) -> Stage {
         check: Some(check),
         gates: false,
         held: false,
+        help: None,
         sticky: true,
     }
 }
@@ -483,6 +586,7 @@ const fn mark(bold: usize, check: Check) -> Stage {
         check: Some(check),
         gates: false,
         held: true,
+        help: None,
         sticky: false,
     }
 }
@@ -545,13 +649,16 @@ pub static STEPS: &[Step] = &[
         escape: None,
         wait: None,
         stages: &[
+            // The arm's own topic while Armed Probe #2 is not in hand:
+            // `tutor.idh = 0x1771` (`10f8:1059`).
             ask(
                 18,
                 Check::Selection {
                     class: grobj::FLEET,
                     id: 1,
                 },
-            ),
+            )
+            .with_help(topic::KEYBOARD_SHORTCUTS),
             ask(
                 21,
                 Check::FleetWaypoint {
@@ -1259,6 +1366,8 @@ pub static STEPS: &[Step] = &[
                     warp: ANY,
                 },
             ),
+            // `tutor.idh = 0x5e3` before the queue is looked at
+            // (`10f8:2341`).
             ask(
                 0xb5,
                 Check::QueueLength {
@@ -1266,7 +1375,8 @@ pub static STEPS: &[Step] = &[
                     count: 3,
                     cmp: Cmp::AtLeast,
                 },
-            ),
+            )
+            .with_help(topic::PRODUCTION_TILE),
             ask(
                 0xb5,
                 Check::Queue {
@@ -1374,6 +1484,7 @@ pub static STEPS: &[Step] = &[
                     id: 0x200,
                 },
             ),
+            // Likewise `0x5e3` (`10f8:254d`).
             ask(
                 0xc4,
                 Check::QueueLength {
@@ -1381,7 +1492,8 @@ pub static STEPS: &[Step] = &[
                     count: 4,
                     cmp: Cmp::AtLeast,
                 },
-            ),
+            )
+            .with_help(topic::PRODUCTION_TILE),
             // "Add two Armed Probes to Stove Top's queue."
             ask(
                 0xc6,
@@ -2669,6 +2781,7 @@ pub static STEPS: &[Step] = &[
                 check: None,
                 gates: false,
                 held: false,
+                help: None,
                 sticky: false,
             },
         ],
@@ -2853,6 +2966,7 @@ pub static STEPS: &[Step] = &[
                 check: None,
                 gates: false,
                 held: false,
+                help: None,
                 sticky: false,
             },
         ],
@@ -2872,6 +2986,9 @@ pub static STEPS: &[Step] = &[
                 },
             ),
             hint(0x1d9, at_planet(6, 1, 0x11, TRANSPORT_TASK)),
+            // The arm's own topics: Transport while the order is wrong
+            // (`10f8:4be7`), the Other Fleets Here tile while the fleets
+            // are being picked out (`10f8:4c73`).
             ask(
                 0x1da,
                 Check::TransportWaypoint {
@@ -2881,21 +2998,24 @@ pub static STEPS: &[Step] = &[
                     warp: ANY,
                     goal: UNLOAD_COLONISTS,
                 },
-            ),
+            )
+            .with_help(topic::TRANSPORT),
             hint(
                 0x1db,
                 Check::Selection {
                     class: grobj::FLEET,
                     id: 3,
                 },
-            ),
+            )
+            .with_help(topic::OTHER_FLEETS_HERE_TILE),
             ask(
                 0x1dd,
                 Check::Selection {
                     class: grobj::FLEET,
                     id: 2,
                 },
-            ),
+            )
+            .with_help(topic::OTHER_FLEETS_HERE_TILE),
         ],
     },
     Step {
@@ -3007,13 +3127,16 @@ pub static STEPS: &[Step] = &[
                     zoom: None,
                 },
             ),
+            // `0x3e9` while the designer is shut (`10f8:5104`) — a topic
+            // the help file does not have.
             hint(
                 0x1f5,
                 Check::ShipBuilder {
                     starbase: None,
                     design: None,
                 },
-            ),
+            )
+            .with_help(topic::DESIGNER_SHUT),
             // "Upgrade the Santa Maria": design 2's engine slot becomes
             // item 4. The arm reads rgshdef[2] rather than the editor, so
             // the page is done once the change is **saved**.
@@ -3223,6 +3346,7 @@ pub static STEPS: &[Step] = &[
             ),
             // Waypoint **zero** aimed at an enemy fleet: the intercept is
             // set where your fleet already is, not at a destination.
+            // `0x5ee` once the fleet is in hand (`10f8:5689`).
             ask(
                 0x212,
                 Check::FleetWaypoint {
@@ -3233,7 +3357,8 @@ pub static STEPS: &[Step] = &[
                     task: ANY,
                     warp: ANY,
                 },
-            ),
+            )
+            .with_help(topic::FLEET_WAYPOINTS_TILE),
             hint(
                 0x214,
                 Check::Messages {
@@ -3260,13 +3385,16 @@ pub static STEPS: &[Step] = &[
         stages: &[
             // The page only starts once fleet 0xc has gone -- merged into
             // another on the page before.
+            // `0x5ec` while the fleet to merge is in hand and no merge
+            // is under way (`10f8:57f0`).
             ask(
                 0x219,
                 Check::FleetExists {
                     fleet: 0x0c,
                     exists: false,
                 },
-            ),
+            )
+            .with_help(topic::FLEET_COMPOSITION_TILE),
             hint(
                 0x21a,
                 Check::Messages {

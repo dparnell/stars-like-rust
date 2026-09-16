@@ -57,16 +57,13 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         app.tutor_notice = app.hide_tutor().map(str::to_string);
     }
     // Hint opens the page's own help topic — `TutorDlg` hands `WINHELP`
-    // `tutor.idh` (`10f8:01bd`), which the page checks set as they work
-    // out what is wanted. The checks here do not set one yet, so a page
-    // with none opens the guide's contents rather than nothing.
+    // `tutor.idh` (`10f8:01bd`), which the page's checks leave behind as
+    // they fail (`App::tutor_help`). Before anything has set one it is
+    // zero, and the file has no topic zero, so the notice goes up as it
+    // would in the original.
     let help = app.tutor.as_ref().map_or(0, |t| t.help);
     if crate::views::dialog_button(ui, at(0x76).translate(down), &caption(0x76), true).clicked() {
-        if help == 0 {
-            app.help_contents();
-        } else {
-            app.help_context(u32::from(help));
-        }
+        app.help_context(u32::from(help));
     }
     if crate::views::dialog_button(ui, at(0x9c7).translate(down), &caption(0x9c7), true).clicked() {
         app.tutor_panic = true;

@@ -410,6 +410,61 @@ it look impossible is that the tutorial is the **only** galaxy whose seed can
 be known — a `.xy` stores its settings but never its seed — so there was no
 oracle to test against until the tutorial's world was built.
 
+## The Hint button: `tutor.idh`
+
+**Hint** (`0x76`) is `WINHELP(hwnd, szHelpFile, HELP_CONTEXT, tutor.idh)`
+(`TutorDlg`, `10f8:01bd`; `PanicDlg` the same at `10f8:0311`). Nothing
+sets `idh` for a page as such: it is left behind by the checks. Every
+`FCheck*` helper saves it on entry, sets its own topic while it is
+failing, and puts the saved value back as it passes — so after an arm has
+run, `idh` holds the topic of the check that stopped the chain, the one
+whose paragraph is emboldened. Several helpers end by asking
+`FCheckSelection` about the fleet or planet concerned and take *its*
+topic if that fails too, so the page on selecting things wins whenever
+the object is not in hand.
+
+What each helper leaves, read off the decompilation (all are context
+numbers of `STARS!.HLP`, `help.md`; the titles are the file's):
+
+| helper | topic | title |
+|--------|-------|-------|
+| `FCheckSelection` (`10f8:6af4`) | `0x36b1` when what is wanted is what the message in front points at; `0x5ea` when a planet is wanted and a fleet at it is in hand; `0x5e6` when a fleet is wanted and its planet is in hand; else `0x5f6` | Messages Pane / Location Tile / Fleets in Orbit Tile / Selecting an Object to Command |
+| `FCheckSummary` (`10f8:69e2`) | `0x36d2` | Key to the Scanner |
+| `FCheckMessages` (`10f8:6c48`) | `0x36b1` | Messages Pane |
+| `FCheckFleetWP` (`10f8:6df4`) | `0x5f6` no such fleet; `0xbf6` waypoint not there; `0xbf7` wrong place; `0x5ef` wrong task; `0x5ee` wrong warp — then the selection's | … / Adding Fleet Waypoints / Moving Fleet Waypoints / Waypoint Task Tile / Fleet Waypoints Tile |
+| `FCheckColonizeWP` (`10f8:70c0`) | `0x5f2`, unless the cargo check at the home world or the waypoint check under it fails | Colonize |
+| `FCheckXferWP` (`10f8:7280`) | the waypoint's, else `0x5ef` for the wrong actions, then the selection's | Waypoint Task Tile |
+| `FCheckLayingWP` (`10f8:6ff4`), `FCheckPatrolWP` (`10f8:71ac`) | `0x5f8`, `0xc17`, the waypoint's under them | Lay Mine Fields / Patroling |
+| `FCheckCargo` (`10f8:7664`) | `0x433`, then the selection's | Cargo Transfer Dialogs |
+| `FCheckQueue` (`10f8:7442`) | `0x5e3` in the first two years, `0x423` after, then the selection's | Production Tile / Production Dialog |
+| `FCheckResearch` (`10f8:6da4`) | `0x42e` | Research Dialog |
+| `FCheckScanner` (`10f8:685c`) | `0x36b8` for the view, `0x36c6` for the zoom | Choosing Your View of the Universe / Zooming |
+| `FCheckPlanetRoute` (`10f8:6f86`) | `0x5fb` | Route |
+| `FCheckShipBuilder` (`10f8:7964`) | `0x42a` | Ship Designer |
+| `FCheckBuilderPart` (`10f8:77d8`) | `0x42a` designer shut; `0xbe0` up but not editing; `0xbdf` wrong part | Ship Designer / Editing an Existing Ship Design / Designing a New Ship from Scratch |
+| `FCheckZip` (`10f8:6460`) | `0x44a` slot empty with the dialog up, `0x5f0` with it shut; `0x5ef` wrong actions | Custom Zip Orders dialog / Transport / Waypoint Task Tile |
+| `FCheckTemplate` (`10f8:666e`) | `0xc2d`, set even as it passes | Production Templates |
+| `FCheckBtlPlan` (`10f8:760a`) | `0xc21` | Changing the Contents of a Battle Plan |
+| `FCheckFleetName` (`10f8:690a`) | `0xbee` | Naming Fleets |
+
+The arms that read the game directly set a topic outright where they
+need one: `0x5ee` (Fleet Waypoints Tile) around Repeat Orders, `0x5ed`
+(Other Fleets Here Tile) for the fuel page and for picking a fleet out at
+a planet, `0x5ec` (Fleet Composition Tile) for a split or merge to start
+and `0x453` (Merge Fleets dialog) once it has, `0x1771` (Keyboard
+Shortcuts) for page 3's fleet and for the design-count pages, `0x5e3`
+before the queue-length reads of pages 23 and 25, `0x423` before those of
+pages 22 and 33, and `0x3e9` with the designer shut on pages 56 and 63 —
+a number the file has **no topic for**, so the original's Hint puts up
+WinHelp's *topic does not exist* there. So does `AdvanceTutor`'s `0xdb6`
+(`10f8:0aff`), set while a page waits for the turn.
+
+`App::tutor_help` computes the same: the emboldened rung's own topic
+(`Stage::help`) where the arm sets one, else the check's by the table
+above (`App::tutor_check_help`), `0xdb6` while waiting; `Tutor.help`
+keeps the last value, as the global does. `tests/tutorial_hints.rs`
+follows the first pages and checks every named topic against the file.
+
 ## What this project does
 
 The text and the segment reader; the `Tutor` state; the `Check` vocabulary and
