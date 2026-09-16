@@ -73,6 +73,8 @@ pub struct ReplayReport {
     pub message_filters: usize,
     /// Default production queues replaced.
     pub default_queues: usize,
+    /// Messages to other players handed on for delivery.
+    pub messages: usize,
     /// Operations dropped because they named something the player does not own,
     /// or an object this state does not hold.
     pub rejected: usize,
@@ -99,6 +101,7 @@ impl ReplayReport {
             + self.passwords
             + self.message_filters
             + self.default_queues
+            + self.messages
     }
 }
 
@@ -186,6 +189,19 @@ fn apply(
             if find_fleet(state, player, split.fleet_id).is_none() {
                 report.rejected += 1;
             }
+        }
+        // A letter to another player: not an order on the state, but
+        // carried to the host to deliver (`FLoadLogFile`'s `rtPlrMsg` arm
+        // strings them onto `vlpmsgplrOut`). The sender is the file's owner
+        // whatever the record says.
+        LogRecordType::PlayerMessage => {
+            let Some(mut message) = record.as_player_message() else {
+                report.rejected += 1;
+                return;
+            };
+            message.from = i16::try_from(player).unwrap_or(0);
+            orders.messages.push(message);
+            report.messages += 1;
         }
         LogRecordType::FleetMerge => {
             let Some(merge) = record.as_fleet_merge() else {

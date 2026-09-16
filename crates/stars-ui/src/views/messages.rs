@@ -36,22 +36,38 @@ fn decoration(
 ) -> egui::Response {
     use stars_formats::resources::Name;
 
-    let Some(mask_y) = glyph.mask_y else {
-        return ui.small_button(label);
-    };
     let size = egui::vec2(glyph.size.0 as f32, glyph.size.1 as f32);
     let ctx = ui.ctx().clone();
-    let picture = app.art.as_mut().and_then(|art| {
-        art.sprite_masked_between(
-            &ctx,
-            &Name::Id(crate::message::COLOUR_SHEET),
-            &Name::Id(crate::message::MASK_SHEET),
-            (0, glyph.colour_y),
-            (0, mask_y),
-            glyph.size,
-            size,
-        )
-        .map(|image| image.sense(egui::Sense::click()))
+    let picture = app.art.as_mut().and_then(|art| match glyph.mask_y {
+        Some(mask_y) => art
+            .sprite_masked_between(
+                &ctx,
+                &Name::Id(crate::message::COLOUR_SHEET),
+                &Name::Id(crate::message::MASK_SHEET),
+                (0, glyph.colour_y),
+                (0, mask_y),
+                glyph.size,
+                size,
+            )
+            .map(|image| image.sense(egui::Sense::click())),
+        // The envelope of the mode strip is blitted straight over a black
+        // rectangle a pixel larger all round (`DecorateMsgTitleBar`,
+        // `1030:7b6c`).
+        None => art
+            .sprite_at(
+                &ctx,
+                &Name::Id(crate::message::COLOUR_SHEET),
+                0,
+                glyph.colour_y,
+                glyph.size.0,
+                glyph.size.1,
+                size,
+            )
+            .map(|image| {
+                image
+                    .bg_fill(egui::Color32::BLACK)
+                    .sense(egui::Sense::click())
+            }),
     });
     let response = match picture {
         Some(image) => ui.add(image),
@@ -68,6 +84,10 @@ fn decoration(
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
     app.drawn_scope = "messages";
     keys(app, ui);
+    if app.writing.is_some() {
+        writing(app, ui);
+        return;
+    }
 
     let filtered_here = app
         .current_message()
@@ -99,6 +119,17 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // The mode strip, `0x18` wide just left of the right
+                    // square, wearing the envelope: writing to another
+                    // player. Not in a single-player game (`HtMsgBox`).
+                    if app.can_write_messages()
+                        && decoration(app, ui, crate::message::FROM_PLAYER, "write")
+                            .on_hover_text("write a message to another player")
+                            .clicked()
+                    {
+                        app.start_writing();
+                        return;
+                    }
                     if has_filtered {
                         let label = if app.view_filtered {
                             "hide filtered"
@@ -154,13 +185,103 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         if crate::views::flow_button(app, ui, "Prev", has_previous).clicked() {
             app.show_previous_message();
         }
-        let goto = app.message_goto() != stars_core::message::Goto::None;
+        // A letter from another player has **Reply** here, which opens
+        // writing mode on its sender (`SetMsgTitle`, `idsReply`).
+        let reply = app.current_received_message().is_some();
+        let goto = reply || app.message_goto() != stars_core::message::Goto::None;
         let label = app.message_goto_label();
         if crate::views::flow_button(app, ui, label, goto).clicked() {
-            app.message_goto_follow();
+            if reply {
+                app.start_writing();
+            } else {
+                app.message_goto_follow();
+            }
         }
         if crate::views::flow_button(app, ui, "Next", has_next).clicked() {
             app.show_next_message();
+        }
+    });
+}
+
+/// The pane while a letter is being written (`gd` bit 8): the title
+/// `Send Messages (n of m)`; under it `To:` (`idsTo3`), the recipient
+/// dropdown (`hwndMsgDrop`: Everybody, then every player) and the
+/// **Delete** button (`idsDelete`, `rghwndMsgBtn[3]`) at the right; the edit
+/// box (`hwndMsgEdit`) filling the rest; and along the foot Prev, **Done**
+/// and Next, Prev dead on the first letter (`SetMsgTitle`).
+fn writing(app: &mut App, ui: &mut egui::Ui) {
+    let Some(writing) = app.writing.clone() else {
+        return;
+    };
+    egui::Frame::group(ui.style())
+        .inner_margin(egui::Margin::symmetric(4.0, 2.0))
+        .show(ui, |ui| {
+            ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+                ui.label(app.message_title());
+            });
+        });
+    let recipients = app.message_recipients();
+    let mut pick: Option<i16> = None;
+    let mut delete = false;
+    egui::Frame::group(ui.style())
+        .inner_margin(egui::Margin::same(6.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("To:").small());
+                let showing = recipients
+                    .get(usize::try_from(writing.to).unwrap_or(0))
+                    .cloned()
+                    .unwrap_or_default();
+                let dropdown = egui::ComboBox::from_id_source("message-recipient")
+                    .selected_text(egui::RichText::new(showing).small())
+                    .show_ui(ui, |ui| {
+                        for (index, name) in recipients.iter().enumerate() {
+                            let response = ui.selectable_label(
+                                usize::try_from(writing.to).ok() == Some(index),
+                                egui::RichText::new(name).small(),
+                            );
+                            crate::views::record(app, ui, name, &response);
+                            if response.clicked() {
+                                pick = i16::try_from(index).ok();
+                            }
+                        }
+                    });
+                crate::views::record(app, ui, "To", &dropdown.response);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if crate::views::flow_button(app, ui, "Delete", true).clicked() {
+                        delete = true;
+                    }
+                });
+            });
+            let mut text = writing.text.clone();
+            let box_ = ui.add(
+                egui::TextEdit::multiline(&mut text)
+                    .desired_rows(4)
+                    .desired_width(f32::INFINITY)
+                    .char_limit(stars_formats::MAX_MESSAGE_LEN)
+                    .font(egui::TextStyle::Small),
+            );
+            crate::views::record(app, ui, "message text", &box_);
+            if box_.changed() {
+                app.set_letter_text(&text);
+            }
+        });
+    if let Some(to) = pick {
+        app.set_letter_recipient(to);
+    }
+    if delete {
+        app.delete_letter();
+    }
+
+    ui.horizontal(|ui| {
+        if crate::views::flow_button(app, ui, "Prev", writing.index > 0).clicked() {
+            app.previous_letter();
+        }
+        if crate::views::flow_button(app, ui, "Done", true).clicked() {
+            app.stop_writing();
+        }
+        if crate::views::flow_button(app, ui, "Next", true).clicked() {
+            app.next_letter();
         }
     });
 }
@@ -176,6 +297,23 @@ fn keys(app: &mut App, ui: &egui::Ui) {
     if ui.memory(|m| m.focused()).is_some() {
         return;
     }
+    // While a letter is being written, Down and Up move through the
+    // letters (`FFinishPlrMsgEntry(±1)`), Enter is Done, and Home and End
+    // do nothing (`MessageWndProc`'s `WM_KEYDOWN`, `gd` bit 8).
+    if app.writing.is_some() {
+        ui.input(|i| {
+            if i.key_pressed(egui::Key::ArrowDown) {
+                app.next_letter();
+            }
+            if i.key_pressed(egui::Key::ArrowUp) {
+                app.previous_letter();
+            }
+            if i.key_pressed(egui::Key::Enter) {
+                app.stop_writing();
+            }
+        });
+        return;
+    }
     ui.input(|i| {
         if i.key_pressed(egui::Key::ArrowDown) {
             app.show_next_message();
@@ -189,8 +327,14 @@ fn keys(app: &mut App, ui: &egui::Ui) {
         if i.key_pressed(egui::Key::End) {
             app.show_last_message();
         }
+        // Enter is Goto, or Reply on another player's letter
+        // (`1030:6d8d`).
         if i.key_pressed(egui::Key::Enter) {
-            app.message_goto_follow();
+            if app.current_received_message().is_some() {
+                app.start_writing();
+            } else {
+                app.message_goto_follow();
+            }
         }
         if i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals) {
             app.toggle_message_filter();

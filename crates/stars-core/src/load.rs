@@ -466,6 +466,16 @@ impl GameState {
                         .push(crate::message::Message::from_record(player, &record));
                 }
             }
+            // And what other players wrote to this one (`rtPlrMsg`, read by
+            // `ReadPlayerMessages` after the year's messages).
+            for block in blocks
+                .iter()
+                .filter(|b| b.type_id == stars_formats::PLAYER_MESSAGE_BLOCK)
+            {
+                if let Ok(message) = stars_formats::PlayerMessage::decode(&block.data) {
+                    state.player_messages.push(message);
+                }
+            }
         }
 
         // The message filter, which belongs to whoever owns the file. It lives

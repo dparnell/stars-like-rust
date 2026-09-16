@@ -412,6 +412,12 @@ pub struct GameState {
     /// Cleared at the start of a turn and written into each player's file. See
     /// [`crate::message`].
     pub messages: Vec<crate::message::Message>,
+    /// What the players wrote to one another this year, delivered with
+    /// the turn (`vlpmsgplrIn`): every message the host was handed in the
+    /// players' order files, each written into the files of those it is
+    /// for ([`stars_formats::PlayerMessage::is_for`]). Cleared with the
+    /// messages at the start of a turn.
+    pub player_messages: Vec<stars_formats::PlayerMessage>,
     /// Every minefield in play. They are `THING`s in the file, and the only
     /// kind of `THING` this engine models — see [`crate::minefield`].
     pub minefields: Vec<crate::minefield::Minefield>,
@@ -519,6 +525,7 @@ impl GameState {
             ai_armada_potency: [0; 4],
             victory: [0; stars_formats::victory::COUNT],
             messages: Vec::new(),
+            player_messages: Vec::new(),
             minefields: Vec::new(),
             packets: Vec::new(),
             wormholes: Vec::new(),

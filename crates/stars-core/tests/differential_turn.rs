@@ -40,6 +40,7 @@ fn orders_for(year: &Path) -> TurnOrders {
     let segment = file.latest_segment();
     TurnOrders {
         cargo: stars_formats::cargo_transfers_in(file.segment_blocks(segment)),
+        ..TurnOrders::default()
     }
 }
 

@@ -78,6 +78,9 @@ pub enum LogRecordType {
     PlanetRouting,
     /// Merge fleets (`rtLogFleetMerge`, 37).
     FleetMerge,
+    /// A message written to another player (`rtPlrMsg`, 40), which the
+    /// `.x` file carries among the orders.
+    PlayerMessage,
     /// Player-relations table (`rtLogRelations`, 38).
     Relations,
     /// Set a fleet's battle plan (`rtLogFleetPlan`, 42).
@@ -118,6 +121,7 @@ impl LogRecordType {
             35 => Self::PlanetRouting,
             37 => Self::FleetMerge,
             38 => Self::Relations,
+            40 => Self::PlayerMessage,
             42 => Self::FleetPlan,
             43 => Self::ThingByteParam,
             44 => Self::FleetName,
@@ -151,6 +155,7 @@ impl LogRecordType {
             Self::PlanetRouting => 35,
             Self::FleetMerge => 37,
             Self::Relations => 38,
+            Self::PlayerMessage => 40,
             Self::FleetPlan => 42,
             Self::ThingByteParam => 43,
             Self::FleetName => 44,
@@ -1229,6 +1234,14 @@ impl LogRecord {
             .flatten()
     }
 
+    /// Decode this record as a message written to another player.
+    #[must_use]
+    pub fn as_player_message(&self) -> Option<crate::PlayerMessage> {
+        (self.record_type == LogRecordType::PlayerMessage)
+            .then(|| crate::PlayerMessage::decode(&self.data).ok())
+            .flatten()
+    }
+
     /// Decode this record as a message-filter change.
     #[must_use]
     pub fn as_message_filter(&self) -> Option<crate::MessageFilter> {
@@ -1367,6 +1380,12 @@ impl LogRecord {
     #[must_use]
     pub fn change_password(change: PasswordChange) -> Self {
         Self::raw(LogRecordType::ChangePassword, change.encode().to_vec())
+    }
+
+    /// A message written to another player, carried among the orders.
+    #[must_use]
+    pub fn player_message(message: &crate::PlayerMessage) -> Self {
+        Self::raw(LogRecordType::PlayerMessage, message.encode())
     }
 
     /// Set which messages the player has silenced.

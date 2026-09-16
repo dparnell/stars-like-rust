@@ -184,6 +184,7 @@ pub fn player_file(state: &GameState, player: usize) -> Result<Vec<u8>> {
     push_battle_plans(state, &mut body, player)?;
     push_battles(state, &mut body, player)?;
     push_messages(state, &mut body, player)?;
+    push_player_messages(state, &mut body, player)?;
     push_standings(state, &mut body, player)?;
 
     StarsFile::build(&header, &body, footer(state))
@@ -905,6 +906,20 @@ fn push_messages(state: &GameState, body: &mut Vec<Block>, player: usize) -> Res
         stars_formats::MESSAGE_BLOCK,
         stars_formats::MessageRecord::encode_all(&records),
     )?);
+    Ok(())
+}
+
+/// Append what other players wrote to this one, one block a message
+/// (`WritePlayerMessages`, `1030:97c0`, after the year's messages): every
+/// message to everybody from somebody else, and every one addressed to
+/// this player.
+fn push_player_messages(state: &GameState, body: &mut Vec<Block>, player: usize) -> Result<()> {
+    for message in state.player_messages.iter().filter(|m| m.is_for(player)) {
+        body.push(block(
+            stars_formats::PLAYER_MESSAGE_BLOCK,
+            message.encode(),
+        )?);
+    }
     Ok(())
 }
 

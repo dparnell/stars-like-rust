@@ -147,8 +147,9 @@ the original's rules (`IDropPart`: what stacks, what fills, what is
 refused); research, the technology browser, cargo and ship transfer
 between a fleet and its planet, two fleets standing together, a packet
 or salvage, or deep space,
-battle plans, player relations, the four reports, the score sheet, host
-mode, and a new-game wizard with the six-page race designer. The
+battle plans, player relations, letters to the other players, the four
+reports, the score sheet, host mode, and a new-game wizard with the
+six-page race designer. The
 **Battle VCR** plays the recordings back on the original's board — the
 ships' pictures with their owners' emblems, the beams as `AnimateAttack`
 draws them, the torpedoes flying frame by frame from the game's own icons

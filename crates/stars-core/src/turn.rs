@@ -181,6 +181,9 @@ pub fn generate_turn(state: &mut GameState, rng: &mut Rng) -> TurnReport {
 pub struct TurnOrders {
     /// Cargo transfers, in the order the file records them.
     pub cargo: Vec<stars_formats::CargoTransferRecord>,
+    /// Messages the players wrote to one another, which the host delivers
+    /// with the year's news.
+    pub messages: Vec<stars_formats::PlayerMessage>,
 }
 
 /// Advance the game by one year, applying a set of recorded orders first.
@@ -205,6 +208,10 @@ pub fn generate_turn_with_orders(
     // *first* — the Mystery Trader's news is the earliest thing a year sends.
     state.messages.clear();
     state.battles.clear();
+    // The players' letters to one another go out with this year's news
+    // (`FLoadLogFile` gathers them into `vlpmsgplrOut`, and
+    // `WritePlayerMessages` puts each into the files of those it is for).
+    state.player_messages = orders.messages.clone();
     for player in &mut state.players {
         player.learned_tech_this_year = false;
     }

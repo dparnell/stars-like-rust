@@ -276,3 +276,179 @@ fn the_decorations_name_two_strips_and_two_rows() {
         assert!(fits(glyph), "{glyph:?} runs off its strip");
     }
 }
+
+/// Letters other players wrote follow the year's own messages in the list
+/// (`cMsg + vcmsgplrIn`): the pane walks into them past the filter's
+/// reach, shows them as `From: … To: …` and the text, offers **Reply**
+/// rather than Goto, and counts them in its title.
+#[test]
+fn letters_from_other_players_follow_the_years_messages() {
+    use stars_formats::PlayerMessage;
+
+    let mut app = a_game();
+    only_message(&mut app, 1);
+    if let Some(game) = app.game.as_mut() {
+        game.single_player = false;
+        game.player_messages = vec![
+            PlayerMessage {
+                from: 1,
+                to: 1, // to player 0
+                in_re: 0,
+                text: "Stay off Wallaby.".to_string(),
+            },
+            PlayerMessage {
+                from: 1,
+                to: 0, // everybody
+                in_re: 0,
+                text: "The rift is ours.".to_string(),
+            },
+        ];
+    }
+    assert_eq!(app.message_count(), 3);
+    assert_eq!(app.message_title(), "Year: 2400  Messages: 1 of 3");
+    assert_eq!(app.message_goto_label(), "Goto");
+
+    assert!(app.show_next_message());
+    assert_eq!(app.message_index, 1);
+    let letter = app.current_received_message().expect("a letter");
+    assert_eq!(letter.text, "Stay off Wallaby.");
+    assert!(app.current_message().is_none());
+    assert_eq!(app.message_goto_label(), "Reply");
+    let body = app.message_body();
+    assert!(body.starts_with("From: "), "{body}");
+    assert!(body.contains("Stay off Wallaby."));
+    assert!(
+        !app.toggle_message_filter(),
+        "a letter has no kind to filter"
+    );
+
+    assert!(app.show_next_message());
+    assert!(
+        app.message_body().contains("To: Everybody"),
+        "{}",
+        app.message_body()
+    );
+    assert!(!app.show_next_message(), "the last");
+    assert!(app.show_previous_message());
+    assert!(app.show_previous_message());
+    assert_eq!(app.message_index, 0);
+    app.show_last_message();
+    assert_eq!(app.message_index, 2);
+}
+
+/// Writing: the mode strip opens the box on Everybody; Next saves the letter
+/// and moves to a fresh one; Prev comes back to it; Delete removes it; Done
+/// saves and leaves; the letters go into the order file as `rtPlrMsg`
+/// records and to the host with the turn; a single-player game refuses.
+#[test]
+fn letters_are_written_stepped_and_delivered() {
+    use stars_formats::LogRecordType;
+
+    let mut app = a_game();
+    if let Some(game) = app.game.as_mut() {
+        game.single_player = false;
+    }
+    assert!(app.can_write_messages());
+    assert!(app.start_writing());
+    let writing = app.writing.clone().expect("writing");
+    assert_eq!(
+        (writing.index, writing.to),
+        (0, 0),
+        "a fresh letter to Everybody"
+    );
+    assert_eq!(app.message_title(), "Send Messages (1 of 0)");
+
+    app.set_letter_recipient(2);
+    app.set_letter_text("Greetings from the Humanoids.");
+    app.next_letter();
+    assert_eq!(app.outgoing.len(), 1);
+    assert_eq!(app.outgoing[0].to, 2);
+    assert_eq!(app.outgoing[0].from, 0);
+    let writing = app.writing.clone().expect("writing");
+    assert_eq!(writing.index, 1, "past the last: a fresh one");
+    assert!(writing.text.is_empty());
+    assert_eq!(app.message_title(), "Send Messages (2 of 1)");
+
+    // Nothing typed: Prev just steps back onto the letter.
+    app.previous_letter();
+    let writing = app.writing.clone().expect("writing");
+    assert_eq!(writing.index, 0);
+    assert_eq!(writing.text, "Greetings from the Humanoids.");
+
+    // Edit it in place, and Done keeps the change.
+    app.set_letter_text("Greetings from the Humanoids. Trade?");
+    app.stop_writing();
+    assert!(app.writing.is_none());
+    assert_eq!(app.outgoing.len(), 1);
+    assert!(app.outgoing[0].text.ends_with("Trade?"));
+
+    // The order file carries it.
+    let log = app.order_log(0, [0; 11]);
+    let letters: Vec<_> = log
+        .records
+        .iter()
+        .filter(|r| r.record_type == LogRecordType::PlayerMessage)
+        .filter_map(stars_formats::LogRecord::as_player_message)
+        .collect();
+    assert_eq!(letters.len(), 1);
+    assert_eq!(letters[0].text, app.outgoing[0].text);
+
+    // A second letter, then deleted.
+    assert!(app.start_writing());
+    assert_eq!(
+        app.writing.as_ref().expect("writing").index,
+        0,
+        "the hand stays"
+    );
+    app.next_letter();
+    app.set_letter_text("Never mind.");
+    app.next_letter();
+    assert_eq!(app.outgoing.len(), 2);
+    app.previous_letter();
+    assert_eq!(app.writing.as_ref().expect("writing").text, "Never mind.");
+    app.delete_letter();
+    assert_eq!(app.outgoing.len(), 1);
+    assert_eq!(app.writing.as_ref().expect("writing").index, 0);
+    app.stop_writing();
+
+    // Reply to a letter presets its sender, and finds the reply already
+    // written to it.
+    if let Some(game) = app.game.as_mut() {
+        game.player_messages = vec![stars_formats::PlayerMessage {
+            from: 1,
+            to: 1,
+            in_re: 0,
+            text: "Stay off Wallaby.".to_string(),
+        }];
+    }
+    app.show_last_message();
+    assert_eq!(app.message_goto_label(), "Reply");
+    assert!(app.start_writing());
+    let writing = app.writing.clone().expect("writing");
+    assert_eq!(writing.to, 2, "the sender, plus one");
+    assert_eq!(writing.index, 1, "a fresh letter");
+    app.set_letter_text("We will.");
+    app.stop_writing();
+    assert_eq!(app.outgoing[1].in_re, app.message_index as i16);
+    assert!(app.start_writing());
+    assert_eq!(
+        app.writing.as_ref().expect("writing").index,
+        1,
+        "the reply already written"
+    );
+    assert_eq!(app.writing.as_ref().expect("writing").text, "We will.");
+    app.stop_writing();
+
+    // The turn takes the letters to the host and they are delivered.
+    app.generate_turn();
+    assert!(app.outgoing.is_empty(), "sent with the turn");
+    let delivered = &app.game.as_ref().expect("a game").player_messages;
+    assert_eq!(delivered.len(), 2);
+    assert!(delivered.iter().all(|m| m.from == 0));
+
+    // A single-player game has no strip.
+    if let Some(game) = app.game.as_mut() {
+        game.single_player = true;
+    }
+    assert!(!app.start_writing());
+}

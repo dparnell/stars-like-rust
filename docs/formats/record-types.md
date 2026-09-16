@@ -56,7 +56,7 @@ variant.
 | 37 | `rtLogFleetMerge` | `Other(37)` | order: merge fleets |
 | 38 | `rtLogRelations` | `Other(38)` | order: change player relations |
 | 39 | `rtContinue` | `Other(39)` | battle continuation — **decoded**, see `battle.md` |
-| 40 | `rtPlrMsg` | `PlayerMessage` | per-player message |
+| 40 | `rtPlrMsg` | `PlayerMessage` | a letter to another player — **decoded**, see `player-message.md` |
 | 41 | `rtAiData` | `Other(41)` | opaque AI data blob |
 | 42 | `rtLogFleetPlan` | `Other(42)` | order: set fleet battle plan |
 | 43 | `rtThing` / `rtLogThingByteParam` | `Object` | space object: minefield, packet, wormhole, MT, salvage |

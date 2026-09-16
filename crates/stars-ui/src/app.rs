@@ -152,6 +152,29 @@ const PLANET_CLASS: u8 = 1;
 /// The object class for a fleet.
 const FLEET_CLASS: u8 = 2;
 
+/// The message pane while a letter is being written (`gd` bit 8): the
+/// pane shows `To:`, the recipient dropdown, a Delete button and an edit
+/// box, and Prev and Next walk the letters written so far
+/// (`FFinishPlrMsgEntry`, `1030:9bd6`, saves the box into the one in hand
+/// and moves), one past the last being a fresh one.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Writing {
+    /// Which of [`App::outgoing`] is in hand (`iMsgSendCur`); equal to the
+    /// count when a new letter is being started.
+    pub index: usize,
+    /// The recipient as the dropdown has it: `0` everybody, else the
+    /// player plus one (`iPlrTo`).
+    pub to: i16,
+    /// The text in the box.
+    pub text: String,
+    /// The index of the message this replies to (`iInRe`: `iMsgCur` when
+    /// the letter was begun).
+    pub in_re: i16,
+    /// The recipient a fresh letter starts with (`viInRe`): the sender of
+    /// the letter being replied to, else Everybody.
+    pub preset: i16,
+}
+
 /// What a Remote Mining task finds at its waypoint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RemoteTarget {
@@ -613,6 +636,14 @@ pub struct App {
     /// `fViewFilteredMsg`: whether the messages the player has silenced are
     /// shown anyway. Kept for the session, not saved.
     pub view_filtered: bool,
+    /// The letters this player has written this turn (`vlpmsgplrOut`),
+    /// written into the order file as `rtPlrMsg` records.
+    pub outgoing: Vec<stars_formats::PlayerMessage>,
+    /// The message pane's writing mode, while it is on (`gd` bit 8).
+    pub writing: Option<Writing>,
+    /// Which letter the writing mode last had in hand (`iMsgSendCur`),
+    /// which outlives the mode.
+    pub send_index: usize,
     /// Battle recordings found in the loaded file.
     pub battles: Vec<BattleRecord>,
     /// The battle being played, if any.
@@ -898,6 +929,9 @@ impl App {
         self.host_password_edited = false;
         self.battle_plans_edited = false;
         self.orders.clear();
+        self.outgoing.clear();
+        self.writing = None;
+        self.send_index = 0;
         self.error = None;
         // `ReadPlayerMessages` (`msg.c`) ends by moving the pane to the first
         // message the player has not filtered, which leaves it before the
@@ -1254,6 +1288,9 @@ impl App {
         self.host_password_edited = false;
         self.battle_plans_edited = false;
         self.orders.clear();
+        self.outgoing.clear();
+        self.writing = None;
+        self.send_index = 0;
         self.error = None;
         self.last_turn = None;
         self.screen = Screen::Galaxy;
@@ -1433,6 +1470,13 @@ impl App {
 
         let mut log = stars_formats::OrderLog::new(serial, config);
         log.records.clone_from(&self.orders);
+        // The letters, as `FWriteLogFile` walks `vlpmsgplrOut` after the
+        // orders.
+        log.records.extend(
+            self.outgoing
+                .iter()
+                .map(stars_formats::LogRecord::player_message),
+        );
         let Some(game) = self.game.as_ref() else {
             return log;
         };
@@ -1575,7 +1619,15 @@ impl App {
         let Some(state) = self.game.as_mut() else {
             return;
         };
-        let (orders, replays) = stars_core::replay::replay_logs(state, &logs);
+        let (mut orders, replays) = stars_core::replay::replay_logs(state, &logs);
+        // Our own letters are not in any file yet; they go to the host with
+        // the others'.
+        orders
+            .messages
+            .extend(self.outgoing.iter().cloned().map(|mut m| {
+                m.from = i16::try_from(me).unwrap_or(0);
+                m
+            }));
         let replayed = replays
             .iter()
             .map(|r| (r.player, r.applied()))
@@ -1606,6 +1658,10 @@ impl App {
         // the player can see.
         self.refresh_view();
         self.orders.clear();
+        // `ResetMessages`: the letters went with the turn.
+        self.outgoing.clear();
+        self.writing = None;
+        self.send_index = 0;
         self.research_edited = false;
         self.player_edited = false;
         self.host_password_edited = false;
@@ -5309,10 +5365,39 @@ impl App {
             .unwrap_or_default()
     }
 
-    /// How many messages the year holds (`cMsg`).
+    /// How many messages the year holds (`cMsg`), the letters other
+    /// players wrote included: those follow the year's own messages in the
+    /// list (`cMsg + vcmsgplrIn`).
     #[must_use]
     pub fn message_count(&self) -> usize {
-        self.messages().len()
+        self.messages().len() + self.received_messages().len()
+    }
+
+    /// The letters other players wrote to this one this year
+    /// (`vlpmsgplrIn`).
+    #[must_use]
+    pub fn received_messages(&self) -> Vec<&stars_formats::PlayerMessage> {
+        let me = self.local_player();
+        self.game
+            .as_ref()
+            .map(|game| {
+                game.player_messages
+                    .iter()
+                    .filter(|m| m.is_for(me))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The letter the pane is showing, when the index has run past the
+    /// year's own messages into the received ones.
+    #[must_use]
+    pub fn current_received_message(&self) -> Option<stars_formats::PlayerMessage> {
+        let index = usize::try_from(self.message_index).ok()?;
+        let own = self.messages().len();
+        self.received_messages()
+            .get(index.checked_sub(own)?)
+            .map(|m| (*m).clone())
     }
 
     /// The message the pane is showing, if it is showing one.
@@ -5330,12 +5415,19 @@ impl App {
     #[must_use]
     pub fn message_next(&self, filtered_only: bool) -> Option<usize> {
         let messages = self.messages();
+        let count = self.message_count();
         let filter = self.message_filter();
         let mut i = self.message_index;
         loop {
             i += 1;
             let index = usize::try_from(i).ok()?;
-            let message = messages.get(index)?;
+            if index >= count {
+                return None;
+            }
+            // A letter from another player is past the filter's reach.
+            let Some(message) = messages.get(index) else {
+                return (!filtered_only).then_some(index);
+            };
             if filter.hidden(message.id) == filtered_only || (self.view_filtered && !filtered_only)
             {
                 return Some(index);
@@ -5347,12 +5439,20 @@ impl App {
     #[must_use]
     pub fn message_previous(&self, filtered_only: bool) -> Option<usize> {
         let messages = self.messages();
+        let count = self.message_count();
         let filter = self.message_filter();
-        let mut i = self.message_index;
+        let mut i = self
+            .message_index
+            .min(i32::try_from(count).unwrap_or(i32::MAX));
         loop {
             i -= 1;
             let index = usize::try_from(i).ok()?;
-            let message = messages.get(index)?;
+            let Some(message) = messages.get(index) else {
+                if index < count && !filtered_only {
+                    return Some(index);
+                }
+                continue;
+            };
             if filter.hidden(message.id) == filtered_only || (self.view_filtered && !filtered_only)
             {
                 return Some(index);
@@ -5446,9 +5546,18 @@ impl App {
     /// What the pane's title bar says.
     ///
     /// `"Year: 2401  Messages: 3 of 12"`, or `"Year: 2401  Messages: (none)"`
-    /// — `idsYearDCMessagesDD` and `idsYearDCMessagesNone`.
+    /// — `idsYearDCMessagesDD` and `idsYearDCMessagesNone`; while a letter
+    /// is being written, `"Send Messages (1 of 3)"` (`idsSendMessagesDD`,
+    /// the letter in hand counted from one over the letters written).
     #[must_use]
     pub fn message_title(&self) -> String {
+        if let Some(writing) = self.writing.as_ref() {
+            return format!(
+                "Send Messages ({} of {})",
+                writing.index + 1,
+                self.outgoing.len()
+            );
+        }
         let year = self.game.as_ref().map_or(2400, stars_core::GameState::year);
         let count = self.message_count();
         if count == 0 {
@@ -5458,9 +5567,190 @@ impl App {
         format!("Year: {year}  Messages: {at} of {count}")
     }
 
+    // --- Writing to other players -----------------------------------------
+    //
+    // The pane's `[m]` strip and a letter's Reply put it into writing mode
+    // (`MessageWndProc`, `1030:6298`), where `FFinishPlrMsgEntry`
+    // (`1030:9bd6`) saves the box into the letter in hand and moves on.
+
+    /// Whether letters can be written at all: not in a single-player game
+    /// (`fSinglePlr`), where `HtMsgBox` offers no mode strip.
+    #[must_use]
+    pub fn can_write_messages(&self) -> bool {
+        self.game.as_ref().is_some_and(|g| !g.single_player)
+    }
+
+    /// The recipients the dropdown offers: `Everybody` (`idsEverybody`) and
+    /// then every player by name, in order (`MessageWndProc`'s `WM_CREATE`).
+    #[must_use]
+    pub fn message_recipients(&self) -> Vec<String> {
+        let mut out = vec!["Everybody".to_string()];
+        let count = self.game.as_ref().map_or(0, |g| g.players.len());
+        out.extend((0..count).map(|p| self.psz_player_name(p)));
+        out
+    }
+
+    /// Switch to writing — the `[m]` strip, or **Reply** on a letter.
+    ///
+    /// `MessageWndProc` (`1030:6298`): from one of the year's own messages
+    /// the dropdown starts at Everybody and the letter in hand is whichever
+    /// it was last; from a letter another player wrote, the dropdown starts
+    /// at its sender and the letter in hand is the one already replying to
+    /// it — the sender named, and `iInRe` this message's index — or a fresh
+    /// one past the last. Refused in a single-player game.
+    pub fn start_writing(&mut self) -> bool {
+        if !self.can_write_messages() || self.writing.is_some() {
+            return false;
+        }
+        let mut in_re: i16 = 0;
+        if let Some(letter) = self.current_received_message() {
+            let sender = letter.from;
+            let cur = i16::try_from(self.message_index).unwrap_or(0);
+            self.send_index = self
+                .outgoing
+                .iter()
+                .position(|m| m.to - 1 == sender && m.in_re == cur)
+                .unwrap_or(self.outgoing.len());
+            in_re = sender + 1;
+        }
+        self.writing = Some(Writing {
+            preset: in_re,
+            ..Writing::default()
+        });
+        self.load_letter_in_hand();
+        true
+    }
+
+    /// Fill the box from the letter in hand (`SetMsgTitle`, `1030:7218`):
+    /// its recipient and text, or the preset and nothing for a fresh one.
+    fn load_letter_in_hand(&mut self) {
+        let preset = self.writing.as_ref().map_or(0, |w| w.preset);
+        let index = self.send_index.min(self.outgoing.len());
+        self.send_index = index;
+        let cur = i16::try_from(self.message_index).unwrap_or(0);
+        let (to, text, in_re) = match self.outgoing.get(index) {
+            Some(letter) => (letter.to, letter.text.clone(), letter.in_re),
+            None => (preset, String::new(), cur),
+        };
+        self.writing = Some(Writing {
+            index,
+            to,
+            text,
+            in_re,
+            preset,
+        });
+    }
+
+    /// Change the recipient of the letter being written.
+    pub fn set_letter_recipient(&mut self, to: i16) {
+        let count = i16::try_from(self.game.as_ref().map_or(0, |g| g.players.len())).unwrap_or(0);
+        if let Some(writing) = self.writing.as_mut() {
+            writing.to = to.clamp(0, count);
+        }
+    }
+
+    /// Change the text of the letter being written, held to
+    /// [`stars_formats::MAX_MESSAGE_LEN`] characters as the box is.
+    pub fn set_letter_text(&mut self, text: &str) {
+        if let Some(writing) = self.writing.as_mut() {
+            writing.text = text.chars().take(stars_formats::MAX_MESSAGE_LEN).collect();
+        }
+    }
+
+    /// `FFinishPlrMsgEntry` (`1030:9bd6`): put the box into the letter in
+    /// hand and move `step` letters on. An empty box **deletes** the letter
+    /// in hand (and the step of one back or forward is taken from there);
+    /// a full one saves it — replacing the letter's recipient and text, or
+    /// making a new letter when the hand is past the last — and the hand
+    /// moves by `step`, never below the first. Returns whether a letter
+    /// was saved. `delete` empties the box first, which is the Delete
+    /// button (`FFinishPlrMsgEntry(1000)`).
+    pub fn finish_letter(&mut self, step: i32, delete: bool) -> bool {
+        let Some(mut writing) = self.writing.clone() else {
+            return false;
+        };
+        if delete {
+            writing.text.clear();
+        }
+        let me = i16::try_from(self.local_player()).unwrap_or(0);
+        let index = writing.index.min(self.outgoing.len());
+        let saved = if writing.text.trim().is_empty() {
+            if index < self.outgoing.len() {
+                self.outgoing.remove(index);
+                self.dirty = true;
+                self.send_index = index.saturating_sub(1);
+            } else {
+                self.send_index = index;
+            }
+            if step < 0 {
+                self.send_index = self.send_index.saturating_sub(1);
+            } else if step > 0 && self.send_index < self.outgoing.len() {
+                self.send_index += 1;
+            }
+            false
+        } else {
+            match self.outgoing.get_mut(index) {
+                Some(letter) => {
+                    if letter.to != writing.to || letter.text != writing.text {
+                        self.dirty = true;
+                    }
+                    letter.to = writing.to;
+                    letter.text = writing.text.clone();
+                }
+                None => {
+                    self.outgoing.push(stars_formats::PlayerMessage {
+                        from: me,
+                        to: writing.to,
+                        in_re: writing.in_re,
+                        text: writing.text.clone(),
+                    });
+                    self.dirty = true;
+                }
+            }
+            self.send_index =
+                usize::try_from(i64::try_from(index).unwrap_or(0) + i64::from(step)).unwrap_or(0);
+            true
+        };
+        // The box shows whatever the hand now rests on.
+        self.load_letter_in_hand();
+        saved
+    }
+
+    /// **Prev** while writing: save and step back a letter.
+    pub fn previous_letter(&mut self) {
+        self.finish_letter(-1, false);
+    }
+
+    /// **Next** while writing: save and step on — past the last letter is
+    /// a fresh one.
+    pub fn next_letter(&mut self) {
+        self.finish_letter(1, false);
+    }
+
+    /// **Delete** while writing: the letter in hand is gone.
+    pub fn delete_letter(&mut self) {
+        self.finish_letter(0, true);
+    }
+
+    /// **Done**: save the box and leave writing mode
+    /// (`FFinishPlrMsgEntry(0)`, then `gd` bit 8 off).
+    pub fn stop_writing(&mut self) {
+        if self.writing.is_none() {
+            return;
+        }
+        self.finish_letter(0, false);
+        self.writing = None;
+    }
+
     /// What the middle button says: `Goto`, or `View` for a battle.
     #[must_use]
     pub fn message_goto_label(&self) -> &'static str {
+        if self.writing.is_some() {
+            return "Done";
+        }
+        if self.current_received_message().is_some() {
+            return "Reply";
+        }
         match self.message_goto() {
             stars_core::message::Goto::Position(_, _) => "View",
             _ => "Goto",
@@ -5663,6 +5953,17 @@ impl App {
     #[must_use]
     pub fn message_body(&self) -> String {
         let count = self.message_count();
+        // A letter from another player: `From: <sender> To: <recipient>`
+        // (`idsSCC`, `idsSCC2`, `idsEverybody`) and then the text as
+        // written.
+        if let Some(letter) = self.current_received_message() {
+            let from = usize::try_from(letter.from)
+                .map_or_else(|_| "somebody".to_string(), |p| self.psz_player_name(p));
+            let to = letter
+                .recipient()
+                .map_or_else(|| "Everybody".to_string(), |p| self.psz_player_name(p));
+            return format!("From: {from}  To: {to}\n\n{}", letter.text);
+        }
         let Some(message) = self.current_message() else {
             if count > 0 {
                 // `idsMessagesHaveSentYearFilteredIfWant`.

@@ -65,6 +65,7 @@ pub mod orders;
 pub mod password;
 pub mod planet;
 pub mod player;
+pub mod player_message;
 pub mod production;
 pub mod race;
 pub mod records;
@@ -114,6 +115,7 @@ pub use planet::{
     PlanetRecord, Starbase,
 };
 pub use player::{player_records, player_records_in, PlayerRecord, ResearchState};
+pub use player_message::{PlayerMessage, MAX_MESSAGE_LEN, PLAYER_MESSAGE_BLOCK};
 pub use production::{
     production_queue_records, production_queues_by_planet, DefaultQueue, DefaultQueueItem,
     ProductionQueueRecord, ProductionTemplate, QueueClass, QueueItem, DEFAULT_QUEUE_LEN,

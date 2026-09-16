@@ -73,7 +73,7 @@ nothing. Reproduced as written.
 | 0 | `Prev` | `IMsgPrev(0) != -1` |
 | 1 | `Goto`, or `View` for a battle, `Reply` for another player's message, `Done` while writing one | the message points at something (`mdMsgObj != 0`) |
 | 2 | `Next` | `IMsgNext(0) != -1` |
-| 3 | send | only while writing a message |
+| 3 | `Delete` (`idsDelete`) | only while writing a message |
 
 **Stepping skips what is filtered.** `IMsgNext(fFilteredOnly)` walks forward
 until the filter bit of the message's id differs from `fFilteredOnly`; with
@@ -197,11 +197,52 @@ it, so it is a picture on a black ground rather than a shape.
 
 This project draws the two controls from those bitmaps, read at run time
 out of the player's own copy of the game, and falls back to the short
-labels it used to have when there is no copy to read. The third is not
-drawn: nothing here sends a message to another player yet, so there is
-never one to mark.
+labels it used to have when there is no copy to read. The third — the
+envelope on the mode strip — is drawn straight over a black rectangle,
+as the original blits it, whenever the game is not single-player.
 
-Not reproduced: writing messages to other players. The window Gotos above
-are `MessageWndProc`'s Goto arm (`1030:6d8d`, a `switch` on `mdMsgObj`);
-each opens the same window here, except the serial-number box, which this
-project has no use for, so that button alone stays dead.
+## Writing to other players
+
+The mode strip — the `0x18` before the right square, wearing the envelope
+`DecorateMsgTitleBar` blits at `right − 0x2e` whenever the game is not
+`fSinglePlr` — and **Reply** on a letter from another player both go through
+`MessageWndProc`'s mode arm (`1030:6298`), which sets `gd` bit 8. Entering
+from one of the year's own messages presets the dropdown to Everybody
+(`viInRe = 0`) and keeps whichever letter was last in hand (`iMsgSendCur`);
+entering from a letter presets it to the letter's sender and puts in hand
+the letter already replying to it — recipient the sender, `iInRe` this
+message's index — or a fresh one past the last.
+
+In the mode `SetMsgTitle` (`1030:7218`) retitles the pane `Send Messages
+(%d of %d)` (`idsSendMessagesDD`: the letter in hand from one, over the
+letters written), shows `To:` (`idsTo3`) at the left of the text box's top
+row, the recipient dropdown (`hwndMsgDrop`, filled at creation with
+`Everybody` (`idsEverybody`) and then every player by `PszPlayerName`)
+across the row to `0x54` short of the right, the **Delete** button
+(`rghwndMsgBtn[3]`, `idsDelete`, `0x32` wide) in that gap, and the edit box
+(`hwndMsgEdit`) under them; the middle button reads **Done** (`idsDone`).
+Prev is live only when a letter lies before the one in hand; Done and Next
+are always live. The box shows the letter in hand — its recipient and text
+— or the preset and nothing for a fresh one.
+
+Every button goes through `FFinishPlrMsgEntry(dInc)` (`1030:9bd6`), which
+reads the box: an **empty** box deletes the letter in hand (the hand
+stepping back one when it can), and then Prev (`−1`) or Next (`+1`) moves
+the hand from there; a full box saves it — replacing the letter's recipient
+and text, or making a new letter with `iInRe = iMsgCur` when the hand is
+past the last — and the hand moves by `dInc`, never below the first. Prev
+is `−1`, Next `+1`, Done `0` and then the mode bit off, and Delete is
+`1000`, which the routine reads as an empty box. Down and Up are Next and
+Prev while writing, Enter is Done, and Home and End do nothing. The letters
+are `../formats/player-message.md`.
+
+Reproduced: `App::start_writing`, `finish_letter` and the buttons on it,
+`message_recipients`, `can_write_messages`; the letters go into the order
+file from `App::outgoing` and to the host with the turn. Not reproduced:
+`ptSticky…`-style positions, and the `det` bits `MarkPlayersThatSentMsgs`
+sets in the recipients' files, which nothing reads.
+
+The window Gotos above are `MessageWndProc`'s Goto arm (`1030:6d8d`, a
+`switch` on `mdMsgObj`); each opens the same window here, except the
+serial-number box, which this project has no use for, so that button alone
+stays dead.
