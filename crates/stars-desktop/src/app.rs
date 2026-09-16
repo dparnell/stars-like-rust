@@ -75,6 +75,14 @@ impl StarsApp {
         }
         this.find_art(opened.as_deref());
         this.find_help(opened.as_deref());
+        // `STARS_HELP_TOPIC=0x433` opens the viewer on that context number
+        // at once, which is how the viewer is looked at without a game.
+        if let Some(id) = std::env::var("STARS_HELP_TOPIC")
+            .ok()
+            .and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+        {
+            this.app.help_context(id);
+        }
         this
     }
 
@@ -571,6 +579,37 @@ impl StarsApp {
 
 /// Read a candidate executable, refusing anything implausible before the whole
 /// file is pulled into memory.
+/// `STARS_SCREENSHOT=<file.ppm>` writes the window's tenth frame to a
+/// portable pixmap and quits — a way to look at a screen from a shell
+/// with no display capture of its own. A development hook, not a feature.
+fn screenshot_hook(ctx: &egui::Context) {
+    let Ok(path) = std::env::var("STARS_SCREENSHOT") else {
+        return;
+    };
+    let frame = ctx.frame_nr();
+    if frame == 10 {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot);
+    }
+    if frame < 10 {
+        ctx.request_repaint();
+    }
+    let shot = ctx.input(|i| {
+        i.events.iter().find_map(|e| match e {
+            egui::Event::Screenshot { image, .. } => Some(image.clone()),
+            _ => None,
+        })
+    });
+    if let Some(image) = shot {
+        let [w, h] = image.size;
+        let mut out = format!("P6\n{w} {h}\n255\n").into_bytes();
+        for pixel in &image.pixels {
+            out.extend_from_slice(&[pixel.r(), pixel.g(), pixel.b()]);
+        }
+        let _ = std::fs::write(path, out);
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+}
+
 /// Where the original's files are looked for: beside an explicit
 /// `STARS_EXE`, beside the game opened and one level up, the working
 /// directory and its `binary/`, and the same pair above this executable.
@@ -621,6 +660,7 @@ impl eframe::App for StarsApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.app.start_frame();
         self.note_frame(ctx);
+        screenshot_hook(ctx);
         // Playback needs a steady stream of frames; everything else is happy to
         // redraw only on input.
         if self.app.playing {

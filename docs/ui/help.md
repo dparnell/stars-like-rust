@@ -2,7 +2,7 @@
 
 Status: **the file, the topics, the button bar, hotspots, popups, Search
 and History recovered**; the pictures the file stores as metafiles, and
-bold and italic text, are not drawn as such.
+italic text, are not drawn as such.
 
 There is no help code in `STARS!.EXE`. Every Help button is one call of
 `WINHELP(hwnd, szHelpFile, HELP_CONTEXT, id)` — the import at `14f8:029c`,
@@ -73,10 +73,12 @@ file's, with its (1, 1, 0) — WinHelp's "the window's text colour" — drawn
 black. Paragraph spacing, indents, alignment and the tables' column widths
 (`docs/formats/help.md`) are honoured; tab stops are drawn as four spaces.
 
-Bold and italic are **not** drawn as such: egui's bundled set has no such
-faces, the same gap the status bar and the relations dialog note. A
-picture stored as a metafile (five of the 134) is left out; the 129 bitmaps
-draw at their own size.
+egui's bundled set has no bold or italic face, the gap the status bar and
+the relations dialog note. Bold is made here by painting the paragraph a
+second time, seven tenths of a pixel to the right, with everything but
+the bold runs transparent; italic is drawn regular. A picture stored as a
+metafile (five of the 134) is left out; the 129 bitmaps draw at their own
+size.
 
 ## Which button asks for what
 
@@ -128,10 +130,20 @@ sweep of every seventh titled topic through a real egui pass.
 
 ## What is not
 
-* Bold and italic text, and the five metafile pictures.
+* Italic text, and the five metafile pictures.
 * Bookmarks, annotations, printing, and the Find+ full-text search that
   the file's `hyprfind.dll` macros would add.
 * The tutor's `idh`: the page checks that set it are not transcribed, so
   Hint opens the contents page rather than the page's own topic.
-* Popups are dismissed by a click anywhere; WinHelp also dismisses one on
-  any key.
+* Popups are dismissed by a click anywhere or Escape; WinHelp dismisses
+  one on any key. A popup taller than the screen scrolls here, where
+  WinHelp cuts it off.
+
+## Looking at it
+
+`cargo run -p stars-ui --example render_help -- binary/STARS!.HLP 0x433
+out.ppm` lays the viewer out on a topic through a real egui pass and
+rasterises the frame to a portable pixmap in software, for a look at a
+screen from a shell with no display. `contents`, a decimal topic offset
+and `popup:<offset>` are the other subjects. The desktop shell's
+`STARS_HELP_TOPIC=0x433` opens the viewer on that number at start.

@@ -59,6 +59,7 @@ pub fn windows(app: &mut App, ctx: &egui::Context) {
     egui::Window::new(caption)
         .id(egui::Id::new("help-viewer"))
         .open(&mut open)
+        .collapsible(false)
         .resizable(true)
         .default_size(size)
         .frame(egui::Frame::window(&ctx.style()).inner_margin(0.0))
@@ -123,25 +124,25 @@ fn viewer(app: &mut App, ui: &mut egui::Ui) -> Option<(Jump, [f32; 2])> {
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
-                if crate::views::flow_button(app, ui, "Contents", true).clicked() {
+                if bar_button(app, ui, "Contents", true).clicked() {
                     app.help_contents();
                 }
-                if crate::views::flow_button(app, ui, "Search", true).clicked() {
+                if bar_button(app, ui, "Search", true).clicked() {
                     app.help_search_open();
                 }
                 let back = app.help.can_go_back();
-                if crate::views::flow_button(app, ui, "Back", back).clicked() {
+                if bar_button(app, ui, "Back", back).clicked() {
                     app.help_back();
                 }
-                if crate::views::flow_button(app, ui, "History", true).clicked() {
+                if bar_button(app, ui, "History", true).clicked() {
                     app.help.history_open = true;
                 }
                 let can = app.help_can_browse(false);
-                if crate::views::flow_button(app, ui, "<<", can).clicked() {
+                if bar_button(app, ui, "<<", can).clicked() {
                     app.help_browse(false);
                 }
                 let can = app.help_can_browse(true);
-                if crate::views::flow_button(app, ui, ">>", can).clicked() {
+                if bar_button(app, ui, ">>", can).clicked() {
                     app.help_browse(true);
                 }
             });
@@ -188,6 +189,16 @@ fn viewer(app: &mut App, ui: &mut egui::Ui) -> Option<(Jump, [f32; 2])> {
                 });
         });
     jump
+}
+
+/// One of the button bar's push buttons, recorded under its caption.
+fn bar_button(app: &mut App, ui: &mut egui::Ui, label: &str, enabled: bool) -> egui::Response {
+    let response = ui.add_enabled(
+        enabled,
+        egui::Button::new(label).min_size(Vec2::new(56.0, 22.0)),
+    );
+    crate::views::note_widget(app, ui, label, response.rect, enabled);
+    response
 }
 
 /// One block of a topic.
@@ -335,6 +346,12 @@ fn draw_text(
 ) -> Option<(Jump, [f32; 2])> {
     let mut job = LayoutJob::default();
     job.wrap.max_width = width;
+    // The same text with everything but the bold runs made invisible,
+    // painted a hair to the right over the first: egui's bundled faces
+    // have no bold, and this is what a bold weight amounts to.
+    let mut emboldened = LayoutJob::default();
+    emboldened.wrap.max_width = width;
+    let mut any_bold = false;
     // Each section's character range and the hotspot it belongs to.
     let mut sections: Vec<(usize, usize, Option<Jump>)> = Vec::new();
     let mut chars = 0usize;
@@ -356,6 +373,19 @@ fn draw_text(
         let count = text.chars().count();
         sections.push((chars, chars + count, jump));
         chars += count;
+        let bold = app
+            .help
+            .file()
+            .and_then(|f| f.font(font))
+            .is_some_and(|f| f.bold);
+        any_bold |= bold;
+        let mut shadow = format.clone();
+        if !bold {
+            shadow.color = Color32::TRANSPARENT;
+            shadow.underline = Stroke::NONE;
+            shadow.strikethrough = Stroke::NONE;
+        }
+        emboldened.append(&text, 0.0, shadow);
         job.append(&text, 0.0, format);
     }
     if chars == 0 {
@@ -371,6 +401,11 @@ fn draw_text(
     let (rect, response) = ui.allocate_exact_size(Vec2::new(width, size.y), egui::Sense::click());
     let origin = rect.min + Vec2::new(offset, 0.0);
     ui.painter().galley(origin, galley.clone(), Color32::BLACK);
+    if any_bold {
+        let second = ui.fonts(|f| f.layout_job(emboldened));
+        ui.painter()
+            .galley(origin + Vec2::new(0.7, 0.0), second, Color32::TRANSPARENT);
+    }
     let pos = response.hover_pos()?;
     let cursor = galley.cursor_from_pos(pos - origin);
     let index = cursor.ccursor.index;
@@ -495,10 +530,13 @@ fn popup(app: &mut App, ctx: &egui::Context) {
         .x
         .min(screen.right() - POPUP_WIDTH - 8.0)
         .max(screen.left());
+    // A popup taller than the screen scrolls, where WinHelp cuts it off.
+    let max_height = (screen.height() - 40.0).max(80.0);
     let mut jump = None;
     egui::Area::new(egui::Id::new("help-popup"))
         .order(egui::Order::Foreground)
         .fixed_pos(pos)
+        .constrain(true)
         .show(ctx, |ui| {
             egui::Frame::none()
                 .fill(PAPER)
@@ -512,11 +550,17 @@ fn popup(app: &mut App, ctx: &egui::Context) {
                 .inner_margin(8.0)
                 .show(ui, |ui| {
                     ui.set_max_width(POPUP_WIDTH);
-                    for block in topic.band.iter().chain(topic.body.iter()) {
-                        if let Some(j) = draw_block(app, ui, block) {
-                            jump = Some(j);
-                        }
-                    }
+                    egui::ScrollArea::vertical()
+                        .id_source("help-popup-text")
+                        .max_height(max_height)
+                        .show(ui, |ui| {
+                            ui.set_max_width(POPUP_WIDTH);
+                            for block in topic.band.iter().chain(topic.body.iter()) {
+                                if let Some(j) = draw_block(app, ui, block) {
+                                    jump = Some(j);
+                                }
+                            }
+                        });
                 });
         });
     if let Some((jump, _)) = jump {
