@@ -1010,6 +1010,15 @@ otherwise run over the toolbar and the status bar. Before this the map had no
 scroll at all, and at the zoom the tutorial picks for a wide screen half its
 planets could not be clicked.
 
+What scrolls is the **whole universe**: `SetScanScrollBars` (`1058:1002`)
+ranges the bars over `dGal`, from `1000` to `1000 + dGal` each way, whether
+or not the player has seen its corners. `App::extent` says the same. It used
+to be the bounding box of the planets the player knew, and a first-year
+player file — three planets of twenty-four — came up fitted to those three:
+zoomed onto a corner, the rest of the universe drawn off the panel's left and
+top with no bar to reach it. `tests/scanner_scroll.rs::
+the_map_spans_the_universe_not_the_known_planets`.
+
 ## The measuring tape
 
 A **right-drag** across the map stretches a rubber-band line, drawn in XOR so

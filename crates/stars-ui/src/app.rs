@@ -6441,13 +6441,28 @@ impl App {
         out
     }
 
-    /// The bounding box of everything with a known position, as
-    /// `(min_x, min_y, max_x, max_y)`.
+    /// The map's extent, as `(min_x, min_y, max_x, max_y)`: the **whole
+    /// universe**, `1000` to `1000 + dGal` each way, which is what the
+    /// scanner scrolls over (`SetScanScrollBars`, `1058:1002`, ranges the
+    /// bars over `dGal`) whether or not the player has seen its corners —
+    /// a first-year player knows three planets of twenty-four, and a map
+    /// fitted to those three would put the rest off its edges.
     ///
-    /// Returns `None` when no planet has a position — a game loaded without its
-    /// `.xy`.
+    /// Returns `None` when no planet has a position — a game loaded without
+    /// its `.xy` — and falls back to the planets' own bounding box when the
+    /// universe's size is not known.
     #[must_use]
     pub fn extent(&self) -> Option<(f32, f32, f32, f32)> {
+        if self.universe.is_some() && self.game.as_ref().is_some_and(|g| g.galaxy_size >= 0) {
+            let span = self.galaxy_span() as f32;
+            let any = self
+                .visible_planets()
+                .iter()
+                .any(|(planet, _)| planet.position.is_some());
+            if any {
+                return Some((1000.0, 1000.0, 1000.0 + span, 1000.0 + span));
+            }
+        }
         let mut bounds: Option<(f32, f32, f32, f32)> = None;
         for (planet, _) in self.visible_planets() {
             let Some(p) = planet.position else { continue };
