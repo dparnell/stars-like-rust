@@ -4,11 +4,27 @@ Status: **built**. What is missing is missing from the game as well — see
 *Auto Generate* below.
 
 `HostModeDialog`, `IDD_HOST_MODE` (115). In the original this is not a dialog
-over the game — it **is** host mode. `BringUpHostDlg` hides the map window and
-runs this dialog in a loop, so a host sees nothing else, and the program enters
-that mode by opening a host file. This project opens a `.hst` as a game like any
-other, so here it is a window over that game, reached from the Turn menu. That
-is the one departure worth knowing about.
+over the game — it **is** host mode. `FOpenGame` (`1020:58f4`) finds a host
+file has no player of its own (`idPlayer == -1`) and calls `BringUpHostDlg`
+(`1020:5ffc`), which marks the host file in use, hides the frame and runs this
+dialog in a loop, so a host sees nothing else — no map, panes or reports —
+and the dialog's Close is `DestroyCurGame` and the title window.
+
+This project does the same: opening a `.hst` is a **host session**
+(`App::host_session`), which opens straight into this dialog with nothing of
+the game drawn behind it — the panes, the map, every game dialog and every
+game menu item and key are gated on `App::playing`, which a host session is
+not — and closing the dialog puts the game away (`App::close_game`). From a
+**player's** file the dialog is still reachable from the Turn menu, as
+`Wait for New` (`0x6a`), where it is a window over the game.
+
+One case is deliberately not a host session: a game this project has just
+**generated** (the New Game wizard, `App::save_new_game`) stays open on its
+host file and is played as its first human player. A player's file holds only
+that player's view, and generating a turn needs the whole state, which is
+what the host file carries; so the generated game is played from it. Only a
+host file the player *opens* is hosting.
+`tests/host_mode.rs::a_host_file_opens_into_host_mode_and_nothing_else`.
 
 ## The template
 

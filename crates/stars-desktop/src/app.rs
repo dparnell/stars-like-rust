@@ -779,10 +779,7 @@ impl eframe::App for StarsApp {
             ctx.request_repaint_after(std::time::Duration::from_millis(120));
         }
 
-        if self.app.game.is_some()
-            && self.app.setup.is_none()
-            && ctx.input(|i| i.key_pressed(egui::Key::F4))
-        {
+        if self.app.playing() && ctx.input(|i| i.key_pressed(egui::Key::F4)) {
             if self.app.designer.is_some() {
                 self.app.close_designer();
             } else {
@@ -800,10 +797,7 @@ impl eframe::App for StarsApp {
             self.app.help_contents();
         }
 
-        if self.app.game.is_some()
-            && self.app.setup.is_none()
-            && ctx.input(|i| i.key_pressed(egui::Key::F2))
-        {
+        if self.app.playing() && ctx.input(|i| i.key_pressed(egui::Key::F2)) {
             if self.app.browser.is_some() {
                 self.app.close_browser();
             } else {
@@ -811,10 +805,7 @@ impl eframe::App for StarsApp {
             }
         }
 
-        if self.app.game.is_some()
-            && self.app.setup.is_none()
-            && ctx.input(|i| i.key_pressed(egui::Key::F5))
-        {
+        if self.app.playing() && ctx.input(|i| i.key_pressed(egui::Key::F5)) {
             if self.app.research_dialog.is_some() {
                 self.app.research_ok();
             } else {
@@ -823,10 +814,7 @@ impl eframe::App for StarsApp {
         }
 
         // Commands (Battle Plans...) is F6.
-        if self.app.game.is_some()
-            && self.app.setup.is_none()
-            && ctx.input(|i| i.key_pressed(egui::Key::F6))
-        {
+        if self.app.playing() && ctx.input(|i| i.key_pressed(egui::Key::F6)) {
             if self.app.battle_plans.is_some() {
                 self.app.close_battle_plans();
             } else {
@@ -837,7 +825,7 @@ impl eframe::App for StarsApp {
         // The letter keys and F9 the tutorial leans on. They stand aside for
         // whatever has the focus, as `FHandleKey` (`1018:165a`) does for the
         // toolbar, the lists and the message editor.
-        if self.app.game.is_some() && self.app.setup.is_none() && !ctx.wants_keyboard_input() {
+        if self.app.playing() && !ctx.wants_keyboard_input() {
             // `n` walks your own fleets, wrapping round (`SelectAdjFleet`,
             // `1050:3d32`) — "Hit the n key to look at your next fleet."
             if ctx.input(|i| i.key_pressed(egui::Key::N)) {
@@ -876,8 +864,7 @@ impl eframe::App for StarsApp {
             .designer
             .as_ref()
             .is_some_and(|d| d.editing.is_some());
-        if self.app.game.is_some()
-            && self.app.setup.is_none()
+        if self.app.playing()
             && self.app.selection.fleet.is_some()
             && !designer_editing
             && !ctx.wants_keyboard_input()
@@ -887,10 +874,7 @@ impl eframe::App for StarsApp {
             self.app.delete_current_waypoint();
         }
 
-        if self.app.game.is_some()
-            && self.app.setup.is_none()
-            && ctx.input(|i| i.key_pressed(egui::Key::F7))
-        {
+        if self.app.playing() && ctx.input(|i| i.key_pressed(egui::Key::F7)) {
             if self.app.relations_dialog.is_some() {
                 self.app.close_relations();
             } else {
@@ -954,10 +938,7 @@ impl eframe::App for StarsApp {
             }
         }
 
-        if self.app.game.is_some()
-            && self.app.setup.is_none()
-            && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F))
-        {
+        if self.app.playing() && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F)) {
             self.app.find_open = true;
         }
 
@@ -983,10 +964,7 @@ impl eframe::App for StarsApp {
         }
 
         // View (Race) is F8 in the original.
-        if self.app.game.is_some()
-            && self.app.setup.is_none()
-            && ctx.input(|i| i.key_pressed(egui::Key::F8))
-        {
+        if self.app.playing() && ctx.input(|i| i.key_pressed(egui::Key::F8)) {
             if self.app.race_viewer.is_some() {
                 self.app.close_race_viewer();
             } else {
@@ -1094,10 +1072,7 @@ impl eframe::App for StarsApp {
             }
         }
 
-        if self.app.game.is_some()
-            && self.app.setup.is_none()
-            && ctx.input(|i| i.key_pressed(egui::Key::F10))
-        {
+        if self.app.playing() && ctx.input(|i| i.key_pressed(egui::Key::F10)) {
             if self.app.score_sheet.is_some() {
                 self.app.close_score_sheet();
             } else {
@@ -1281,7 +1256,7 @@ impl eframe::App for StarsApp {
                 // rule, Find, the two submenus, Player Colors, a rule, then
                 // Race and Game Parameters.
                 ui.menu_button("View", |ui| {
-                    let playing = self.app.game.is_some() && self.app.setup.is_none();
+                    let playing = self.app.playing();
 
                     let mut shown = self.app.toolbar_visible();
                     if ui

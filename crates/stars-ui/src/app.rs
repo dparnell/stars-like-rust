@@ -629,6 +629,8 @@ pub struct App {
     /// `gd.fPerPlayerDumps`: whether the text dumps carry their third
     /// block of columns and are named by player.
     pub per_player_dumps: bool,
+    /// Whether a host file was opened as such — see [`Self::host_session`].
+    hosting: bool,
     /// `gd.fSubmit`: whether the last save was **Save And Submit**, which
     /// is what the order file's header carries as its submitted flag
     /// (`WriteBOF`, `1050:0e52`, bit 8 of `dts`) and what the host reads
@@ -963,6 +965,66 @@ impl App {
         // start when every one of them is.
         self.view_filtered = false;
         self.show_first_message();
+        // A host file is opened into **host mode** and nothing else:
+        // `FOpenGame` (`1020:58f4`) sees `idPlayer == -1` and calls
+        // `BringUpHostDlg`, which runs the Host Mode dialog in a loop with
+        // the frame hidden, so a host sees no map, panes or reports.
+        self.hosting = self
+            .file
+            .as_ref()
+            .is_some_and(|f| f.latest_segment().header.file_type == stars_formats::FileType::Host);
+        self.host_mode = self.hosting;
+    }
+
+    /// Whether this is a **host session**: a host file opened as such —
+    /// a session with no player of its own (`idPlayer == -1`), which the
+    /// original runs as host mode alone, the dialog and none of the
+    /// game's screens.
+    ///
+    /// A game this project **generated** is not one, though it too sits
+    /// on its host file: it is played as its first human player, because
+    /// the whole state is what this project needs to generate turns from,
+    /// and a player's file holds only that player's view.
+    #[must_use]
+    pub fn host_session(&self) -> bool {
+        self.hosting
+    }
+
+    /// Whether a game is open to be played — one with a player of its
+    /// own, and not in the setup wizard. A host session is not.
+    #[must_use]
+    pub fn playing(&self) -> bool {
+        self.game.is_some() && self.setup.is_none() && !self.host_session()
+    }
+
+    /// `DestroyCurGame`: put the game away and go back to the title
+    /// screen, which is what closing the Host Mode dialog does.
+    pub fn close_game(&mut self) {
+        self.game = None;
+        self.file = None;
+        self.path = None;
+        self.universe = None;
+        self.battles.clear();
+        self.vcr = None;
+        self.playing = false;
+        self.selection = Selection::default();
+        self.known_planets.clear();
+        self.in_view = stars_core::visibility::View::default();
+        self.dirty = false;
+        self.edited.clear();
+        self.renamed.clear();
+        self.fleet_edits.clear();
+        self.player_edited = false;
+        self.host_password_edited = false;
+        self.battle_plans_edited = false;
+        self.orders.clear();
+        self.outgoing.clear();
+        self.writing = None;
+        self.send_index = 0;
+        self.host_mode = false;
+        self.hosting = false;
+        self.screen = Screen::Galaxy;
+        self.tutor = None;
     }
 
     /// Write the game back, as bytes.
@@ -1386,7 +1448,11 @@ impl App {
             written.push(self.save_orders(&host)?);
         }
 
+        // The game stays open on its host file, played as its first human:
+        // see [`Self::host_session`].
         self.open(&host)?;
+        self.hosting = false;
+        self.host_mode = false;
         Ok(written)
     }
 
@@ -1638,8 +1704,12 @@ impl App {
         let bytes = self.to_bytes()?;
         std::fs::write(path, bytes).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
         // The orders go beside the state file: a host replays them, and a
-        // player file alone does not tell it what was done.
-        self.save_orders(path)?;
+        // player file alone does not tell it what was done. A host session
+        // has no orders of its own — `FWriteDataFile(szBase, -1, 0)` is
+        // all the arm does for `idPlayer == -1`.
+        if !self.host_session() {
+            self.save_orders(path)?;
+        }
         self.path = Some(path.to_path_buf());
         self.dirty = false;
         Ok(())
@@ -14151,9 +14221,15 @@ impl App {
         self.host_mode = true;
     }
 
-    /// Close it.
+    /// Close it — and, in a host session, the game with it: the
+    /// original's `BringUpHostDlg` answers the dialog's Close with
+    /// `DestroyCurGame` and the title window.
     pub fn close_host_mode(&mut self) {
-        self.host_mode = false;
+        if self.host_session() {
+            self.close_game();
+        } else {
+            self.host_mode = false;
+        }
     }
 
     /// Where each player's turn has got to.
@@ -16255,8 +16331,7 @@ impl App {
     /// `lSaltCur` is non-zero.
     #[must_use]
     pub fn menu_item_enabled(&self, item: MenuItem) -> bool {
-        let playing = self.game.is_some() && self.setup.is_none();
-        if !playing {
+        if !self.playing() {
             return false;
         }
         let alone = self.single_player();

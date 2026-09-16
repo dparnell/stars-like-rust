@@ -318,3 +318,34 @@ fn a_row_reads_as_the_original_writes_it() {
         "the same status word, without the name"
     );
 }
+
+/// Opening a host file is opening host mode: `FOpenGame` sees no player
+/// of its own and runs the Host Mode dialog with the frame hidden, so
+/// nothing of the game is played, and closing the dialog puts the game
+/// away.
+#[test]
+fn a_host_file_opens_into_host_mode_and_nothing_else() {
+    let (dir, mut app) = a_hosted_game("Session");
+    app.close_host_mode();
+    let mut fresh = App::new();
+    fresh
+        .open(&dir.join("Session.hst"))
+        .expect("opens the host file");
+    assert!(fresh.host_session());
+    assert!(fresh.host_mode, "straight into host mode");
+    assert!(!fresh.playing(), "no map, panes or reports");
+    assert!(!fresh.menu_item_enabled(stars_ui::MenuItem::Generate));
+    // The player file, by contrast, is a game to play.
+    let mut player = App::new();
+    player
+        .open(&dir.join("Session.m1"))
+        .expect("opens the player file");
+    assert!(!player.host_session());
+    assert!(!player.host_mode);
+    assert!(player.playing());
+    // Close is `DestroyCurGame`: back to the title screen.
+    fresh.close_host_mode();
+    assert!(fresh.game.is_none());
+    assert!(!fresh.host_mode);
+    let _ = std::fs::remove_dir_all(&dir);
+}

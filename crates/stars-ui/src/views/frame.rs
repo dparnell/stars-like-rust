@@ -26,7 +26,9 @@ use crate::{App, SurveySubject};
 /// keeps its own panel identity so a width dragged out by hand is
 /// remembered per layout.
 pub fn panes(app: &mut App, ctx: &egui::Context) {
-    if app.game.is_none() {
+    // No panes without a game — nor in a host session, which shows the
+    // Host Mode dialog and nothing of the game.
+    if app.game.is_none() || app.host_session() {
         return;
     }
     // The panel's own margins, and the room its scroll bar takes from the
@@ -117,6 +119,12 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
         if !open {
             app.close_print_preview();
         }
+    }
+
+    // A host session has no game screens: nothing below is reachable,
+    // and nothing left open from before survives the game changing.
+    if app.host_session() {
+        return;
     }
 
     // The About box, and the ordering information it puts up over

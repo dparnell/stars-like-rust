@@ -48,7 +48,7 @@ pub fn game_menus(app: &mut App, ui: &mut egui::Ui) -> Option<String> {
     let mut failed = None;
     let was = app.drawn_scope;
     app.drawn_scope = "menu";
-    let playing = app.game.is_some() && app.setup.is_none();
+    let playing = app.playing();
 
     let header = ui.menu_button("Turn", |ui| {
         // `InitializeMenu` greys each of these on its own condition; Wait

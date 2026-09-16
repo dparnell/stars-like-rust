@@ -60,6 +60,13 @@ pub fn central(app: &mut App, ui: &mut egui::Ui) -> Option<newgame::Action> {
         empty(app, ui);
         return None;
     }
+    // A host session: the Host Mode dialog stands alone, as
+    // `BringUpHostDlg` runs it with the frame hidden. Nothing of the
+    // game is drawn behind it.
+    if app.host_session() {
+        hosting(app, ui);
+        return None;
+    }
     // A report is a window over the map (`frame::dialogs`), not a screen
     // of its own: the scanner goes on drawing behind it.
     match app.screen {
@@ -73,6 +80,26 @@ pub fn central(app: &mut App, ui: &mut egui::Ui) -> Option<newgame::Action> {
         Screen::Players => players::view(app, ui),
     }
     None
+}
+
+/// What stands behind the Host Mode dialog in a host session: the
+/// original hides its frame, so there is nothing to show but the fact.
+fn hosting(app: &mut App, ui: &mut egui::Ui) {
+    ui.vertical_centered(|ui| {
+        ui.add_space(80.0);
+        ui.heading("Stars! Host");
+        ui.add_space(8.0);
+        ui.label(format!(
+            "Hosting {} — the Host Mode dialog is the whole of a host's view.",
+            app.game_name()
+        ));
+        if !app.host_mode {
+            ui.add_space(8.0);
+            if ui.button("Host Mode").clicked() {
+                app.open_host_mode();
+            }
+        }
+    });
 }
 
 /// The title screen, shown before a game is opened.
