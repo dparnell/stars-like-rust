@@ -564,7 +564,50 @@ struct Board {
 /// every fleet of a player in the battle, and the starbase — placed on
 /// the starting squares by `rgbrcStart`, then shuffled
 /// (`RandomizeTokOrder`).
-fn build_board(state: &GameState, encounter: &Encounter, rng: &mut Rng) -> Board {
+/// `FDumpCargo` (`10f0:234a`), as the board is set up: a fleet whose
+/// battle plan says to **dump cargo** puts its minerals on the planet it
+/// orbits — whosever it is — or leaves them as salvage in space, and
+/// keeps the rest. Returns the fleets that dumped, by index, whose ships
+/// then move one square slower for the year (`SpdOfShip`, `10f0:339c`).
+fn dump_cargo(state: &mut GameState, encounter: &Encounter) -> Vec<usize> {
+    let mut dumped = Vec::new();
+    for &index in &encounter.fleets {
+        let Some(fleet) = state.fleets.get(index) else {
+            continue;
+        };
+        let Ok(owner) = usize::try_from(fleet.owner) else {
+            continue;
+        };
+        if fleet.cargo.minerals.iter().all(|m| *m == 0) {
+            continue;
+        }
+        let dumps = plan_of(state, owner, fleet.battle_plan).is_some_and(|p| p.dump_cargo());
+        if !dumps {
+            continue;
+        }
+        let minerals = fleet.cargo.minerals;
+        let at = fleet.position;
+        let planet = fleet
+            .orbiting
+            .and_then(|p| i16::try_from(p).ok())
+            .and_then(|id| state.planets.iter().position(|p| p.id == id));
+        match planet {
+            Some(p) => {
+                for (kind, held) in minerals.iter().enumerate() {
+                    state.planets[p].surface_min[kind] += held;
+                }
+            }
+            None => {
+                drop_salvage(state, at, minerals);
+            }
+        }
+        state.fleets[index].cargo.minerals = [0; 3];
+        dumped.push(index);
+    }
+    dumped
+}
+
+fn build_board(state: &GameState, encounter: &Encounter, dumped: &[usize], rng: &mut Rng) -> Board {
     let players = encounter.players();
     let mut side_of = [0u8; 16];
     let mut side = 0u8;
@@ -711,7 +754,11 @@ fn build_board(state: &GameState, encounter: &Encounter, rng: &mut Rng) -> Board
             } else {
                 0
             };
-            let speed = battle_speed(design, race, share);
+            let mut speed = battle_speed(design, race, share);
+            // Dumping the cargo costs a ship with a hold a square a round.
+            if dumped.contains(&index) && hold > 0 {
+                speed = speed.saturating_sub(1);
+            }
             // `SpdOfShip` draws the token's movement jitter as it goes.
             let jitter = u8::try_from(rng.random(15)).unwrap_or(0);
             tokens.push(CombatToken {
@@ -1350,7 +1397,8 @@ pub fn do_battles(state: &mut GameState, rng: &mut Rng) -> Vec<Outcome> {
         let Some(encounter) = who_fights(state, &fleets, planet) else {
             continue;
         };
-        let mut board = build_board(state, &encounter, rng);
+        let dumped = dump_cargo(state, &encounter);
+        let mut board = build_board(state, &encounter, &dumped, rng);
         if board.tokens.len() < 2 {
             continue;
         }

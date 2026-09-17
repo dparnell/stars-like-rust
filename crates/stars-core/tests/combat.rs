@@ -384,3 +384,84 @@ fn retro_bombs_undo_terraforming() {
         "nothing else to say"
     );
 }
+
+/// A battle plan that says to **dump cargo** (`FDumpCargo`, `10f0:234a`)
+/// puts the fleet's minerals on the planet it orbits, or leaves them as
+/// salvage in space, before the fighting starts.
+#[test]
+fn a_plan_that_dumps_cargo_leaves_the_minerals_behind() {
+    for in_orbit in [true, false] {
+        let mut state = tutorial_world();
+        let mut rng = stars_core::rng::Rng::randomize(9);
+        let ours = armed_fleet(&state, 0);
+        let theirs = state
+            .fleets
+            .iter()
+            .position(|f| f.owner == 1 && f.id == 0)
+            .expect("a Berserker scout");
+        // At the Berserkers' home world, or in open space.
+        let home = state
+            .planets
+            .iter()
+            .position(|p| p.owner == Some(1))
+            .expect("their home");
+        let at = if in_orbit {
+            state.planets[home].position.expect("placed")
+        } else {
+            stars_core::movement::Point::new(1300, 1300)
+        };
+        let home_id = state.planets[home].id;
+        state.planets[home].starbase = false;
+        for index in [ours, theirs] {
+            let fleet = &mut state.fleets[index];
+            fleet.position = at;
+            fleet.orbiting = in_orbit.then_some(home_id as u16);
+            fleet.waypoints.truncate(1);
+            fleet.waypoints[0].position = at;
+            fleet.waypoints[0].target = None;
+        }
+        state.fleets[ours].cargo.minerals = [30, 20, 10];
+        let before = state.planets[home].surface_min;
+        for plan in &mut state.players[0].battle_plans {
+            plan.attack_who = combat::attack_who::EVERYONE;
+            plan.set_dump_cargo(true);
+        }
+        let outcomes = combat::do_battles(&mut state, &mut rng);
+        assert_eq!(outcomes.len(), 1);
+        let fleet = state
+            .fleets
+            .iter()
+            .find(|f| f.owner == 0 && f.cargo.minerals == [0, 0, 0])
+            .expect("our fleet, its hold emptied");
+        assert_eq!(fleet.position, at);
+        if in_orbit {
+            // On their planet — with whatever the wrecks left there on top.
+            let after = state.planets[home].surface_min;
+            let gained = [
+                after[0] - before[0],
+                after[1] - before[1],
+                after[2] - before[2],
+            ];
+            assert!(
+                gained.iter().zip([30, 20, 10]).all(|(g, d)| *g >= d),
+                "{gained:?}"
+            );
+        } else {
+            // Salvage where it was, the wrecks' share folded in.
+            let salvage = state
+                .packets
+                .iter()
+                .find(|p| p.warp == 0 && p.position == at)
+                .expect("salvage where it was");
+            assert!(
+                salvage
+                    .minerals
+                    .iter()
+                    .zip([30, 20, 10])
+                    .all(|(g, d)| *g >= d),
+                "{:?}",
+                salvage.minerals
+            );
+        }
+    }
+}

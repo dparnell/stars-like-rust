@@ -931,8 +931,11 @@ forward `Random` shuffle). The fields:
 * Shields `DpShieldOfShdef`, armour `dp`, ships and the stack's damage
   word from the fleet.
 
-`FDumpCargo` (a plan's dump-cargo flag, the cargo to the planet or to
-salvage) is not written.
+`FDumpCargo` (`10f0:234a`), first: a fleet whose plan says to **dump
+cargo** puts its minerals on the planet it orbits — whosever it is — or
+leaves them as salvage in space, and a ship with a hold then moves one
+square slower for the year (`SpdOfShip`, `10f0:339c`, the `fDumpCargo`
+argument). `combat::dump_cargo`; `tests/combat.rs`.
 
 ### The rounds — `FDoCoolBattle` (`10f0:8bcc`)
 
