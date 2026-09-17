@@ -82,7 +82,7 @@ enum Target {
 
 /// The stealing a fleet's scanners allow: `0` none, `1` from fleets (a
 /// Pick Pocket), `3` from planets as well (a Robber Baron).
-fn steal_level(state: &GameState, index: usize) -> i16 {
+pub(crate) fn steal_level(state: &GameState, index: usize) -> i16 {
     let fleet = &state.fleets[index];
     let Some(designs) = usize::try_from(fleet.owner)
         .ok()

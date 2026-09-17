@@ -227,7 +227,7 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng, profile: &Profi
     let turn = state.turn;
 
     let seen = crate::visibility::view(state, player).planets;
-    state.players[player].explored.extend(seen);
+    state.players[player].explored.extend(seen.into_keys());
     let explored = state.players[player].explored.clone();
 
     // `IroEnsureAi(vrgbAutomitronRes, 18, &ishdefSBLatest, pct)`.

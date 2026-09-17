@@ -26,17 +26,32 @@
 //!        player's ship designs, every player's fleets (each followed by its
 //!        waypoints), every player's starbase designs, the object section,
 //!        five battle plans each, footer
-//! .mN    header, that player's block, their planets, their designs, their
-//!        fleets and waypoints, their starbase designs, their battle plans,
-//!        footer
+//! .mN    header, that player's block and a short one for each other player
+//!        they know of, their planets and the partial records of the ones
+//!        they have scanned, their designs and what they know of the others',
+//!        their fleets and waypoints and the partial records of the fleets
+//!        on their map, the starbase designs likewise, their battle plans,
+//!        the battles, messages, standings and the space objects they can
+//!        see, footer
 //! ```
+//!
+//! What a player sees of everybody else is [`crate::visibility::view`] —
+//! the original's `SetVisiblePlanFleet` passes, run by `FWriteDataFile`
+//! (`1070:8f5e`) as each file is written — plus what this year's battles
+//! showed them (`WriteBattles`, `1070:80f8`): every design that fought
+//! theirs is written in full, and so is one a Space Demolition player's
+//! field hit or a Packet Physics player's packet was caught by
+//! ([`GameState::revealed_designs`]). A War Monger sees every design on
+//! their map in full (`SetVisPFFinish`, `1070:c43c`); a Claim Adjuster
+//! sees every player record in full (`1070:9210`). See
+//! `docs/formats/writing.md`.
 //!
 //! A fleet the player has named carries its name in a block after its
 //! waypoints; one they have not carries nothing, which is why no file in the
 //! fixtures has a single such block.
 //!
 //! What a fresh game has none of — battles, scores, the other players'
-//! partially-scanned planets — is simply absent, which is what the turn-0
+//! planets within scanner range — is simply absent, which is what the turn-0
 //! fixture's own `.mN` files look like. Messages it does have: the five
 //! `GenerateWorld` sends every player, which the fixture's `Game.m1` carries
 //! and its `Game.m2`, a computer player's, does not.
@@ -47,8 +62,7 @@
 //! has no source for are written as zero and named here so the gap is visible:
 //! the race emblem (`logo`), the per-player message filter, the victory-point
 //! bookkeeping, and the thirty bytes from offset 82 to 111 that nothing has
-//! identified. Space objects (minefields, packets, wormholes) are written as an
-//! empty section, because [`GameState`] does not carry them.
+//! identified.
 
 use stars_formats::block::Block;
 use stars_formats::{
@@ -61,6 +75,7 @@ use crate::design::ShipDesign;
 use crate::fleet::Fleet;
 use crate::planet::Planet;
 use crate::race::{Prt, Race};
+use crate::visibility::{Detail, View};
 use crate::{GameState, Player};
 
 /// Size of the fixed player/race region of a type-6 block.
@@ -131,7 +146,7 @@ pub fn host_file(state: &GameState) -> Result<Vec<u8>> {
     }
     // The object section: a count record and that many objects. Minefields are
     // the only kind of object this engine models.
-    push_things(state, &mut body)?;
+    push_things(state, &mut body, None)?;
     for index in 0..state.players.len() {
         push_battle_plans(state, &mut body, index)?;
     }
@@ -160,32 +175,87 @@ pub fn player_file(state: &GameState, player: usize) -> Result<Vec<u8>> {
         salt_for(state.seed, number, state.turn),
     );
     let owner = i16::from(number);
-    let mine: Vec<&Planet> = all_planets(state)
-        .filter(|p| p.owner == Some(owner))
-        .collect();
+    let mut view = crate::visibility::view(state, player);
+    let others = others_in_view(state, player, &mut view);
+    let prt = record.race.prt();
 
     let mut header_record = player_record(state, player, record)?;
-    header_record.planets = u16::try_from(mine.len()).unwrap_or(u16::MAX);
+    header_record.planets = u16::try_from(view.planets.len()).unwrap_or(u16::MAX);
     let mut body = vec![block(6, header_record.encode()?)?];
+    // Everybody else the player knows of, in a short record — the name and
+    // the counts — unless the player is a Claim Adjuster, who reads every
+    // record in full (`1070:9210`), or the other player is dead
+    // (`WriteRtPlr`, `1070:cbe6`).
+    for (index, other) in state.players.iter().enumerate() {
+        if index == player || !(others.players.contains(&index) || other.dead) {
+            continue;
+        }
+        let mut short = player_record(state, index, other)?;
+        short.planets = 0;
+        short.fleets = u16::try_from(
+            view.fleets
+                .iter()
+                .filter(|(i, _)| {
+                    state
+                        .fleets
+                        .get(**i)
+                        .is_some_and(|f| usize::try_from(f.owner) == Ok(index))
+                })
+                .count(),
+        )
+        .unwrap_or(u16::MAX);
+        short.ship_design_count = others.design_count(index, false);
+        short.starbase_design_count = others.design_count(index, true);
+        if !(prt == Some(Prt::Ca) || other.dead) {
+            short.full_data = false;
+            short.race = None;
+            short.research = None;
+            short.default_queue = None;
+            short.password = None;
+            short.trader_parts = None;
+            short.player_relations.clear();
+            short.fixed.truncate(8);
+            // `PLAYER.det`, the low bits of the word at 6: `detSome`.
+            short.fixed[6] = 0x03;
+        }
+        body.push(block(6, short.encode()?)?);
+    }
 
-    for planet in mine {
-        body.push(block(13, planet_record(planet).encode())?);
-        if !planet.queue.is_empty() {
-            body.push(block(28, queue_record(planet).encode())?);
+    for planet in all_planets(state) {
+        let Some(detail) = view.planet(planet.id) else {
+            continue;
+        };
+        if planet.owner == Some(owner) {
+            body.push(block(13, planet_record(planet).encode())?);
+            if !planet.queue.is_empty() {
+                body.push(block(28, queue_record(planet).encode())?);
+            }
+        } else {
+            body.push(block(14, partial_planet_record(planet, detail).encode())?);
         }
     }
-    if let Some(designs) = state.designs.get(player) {
-        push_designs(&mut body, state, player, designs, false)?;
+    // Each player's designs in player order, the file's own in full and
+    // the others' as far as they are known; the fleets and the starbase
+    // designs the same way.
+    for starbases in [false, true] {
+        if starbases {
+            push_fleets(&mut body, state, player)?;
+            push_fleets_seen(&mut body, state, player, &view)?;
+        }
+        for (index, designs) in state.designs.iter().enumerate() {
+            if index == player {
+                push_designs(&mut body, state, player, designs, starbases)?;
+            } else {
+                push_designs_seen(&mut body, state, player, index, designs, &others, starbases)?;
+            }
+        }
     }
-    push_fleets(&mut body, state, player)?;
-    if let Some(designs) = state.designs.get(player) {
-        push_designs(&mut body, state, player, designs, true)?;
-    }
-    push_battle_plans(state, &mut body, player)?;
     push_battles(state, &mut body, player)?;
     push_messages(state, &mut body, player)?;
     push_player_messages(state, &mut body, player)?;
     push_standings(state, &mut body, player)?;
+    push_things(state, &mut body, Some((player, &view)))?;
+    push_battle_plans(state, &mut body, player)?;
 
     StarsFile::build(&header, &body, footer(state))
 }
@@ -243,29 +313,11 @@ pub fn history_file(
     hist.extend_from_slice(&(state.turn.unsigned_abs() + 1).to_le_bytes());
     body.push(block(32, hist)?);
     for planet in known {
-        let mut partial = planet_record(planet);
-        partial.block_type = 14;
-        partial.detail = 3;
-        partial.has_installations = false;
-        partial.has_surface_minerals = false;
-        partial.routing = false;
-        partial.surface_minerals = None;
-        partial.population = None;
-        partial.installations = None;
-        partial.route_dest = None;
-        // A planet of somebody else's is known by its owner and by the
-        // estimates the scanner gives, not by its books — and carries the
-        // first-year flag, which the fixtures show every planet but the
-        // player's own keeping year after year.
-        if planet.owner != Some(owner) {
-            partial.first_year = true;
-            partial.starbase = partial.starbase.map(|mut sb| {
-                sb.damage_pct = 0;
-                sb.fling_dest = 0;
-                sb.warp = 0;
-                sb
-            });
-        }
+        let mut partial = partial_planet_record(planet, Detail::Some);
+        // A planet of somebody else's carries the first-year flag, which
+        // the fixtures show every planet but the player's own keeping year
+        // after year.
+        partial.first_year = planet.owner != Some(owner);
         partial.trailing = state.turn.unsigned_abs().to_le_bytes().to_vec();
         body.push(block(14, partial.encode())?);
     }
@@ -634,6 +686,43 @@ fn planet_record(planet: &Planet) -> PlanetRecord {
     }
 }
 
+/// A planet as somebody who does not own it sees it — the `rtPlanetB`
+/// (type 14) arm of `WritePlanet` (`1070:cb0e`): the id, owner and whether
+/// it has a starbase at [`Detail::Minimal`]; the environment,
+/// concentrations and the owner's population and defence guesses from
+/// [`Detail::Some`]; the surface minerals at [`Detail::More`], when there
+/// are any. A planet seen only [`Detail::Obscure`]ly is written at
+/// `detSome` with `fInclude` clear. A starbase is named by its design
+/// alone.
+fn partial_planet_record(planet: &Planet, detail: Detail) -> PlanetRecord {
+    let mut partial = planet_record(planet);
+    partial.block_type = 14;
+    partial.detail = match detail {
+        Detail::Minimal => 1,
+        Detail::Obscure | Detail::Some => 3,
+        Detail::More | Detail::Full => 4,
+    };
+    partial.include = detail != Detail::Obscure;
+    partial.has_installations = false;
+    partial.routing = false;
+    partial.population = None;
+    partial.installations = None;
+    partial.route_dest = None;
+    partial.artifact = false;
+    partial.has_surface_minerals =
+        partial.detail >= 4 && planet.owner.is_some() && planet.surface_min.iter().any(|m| *m > 0);
+    if !partial.has_surface_minerals {
+        partial.surface_minerals = None;
+    }
+    partial.starbase = partial.starbase.map(|mut sb| {
+        sb.damage_pct = 0;
+        sb.fling_dest = 0;
+        sb.warp = 0;
+        sb
+    });
+    partial
+}
+
 /// Build a planet's production queue record.
 fn queue_record(planet: &Planet) -> ProductionQueueRecord {
     use stars_formats::production::{QueueClass, QueueItem};
@@ -756,6 +845,267 @@ pub fn design_record(design: &ShipDesign, number: u8, starbase: bool, built: u32
         flags1: DESIGN_FLAGS1 | (u8::from(design.obsolete) << 1),
         trailing: Vec::new(),
     }
+}
+
+/// What a player's file says of the other players and their designs.
+#[derive(Debug, Default)]
+struct Others {
+    /// The other players the file carries a record of: anyone with a
+    /// planet, fleet, design or space object on the player's map, or in a
+    /// battle with them.
+    players: std::collections::BTreeSet<usize>,
+    /// The other players' designs the file carries, by `(owner, slot)`, and
+    /// whether in full: hull, picture, mass and name otherwise.
+    designs: std::collections::BTreeMap<(usize, usize), bool>,
+}
+
+impl Others {
+    /// Note a design of another player's, at least as fully as `full`.
+    fn design(&mut self, owner: usize, slot: usize, full: bool) {
+        self.players.insert(owner);
+        let entry = self.designs.entry((owner, slot)).or_insert(full);
+        *entry |= full;
+    }
+
+    /// How many of `owner`'s ship or starbase designs the file carries.
+    fn design_count(&self, owner: usize, starbases: bool) -> u8 {
+        let first = usize::from(crate::startup::FIRST_STARBASE_SLOT);
+        u8::try_from(
+            self.designs
+                .keys()
+                .filter(|(o, slot)| *o == owner && (*slot >= first) == starbases)
+                .count(),
+        )
+        .unwrap_or(u8::MAX)
+    }
+}
+
+/// What the file-writing passes settle about everybody else, given what
+/// the player's scanners found: `MarkFleet` (`1070:c2a4`) puts every
+/// design of a fleet on the map in the file and `MarkPlanet` (`1070:c2f2`)
+/// the starbase design of a planet seen in any detail but obscurely;
+/// `SetVisPFFinish` (`1070:c43c`) writes those in part — in full for a War
+/// Monger, or once revealed by a minefield or a packet; and `WriteBattles`
+/// (`1070:80f8`) writes every design that fought the player in full and
+/// puts the fleets that survived and the planet they fought over on the
+/// map. The owners of the space objects on the map are known too.
+fn others_in_view(state: &GameState, player: usize, view: &mut View) -> Others {
+    let mut out = Others::default();
+    let bit = 1u16 << (u16::try_from(player).unwrap_or(0) & 15);
+    let war_monger = state
+        .players
+        .get(player)
+        .is_some_and(|p| p.race.prt() == Some(Prt::Wm));
+    let first_base = usize::from(crate::startup::FIRST_STARBASE_SLOT);
+
+    for record in state.battles.iter().filter(|b| b.player_mask & bit != 0) {
+        for other in 0..state.players.len() {
+            if other != player && record.player_mask & (1 << (other & 15)) != 0 {
+                out.players.insert(other);
+            }
+        }
+        for token in &record.tokens {
+            let owner = usize::from(token.player);
+            if owner == player {
+                continue;
+            }
+            let slot = usize::from(token.design);
+            if token.object_class == crate::fleet::grobj::PLANET {
+                // A starbase token's design is `16 + isb` (`1070:8226`).
+                out.design(owner, first_base + slot.saturating_sub(16), true);
+            } else {
+                out.design(owner, slot, true);
+                if let Some(index) = state
+                    .fleets
+                    .iter()
+                    .position(|f| usize::try_from(f.owner) == Ok(owner) && f.id == token.id)
+                {
+                    if !state.fleets[index].stacks.is_empty() {
+                        view.mark_fleet(index, Detail::Some);
+                    }
+                }
+            }
+        }
+        if let Ok(planet) = i16::try_from(record.planet) {
+            if planet >= 0 && state.planets.iter().any(|p| p.id == planet) {
+                view.mark_planet(planet, Detail::Minimal);
+            }
+        }
+    }
+
+    for &index in view.fleets.keys() {
+        let Some(fleet) = state.fleets.get(index) else {
+            continue;
+        };
+        let Ok(owner) = usize::try_from(fleet.owner) else {
+            continue;
+        };
+        if owner == player {
+            continue;
+        }
+        out.players.insert(owner);
+        for stack in fleet.stacks.iter().filter(|s| s.count > 0) {
+            out.design(owner, usize::from(stack.design), war_monger);
+        }
+    }
+    for (&id, &detail) in &view.planets {
+        let Some(planet) = all_planets(state).find(|p| p.id == id) else {
+            continue;
+        };
+        let Some(owner) = planet.owner.and_then(|o| usize::try_from(o).ok()) else {
+            continue;
+        };
+        if owner == player {
+            continue;
+        }
+        out.players.insert(owner);
+        if detail != Detail::Obscure && planet.starbase {
+            if let Some(base) = planet.starbase_design {
+                out.design(owner, first_base + usize::from(base), war_monger);
+            }
+        }
+    }
+    for &index in &view.packets {
+        if let Some(owner) = state
+            .packets
+            .get(index)
+            .and_then(|p| usize::try_from(p.owner).ok())
+        {
+            if owner != player {
+                out.players.insert(owner);
+            }
+        }
+    }
+    for &index in &view.minefields {
+        if let Some(owner) = state
+            .minefields
+            .get(index)
+            .and_then(|f| usize::try_from(f.owner).ok())
+        {
+            if owner != player {
+                out.players.insert(owner);
+            }
+        }
+    }
+    for &(seer, owner, slot) in &state.revealed_designs {
+        if seer == player && owner != player {
+            out.design(owner, slot, true);
+        }
+    }
+    out
+}
+
+/// Append what the player's file says of another player's ship or
+/// starbase designs: in full where they have fought or been revealed, and
+/// otherwise the short form — hull, picture, mass and name
+/// (`WriteRtShDef`, `1070:8dc2`).
+fn push_designs_seen(
+    body: &mut Vec<Block>,
+    state: &GameState,
+    player: usize,
+    owner: usize,
+    designs: &[ShipDesign],
+    others: &Others,
+    starbases: bool,
+) -> Result<()> {
+    if owner == player {
+        return Ok(());
+    }
+    let first = usize::from(crate::startup::FIRST_STARBASE_SLOT);
+    for (&(who, slot), &full) in &others.designs {
+        if who != owner || (slot >= first) != starbases {
+            continue;
+        }
+        let Some(design) = designs.get(slot).filter(|d| d.hull_id >= 0) else {
+            continue;
+        };
+        let number = u8::try_from(if starbases { slot - first } else { slot }).unwrap_or(0);
+        let mut record = design_record(design, number, starbases, ships_of(state, owner, slot));
+        if !full {
+            record.full_design = false;
+            record.armor = None;
+            record.turn_designed = None;
+            record.total_built = None;
+            record.total_remaining = None;
+            record.slots.clear();
+            record.mass = Some(u16::try_from(design.mass().unwrap_or(0)).unwrap_or(u16::MAX));
+        }
+        body.push(block(26, record.encode()?)?);
+    }
+    Ok(())
+}
+
+/// Append the other players' fleets on the player's map, in the partial
+/// form (type 17): the ships, the heading and warp, the mass, and at
+/// [`Detail::More`] the minerals aboard (`WriteFleet`, `1070:8b52`).
+fn push_fleets_seen(
+    body: &mut Vec<Block>,
+    state: &GameState,
+    player: usize,
+    view: &View,
+) -> Result<()> {
+    for (&index, &detail) in &view.fleets {
+        let Some(fleet) = state.fleets.get(index) else {
+            continue;
+        };
+        let Ok(owner) = usize::try_from(fleet.owner) else {
+            continue;
+        };
+        if owner == player || fleet.stacks.iter().all(|s| s.count <= 0) {
+            continue;
+        }
+        let designs = state.designs.get(owner).map(Vec::as_slice).unwrap_or(&[]);
+        let mut record = fleet_record(fleet, 0);
+        record.detail = detail.code().min(4);
+        record.battle_plan = None;
+        record.waypoint_count = None;
+        record.cargo = (detail >= Detail::More).then(|| stars_formats::Cargo {
+            ironium: u32::try_from(fleet.cargo.minerals[0]).unwrap_or(0),
+            boranium: u32::try_from(fleet.cargo.minerals[1]).unwrap_or(0),
+            germanium: u32::try_from(fleet.cargo.minerals[2]).unwrap_or(0),
+            population: 0,
+            fuel: 0,
+        });
+        let (dx, dy, warp) = heading(fleet);
+        record.delta_x = Some(dx);
+        record.delta_y = Some(dy);
+        record.warp = Some(warp);
+        record.warp_high = u8::from(warp > 0);
+        record.mass = Some(u32::try_from(fleet.mass(designs)).unwrap_or(0));
+        body.push(block(17, record.encode(17))?);
+    }
+    Ok(())
+}
+
+/// The heading a fleet on somebody else's map is drawn with — `dirFltX`,
+/// `dirFltY` and `iwarpFlt`, set as the fleet moves (`10b0:4686`): the
+/// vector to its next waypoint halved until both parts fit a signed byte,
+/// each stored biased by 127, and the warp of the leg. A fleet that is not
+/// moving carries zeroes, which the reader takes as no heading.
+fn heading(fleet: &Fleet) -> (u8, u8, u8) {
+    if let Some((dx, dy)) = fleet.direction {
+        let warp = fleet.warp.unwrap_or(0);
+        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+        return (((dx + 127) & 0xff) as u8, ((dy + 127) & 0xff) as u8, warp);
+    }
+    let (Some(warp), Some(next)) = (fleet.warp.filter(|w| *w > 0), fleet.waypoints.get(1)) else {
+        return (0, 0, 0);
+    };
+    let mut dx = i32::from(next.position.x) - i32::from(fleet.position.x);
+    let mut dy = i32::from(next.position.y) - i32::from(fleet.position.y);
+    if dx == 0 && dy == 0 {
+        return (0, 0, 0);
+    }
+    while dx.abs() > 127 || dy.abs() > 127 {
+        dx /= 2;
+        dy /= 2;
+    }
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    (
+        ((dx + 127) & 0xff) as u8,
+        ((dy + 127) & 0xff) as u8,
+        warp & 0x0f,
+    )
 }
 
 /// Append one player's fleets, each followed by its waypoints.
@@ -930,15 +1280,59 @@ fn push_player_messages(state: &GameState, body: &mut Vec<Block>, player: usize)
 /// carrying — packets, wormholes, the Mystery Trader — so that writing a game
 /// back does not delete them. See `docs/formats/thing.md` for the section's
 /// shape.
-fn push_things(state: &GameState, body: &mut Vec<Block>) -> Result<()> {
-    let total = state.minefields.len()
-        + state.packets.len()
-        + state.wormholes.len()
-        + state.traders.len()
-        + state.other_things.len();
+/// Which of the space objects a file carries, and with what flags —
+/// `FWriteDataFile`'s count (`1070:9660`): a host file every one; a
+/// player's file their own minefields and every one they have ever
+/// detected (`grbitPlr`), the packets they see (all of them for a Packet
+/// Physics race, `1070:9f8c`), every Mystery Trader (`1070:a0b6`), and
+/// the wormhole ends their scanners reach this year.
+fn push_things(
+    state: &GameState,
+    body: &mut Vec<Block>,
+    player: Option<(usize, &View)>,
+) -> Result<()> {
+    let bit = player.map_or(0, |(p, _)| 1u16 << (u16::try_from(p).unwrap_or(0) & 15));
+    let me = player.and_then(|(p, _)| i16::try_from(p).ok());
+    let packet_physics = player.is_some_and(|(p, _)| {
+        state
+            .players
+            .get(p)
+            .is_some_and(|r| r.race.prt() == Some(Prt::Pp))
+    });
+    let minefields: Vec<&crate::minefield::Minefield> = state
+        .minefields
+        .iter()
+        .filter(|f| me.is_none() || Some(f.owner) == me || f.detected_by & bit != 0)
+        .collect();
+    let packets: Vec<(usize, &crate::packet::Packet)> = state
+        .packets
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| match player {
+            None => true,
+            Some((_, view)) => packet_physics || view.packets.contains(i),
+        })
+        .collect();
+    let wormholes: Vec<(usize, &crate::wormhole::Wormhole)> = state
+        .wormholes
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| player.is_none_or(|(_, view)| view.wormholes.contains(i)))
+        .collect();
+    let others = if player.is_none() {
+        state.other_things.as_slice()
+    } else {
+        &[]
+    };
+    let total =
+        minefields.len() + packets.len() + wormholes.len() + state.traders.len() + others.len();
+    // No section at all when there is nothing to put in it (`1070:9660`).
+    if total == 0 {
+        return Ok(());
+    }
     let count = u16::try_from(total).unwrap_or(u16::MAX);
     body.push(block(43, count.to_le_bytes().to_vec())?);
-    for field in &state.minefields {
+    for field in minefields {
         let mine = stars_formats::Minefield {
             mines: field.mines,
             players_seen: field.detected_by,
@@ -959,12 +1353,12 @@ fn push_things(state: &GameState, body: &mut Vec<Block>) -> Result<()> {
         };
         body.push(block(43, thing.encode().to_vec())?);
     }
-    for packet in &state.packets {
+    for (_, packet) in packets {
         let carried = stars_formats::MineralPacket {
             target_planet: packet.target,
             warp: packet.warp,
             moved: packet.moved,
-            include: packet.include,
+            include: packet.include || player.is_some(),
             minerals: packet.minerals,
             // `wtMax` is the remaining mass over ten, rounded up, which
             // `FPacketDecay` recomputes every time it takes a bite.
@@ -984,13 +1378,13 @@ fn push_things(state: &GameState, body: &mut Vec<Block>) -> Result<()> {
         };
         body.push(block(43, thing.encode().to_vec())?);
     }
-    for hole in &state.wormholes {
+    for (_, hole) in wormholes {
         let carried = stars_formats::Wormhole {
             stability: hole.stability,
             last_move: hole.years_still,
             dest_known: hole.dest_known,
-            include: hole.include,
-            players_seen: hole.detected_by,
+            include: hole.include || player.is_some(),
+            players_seen: hole.detected_by | bit,
             players_traversed: hole.traversed_by,
             partner_id: hole.partner,
         };
@@ -1025,7 +1419,7 @@ fn push_things(state: &GameState, body: &mut Vec<Block>) -> Result<()> {
             dest_x: trader.destination.x,
             dest_y: trader.destination.y,
             warp: trader.warp,
-            include: trader.include,
+            include: trader.include || player.is_some(),
             players_seen: trader.detected_by,
             part: trader.part,
         };
@@ -1053,7 +1447,7 @@ fn push_things(state: &GameState, body: &mut Vec<Block>) -> Result<()> {
             .to_vec(),
         )?);
     }
-    for thing in &state.other_things {
+    for thing in others {
         body.push(block(43, thing.encode().to_vec())?);
     }
     Ok(())

@@ -113,7 +113,9 @@ fn add_our_fleet(app: &mut App, at: Point) -> usize {
 /// player's own would be seen by its scanner.
 fn on_the_map(app: &mut App) {
     let count = app.game.as_ref().map_or(0, |g| g.fleets.len());
-    app.in_view.fleets = (0..count).collect();
+    app.in_view.fleets = (0..count)
+        .map(|i| (i, stars_core::visibility::Detail::Full))
+        .collect();
 }
 
 /// The last waypoint of a fleet.

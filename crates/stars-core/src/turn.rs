@@ -208,6 +208,7 @@ pub fn generate_turn_with_orders(
     // *first* — the Mystery Trader's news is the earliest thing a year sends.
     state.messages.clear();
     state.battles.clear();
+    state.revealed_designs.clear();
     // The players' letters to one another go out with this year's news
     // (`FLoadLogFile` gathers them into `vlpmsgplrOut`, and
     // `WritePlayerMessages` puts each into the files of those it is for).
@@ -276,6 +277,12 @@ pub fn generate_turn_with_orders(
         report.tasks_done.extend(done);
         let settled = crate::orders::resolve_colonist_drops_with(state, &drops, Some(rng));
         report.colonised.extend(settled);
+    }
+
+    // --- UnmarkMineFields (`10b8:7638`): who can see each field *now*
+    // starts the year empty; the scanners fill it in again at the end.
+    for field in &mut state.minefields {
+        field.visible_to = 0;
     }
 
     // --- MoveThings(0): the Mystery Trader crosses a year, and the packets
@@ -1061,7 +1068,38 @@ pub fn generate_turn_with_orders(
     // The scoreboard is stamped with the year just finished, so it is filled
     // in after the turn has been counted.
     crate::score::update_standings(state, &report.scores, &report.victory, &report.winners);
+
+    // --- SetVisiblePlanFleet, run for each player as their file is written:
+    // what their scanners found among the space objects is remembered on
+    // the objects themselves.
+    detect_things(state, rng);
     report
+}
+
+/// The marks the file-writing passes leave on the space objects
+/// (`SetVisPFPlanets` `1070:abde`, `SetVisPFFleets` `1070:a100`,
+/// `SetVisPFThings` `1070:b9ee`), for every player in turn: a minefield a
+/// scanner reaches is detected for good (`grbitPlr`) and seen this year
+/// (`grbitPlrNow`); a wormhole end a scanner reaches is seen (`grbitPlr`),
+/// which a jump later forgets. The Space Demolition roll for cloaked
+/// fleets inside a field draws on the game's generator here, as the
+/// original's does.
+fn detect_things(state: &mut GameState, rng: &mut Rng) {
+    for player in 0..state.players.len() {
+        let view = crate::visibility::view_with(state, player, rng);
+        let bit = 1u16 << (u16::try_from(player).unwrap_or(0) & 15);
+        for index in view.minefields {
+            if let Some(field) = state.minefields.get_mut(index) {
+                field.detected_by |= bit;
+                field.visible_to |= bit;
+            }
+        }
+        for index in view.wormholes {
+            if let Some(hole) = state.wormholes.get_mut(index) {
+                hole.detected_by |= bit;
+            }
+        }
+    }
 }
 
 /// The race owning `planets[index]`, cloned so the planet can be mutated.
@@ -1655,6 +1693,21 @@ fn mine_hit(
     // Both sides hear of it.
     let fleet_id = state.fleets[index].id;
     let field_owner = usize::try_from(field.owner).ok();
+    // A Space Demolition player's field reads every design of what it hits
+    // (`10b0:5d3e`), which their file this year then describes in full.
+    if let Some(fo) = field_owner.filter(|fo| {
+        *fo != owner
+            && state
+                .players
+                .get(*fo)
+                .is_some_and(|p| p.race.prt() == Some(crate::race::Prt::Sd))
+    }) {
+        for stack in before.iter().filter(|s| s.count > 0) {
+            state
+                .revealed_designs
+                .insert((fo, owner, usize::from(stack.design)));
+        }
+    }
     let at = state.fleets[index].position;
     let kind = i16::from(field.kind);
     let thing_full = |ith: u16, owner: i16, id: u16| -> i16 {

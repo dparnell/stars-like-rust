@@ -113,7 +113,13 @@ terraformings, and `UpdateGuesses` — the population and defence estimates
 other players' scanners report: a quarter of the population in hundreds,
 jittered by `Random(pop / 4) − pop / 8` and held to `1..=4090` (`0` for an
 Alternate Reality planet), and `(104 − pct) / 6` in `1..=15` for the defences,
-`pct` what they let through of a bombing run. `TurnReport::skipped` names what a caller left out — the
+`pct` what they let through of a bombing run. `UnmarkMineFields`
+(`10b8:7638`) clears every field's seen-this-year mask at step 5, and the
+marks the file-writing passes leave on the space objects — the fields
+detected and the wormhole ends seen (`SetVisiblePlanFleet`, run for each
+player by `FWriteDataFile`) — are made for every player at the year's end
+(`detect_things`), whether or not a file is written; see `scanning.md`.
+`TurnReport::skipped` names what a caller left out — the
 order files, when none were given, and random events, when the game has
 none — rather than anything the engine cannot do.
 

@@ -454,6 +454,19 @@ pub struct GameState {
     /// start of a turn like the messages, and written to each player's
     /// file.
     pub battles: Vec<stars_formats::battle::BattleRecord>,
+    /// The designs the year showed players in full that they would
+    /// otherwise see only from outside — `SHDEF.grbitPlr`, a bit per player
+    /// on each design: `(player, owner, slot)`, the slot into
+    /// [`Self::designs`] with starbases at [`startup::FIRST_STARBASE_SLOT`]
+    /// and up. A Space Demolition player's minefield reads every design of
+    /// a fleet it hits (`10b0:5d3e`), and a Packet Physics player's packet
+    /// reads the starbase of a planet with a driver to catch it
+    /// (`10b0:1f7f`). The original never saves the bits and zeroes them
+    /// when it loads its designs, so they last one generation; this set is
+    /// cleared at the start of a turn like the messages. Battles reveal
+    /// designs too, but those are read off [`Self::battles`] when the
+    /// files are written.
+    pub revealed_designs: std::collections::BTreeSet<(usize, usize, usize)>,
 }
 
 impl GameState {
@@ -536,6 +549,7 @@ impl GameState {
             timeline: Vec::new(),
             other_things: Vec::new(),
             battles: Vec::new(),
+            revealed_designs: std::collections::BTreeSet::new(),
         }
     }
 

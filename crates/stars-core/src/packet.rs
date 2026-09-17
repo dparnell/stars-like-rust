@@ -367,9 +367,10 @@ pub struct Landing {
 /// terraforming reach. A thrower immune to the variable pushes it away
 /// from the middle instead, half as far.
 ///
-/// Not modelled: the thrower, when Packet Physics and the planet has a
-/// driver, also learns the target's starbase design (`10b0:1f7f`), which
-/// this state has no place for.
+/// The thrower, when Packet Physics and the planet has a driver, also
+/// learns the target's starbase design (`10b0:1f7f`) — into
+/// [`GameState::revealed_designs`](crate::GameState::revealed_designs), for
+/// their file this year to describe it in full.
 ///
 /// The messages are the original's ids with wordings of this project's:
 /// `0xd5`/`0x146` caught or harmless, `0xd6`–`0xd9` damage with or
@@ -403,6 +404,17 @@ pub fn land(
         }
     });
     let inner_tech = owner.is_some_and(|o| state.players[o].race.prt() == Some(Prt::It));
+    if let (Some(thrower), Some(owner), Some(base)) =
+        (thrower, owner, state.planets[index].starbase_design)
+    {
+        if thrower_pp && driver.warp > 0 {
+            state.revealed_designs.insert((
+                thrower,
+                owner,
+                usize::from(crate::startup::FIRST_STARBASE_SLOT) + usize::from(base),
+            ));
+        }
+    }
     let packet_warp = packet.speed();
     let caught = caught_per_mille(packet_warp, driver.warp, inner_tech);
     let kept = kept_per_mille(caught);

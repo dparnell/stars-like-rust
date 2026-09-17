@@ -18,13 +18,13 @@ fn tutorial_world() -> stars_core::GameState {
 fn the_tutorial_opens_knowing_only_home() {
     let state = tutorial_world();
     let seen = view(&state, 0);
-    assert_eq!(seen.planets.iter().copied().collect::<Vec<_>>(), vec![13]);
+    assert_eq!(seen.planets.keys().copied().collect::<Vec<_>>(), vec![13]);
     let own: Vec<usize> = (0..state.fleets.len())
         .filter(|i| state.fleets[*i].owner == 0)
         .collect();
-    assert_eq!(seen.fleets.iter().copied().collect::<Vec<_>>(), own);
+    assert_eq!(seen.fleets.keys().copied().collect::<Vec<_>>(), own);
     // The other player's home world and fleets are out of sight.
-    assert!(!seen.planets.contains(&10));
+    assert!(!seen.planets.contains_key(&10));
 }
 
 /// The Armed Probe's scanners: a Rhino (50, no penetration) and, in the
@@ -96,17 +96,20 @@ fn planets_take_penetration_and_orbiting_fleets_too() {
     let last = state.fleets.len() - 1;
 
     let seen = view(&state, 0);
-    assert!(seen.planets.contains(&12), "Prune within twenty");
-    assert!(seen.fleets.contains(&enemy), "in orbit, within twenty");
-    assert!(seen.fleets.contains(&last), "in space, within fifty-four");
+    assert!(seen.planets.contains_key(&12), "Prune within twenty");
+    assert!(seen.fleets.contains_key(&enemy), "in orbit, within twenty");
+    assert!(
+        seen.fleets.contains_key(&last),
+        "in space, within fifty-four"
+    );
 
     // Twenty-one out: the planet and the orbiting fleet drop away, the loose
     // one stays.
     state.fleets[probe].position = stars_core::movement::Point::new(prune.x + 21, prune.y);
     let seen = view(&state, 0);
-    assert!(!seen.planets.contains(&12));
-    assert!(!seen.fleets.contains(&enemy));
-    assert!(seen.fleets.contains(&last));
+    assert!(!seen.planets.contains_key(&12));
+    assert!(!seen.fleets.contains_key(&enemy));
+    assert!(seen.fleets.contains_key(&last));
 }
 
 /// A cloaked fleet is seen at a shorter range: a Stealth Cloak's 35% on an
@@ -157,10 +160,10 @@ fn a_cloak_shortens_the_range_a_fleet_is_seen_at() {
     );
 
     let seen = view(&state, 0);
-    assert!(!seen.fleets.contains(&enemy), "forty is past 54 × 65%");
+    assert!(!seen.fleets.contains_key(&enemy), "forty is past 54 × 65%");
     state.fleets[enemy].position = stars_core::movement::Point::new(at.x + 35, at.y);
     let seen = view(&state, 0);
-    assert!(seen.fleets.contains(&enemy), "thirty-five is not");
+    assert!(seen.fleets.contains_key(&enemy), "thirty-five is not");
 
     // Cargo aboard dilutes the cloak: the same ship loaded to twice its
     // mass shows at more like 60%-of-70 points.
@@ -173,7 +176,7 @@ fn a_cloak_shortens_the_range_a_fleet_is_seen_at() {
     // reach is 54 × 67% = 36.
     state.fleets[enemy].cargo = stars_core::fleet::Cargo::default();
     state.fleets[enemy].position = stars_core::movement::Point::new(at.x + 36, at.y);
-    assert!(!view(&state, 0).fleets.contains(&enemy));
+    assert!(!view(&state, 0).fleets.contains_key(&enemy));
     let probe_design = usize::from(state.fleets[probe].stacks[0].design);
     state.designs[0][probe_design].slots.push(DesignSlot {
         category: slot::SPECIAL_E,
@@ -181,7 +184,7 @@ fn a_cloak_shortens_the_range_a_fleet_is_seen_at() {
         count: 1,
     });
     assert_eq!(state.designs[0][probe_design].tachyon_pct(), 95);
-    assert!(view(&state, 0).fleets.contains(&enemy));
+    assert!(view(&state, 0).fleets.contains_key(&enemy));
 }
 
 /// The points-to-percent table, as the manual prints it (p. 24-3).
@@ -222,7 +225,7 @@ fn packets_and_minefields_scan_for_the_races_that_own_them() {
     state.fleets[enemy].position = corner;
     state.fleets[enemy].orbiting = None;
     assert!(
-        !view(&state, 0).fleets.contains(&enemy),
+        !view(&state, 0).fleets.contains_key(&enemy),
         "nothing of ours near"
     );
 
@@ -240,13 +243,13 @@ fn packets_and_minefields_scan_for_the_races_that_own_them() {
         turn: 0,
     });
     assert!(
-        !view(&state, 0).fleets.contains(&enemy),
+        !view(&state, 0).fleets.contains_key(&enemy),
         "only for Packet Physics"
     );
     state.players[0].race.attrs[stars_core::race::RaceStat::MajorAdv as usize] = 6;
-    assert!(view(&state, 0).fleets.contains(&enemy));
+    assert!(view(&state, 0).fleets.contains_key(&enemy));
     state.packets[0].warp = 1; // warp 5: 25, short of 30
-    assert!(!view(&state, 0).fleets.contains(&enemy));
+    assert!(!view(&state, 0).fleets.contains_key(&enemy));
     state.packets.clear();
 
     // A minefield of ours over the corner shows the fleet for Space
@@ -262,10 +265,10 @@ fn packets_and_minefields_scan_for_the_races_that_own_them() {
         visible_to: 0,
         turn: 0,
     });
-    assert!(!view(&state, 0).fleets.contains(&enemy));
+    assert!(!view(&state, 0).fleets.contains_key(&enemy));
     state.players[0].race.attrs[stars_core::race::RaceStat::MajorAdv as usize] = 5;
-    assert!(view(&state, 0).fleets.contains(&enemy));
+    assert!(view(&state, 0).fleets.contains_key(&enemy));
     // Not one in orbit, though.
     state.fleets[enemy].orbiting = Some(0);
-    assert!(!view(&state, 0).fleets.contains(&enemy));
+    assert!(!view(&state, 0).fleets.contains_key(&enemy));
 }

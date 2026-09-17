@@ -637,7 +637,7 @@ pub fn turn(state: &mut GameState, player: usize, rng: &mut Rng, profile: &Profi
     );
 
     let seen = crate::visibility::view(state, player).planets;
-    state.players[player].explored.extend(seen);
+    state.players[player].explored.extend(seen.into_keys());
     let explored = state.players[player].explored.clone();
 
     // The lasting words, sized to the galaxy the first time.

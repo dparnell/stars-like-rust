@@ -941,7 +941,10 @@ pub fn tutorial(shell: &mut Shell) {
             .enumerate()
             .find(|(_, f)| f.owner == 1 && f.id == 0)
             .expect("the enemy scout");
-        (scout.position, shell.app.in_view.fleets.contains(&index))
+        (
+            scout.position,
+            shell.app.in_view.fleets.contains_key(&index),
+        )
     };
     let pos = shell.point_on_screen(enemy, HIHO);
     shell.modifiers = egui::Modifiers::SHIFT;

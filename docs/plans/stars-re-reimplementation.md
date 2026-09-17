@@ -3186,12 +3186,29 @@ disagree.
     roster (`new-game.md`).
 
     What is left is what no fixture can check, listed under *Carried into
-    Step 5 unverified*, and two pieces of **design intelligence** the state
-    has no place for: a Space Demolition owner learning the designs its
-    field hit (`10b0:6174`) and a Packet Physics thrower learning the
-    target's starbase design (`10b0:1f7f`). A chaser's `fNoAutoTrack`
-    flag is likewise not carried on the waypoint: a fleet chasing one that
-    jumped a gate is pointed at the spot as a point in space instead.
+    Step 5 unverified*. A chaser's `fNoAutoTrack` flag is not carried on
+    the waypoint: a fleet chasing one that jumped a gate is pointed at the
+    spot as a point in space instead.
+
+110. **What a player's file says of everybody else.** The `.mN` writer
+    used to describe only the player's own planets, fleets and designs,
+    so an original client fed a file of ours never saw an enemy. It now
+    runs the visibility passes the way `FWriteDataFile` does and writes
+    the other players' short records, partial planets and fleets, and
+    designs in outline or in full — full for a War Monger, for a design
+    that fought the player this year, and for the two pieces of **design
+    intelligence** the state now has a place for
+    (`GameState::revealed_designs`): a Space Demolition owner's field
+    reading the designs it hit and a Packet Physics thrower reading the
+    starbase that caught its packet. `visibility::View` carries a detail
+    level per planet and fleet (`det` 1 to 7) and the space objects each
+    scanner reaches — packets, wormhole ends, minefields, with the
+    original's known/penetrating/inside rules — and the turn engine
+    clears the fields' seen-this-year mask at `UnmarkMineFields` and
+    makes the passes' marks at the year's end for every player, so a
+    hosted game detects minefields and wormholes by scanning at last.
+    `docs/formats/writing.md`, `docs/formulas/scanning.md`;
+    `crates/stars-core/tests/player_files.rs`.
 
 #### Saving is not re-encoding
 

@@ -1,6 +1,6 @@
 # Subsystem: Scanner Ranges
 
-- **Status:** in progress — combination rule and planetary ranges verified; per-design ship scanners need the parts table
+- **Status:** verified — combination rule, planetary and ship ranges, what the passes reveal and the detail levels; the space-object marks transcribed from the decompiled passes
 - **Ghidra routine(s):** `1038:4c02` `GetPlanetScannerRange`, `1038:50d0` `GetShdefScannerRange`, `1038:4fb8` `GetFleetScannerRange`, `1008:60be` `LookupBestPlanetaryScanner`
 - **Manual reference:** `MANUAL.PDF` p. 17-2 ("Scanners are Additive"), p. 20-13 (No Advanced Scanners)
 - **Uses RNG:** no
@@ -85,6 +85,55 @@ penetration of its own, plus the built-in 20) learns Hiho at seventeen light
 years in 2403 and not at forty-three the year before, none of the scouts
 learn their first planets from twenty-odd light years out in 2401, and
 `tutorial.h1` in 2403 knows exactly home, 90210, Prune, Alexander and Hiho.
+
+### How much is seen (`det`)
+
+Each planet and fleet on the map is written at a **detail level**
+(`enums.h`: `detMinimal` 1, `detObscure` 2, `detSome` 3, `detMore` 4,
+`detAll` 7), which `MarkPlanet` (`1070:c2f2`) and `MarkFleet` (`1070:c2a4`)
+raise but never lower. Transcribed as `stars_core::visibility::Detail`:
+
+| Level | Planet | Fleet |
+|---|---|---|
+| Minimal (1) | one of the player's fleets sits at it with no scanner aboard (`SetVisPFInit`, `1070:9f5a`): id, owner, starbase — nothing else | — |
+| Obscure (2) | within penetrating range, but its cloaked starbase keeps it out of the cut-down reach (`1070:ab3c`); written as 3 with `fInclude` clear | — |
+| Some (3) | scanned: environment, concentrations, the owner's population and defence guesses | scanned: ships, heading, warp, mass |
+| More (4) | a Robber Baron in orbit (`iSteal & 2`), or an unowned planet the player is remote-mining from a fleet that stayed all year: the surface minerals too | a Pick Pocket at the same spot (`iSteal & 1`): the minerals aboard too |
+| Full (7) | the player's own | the player's own |
+
+A fleet of somebody else's **at one of the player's planets** is seen in
+some detail whatever the planet's scanner (`1070:a5f0`). An **Interstellar
+Traveler** sees, in some detail, every planet with a stargate within the
+range of each of their own gates — all of them from an unlimited gate —
+cut by the target starbase's cloak like a penetrating scan
+(`SetVisPFPlanets`' second pass, `1070:ac9e`).
+
+### The space objects
+
+The same passes settle which minefields, packets and wormholes a player
+sees, and leave marks on the objects that the host file keeps:
+
+* a **mineral packet** within a scanner's normal range; a **Packet
+  Physics** race sees every packet in flight (`SetVisPFInit`, `1070:9f8c`);
+* a **Mystery Trader** always (`1070:a0b6`);
+* a **wormhole** end within the normal range once seen before
+  (`THWORM.grbitPlr`), else within the penetrating range; seeing it sets
+  the bit, which a jump clears;
+* a **minefield** within the normal range once detected before
+  (`THMINE.grbitPlr`), within the penetrating range regardless, and always
+  from inside it (the squared distance to its centre no more than its
+  mine count). A planet's scanner considers only the fields within its
+  normal range (`1070:b0a4`), a fleet's every field (`1070:a3c6`). Seeing
+  a field sets `grbitPlr`, for good, and `grbitPlrNow`, which
+  `UnmarkMineFields` (`10b8:7638`) clears at the start of every turn; the
+  player's file carries every field with `grbitPlr` set, and its owner
+  is known to them while `grbitPlrNow` is;
+* a **Space Demolition** race's own fields scan to their radius, normal
+  and penetrating alike (`SetVisPFThings`, `1070:ba9a`).
+
+The turn engine runs the passes for every player at the year's end
+(`turn::detect_things`) so the marks are made whether or not a file is
+written. Tests: `crates/stars-core/tests/player_files.rs`.
 
 ## Cloaking
 

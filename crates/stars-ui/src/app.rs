@@ -950,8 +950,14 @@ impl App {
                     .chain(game.known_planets.iter())
                     .map(|p| p.id),
             );
-            self.in_view.planets = self.known_planets.clone();
-            self.in_view.fleets = (0..game.fleets.len()).collect();
+            self.in_view.planets = self
+                .known_planets
+                .iter()
+                .map(|id| (*id, stars_core::visibility::Detail::Full))
+                .collect();
+            self.in_view.fleets = (0..game.fleets.len())
+                .map(|i| (i, stars_core::visibility::Detail::Full))
+                .collect();
         }
         self.dirty = false;
         self.edited.clear();
@@ -11728,7 +11734,7 @@ impl App {
         let new: Vec<i16> = self
             .in_view
             .planets
-            .iter()
+            .keys()
             .copied()
             .filter(|id| !self.known_planets.contains(id))
             .collect();
@@ -11805,7 +11811,7 @@ impl App {
     /// or another player's within scanner range.
     #[must_use]
     pub fn fleet_in_view(&self, index: usize) -> bool {
-        self.in_view.fleets.contains(&index)
+        self.in_view.fleets.contains_key(&index)
     }
 
     /// The polylines the **Ship Paths** overlay draws, one per fleet, in

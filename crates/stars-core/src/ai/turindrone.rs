@@ -139,7 +139,7 @@ pub fn basic_turn(
         return report;
     }
     let seen = crate::visibility::view(state, player).planets;
-    state.players[player].explored.extend(seen);
+    state.players[player].explored.extend(seen.into_keys());
     report.research = ensure_research(
         state,
         player,
@@ -179,7 +179,7 @@ pub fn turn_as(
     // is a planet that has been scanned, and the AI keeps that knowledge
     // from year to year as its file does.
     let seen = crate::visibility::view(state, player).planets;
-    state.players[player].explored.extend(seen);
+    state.players[player].explored.extend(seen.into_keys());
     let explored = state.players[player].explored.clone();
 
     // `IroEnsureAi(vrgbTurinDroneRes, 31, &ishdefSBLatest, 15)`: the field

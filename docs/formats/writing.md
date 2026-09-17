@@ -140,11 +140,53 @@ measured over the corpus rather than assumed:
   occupy in the engine's own `grbitAttr`. This corrected a wrong conclusion in
   `../formulas/new-game.md`.
 
+## What a player's file says of everybody else
+
+`FWriteDataFile` (`1070:8f5e`) runs `SetVisiblePlanFleet` for the player
+before writing, and `stars_core::save::player_file` does the same with
+`visibility::view` (see `../formulas/scanning.md`, *What a scanner
+reveals*). What the passes mark goes into the file as:
+
+- a **short player record** (type 6, `det` 3: the header and the names, no
+  race) for every other player with a planet, fleet, design or space
+  object on the map or in a battle with the player; in full for a dead
+  player (`WriteRtPlr`, `1070:cbe6`) and, for a **Claim Adjuster**, for
+  every one (`1070:9210`);
+- a **partial planet** (type 14) per planet on the map that is not the
+  player's: `det` 1 with the id, owner and starbase; 3 with the
+  environment, concentrations and the owner's guesses (`fInclude` clear
+  when seen only obscurely); 4 with the surface minerals when there are
+  any. A starbase is named by its design alone;
+- a **partial fleet** (type 17) per fleet on the map that is not the
+  player's: the ships, `dirFltX`/`dirFltY` and `iwarpFlt` — the heading
+  as the mover set it (`10b0:4686`), zero for a fleet not moving — the
+  mass (hulls, minerals and colonists), and at `det` 4 the minerals
+  aboard (`WriteFleet`, `1070:8b52`);
+- the other players' **designs**: every design of a fleet on the map and
+  the starbase design of a planet seen in any detail but obscurely, in
+  outline (`det` 3: hull, picture, mass, name; `WriteRtShDef`,
+  `1070:8dc2`), or in full where the player has been shown it — a **War
+  Monger** always (`SetVisPFFinish`, `1070:c43c`), anyone for a design
+  that fought them this year (`WriteBattles`, `1070:80f8`), a **Space
+  Demolition** player for every design of a fleet their field hit
+  (`10b0:5d3e`), a **Packet Physics** player for the starbase of a planet
+  whose driver caught their packet (`10b0:1f7f`). The last two are
+  `SHDEF.grbitPlr`, which the original never saves and zeroes on loading
+  its designs, so they last the one generation:
+  `GameState::revealed_designs`, cleared at the start of a turn;
+- a battle this year puts the other side's surviving fleets on the map
+  in some detail and the planet it was fought over by name;
+- the **space objects** (type 43, after the scores and before the battle
+  plans, and no section at all with nothing in it): the player's own
+  minefields and every one they have ever detected, the packets they
+  see, every Mystery Trader, and the wormhole ends their scanners reach
+  this year, each with `fInclude` set.
+
+Checked in `crates/stars-core/tests/player_files.rs`; the turn-0 fixture
+files, with nothing yet in range of anybody, rebuild as before.
+
 ## What is not written
 
-- **Space objects** — minefields, mineral packets, wormholes, mystery traders —
-  because `GameState` does not model them. The object section is written as a
-  count of zero.
 - **Battle recordings** beyond the year's own. Messages, the year's
   recordings and the score rows *are* written: a turn file carries the
   player's own standing and, when the game's scores are public, everyone's.

@@ -432,6 +432,14 @@ impl GameState {
                     }
                     state.players[index] = player;
                     report.players_loaded += 1;
+                } else {
+                    // A short record — another player the file's own knows
+                    // of (`rgplr[i].det == detSome`): the name and emblem
+                    // on a placeholder.
+                    let player = &mut state.players[index];
+                    player.name.clone_from(&record.singular_name);
+                    player.plural_name.clone_from(&record.plural_name);
+                    player.logo = record.logo;
                 }
             }
         }
