@@ -266,6 +266,18 @@ pub fn generate_turn_with_orders(
         report.colonised = crate::orders::resolve_colonist_drops_with(state, &drops, Some(rng));
     }
 
+    // --- DoOrders(0) -> SatisfyOrders(1), DropColonists, SatisfyOrders(2):
+    // the tasks on the waypoint a fleet already stands at, before it
+    // moves — a Transport set at the current planet unloads and then
+    // loads, a Colonize colonises, a Scrap scraps — each pass's landings
+    // settled before the next.
+    for pass in [1u8, 2] {
+        let (done, drops) = crate::orders::execute_tasks_pass(state, pass, &Default::default());
+        report.tasks_done.extend(done);
+        let settled = crate::orders::resolve_colonist_drops_with(state, &drops, Some(rng));
+        report.colonised.extend(settled);
+    }
+
     // --- MoveThings(0): the Mystery Trader crosses a year, and the packets
     // already in flight do too, before anything else happens.
     report.trader_events = move_traders(state, rng);
@@ -357,6 +369,14 @@ pub fn generate_turn_with_orders(
                 .get(owner)
                 .is_some_and(|p| p.race.has_lrt(crate::race::lrt::IFE));
             if grounded.contains(&index) {
+                continue;
+            }
+            // A fleet still transporting at its waypoint, or laying mines
+            // there, stays (`MoveFleets`, `10b0:33c5`: `grTask` 1 or 6 on
+            // the current order).
+            if state.fleets[index].waypoints.first().is_some_and(|w| {
+                w.task == stars_formats::task::TRANSPORT || w.task == stars_formats::task::LAY_MINES
+            }) {
                 continue;
             }
             let from = state.fleets[index].position;
@@ -843,10 +863,9 @@ pub fn generate_turn_with_orders(
     // --- SatisfyOrders after movement: the tasks a fleet performs on arrival.
     // A task is consumed when it executes, which is why every waypoint in a
     // saved game that has already been reached reads 0.
-    {
-        let (done, drops) =
-            crate::orders::execute_arrival_tasks_after_moving(state, &moved_this_turn);
-        report.tasks_done = done;
+    for pass in [3u8, 4] {
+        let (done, drops) = crate::orders::execute_tasks_pass(state, pass, &moved_this_turn);
+        report.tasks_done.extend(done);
         let settled = crate::orders::resolve_colonist_drops_with(state, &drops, Some(rng));
         report.colonised.extend(settled);
     }
@@ -1438,9 +1457,6 @@ fn remote_mine_for_fleet(
 /// Returns what was laid, as `(kind, mines)`.
 fn lay_mines_for_fleet(state: &mut GameState, index: usize, moved: bool) -> Vec<(u8, i32)> {
     let fleet = &state.fleets[index];
-    if fleet.waypoints.first().map(|w| w.task) != Some(stars_formats::task::LAY_MINES) {
-        return Vec::new();
-    }
     let Ok(owner) = usize::try_from(fleet.owner) else {
         return Vec::new();
     };
@@ -1448,6 +1464,18 @@ fn lay_mines_for_fleet(state: &mut GameState, index: usize, moved: bool) -> Vec<
         .players
         .get(owner)
         .is_some_and(|p| p.race.prt() == Some(crate::race::Prt::Sd));
+    let laying_here =
+        fleet.waypoints.first().map(|w| w.task) == Some(stars_formats::task::LAY_MINES);
+    // Space Demolition lays **on the way** to a waypoint whose task is to
+    // lay (`SatisfyOrders`, `10b0:999e`: a current order with no task, a
+    // next one with the lay task), at the half rate of a mover.
+    let laying_en_route = !laying_here
+        && demolition
+        && fleet.waypoints.first().map(|w| w.task) == Some(stars_formats::task::NONE)
+        && fleet.waypoints.get(1).map(|w| w.task) == Some(stars_formats::task::LAY_MINES);
+    if !laying_here && !laying_en_route {
+        return Vec::new();
+    }
     if moved && !demolition {
         return Vec::new();
     }
@@ -1456,6 +1484,9 @@ fn lay_mines_for_fleet(state: &mut GameState, index: usize, moved: bool) -> Vec<
     };
 
     let laid = crate::minefield::lay(&mut state.minefields, &state.fleets[index], &designs, moved);
+    if laying_en_route {
+        return laid;
+    }
 
     // The countdown: 5 lays forever, 0 ends the order, anything else counts
     // down a year.

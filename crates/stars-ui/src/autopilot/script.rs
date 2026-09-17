@@ -492,8 +492,9 @@ pub fn tutorial(shell: &mut Shell) {
     shell.press("toolbar", "Nml");
     assert_eq!(shell.app.scan_view, crate::ScanView::Normal);
     // The year's news here runs: the ship built, the Teamster's colonists
-    // beamed down at 90210, then the two planets found. The page reads two
-    // and Gotos the Teamster, so its message is read up to and followed.
+    // beamed down at 90210 and its orders completed — the two the page
+    // says Goto the Teamster — then the two planets found. The first of
+    // the Teamster's is read up to and followed.
     shell.next_message_until(stars_core::message::Goto::Fleet(3));
     shell.press("messages", "Goto");
     assert_eq!(shell.selected_fleet_id(), Some(3), "Teamster #4");
@@ -501,10 +502,12 @@ pub fn tutorial(shell: &mut Shell) {
     shell.press("fleet", "Goto");
     assert_eq!(shell.app.selection.planet, Some(PLANET_90210));
     assert!(!shell.app.selection.on_fleet);
-    // The next message is No Vacancy, found; the probe's waypoint there
-    // wants deleting unless the probe has already reached it, in which
-    // case the waypoint went on its own and the page is done.
+    // The next message past the Teamster's is No Vacancy, found; the
+    // probe's waypoint there wants deleting unless the probe has already
+    // reached it, in which case the waypoint went on its own and the page
+    // is done.
     shell.press("messages", "Next");
+    shell.next_message_until(stars_core::message::Goto::Planet(NO_VACANCY));
     shell.press("messages", "Goto");
     assert_eq!(shell.app.selection.planet, Some(NO_VACANCY));
     if shell.page() == 20 {
@@ -2634,7 +2637,7 @@ pub fn tutorial(shell: &mut Shell) {
         .expect("the warp gauge")
         .rect;
     shell.click_at(egui::pos2(
-        gauge.left() + gauge.width() * 5.5 / 11.0,
+        gauge.left() + gauge.width() * 5.5 / 12.0,
         gauge.center().y,
     ));
     {
@@ -2853,16 +2856,31 @@ pub fn tutorial(shell: &mut Shell) {
     let wallaby = shell.planet_on_screen(WALLABY);
     shell.click_at(wallaby);
     assert_eq!(shell.app.selection.planet, Some(WALLABY));
-    shell.press("planet", "Change");
-    shell.frame();
+    // The original's Wallaby was a colony by now, settled by a Santa
+    // Maria the pages sent there; here the colony ships came out under
+    // other numbers and Wallaby may still be nobody's — the freighter's
+    // colonists "forced to transport down" to an empty planet die, as
+    // `DropColonists` has it — in which case there is no queue to change
+    // and the page is left standing.
+    let wallaby_is_ours = shell
+        .app
+        .game
+        .as_ref()
+        .and_then(|g| g.planets.iter().find(|p| p.id == WALLABY))
+        .is_some_and(|p| p.owner == Some(0));
+    if wallaby_is_ours {
+        shell.press("planet", "Change");
+        shell.frame();
+    }
     // Wallaby offers mines only while its people can run more of them;
     // the original's Wallaby had been filling for years.
-    let mines_offered = shell.app.drawn_button("production", "Mine").is_some()
-        || shell
-            .app
-            .production_inventory()
-            .iter()
-            .any(|row| !row.ship && row.item == stars_core::production::item::MINE);
+    let mines_offered = wallaby_is_ours
+        && (shell.app.drawn_button("production", "Mine").is_some()
+            || shell
+                .app
+                .production_inventory()
+                .iter()
+                .any(|row| !row.ship && row.item == stars_core::production::item::MINE));
     if mines_offered {
         shell.scroll_to("production", "Mine", "Factory");
         shell.press("production", "Mine");
@@ -2879,7 +2897,9 @@ pub fn tutorial(shell: &mut Shell) {
         );
         assert!(dialog.queue[0].count > 0);
     }
-    shell.press("production", "OK");
+    if wallaby_is_ours {
+        shell.press("production", "OK");
+    }
     while shell.app.message_next(false).is_some() {
         shell.press("messages", "Next");
     }

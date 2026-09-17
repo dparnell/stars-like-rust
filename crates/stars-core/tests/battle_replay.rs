@@ -602,6 +602,7 @@ fn beam_only_battles_replay_to_the_recorded_casualties() {
                     weapons,
                     value: design.cost().map_or(0, |c| c.resources + c.minerals[1]),
                     mass: design.mass().unwrap_or(0) * i32::from(t.ships),
+                    jitter: 7,
                     state: TokenState {
                         ships: i32::from(t.ships),
                         shields: i32::from(t.shields),
@@ -855,6 +856,7 @@ fn movement_scoring_rates_the_engines_choice_among_the_best() {
                     },
                     value: design.cost().map_or(0, |c| c.resources + c.minerals[1]),
                     mass: design.mass().unwrap_or(0) * i32::from(t.ships),
+                    jitter: 7,
                     state: TokenState {
                         ships: i32::from(t.ships),
                         shields: i32::from(t.shields),

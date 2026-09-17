@@ -511,9 +511,9 @@ fixed and the test holds the figures.
 - `grfWeapon` is now mapped: `bitFBeamLow` 0x01, `bitFBeamHigh` 0x02,
   `bitFTorp` 0x04, `bitFMissile` 0x08, `bitFDeflected` 0x80, plus the unnamed
   `0xC0` `FDamageTok` adds to a torpedo record that stopped at the shields.
-- The within-phase order is randomised and so unreproducible; the exact jitter
-  expression could not be read confidently and is not implemented. See
-  "The movement round".
+- The within-phase order is randomised and so unreproducible; the jitter is
+  implemented (see "The movement round") but cannot be checked without the
+  generator.
 - Bombing is covered in `bombing.md`: transcribed and unit-tested, but
   unverifiable here — a bombing run leaves no record of its own. Ground combat
   is in `ground.md`.
@@ -597,20 +597,22 @@ Implemented as `battle::move_round`.
 The sweep within a phase is by descending
 
 ```
-wtT = wt + wt * ((1 << (dwt - 7)) * 2) / 100
+wtT = wt + wt × (2 × (dwt − 7)) / 100        (signed; the quotient truncated toward zero)
 ```
 
-where `wt` is the token's mass. That is the manual's "heaviest first", but
-`dwt` is **`Random(15)`** — drawn when the token is built and **re-rolled for
-every active token after each round's movement**. The order is therefore
-deliberately perturbed and cannot be reproduced without the generator.
+where `wt` is the token's mass and `dwt` a four-bit draw of **`Random(15)`**
+— taken in `SpdOfShip` as the token is built and **re-rolled for every active
+token after each round's movement** (`10f0:92d0`). So a token moves as if up
+to fourteen percent lighter or sixteen heavier than it is, the perturbation
+changing every round: the manual's "heaviest first", deliberately blurred.
 
-The jitter itself is **not implemented, deliberately**. The shift is on
-`dwt - 7`, negative for nine of the fifteen values, and what the original does
-there could not be read confidently from the decompilation. Since the resulting
-order is unreproducible either way, `move_round` sorts by mass alone and draws
-one `Random(15)` per active token so the generator advances as the original
-advances it.
+`10f0:91f0`: `dwt − 7` is sign-extended to a long, shifted left by **one**
+(`__aFlshl` with `CX = 1`), multiplied by `wt` (`__aFlmul`) and divided by 100
+(`__aFldiv`). An earlier reading of this had the shift's operands crossed —
+`1 << (dwt − 7)` — and this project left the jitter out for want of a
+confident reading; it is implemented now as [`battle::jittered_mass`], with
+the draw in its place in the stream, and the order still cannot be
+reproduced without the generator in the original's state.
 
 ### Checked against every recorded round
 

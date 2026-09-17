@@ -183,6 +183,54 @@ pub mod id {
     /// settled held a Mystery Trader artifact (object `-2`; the planet,
     /// the field, the resources).
     pub const ARTIFACT_FOUND: u16 = 0x5e;
+
+    // The Transport task (`SatisfyOrders`, `10b0:686a`), the fleet as the
+    // object and first parameter; a place is `x, y`, `-1` and a planet, or
+    // `-1` and a fleet word.
+    /// `idmHasStolen`: a Pick Pocket or Robber Baron took from another
+    /// player's fleet (a long amount, the kind, the fleet robbed).
+    pub const HAS_STOLEN: u16 = 0x119;
+    /// `idmHadOrdersTransferCargoFutilePursuit`: the object the task named
+    /// is not a packet, or not here (the object kind).
+    pub const TRANSFER_FUTILE: u16 = 0x11e;
+    /// `idmAttemptedLoadPlanetDontControlOrderHas`: a load from a planet
+    /// the player does not control, given up on the last pass (the kind).
+    pub const LOAD_NOT_YOUR_PLANET: u16 = 0x11f;
+    /// `idmAttemptedLoadFleetDontControlOrderHas`: the same, from a fleet.
+    pub const LOAD_NOT_YOUR_FLEET: u16 = 0x120;
+    /// `idmAttemptedSetAmountBoardUnfortunatelyCouldntProvi`: "set amount
+    /// to" asked more than the far side had (the kind, the amount asked,
+    /// then the place).
+    pub const SET_AMOUNT_SHORT: u16 = 0x121;
+    /// `idmAttemptedSetNumberBoardUnfortunatelyCouldntProvi`: the same for
+    /// colonists.
+    pub const SET_NUMBER_SHORT: u16 = 0x122;
+    /// `idmAttemptedLoadDeepSpaceAttemptUnsuccessful`: a load in deep space
+    /// (the kind).
+    pub const LOAD_FROM_SPACE: u16 = 0x123;
+    /// `idmFailedLoadFuel`: the optimal fuel could not be found (the place).
+    pub const FUEL_LOAD_FAILED: u16 = 0x126;
+    /// `idmThereIsntEnoughFuelAvailableAllowGet`: the far side has too
+    /// little fuel for the next leg (the place, the fleet, the shortfall).
+    pub const FUEL_NOT_AVAILABLE: u16 = 0x3c;
+    /// `idmWillNeverMakeWaypointFuelCapacityMg`: the tank is too small for
+    /// the next leg however full (the capacity, the need).
+    pub const FUEL_NEVER_ENOUGH: u16 = 0x3d;
+    /// `idmHasTriedBeamColonistsPlanetUninhabitedMust`: colonists cannot
+    /// be unloaded onto an empty planet; it must be colonised (the planet).
+    pub const BEAM_DOWN_UNINHABITED: u16 = 0x55;
+    /// `idmCaptainHasAttemptedBeamColonistsOverruledBridge`: an Alternate
+    /// Reality captain's landing overruled (the planet).
+    pub const BEAM_DOWN_OVERRULED: u16 = 0x56;
+    /// `idmHasTriedBeamColonistsPlanetsStarbaseWould`: the planet's
+    /// starbase would kill a landing (the planet).
+    pub const BEAM_DOWN_STARBASE: u16 = 0x135;
+    /// `idmAllowedTransferColonistsAnotherPlayer`: colonists cannot be
+    /// given to another player's fleet.
+    pub const COLONISTS_TO_ANOTHER: u16 = 0x155;
+    /// `idmHasTriedBeamColonistsDeepSpaceOrder`: colonists cannot be put
+    /// into space.
+    pub const BEAM_DOWN_SPACE: u16 = 0x165;
     /// `idmSomeoneHasSweptMinesMineField`: somebody cleared mines from a field
     /// of yours (`SweepForMines`, `10b8:76a4`).
     pub const YOUR_FIELD_SWEPT: u16 = 0xbe;
@@ -1450,6 +1498,79 @@ impl Message {
             id::LANDING_LOST_THE_FIGHT => format!(
                 "The colonists you landed on {} were lost in the fighting.",
                 planet(param(0))
+            ),
+            id::HAS_STOLEN => format!(
+                "{} has stolen {}kT of {} from {}.",
+                fleet(),
+                long(1),
+                cargo_kind(param(3)),
+                names.fleet(u16::try_from(i32::from(param(4)) & 0x1ff).unwrap_or(0))
+            ),
+            id::TRANSFER_FUTILE => format!(
+                "{} had orders to transfer cargo with something that is not there; the order is dropped.",
+                fleet()
+            ),
+            id::LOAD_NOT_YOUR_PLANET => format!(
+                "{} tried to load {} from a planet you do not control; the order is cancelled.",
+                fleet(),
+                cargo_kind(param(1))
+            ),
+            id::LOAD_NOT_YOUR_FLEET => format!(
+                "{} tried to load {} from a fleet you do not control; the order is cancelled.",
+                fleet(),
+                cargo_kind(param(1))
+            ),
+            id::SET_AMOUNT_SHORT | id::SET_NUMBER_SHORT => format!(
+                "{} tried to set its {} aboard to {}, but {} could not provide that much.",
+                fleet(),
+                cargo_kind(param(1)),
+                param(2),
+                place_at(4)
+            ),
+            id::LOAD_FROM_SPACE => format!(
+                "{} tried to load {} from deep space, without success.",
+                fleet(),
+                cargo_kind(param(1))
+            ),
+            id::FUEL_LOAD_FAILED => format!(
+                "{} failed to load fuel at {}.",
+                fleet(),
+                place_at(1)
+            ),
+            id::FUEL_NOT_AVAILABLE => format!(
+                "There is not enough fuel at {} for {} to reach its next waypoint; it is {}mg short.",
+                place_at(0),
+                names.fleet(u16::try_from(i32::from(param(2)) & 0x1ff).unwrap_or(0)),
+                param(3)
+            ),
+            id::FUEL_NEVER_ENOUGH => format!(
+                "{} can never reach its next waypoint: its tank holds {}mg and the leg needs about {}mg.",
+                fleet(),
+                param(1),
+                param(2)
+            ),
+            id::BEAM_DOWN_UNINHABITED => format!(
+                "{} tried to put colonists down on {}, but the planet is uninhabited: it has to be colonised first.",
+                fleet(),
+                planet(param(1))
+            ),
+            id::BEAM_DOWN_OVERRULED => format!(
+                "The captain of {} was overruled in trying to put colonists down on {}: your people cannot live on a surface.",
+                fleet(),
+                planet(param(1))
+            ),
+            id::BEAM_DOWN_STARBASE => format!(
+                "{} tried to put colonists down on {}, but the starbase there would kill them.",
+                fleet(),
+                planet(param(1))
+            ),
+            id::COLONISTS_TO_ANOTHER => format!(
+                "{} may not hand colonists to another player.",
+                fleet()
+            ),
+            id::BEAM_DOWN_SPACE => format!(
+                "{} tried to put colonists out into deep space; the order is cancelled.",
+                fleet()
             ),
             id::ARTIFACT_FOUND => {
                 let field = usize::try_from(param(1))

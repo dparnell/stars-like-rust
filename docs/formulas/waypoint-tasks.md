@@ -1,7 +1,8 @@
 # Waypoint tasks
 
-Status: **verified in outline** — every one of the ten tasks is simulated. What
-is left is detail inside two of them, noted where it applies.
+Status: **verified in outline** — every one of the ten tasks is simulated, and
+Transport is transcribed whole. What is left is detail inside two of the
+others, noted where it applies.
 
 A waypoint carries a task in the low nibble of its flags word (`ORDER.grTask`,
 see [`waypoint.md`](../formats/waypoint.md)), performed when the fleet reaches
@@ -12,18 +13,76 @@ pass it belongs to.
 | id | task | pass | state |
 |---:|------|------|-------|
 | 0 | none | — | — |
-| 1 | Transport | 0 | simulated (`execute_arrival_tasks`) |
-| 2 | Colonize | 1 | simulated |
+| 1 | Transport | every pass: odd unload, even load | transcribed (`transport.rs`, below) |
+| 2 | Colonize | the first it is seen on | simulated |
 | 3 | Remote Mining | 3 | simulated, in its own pass (`mining.rs`) |
-| 4 | Merge | even | simulated |
+| 4 | Merge | 2 and 4 | simulated |
 | 5 | Scrap | 1 | simulated |
 | 6 | Lay Minefield | 3 | simulated (`minefields.md`) |
 | 7 | Patrol | end of turn | simulated |
 | 8 | Route | 4 | simulated |
 | 9 | Give | 4 | simulated |
 
+The four passes are `DoOrders(0)`'s 1 and 2 **before** the fleets move and
+`DoOrders(1)`'s 3 and 4 after, `DropColonists` settling each pass's landings
+before the next (`crate::orders::execute_tasks_pass`). So a task set on the
+waypoint a fleet already stands at runs before it flies — a Scrap set at
+home scraps in pass 1, and a Scrap on a waypoint reached this year waits for
+next year's pass 1 — and `MoveFleets` holds a fleet whose current order is a
+Transport still in progress or a Lay Minefield (`10b0:33c5`).
+
 The task is **consumed** when it runs, which is why every waypoint in a saved
 game that has already been reached reads `0`.
+
+## Transport (1)
+
+`10b0:686a`–`80f5`, transcribed in `crates/stars-core/src/transport.rs`. The
+far side is the waypoint's object: the planet the fleet orbits, a fleet, a
+mineral packet (minerals only, and no fuel), or deep space (fuel and nothing
+else — and nothing at all can be *loaded* there). What may be **taken** is
+`iSteal`: 3 at the player's own planet, 1 for their own fleet, else the
+scanners' allowance — a Pick Pocket (scanner 5) lets a fleet be robbed, a
+Robber Baron (14) a planet too. A load from a side that may not be taken from
+waits, and on pass 4 is given up with `0x11f`/`0x120`/`0x123`.
+
+Two stand-ins: at an **unowned** planet with another fleet of the player's
+here all turn and carrying mining robots, the load is that fleet's dig (the
+planet's surface, reported as `0x7d`); a **fleet of the player's own** with no
+hold, here all turn at the player's planet, is a tanker, and minerals asked of
+it come off the planet.
+
+Each item is one of the five kinds with an action and a quantity:
+
+| action | unload pass (1, 3) | load pass (2, 4) |
+|---|---|---|
+| Load All | — | all the far side has |
+| Unload All | all aboard | — |
+| Load Exact | — | the quantity |
+| Unload Exact | the quantity | — |
+| Fill Up To % | — | to the percentage of capacity |
+| Wait For % | — | the same, and the task waits while short |
+| Load Dunnage | — | after everything else, whatever room is left (a second round) |
+| Set Amount To | down to the quantity | up to it, saying so (`0x121`/`0x122`) when the far side falls short |
+| Set Waypoint To | give the far side up to the quantity | take its excess |
+
+Fuel's Load Dunnage is **load optimal fuel**: once the rest is aboard, the next
+leg's need is found (`EstFuelUse`, asked again until the lighter tank settles)
+and the excess given back; with no next leg all the fuel goes back; short of
+the need the task waits, and says why on pass 2 (`0x3c`/`0x3d`) or gives up on
+pass 4 (`0x126`).
+
+Unloading **colonists** onto a planet not the player's is a landing
+(`FQueueColonistDrop`, `ground.md`) — refused with a message onto an empty
+planet (`0x55`: it must be colonised), by an Alternate Reality captain
+(`0x56`), or under a starbase (`0x135`); colonists cannot go to another
+player's fleet (`0x155`) or into space (`0x165`); a fleet whose owner counts
+the player an enemy takes nothing at all.
+
+An unload pass keeps the task with each item done set to nothing; a load pass
+consumes it (`idmHasCompletedAssignedOrders` when nothing lies beyond) unless
+something is still waited for — a "Wait For" not met, a refused load before
+pass 4, fuel short — when the fleet stays put for it. Tests:
+`crates/stars-core/tests/transport.rs`.
 
 ## What the corpus contains
 

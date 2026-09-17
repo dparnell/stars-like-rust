@@ -126,21 +126,28 @@ fn a_counted_order_runs_out() {
     );
 }
 
-/// Everybody but Space Demolition has to sit still to lay.
+/// Everybody but Space Demolition has to sit still to lay: a fleet with a
+/// lay order on the waypoint it stands at does not move at all
+/// (`MoveFleets` holds a fleet whose current task is to lay), while a
+/// Space Demolition fleet **on its way** to a waypoint with a lay order
+/// lays as it goes, at half the rate.
 #[test]
 fn only_space_demolition_lays_on_the_move() {
     for (prt, expect) in [(Prt::Joat, 0), (Prt::Sd, 40)] {
         let mut state = a_layer(5, prt);
-        // A fleet with a leg to fly is one that moves this year: a long one,
-        // at warp 6, so it is still under way when the laying comes round.
+        // The lay order is on the leg's far end: a long one, at warp 6, so
+        // the fleet is still under way when the laying comes round.
+        let order = state.fleets[0].waypoints[0].clone();
+        state.fleets[0].waypoints[0].task = 0;
+        state.fleets[0].waypoints[0].task_data = Vec::new();
         state.fleets[0].waypoints.push(Waypoint {
             position: Point::new(1300, 1000),
             target: None,
             target_class: 0,
             warp: 6,
-            task: 0,
+            task: order.task,
             transport: None,
-            task_data: Vec::new(),
+            task_data: order.task_data,
         });
         state.fleets[0].cargo.fuel = 1000;
         let mut rng = Rng::from_seeds(1, 2);

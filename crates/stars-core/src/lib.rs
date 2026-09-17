@@ -87,6 +87,7 @@ pub mod scoresheet;
 pub mod stargate;
 pub mod startup;
 pub mod terraform;
+pub mod transport;
 pub mod turn;
 pub mod victory;
 pub mod visibility;

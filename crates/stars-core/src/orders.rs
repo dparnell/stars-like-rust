@@ -616,16 +616,56 @@ pub fn apply_default_queue(state: &mut GameState, planet: usize) {
 ///
 /// Returns the tasks performed and the colonist landings they caused.
 pub fn execute_arrival_tasks(state: &mut GameState) -> (Vec<(u16, u8)>, Vec<ColonistDrop>) {
-    execute_arrival_tasks_after_moving(state, &std::collections::BTreeSet::new())
+    let mut all_done = Vec::new();
+    let mut all_drops = Vec::new();
+    // A whole year's worth of passes, nothing having moved.
+    for pass in 1..=4 {
+        let (done, drops) = execute_tasks_pass(state, pass, &std::collections::BTreeSet::new());
+        all_done.extend(done);
+        all_drops.extend(drops);
+    }
+    (all_done, all_drops)
 }
 
 /// [`execute_arrival_tasks`], told which fleets (by `(owner, id)`) travelled
-/// this year, which is what "here all turn" is decided by.
+/// this year, which is what "here all turn" is decided by: the two passes
+/// after movement, one after the other.
 pub fn execute_arrival_tasks_after_moving(
     state: &mut GameState,
     travelled: &std::collections::BTreeSet<(i16, u16)>,
 ) -> (Vec<(u16, u8)>, Vec<ColonistDrop>) {
-    use stars_formats::{task, XferAction};
+    let mut all_done = Vec::new();
+    let mut all_drops = Vec::new();
+    for pass in [3, 4] {
+        let (done, drops) = execute_tasks_pass(state, pass, travelled);
+        all_done.extend(done);
+        all_drops.extend(drops);
+    }
+    (all_done, all_drops)
+}
+
+/// One of `SatisfyOrders`' four passes over every fleet's current
+/// waypoint (`10b0:6798`, `iPass` 1 to 4: two before the fleets move,
+/// two after). Which task acts on which pass:
+///
+/// | task | passes |
+/// |---|---|
+/// | Transport | every one — the odd passes unload, the even ones load |
+/// | Colonize | the first it is seen on |
+/// | Scrap | 1 only |
+/// | Merge | 2 and 4 |
+/// | Route, Give | 4 |
+///
+/// Remote mining and laying mines have their own places in the year, and
+/// patrol runs at its end. Returns the tasks performed and the colonist
+/// landings they caused, which the caller settles (`DropColonists`) before
+/// the next pass.
+pub fn execute_tasks_pass(
+    state: &mut GameState,
+    pass: u8,
+    travelled: &std::collections::BTreeSet<(i16, u16)>,
+) -> (Vec<(u16, u8)>, Vec<ColonistDrop>) {
+    use stars_formats::task;
 
     let mut done = Vec::new();
     let mut drops: Vec<ColonistDrop> = Vec::new();
@@ -633,6 +673,7 @@ pub fn execute_arrival_tasks_after_moving(
     // swept up at the end, because removing one mid-loop would renumber the
     // rest.
     let mut scrapped: Vec<usize> = Vec::new();
+    let here_all_turn = |f: &crate::fleet::Fleet| !travelled.contains(&(f.owner, f.id));
 
     for index in 0..state.fleets.len() {
         let fleet = &state.fleets[index];
@@ -647,6 +688,9 @@ pub fn execute_arrival_tasks_after_moving(
         // before the orbit check the rest share.
         match job {
             task::MERGE => {
+                if pass & 1 != 0 {
+                    continue;
+                }
                 if merge_into_target(state, index) {
                     done.push((state.fleets[index].id, job));
                     scrapped.push(index);
@@ -655,12 +699,18 @@ pub fn execute_arrival_tasks_after_moving(
                 continue;
             }
             task::SCRAP => {
+                if pass != 1 {
+                    continue;
+                }
                 scrap_fleet(state, index);
                 done.push((state.fleets[index].id, job));
                 scrapped.push(index);
                 continue;
             }
             task::ROUTE => {
+                if pass != 4 {
+                    continue;
+                }
                 if route_fleet(state, index) {
                     done.push((state.fleets[index].id, job));
                 }
@@ -668,6 +718,9 @@ pub fn execute_arrival_tasks_after_moving(
                 continue;
             }
             task::TRANSFER => {
+                if pass != 4 {
+                    continue;
+                }
                 // Reported under the number it had while it was still theirs:
                 // a fleet that changes hands is renumbered.
                 let was = state.fleets[index].id;
@@ -677,11 +730,42 @@ pub fn execute_arrival_tasks_after_moving(
                 state.fleets[index].waypoints[0].task = task::NONE;
                 continue;
             }
+            task::TRANSPORT => {
+                let Some(outcome) = crate::transport::run(
+                    state,
+                    index,
+                    crate::transport::Pass(pass),
+                    &here_all_turn,
+                ) else {
+                    continue;
+                };
+                drops.extend(outcome.drops);
+                if outcome.acted {
+                    done.push((state.fleets[index].id, job));
+                }
+                if !outcome.keep {
+                    let fleet = &mut state.fleets[index];
+                    fleet.waypoints[0].task = task::NONE;
+                    // Orders finished, with nowhere further to go, are
+                    // reported (`idmHasCompletedAssignedOrders`) — unless
+                    // the task was refused with a message of its own.
+                    if !outcome.cancelled && fleet.waypoints.len() == 1 {
+                        let id = fleet.id;
+                        state.messages.push(crate::message::Message {
+                            player: usize::try_from(fleet.owner).unwrap_or(0),
+                            id: crate::message::id::ORDERS_COMPLETE,
+                            object: crate::message::fleet_object(id),
+                            params: vec![id as i16, 0],
+                        });
+                    }
+                }
+                continue;
+            }
             // Everything else is somebody else's pass: remote mining and
-            // laying mines run later in the year, patrol at the end of it, and
-            // giving a fleet away is not modelled. None of them is cancelled
-            // here, and none of them needs a planet.
-            task::COLONIZE | task::TRANSPORT => {}
+            // laying mines run later in the year, patrol at the end of it.
+            // None of them is cancelled here, and none of them needs a
+            // planet.
+            task::COLONIZE => {}
             _ => continue,
         }
         let Some(orbiting) = fleet.orbiting else {
@@ -694,7 +778,6 @@ pub fn execute_arrival_tasks_after_moving(
             continue;
         };
         let owner = fleet.owner;
-        let transport = waypoint.transport;
 
         match job {
             task::COLONIZE => {
@@ -723,133 +806,7 @@ pub fn execute_arrival_tasks_after_moving(
                     continue;
                 }
             }
-            task::TRANSPORT => {
-                if let Some(orders) = transport {
-                    let mut moved = false;
-                    // Fuel only changes hands at a starbase: a planet with
-                    // none has no tanks, so a QuikDrop's "unload all" of the
-                    // fifth kind moves nothing there rather than draining
-                    // the fleet into the ground.
-                    let starbase = state
-                        .planets
-                        .iter()
-                        .find(|p| p.id == planet_id)
-                        .is_some_and(|p| p.starbase);
-                    // The robots whose digging a load at an unowned planet
-                    // takes: another fleet of ours, here all turn, with
-                    // remote miners aboard (`turn3.c`, `fMining = 2`).
-                    let unowned = state
-                        .planets
-                        .iter()
-                        .find(|p| p.id == planet_id)
-                        .is_some_and(|p| p.owner.is_none());
-                    let miner = if unowned {
-                        usize::try_from(owner)
-                            .ok()
-                            .and_then(|o| state.designs.get(o))
-                            .and_then(|designs| {
-                                state.fleets.iter().enumerate().find_map(|(i, f)| {
-                                    (i != index
-                                        && f.owner == owner
-                                        && f.orbiting == Some(orbiting)
-                                        && !travelled.contains(&(f.owner, f.id))
-                                        && crate::mining::remote_mines(designs, &f.stacks) > 0)
-                                        .then_some(f.id)
-                                })
-                            })
-                    } else {
-                        None
-                    };
-                    for (kind, item) in orders.items.iter().enumerate() {
-                        if kind == FUEL && !starbase {
-                            continue;
-                        }
-                        let amount = match item.action {
-                            XferAction::LoadAll => i32::MAX,
-                            XferAction::LoadExact => i32::from(item.quantity),
-                            XferAction::UnloadAll => -held(state, index, kind),
-                            XferAction::UnloadExact => -i32::from(item.quantity),
-                            XferAction::FillPercent => {
-                                fill_to(state, index, kind, i32::from(item.quantity))
-                            }
-                            // Not performed: see the note above.
-                            _ => 0,
-                        };
-                        if amount == 0 {
-                            continue;
-                        }
-                        // Colonists put down on a planet that is not the
-                        // fleet's owner's are a **landing** — a settling of
-                        // an empty world, or an invasion — and are settled
-                        // with the year's other drops, not simply added.
-                        let theirs = state
-                            .planets
-                            .iter()
-                            .find(|p| p.id == planet_id)
-                            .is_some_and(|p| p.owner != Some(owner));
-                        let went = move_cargo(state, index, planet_id, owner, kind, amount);
-                        if went == 0 {
-                            continue;
-                        }
-                        if kind == COLONISTS && went < 0 && theirs {
-                            drops.push(ColonistDrop {
-                                planet: planet_id,
-                                player: owner,
-                                colonists: -went,
-                                can_colonize: true,
-                            });
-                        }
-                        moved = true;
-                        // What moved is reported: minerals are loaded and
-                        // unloaded, colonists beamed up and down
-                        // (`SatisfyOrders`, `10b0:6798`), with the fleet,
-                        // the amount as a long, the kind, and the planet.
-                        let kind_word = i16::try_from(kind).unwrap_or(0);
-                        let id = if went > 0 {
-                            if kind == COLONISTS {
-                                crate::message::id::HAS_BEAMED_UP
-                            } else if miner.is_some() {
-                                crate::message::id::MINING_ROBOTS_LOADED
-                            } else {
-                                crate::message::id::HAS_LOADED
-                            }
-                        } else if kind == COLONISTS {
-                            crate::message::id::HAS_BEAMED_DOWN
-                        } else {
-                            crate::message::id::HAS_UNLOADED
-                        };
-                        let fleet_id = state.fleets[index].id;
-                        let [lo, hi] = crate::message::Message::long(went.abs());
-                        if let Ok(player) = usize::try_from(owner) {
-                            state.messages.push(crate::message::Message {
-                                player,
-                                id,
-                                object: crate::message::fleet_object(fleet_id),
-                                params: vec![
-                                    fleet_id as i16,
-                                    lo,
-                                    hi,
-                                    kind_word,
-                                    // The fifth word is the class of the far
-                                    // side, or the miner's number when it
-                                    // is the robots' haul.
-                                    match (id, miner) {
-                                        (crate::message::id::MINING_ROBOTS_LOADED, Some(m)) => {
-                                            m as i16
-                                        }
-                                        _ => i16::from(crate::fleet::grobj::PLANET),
-                                    },
-                                    planet_id,
-                                ],
-                            });
-                        }
-                    }
-                    if moved {
-                        done.push((state.fleets[index].id, job));
-                    }
-                }
-            }
-            // The match above only lets these two through.
+            // The match above only lets Colonize through.
             _ => continue,
         }
         state.fleets[index].waypoints[0].task = task::NONE;
@@ -1221,34 +1178,6 @@ fn route_fleet(state: &mut GameState, index: usize) -> bool {
         task_data: Vec::new(),
     });
     true
-}
-
-/// What a fleet holds of one cargo kind.
-fn held(state: &GameState, fleet: usize, kind: usize) -> i32 {
-    let cargo = &state.fleets[fleet].cargo;
-    match kind {
-        FUEL => cargo.fuel,
-        COLONISTS => cargo.colonists,
-        k if k < MINERALS => cargo.minerals[k],
-        _ => 0,
-    }
-}
-
-/// How much to load to bring a hold to a given percentage of capacity.
-fn fill_to(state: &GameState, fleet: usize, kind: usize, percent: i32) -> i32 {
-    let Some(designs) = usize::try_from(state.fleets[fleet].owner)
-        .ok()
-        .and_then(|i| state.designs.get(i))
-    else {
-        return 0;
-    };
-    let capacity = if kind == FUEL {
-        state.fleets[fleet].fuel_capacity(designs)
-    } else {
-        state.fleets[fleet].cargo_capacity(designs)
-    };
-    let want = capacity * percent.clamp(0, 100) / 100;
-    (want - held(state, fleet, kind)).max(0)
 }
 
 /// Move cargo between a fleet and a planet, recording nothing.

@@ -839,6 +839,10 @@ pub struct CombatToken {
     /// The stack's mass, which sets its place in the movement order —
     /// heaviest moves first. See [`move_round`].
     pub mass: i32,
+    /// The movement order's jitter (`TOK.dwt`): `Random(15)`, drawn when
+    /// the token is built (`SpdOfShip`) and again for every active token
+    /// after each round's movement. See [`jittered_mass`].
+    pub jitter: u8,
     /// The players this token fights, as a bitmask (`rggrfAttack[iplr]`):
     /// a token only targets, scores and closes on tokens of those players.
     pub enemies: u16,
@@ -1244,20 +1248,14 @@ pub const MOVEMENT_PHASES: u8 = 3;
 /// A **starbase never moves**: its allowance is zeroed outright rather than
 /// computed.
 ///
-/// # The order within a phase is randomised
+/// # The order within a phase is jittered
 ///
-/// The sweep is by descending `wtT = wt + wt * ((1 << (dwt - 7)) * 2) / 100`,
-/// where `wt` is the token's mass — so heavier first, as `MANUAL.PDF` says —
-/// but `dwt` is **`Random(15)`, re-rolled for every active token after each
-/// round's movement**. The order is therefore jittered by design and cannot be
-/// reproduced without the generator.
-///
-/// The exact jitter is *not* implemented, and deliberately: the shift is on
-/// `dwt - 7`, which is negative for nine of the fifteen values, and what the
-/// original does there could not be read confidently from the decompilation.
-/// Since the ordering is unreproducible either way, this sorts by mass alone
-/// and draws one `Random(15)` per active token so the generator advances as the
-/// original advances it. Ties keep the lower index.
+/// The sweep is by descending [`jittered_mass`] — the token's mass, up to
+/// fourteen percent lighter or sixteen heavier by its `dwt` — so heavier
+/// first, as `MANUAL.PDF` says, but perturbed by a draw that is re-rolled
+/// for every active token after each round's movement (`FDoCoolBattle`,
+/// `10f0:92d0`). The order therefore cannot be reproduced without the
+/// generator in the original's state. Ties keep the lower index.
 pub fn move_round(tokens: &mut [CombatToken], round: u8, rng: &mut Rng) {
     for token in tokens.iter_mut() {
         token.moves_left = if token.is_starbase {
@@ -1267,13 +1265,8 @@ pub fn move_round(tokens: &mut [CombatToken], round: u8, rng: &mut Rng) {
         };
     }
 
-    // Heaviest first. The original jitters this with a random draw per token;
-    // the draw is taken so the stream matches, but the jitter is not applied.
     let mut order: Vec<usize> = (0..tokens.len()).filter(|i| tokens[*i].alive()).collect();
-    for _ in &order {
-        let _ = rng.random(15);
-    }
-    order.sort_by_key(|i| (std::cmp::Reverse(tokens[*i].mass), *i));
+    order.sort_by_key(|i| (std::cmp::Reverse(jittered_mass(&tokens[*i])), *i));
 
     for phase in (1..=MOVEMENT_PHASES).rev() {
         for &mover in &order {
@@ -1287,6 +1280,29 @@ pub fn move_round(tokens: &mut [CombatToken], round: u8, rng: &mut Rng) {
             };
             tokens[mover].square = square;
         }
+    }
+    reroll_jitter(tokens, rng);
+}
+
+/// A token's mass as the movement sweep ranks it (`FDoCoolBattle`,
+/// `10f0:91f0`): `wt + wt × (2 × (dwt − 7)) / 100`, the product and quotient
+/// signed and the quotient truncated toward zero — `dwt` of 0 makes it
+/// fourteen percent lighter, 15 sixteen percent heavier, 7 leaves it alone.
+/// (`__aFlshl` of `dwt − 7` by one is the doubling; the reconstruction that
+/// read it as `1 << (dwt − 7)` had the operands crossed.)
+#[must_use]
+pub fn jittered_mass(token: &CombatToken) -> i32 {
+    let wt = i64::from(token.mass);
+    let jitter = wt * (2 * (i64::from(token.jitter) - 7)) / 100;
+    i32::try_from(wt + jitter).unwrap_or(i32::MAX)
+}
+
+/// The draw every active token takes after a round's movement
+/// (`FDoCoolBattle`, `10f0:92d0`): a new `dwt` of `Random(15)`, in token
+/// order.
+pub fn reroll_jitter(tokens: &mut [CombatToken], rng: &mut Rng) {
+    for token in tokens.iter_mut().filter(|t| t.active) {
+        token.jitter = u8::try_from(rng.random(15)).unwrap_or(0);
     }
 }
 
@@ -2063,6 +2079,7 @@ mod gattling_tests {
                 pct_jam: 0,
                 pct_computer: 0,
                 mass: 0,
+                jitter: 7,
                 weapon_reach: 1,
                 enemies: 0xffff,
                 player,
@@ -2112,6 +2129,7 @@ mod movement_phase_tests {
             weapon_reach: 1,
             enemies: 0xffff,
             mass,
+            jitter: 7,
             player: 0,
             active: true,
             square: Square::new(0, 0),
@@ -2127,6 +2145,23 @@ mod movement_phase_tests {
                 damage: Damage::default(),
             },
         }
+    }
+
+    /// The movement jitter: `wt + wt × 2(dwt − 7) / 100`, truncated toward
+    /// zero — fourteen percent under at 0, sixteen over at 15, none at 7.
+    #[test]
+    fn the_jitter_shifts_the_mass_by_two_percent_a_step() {
+        let mut t = mover(12, 1000, false);
+        t.jitter = 7;
+        assert_eq!(jittered_mass(&t), 1000);
+        t.jitter = 0;
+        assert_eq!(jittered_mass(&t), 860);
+        t.jitter = 15;
+        assert_eq!(jittered_mass(&t), 1160);
+        t.jitter = 6;
+        t.mass = 55;
+        // 55 × −2 / 100 = −1.1, truncated to −1.
+        assert_eq!(jittered_mass(&t), 54);
     }
 
     /// A round hands each token its allowance, and a starbase gets none however
@@ -2188,6 +2223,7 @@ mod target_class_tests {
             pct_jam: 0,
             pct_computer: 0,
             mass: 0,
+            jitter: 7,
             weapon_reach: 1,
             enemies: 0xffff,
             player,

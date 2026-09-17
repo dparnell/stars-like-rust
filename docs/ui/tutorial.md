@@ -845,6 +845,12 @@ under another number:
   after Berserker colony ships bound for No Vacancy and back to Wallaby;
   here it stayed at Wallaby and fought them there, one in 2424 and one in
   2426, so it has nowhere to go back to and no ship left to chase.
+* **Wallaby.** The pages have a Santa Maria settle it before the freighter
+  is set shuttling colonists there; here the colony ships came out under
+  other numbers and Wallaby may still be nobody's when the freighter
+  arrives, and colonists "forced to transport down" to an empty planet die
+  (`DropColonists`, message `0x02`) rather than settle it, so page 75's
+  hundred mines have no queue to go in and the page is left standing.
 * **The ships' numbers from 2423.** The Mini-Miner of 2424 is fleet 2,
   the three Santa Marias of 2426 fleet 7, split into 2, 7 and 9 — where
   the pages name 9, 10 and 11 — so the pages' colony-ship rungs are not

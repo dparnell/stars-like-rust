@@ -631,6 +631,7 @@ fn build_board(state: &GameState, encounter: &Encounter, rng: &mut Rng) -> Board
                             TargetClass::None
                         },
                         secondary_target: TargetClass::Any,
+                        jitter: 7,
                         is_starbase: true,
                         pct_jam: fit.pct_jam * 3 / 4,
                         pct_computer: fit.pct_computer,
@@ -711,7 +712,10 @@ fn build_board(state: &GameState, encounter: &Encounter, rng: &mut Rng) -> Board
                 0
             };
             let speed = battle_speed(design, race, share);
+            // `SpdOfShip` draws the token's movement jitter as it goes.
+            let jitter = u8::try_from(rng.random(15)).unwrap_or(0);
             tokens.push(CombatToken {
+                jitter,
                 player: u8::try_from(owner).unwrap_or(0),
                 active: true,
                 square: battle::start_square(players, side_of[owner]).unwrap_or(Square::new(0, 0)),
@@ -898,10 +902,12 @@ fn fight(
         let mut order: Vec<usize> = (0..board.tokens.len())
             .filter(|&i| board.tokens[i].alive())
             .collect();
-        for _ in &order {
-            let _ = rng.random(15);
-        }
-        order.sort_by_key(|&i| (std::cmp::Reverse(board.tokens[i].mass), i));
+        order.sort_by_key(|&i| {
+            (
+                std::cmp::Reverse(battle::jittered_mass(&board.tokens[i])),
+                i,
+            )
+        });
         for phase in (1..=battle::MOVEMENT_PHASES).rev() {
             for &mover in &order {
                 if !board.tokens[mover].alive() || phase > board.tokens[mover].moves_left {
@@ -944,6 +950,9 @@ fn fight(
                 }
             }
         }
+        // Every active token re-rolls its movement jitter for the next
+        // round before the firing (`10f0:92d0`).
+        battle::reroll_jitter(&mut board.tokens, rng);
         if !still_a_fight(&board.tokens) {
             break;
         }
