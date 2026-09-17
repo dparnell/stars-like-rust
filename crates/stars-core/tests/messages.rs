@@ -186,3 +186,39 @@ fn a_refused_gift_says_why() {
     assert_eq!(told.player, 0);
     assert!(told.summary().contains("colonists"), "{}", told.summary());
 }
+
+/// Every message the engine sends carries as many parameters as the
+/// original's table says its id does (`PARAMETER_COUNT`): a record with
+/// fewer would misalign every message after it in the block, and one with
+/// more would be read short. Checked over a decade of a real game, which
+/// exercises most of the engine.
+#[test]
+fn every_message_sent_matches_its_parameter_count() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");
+    let host = root.join("games/all-computer-players/2450/Game.hst");
+    let universe = root.join("games/all-computer-players/2450/Game.xy");
+    if !host.is_file() || !universe.is_file() {
+        eprintln!("skipping: fixture absent");
+        return;
+    }
+    let file = StarsFile::decode(&std::fs::read(&host).expect("read")).expect("decode");
+    let (mut state, _) = GameState::from_file(&file);
+    let xy = stars_formats::Universe::decode(&std::fs::read(&universe).expect("read"))
+        .expect("universe");
+    state.apply_universe(&xy);
+    let mut rng = Rng::from_seeds(9, 10);
+    let mut seen = std::collections::BTreeSet::new();
+    let mut wrong: Vec<(u16, usize, usize)> = Vec::new();
+    for _ in 0..10 {
+        generate_turn(&mut state, &mut rng);
+        for message in &state.messages {
+            let want = stars_formats::message::parameter_count(message.id);
+            seen.insert(message.id);
+            if message.params.len() != want && !wrong.iter().any(|w| w.0 == message.id) {
+                wrong.push((message.id, message.params.len(), want));
+            }
+        }
+    }
+    assert!(seen.len() > 10, "the decade said little: {seen:?}");
+    assert!(wrong.is_empty(), "(id, sent, table): {wrong:x?}");
+}

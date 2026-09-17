@@ -476,6 +476,11 @@ pub struct GameState {
     /// kept here rather than on the waypoint, whose record's bit it never
     /// reaches. Cleared at the start of a turn.
     pub no_auto_track: std::collections::BTreeSet<(i16, u16, usize)>,
+    /// `gd.fGameOverMan`: somebody has won, or only one player is left.
+    /// Set by the year's scoring (`UpdatePlayerScores`, `10b8:6258`) and
+    /// carried in the file header's game-over bit; the game may be played
+    /// on regardless.
+    pub game_over: bool,
 }
 
 impl GameState {
@@ -560,6 +565,7 @@ impl GameState {
             battles: Vec::new(),
             revealed_designs: std::collections::BTreeSet::new(),
             no_auto_track: std::collections::BTreeSet::new(),
+            game_over: false,
         }
     }
 

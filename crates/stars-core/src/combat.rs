@@ -1237,6 +1237,7 @@ fn send_messages(
                 .map(|(_, _, n)| n)
                 .sum();
             let n = |v: i32| i16::try_from(v).unwrap_or(i16::MAX);
+            let races = i16::try_from(encounter.present.count_ones()).unwrap_or(0);
             state.messages.push(Message {
                 player,
                 id: id::BATTLE,
@@ -1244,10 +1245,11 @@ fn send_messages(
                 params: vec![
                     place[0],
                     place[1],
-                    n(ours),
+                    races,
                     n(our_losses),
-                    n(theirs),
+                    n(ours),
                     n(their_losses),
+                    n(theirs),
                 ],
             });
             let starbase_stands = encounter
@@ -1261,17 +1263,24 @@ fn send_messages(
         } else if planet_owner == Some(player) {
             state.messages.push(Message {
                 player,
-                id: id::BATTLE_SEEN,
+                id: id::BATTLE_SEEN_FROM_PLANET,
                 object,
-                params: vec![place[0], place[1]],
+                params: vec![place[1]],
             });
             learn(state, player, id::WRECKAGE_IN_ORBIT_BOOSTED_RESEARCH, rng);
         } else if encounter.spectators & bit != 0 {
+            // The fleet that reports it: the player's first at the spot.
+            let reporter = encounter
+                .fleets
+                .iter()
+                .filter_map(|&i| state.fleets.get(i))
+                .find(|f| usize::try_from(f.owner).ok() == Some(player))
+                .map_or(0, |f| i16::try_from(f.id).unwrap_or(0));
             state.messages.push(Message {
                 player,
                 id: id::BATTLE_SEEN,
                 object,
-                params: vec![place[0], place[1]],
+                params: vec![reporter, place[0], place[1]],
             });
             learn(state, player, id::FLEET_FOUND_WRECKAGE, rng);
         }

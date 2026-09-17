@@ -500,7 +500,7 @@ pub fn generate_turn_with_orders(
                             player: owner,
                             id: crate::message::id::ORDERS_COMPLETE,
                             object: crate::message::fleet_object(id),
-                            params: vec![id as i16, 0],
+                            params: vec![id as i16],
                         });
                     }
                 }
@@ -958,9 +958,11 @@ pub fn generate_turn_with_orders(
     // --- UpdatePlayerScores, which the original runs near the end of the
     // year, once everything that could change a score has happened.
     report.scores = crate::score::scores(state);
+    mark_the_dead(state, &report.scores);
     let (met, winners) = crate::victory::resolve(state, &report.scores);
     report.victory = met;
     report.winners = winners;
+    declare_the_winners(state, &report.scores, &report.winners);
 
     // --- Patrol: every patrolling fleet looks for something to intercept.
     // The original does this as it writes each player's file, after
@@ -1141,7 +1143,7 @@ fn revalidate_orders(state: &mut GameState, player: usize, view: &crate::visibil
                             ITH_WORMHOLE => id::WORMHOLE_VANISHED,
                             _ => id::MINEFIELD_VANISHED,
                         };
-                        told.push((which, vec![word, 0]));
+                        told.push((which, vec![word]));
                         to_point = true;
                     }
                 }
@@ -1170,7 +1172,7 @@ fn revalidate_orders(state: &mut GameState, player: usize, view: &crate::visibil
                                 Some(planet) => {
                                     told.push((id::CHASED_FLEET_DUCKED, vec![word, planet]));
                                 }
-                                None => told.push((id::CHASED_FLEET_OUTRUN, vec![word, 0])),
+                                None => told.push((id::CHASED_FLEET_OUTRUN, vec![word])),
                             }
                         }
                     }
@@ -1196,6 +1198,103 @@ fn revalidate_orders(state: &mut GameState, player: usize, view: &crate::visibil
             object: params[0],
             params,
         });
+    }
+}
+
+/// A message put at the front of the year's news (`FSendPrependedPlrMsg`).
+fn prepend_message(state: &mut GameState, player: usize, id: u16, params: Vec<i16>) {
+    state.messages.insert(
+        0,
+        crate::message::Message {
+            player,
+            id,
+            object: -4,
+            params,
+        },
+    );
+}
+
+/// `UpdatePlayerScores` (`10b8:6258`), the first thing it does with a
+/// score: a player with no planet, no ship of any kind and not yet dead
+/// is dead from now on, and everybody else hears it (`0xbb`).
+fn mark_the_dead(state: &mut GameState, scores: &[crate::score::PlayerScore]) {
+    for player in 0..state.players.len() {
+        let Some(score) = scores.get(player) else {
+            continue;
+        };
+        let nothing_left = score.planets == 0
+            && score.unarmed_ships == 0
+            && score.escort_ships == 0
+            && score.capital_ships == 0;
+        if !nothing_left || state.players[player].dead {
+            continue;
+        }
+        state.players[player].dead = true;
+        let word = i16::try_from(player).unwrap_or(0) | 0x30;
+        for other in (0..state.players.len()).filter(|o| *o != player) {
+            prepend_message(
+                state,
+                other,
+                crate::message::id::PLAYER_ELIMINATED,
+                vec![word],
+            );
+        }
+    }
+}
+
+/// The end of `UpdatePlayerScores` (`10b8:6258`): with the winners known,
+/// the game is over (`gd.fGameOverMan`) and everybody is told — the
+/// winner alone (`0xb6`), the winners together (`0xb7`, each with the
+/// others), the rest (`0xb5`, with the winners), the dead (`0xb8`); or,
+/// with one player left standing, that player (`0xbc`) and the dead
+/// (`0xb8`). Nothing is said while the game goes on.
+fn declare_the_winners(
+    state: &mut GameState,
+    scores: &[crate::score::PlayerScore],
+    winners: &[usize],
+) {
+    use crate::message::id;
+    if state.players.len() < 2 || winners.is_empty() {
+        return;
+    }
+    state.game_over = true;
+    let alive = state.players.iter().filter(|p| !p.dead).count();
+    if alive <= 1 {
+        // The leader is the one the original congratulates, dead or not.
+        let leader = scores
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, s)| s.rank)
+            .map_or(0, |(i, _)| i);
+        for player in 0..state.players.len() {
+            if player == leader {
+                if !state.players[player].dead {
+                    prepend_message(state, player, id::LAST_ONE_STANDING, Vec::new());
+                }
+            } else {
+                prepend_message(state, player, id::GAME_OVER_DEAD, Vec::new());
+            }
+        }
+        return;
+    }
+    let mask: u16 = winners.iter().fold(0, |m, w| {
+        m | (1u16 << (u16::try_from(*w).unwrap_or(0) & 15))
+    });
+    for player in 0..state.players.len() {
+        let mine = 1u16 << (u16::try_from(player).unwrap_or(0) & 15);
+        let word = |m: u16| i16::from_ne_bytes(m.to_ne_bytes());
+        // The original hands every one of these the mask; the record
+        // keeps only what the message's parameter count allows.
+        let (which, params) = if state.players[player].dead {
+            (id::GAME_OVER_DEAD, Vec::new())
+        } else if mask & mine == 0 {
+            (id::GAME_WON_BY_OTHERS, vec![word(mask)])
+        } else if mask == mine {
+            (id::GAME_WON, Vec::new())
+        } else {
+            (id::GAME_WON_SHARED, vec![word(mask & !mine)])
+        };
+        prepend_message(state, player, which, params);
     }
 }
 
@@ -1277,15 +1376,15 @@ fn install_starbase(state: &mut GameState, index: usize, slot: u8) -> bool {
     };
     let design_word = (i16::try_from(owner).unwrap_or(0) << 5)
         | i16::from(crate::startup::FIRST_STARBASE_SLOT + slot);
+    let mut params = vec![planet_id, design_word];
+    if message == id::STARBASE_BUILT_WITH_DOCK {
+        params.push(i16::try_from(dock).unwrap_or(i16::MAX));
+    }
     state.messages.push(Message {
         player: owner,
         id: message,
         object: planet_id,
-        params: vec![
-            planet_id,
-            design_word,
-            i16::try_from(dock).unwrap_or(i16::MAX),
-        ],
+        params,
     });
 
     let designs = state.designs[owner].clone();
@@ -2346,7 +2445,7 @@ fn move_traders(state: &mut GameState, rng: &mut Rng) -> Vec<(u16, crate::wormho
                     player,
                     id,
                     object: -6,
-                    params: vec![trader as i16, 0],
+                    params: vec![trader as i16],
                 });
             }
         };
@@ -2430,7 +2529,7 @@ fn orders_lose_their_trader(state: &mut GameState, trader: &crate::wormhole::Mys
             player,
             id: id::TRADER_VANISHED,
             object: fleet_object(fleet),
-            params: vec![fleet as i16, 0],
+            params: vec![fleet as i16],
         });
     }
 }
@@ -4147,7 +4246,7 @@ fn validate_waypoints(state: &mut GameState, rng: &mut Rng) {
                                 player: owner_index,
                                 id: id::WORMHOLE_VANISHED,
                                 object: fleet_object(fleet_id),
-                                params: vec![fleet_id as i16, 0],
+                                params: vec![fleet_id as i16],
                             });
                         }
                         let w = &mut state.fleets[index].waypoints[leg];
@@ -4368,7 +4467,7 @@ fn first_pass_mishaps(
         let fleet_param = fleet_id as i16;
 
         if cheap && warp > 6 && warp != crate::stargate::WARP && rng.random(10) == 0 {
-            tell(state, id::BALKY_ENGINES, vec![fleet_param, 0]);
+            tell(state, id::BALKY_ENGINES, vec![fleet_param]);
             grounded.insert(index);
             continue;
         }
@@ -4423,7 +4522,7 @@ fn first_pass_mishaps(
                 continue;
             }
             if state.fleets[index].is_empty() {
-                tell(state, id::WARP_TEN_LOST_FLEET, vec![fleet_param, 0]);
+                tell(state, id::WARP_TEN_LOST_FLEET, vec![fleet_param]);
                 let f = &mut state.fleets[index];
                 f.stacks.clear();
                 f.cargo = crate::fleet::Cargo::default();

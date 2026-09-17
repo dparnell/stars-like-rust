@@ -150,7 +150,7 @@ fn a_tank_that_covers_the_leg_is_left_alone() {
         .collect();
     assert_eq!(done.len(), 1, "{:?}", state.messages);
     assert_eq!(done[0].object, stars_core::message::fleet_object(1));
-    assert_eq!(done[0].params, vec![1, 0]);
+    assert_eq!(done[0].params, vec![1]);
 }
 
 /// A last waypoint with a task that reports for itself — Transport here —

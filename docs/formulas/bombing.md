@@ -142,11 +142,20 @@ that player (`FAttackPlayer`, `10f0:2ac6`: attack-who 1 enemies by
 player) bombs it. `FCalcFleetBombDamage` adds up every fleet of the same
 player at the planet (marking them bombed, `fMulti` when more than one),
 `CalcPctSurvive` scales the buckets by what the defences let through, the
-installations and people go as *Bombing a planet* above says, Retro Bombs
-undo terraforming by `pctTerra` less half of what the defences stopped
-(not written), the two players are told (`0x60`/`0x6a` and their
-neighbours, two dozen wordings by what was destroyed; the transcription
-sends one each), and a planet with nobody left is uninhabited
+installations and people go as *Bombing a planet* above says, **Retro
+Bombs** undo terraforming (`10f0:b7d1`: `pctTerra`, the count of bombs,
+less half of what the defences stopped and at most 500, is how many steps
+each environment variable is moved back toward its original; both players
+are told the total, `0x12e`, or `0x17a`/`0x17b` for several fleets), the
+two players are told (`10f0:b9d4`, two dozen wordings by what was
+destroyed — with installations destroyed and people left `0x63`/`0x6d`,
+several fleets `0x169`/`0x173`, one more for several installations, two
+less with nobody killed, five more when the defences stopped anything and
+the share goes in as hundredths of a percent; the planet emptied
+`0x8f`/`0x90` or `0x17c`/`0x17d`; people alone `0x60`/`0x6a` or
+`0x166`/`0x170` — each with the fleet, the planet, the hundreds killed when
+any, the installations when any, and the share when said;
+`crates/stars-core/tests/combat.rs`), and a planet with nobody left is uninhabited
 (`UninhabitPlanet`, `1048:8732`: owner, people, queue, defences, scanner
 and starbase gone, mines and factories left standing, a Claim Adjuster's
 environment restored). `crate::bombing::do_bombing` is the transcription.

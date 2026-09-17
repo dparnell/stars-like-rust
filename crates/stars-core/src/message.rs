@@ -234,6 +234,26 @@ pub mod id {
     /// `idmWormholeHeadingForHasVanished` (`0xf8`): the wormhole a leg was
     /// aimed at is gone or has moved unseen; the leg now ends where it was.
     pub const WORMHOLE_VANISHED: u16 = 0xf8;
+    // `UpdatePlayerScores` (`10b8:6258`), put at the front of the year's
+    // news (`FSendPrependedPlrMsg`).
+    /// `idmForcesHaveDeclaredWinnerGameAdvisedAccept` (`0xb5`): somebody
+    /// else has won (the winners, as a player mask).
+    pub const GAME_WON_BY_OTHERS: u16 = 0xb5;
+    /// `idmHaveDeclaredWinnerGameMayContinuePlay` (`0xb6`): you have won
+    /// alone.
+    pub const GAME_WON: u16 = 0xb6;
+    /// `idmAlongHaveDeclaredWinnersGameMayContinue` (`0xb7`): you have won
+    /// with others (the others, as a player mask).
+    pub const GAME_WON_SHARED: u16 = 0xb7;
+    /// `idmDeadPlanetsHaveOverrunSpaceshipsDefeated` (`0xb8`): the game is
+    /// over and you are dead.
+    pub const GAME_OVER_DEAD: u16 = 0xb8;
+    /// `idmTracesHaveEliminatedGalaxyMayRestPeace` (`0xbb`): a player has
+    /// been wiped out this year (`player | 0x30`).
+    pub const PLAYER_ELIMINATED: u16 = 0xbb;
+    /// `idmTracesEveryOtherRivalHaveEliminatedGalaxy` (`0xbc`): everybody
+    /// else is gone; you alone are left.
+    pub const LAST_ONE_STANDING: u16 = 0xbc;
     /// `idmMineFieldHeadingHasVanishedOrdersHave` (`0x111`): the minefield
     /// a leg was aimed at is gone from the player's map; the leg now ends
     /// where it was.
@@ -268,23 +288,59 @@ pub mod id {
     /// A battle was fought with the player in it: object the battle id
     /// with bit 14 set (the Goto finds the place from the parameters, or
     /// the Battles report), parameters the place (`-1` and the planet,
-    /// or the coordinates), then the player's ships, their losses, the
-    /// enemy's ships and its losses. The original words the outcome a
-    /// dozen ways (`SendBattleMessages`, ids `0x8d`–`0xa8` and
-    /// `0x113`–`0x116`); this is its general case, `0xa8`.
+    /// or the coordinates), then the races involved, the player's losses,
+    /// their ships, the enemy's losses and its ships. The original words
+    /// the outcome a dozen ways (`SendBattleMessages`, ids `0x8d`–`0xa8`
+    /// and `0x113`–`0x116`); this is its general case, `0xa8`.
     pub const BATTLE: u16 = 0xa8;
-    /// A battle was fought within sight of one of the player's fleets or
-    /// at a planet of theirs, without them (`0xfa`; the original uses
-    /// `0xf9` for the planet's owner).
+    /// `idmReportsBattleTookPlaceForcesInvolved` (`0xfa`): a fleet of the
+    /// player's saw a battle it was not in (the fleet, the place).
     pub const BATTLE_SEEN: u16 = 0xfa;
-    /// The player's fleet bombed a planet (`0x60` and its neighbours in
-    /// `DoBombing`, which words the result two dozen ways): parameters
-    /// the fleet, the planet, the colonists killed (in hundreds), the
-    /// installations destroyed, the defences' stopping share in
-    /// hundredths of a percent, and whether several fleets bombed.
+    /// `idmColonyReportsBattleTookPlaceOrbitForces` (`0xf9`): a battle in
+    /// orbit of a planet of the player's, without them (the planet).
+    pub const BATTLE_SEEN_FROM_PLANET: u16 = 0xf9;
+    // `DoBombing` (`10f0:b9d4`) words a bombing two dozen ways: the fleet
+    // and the planet first, then the colonists killed (in hundreds) when
+    // any were, the installations destroyed when any were, and the
+    // defences' stopping share in hundredths of a percent when it says so.
+    /// `idmHasBombedKillingColonists` (`0x60`): people killed, nothing
+    /// destroyed (the fleet, the planet, the hundreds).
     pub const BOMBED: u16 = 0x60;
-    /// A planet of the player's was bombed (`0x6a`), the same parameters.
+    /// `idmHasBombedKillingColonists2` (`0x6a`): the same, to the planet's
+    /// owner.
     pub const BOMBED_YOU: u16 = 0x6a;
+    /// `idmHasBombedKillingColonistsDestroyingOneInstallati` (`0x63`):
+    /// people killed and one installation destroyed (the fleet, the planet,
+    /// the hundreds, the count). One more for several installations; two
+    /// less with nobody killed; five more with the stopping share.
+    pub const BOMBED_KILLED_AND_ONE: u16 = 0x63;
+    /// `0x6d`: the same, to the planet's owner.
+    pub const BOMBED_YOU_KILLED_AND_ONE: u16 = 0x6d;
+    /// `idmHasBombedKillingOffEnemyColonists` (`0x8f`): the planet is
+    /// emptied (the fleet, the planet, the hundreds, the installations).
+    pub const BOMBED_OUT: u16 = 0x8f;
+    /// `idmHasBombedKillingColonists3` (`0x90`): the same, to the owner.
+    pub const BOMBED_OUT_YOU: u16 = 0x90;
+    /// `0x166`: [`BOMBED`] by several fleets together.
+    pub const BOMBED_FLEETS: u16 = 0x166;
+    /// `0x169`: [`BOMBED_KILLED_AND_ONE`] by several fleets.
+    pub const BOMBED_KILLED_AND_ONE_FLEETS: u16 = 0x169;
+    /// `0x170`: [`BOMBED_YOU`] by several fleets.
+    pub const BOMBED_YOU_FLEETS: u16 = 0x170;
+    /// `0x173`: [`BOMBED_YOU_KILLED_AND_ONE`] by several fleets.
+    pub const BOMBED_YOU_KILLED_AND_ONE_FLEETS: u16 = 0x173;
+    /// `0x17c`: [`BOMBED_OUT`] by several fleets.
+    pub const BOMBED_OUT_FLEETS: u16 = 0x17c;
+    /// `0x17d`: [`BOMBED_OUT_YOU`] by several fleets.
+    pub const BOMBED_OUT_YOU_FLEETS: u16 = 0x17d;
+    /// `idmHasRetroBombedUndoingTerraforming` (`0x12e`): Retro Bombs
+    /// undid so many steps of terraforming (the fleet, the planet, the
+    /// steps), sent to both sides.
+    pub const RETRO_BOMBED: u16 = 0x12e;
+    /// `0x17a`: the same by several fleets, to the bomber.
+    pub const RETRO_BOMBED_FLEETS: u16 = 0x17a;
+    /// `0x17b`: the same by several fleets, to the planet's owner.
+    pub const RETRO_BOMBED_YOU_FLEETS: u16 = 0x17b;
     /// `idmCouldntGiveAwayBecauseThereColonistsBoard`: a fleet with colonists
     /// aboard cannot be given away (`10b0:9436`).
     pub const GIFT_HAS_COLONISTS: u16 = 0x149;
@@ -805,6 +861,34 @@ impl Message {
             3 => "colonists",
             _ => "fuel",
         };
+        // The bombing wordings that say what the defences stopped are the
+        // ones five above their plain form; the share is the parameter at
+        // `at`, in hundredths of a percent.
+        let stopped_share = |id: u16, at: usize| -> String {
+            let says_so = matches!(
+                id,
+                0x66..=0x69 | 0x70..=0x73 | 0x16c..=0x16f | 0x176..=0x179
+            );
+            if says_so {
+                let share = i32::from(param(at));
+                format!(
+                    "; the planet's defences stopped {}.{:02}% of the bombs",
+                    share / 100,
+                    share % 100
+                )
+            } else {
+                String::new()
+            }
+        };
+        // A player mask, spelt out.
+        let players = |mask: i16| -> String {
+            let bits = u16::from_ne_bytes(mask.to_ne_bytes());
+            let list: Vec<String> = (0..16)
+                .filter(|i| bits & (1 << i) != 0)
+                .map(|i| format!("player {i}"))
+                .collect();
+            list.join(", ")
+        };
         let place = || {
             let x = param(0);
             let y = param(1);
@@ -835,27 +919,84 @@ impl Message {
             || names.fleet(u16::try_from(i32::from(self.object) & 0x1ff).unwrap_or(0));
         match self.id {
             id::BATTLE => format!(
-                "A battle took place at {}: {} of your ships fought {} of theirs; you lost {}, they lost {}.",
+                "A battle took place at {} between {} races: {} of your ships fought {} of theirs; you lost {}, they lost {}.",
                 place(),
                 param(2),
                 param(4),
+                param(6),
                 param(3),
                 param(5)
             ),
-            id::BATTLE_SEEN => format!("A battle took place at {}.", place()),
-            id::BOMBED => format!(
-                "{} has bombed {}, killing {} colonists and destroying {} installations.",
+            id::BATTLE_SEEN => format!(
+                "{} reports a battle at {}; your forces were not involved.",
                 fleet(),
-                planet(param(1)),
-                i32::from(param(2)) * 100,
-                param(3)
+                if param(1) == -1 {
+                    planet(param(2))
+                } else {
+                    format!("({}, {})", param(1), param(2))
+                }
             ),
-            id::BOMBED_YOU => format!(
-                "{} has been bombed by {}: {} colonists killed and {} installations destroyed.",
+            id::BATTLE_SEEN_FROM_PLANET => format!(
+                "Your colony on {} reports a battle in orbit; your forces were not involved.",
+                planet(param(0))
+            ),
+            id::BOMBED | id::BOMBED_FLEETS => format!(
+                "{} has bombed {}, killing {} colonists.",
+                fleet(),
+                planet(param(1)),
+                i32::from(param(2)) * 100
+            ),
+            id::BOMBED_YOU | id::BOMBED_YOU_FLEETS => format!(
+                "{} has been bombed by {}: {} colonists killed.",
+                planet(param(1)),
+                fleet(),
+                i32::from(param(2)) * 100
+            ),
+            id::BOMBED_OUT | id::BOMBED_OUT_FLEETS => format!(
+                "{} has bombed {} and wiped out everyone on it.",
+                fleet(),
+                planet(param(1))
+            ),
+            id::BOMBED_OUT_YOU | id::BOMBED_OUT_YOU_FLEETS => format!(
+                "{} has been bombed by {}; nobody on it survived.",
+                planet(param(1)),
+                fleet()
+            ),
+            0x61 | 0x62 | 0x66 | 0x67 | 0x167 | 0x168 | 0x16c | 0x16d => format!(
+                "{} has bombed {}, destroying {} installations{}.",
+                fleet(),
+                planet(param(1)),
+                param(2),
+                stopped_share(self.id, 3)
+            ),
+            0x6b | 0x6c | 0x70 | 0x71 | 0x171 | 0x172 | 0x176 | 0x177 => format!(
+                "{} has been bombed by {}: {} installations destroyed{}.",
+                planet(param(1)),
+                fleet(),
+                param(2),
+                stopped_share(self.id, 3)
+            ),
+            0x63 | 0x64 | 0x68 | 0x69 | 0x169 | 0x16a | 0x16e | 0x16f => format!(
+                "{} has bombed {}, killing {} colonists and destroying {} installations{}.",
+                fleet(),
+                planet(param(1)),
+                i32::from(param(2)) * 100,
+                param(3),
+                stopped_share(self.id, 4)
+            ),
+            0x6d | 0x6e | 0x72 | 0x73 | 0x173 | 0x174 | 0x178 | 0x179 => format!(
+                "{} has been bombed by {}: {} colonists killed and {} installations destroyed{}.",
                 planet(param(1)),
                 fleet(),
                 i32::from(param(2)) * 100,
-                param(3)
+                param(3),
+                stopped_share(self.id, 4)
+            ),
+            id::RETRO_BOMBED | id::RETRO_BOMBED_FLEETS | id::RETRO_BOMBED_YOU_FLEETS => format!(
+                "{} has retro-bombed {}, undoing {} steps of its terraforming.",
+                fleet(),
+                planet(param(1)),
+                param(2)
             ),
             id::ORDERS_COMPLETE => format!("{} has finished its orders.", fleet()),
             id::ENGINE_RADIATION_KILLED => format!(
@@ -1601,6 +1742,30 @@ impl Message {
                 "The wormhole {} was heading for is no longer there; it will go to where the wormhole was.",
                 fleet()
             ),
+            id::GAME_WON_BY_OTHERS => format!(
+                "The game has been won by {}. You may play on, but the outcome is settled.",
+                players(param(0))
+            ),
+            id::GAME_WON => {
+                "You have been declared the winner of this game. You may play on if you wish."
+                    .to_string()
+            }
+            id::GAME_WON_SHARED => format!(
+                "You and {} have been declared the winners of this game. You may play on if you wish.",
+                players(param(0))
+            ),
+            id::GAME_OVER_DEAD => {
+                "You are out of the game: every planet of yours is overrun and every ship lost."
+                    .to_string()
+            }
+            id::PLAYER_ELIMINATED => format!(
+                "Nothing remains of player {} anywhere in the galaxy.",
+                param(0) & 0xf
+            ),
+            id::LAST_ONE_STANDING => {
+                "Every rival has been wiped from the galaxy; you alone are left to rule it."
+                    .to_string()
+            }
             id::MINEFIELD_VANISHED => format!(
                 "The minefield {} was heading for is no longer there; it will go to where the field was.",
                 fleet()
@@ -1749,13 +1914,18 @@ impl Message {
         filter.hidden(self.id)
     }
 
-    /// The record this message writes into a file.
+    /// The record this message writes into a file: as many parameters as
+    /// the id's table entry says (`PackageUpMsg`, `1030:802a`, stores that
+    /// many whatever it was handed), which is also what a reader takes
+    /// back out.
     #[must_use]
     pub fn record(&self) -> MessageRecord {
+        let mut params = self.params.clone();
+        params.resize(stars_formats::message::parameter_count(self.id), 0);
         MessageRecord {
             id: self.id,
             object: self.object,
-            params: self.params.clone(),
+            params,
         }
     }
 

@@ -148,7 +148,12 @@ writes a pair as `id ^ a ^ b`, which for two adjacent ids comes to the same
 thing, and the community reconstruction's `^ 0x0f` and `^ 0x1f` companions do
 not exist in this binary.
 
-## What is not modelled
+## What is sent
 
-The engine sends nineteen of the message ids. Every other event the original
-narrates — and there are hundreds of ids — passes silently.
+The engine sends the ids `crates/stars-core/src/message.rs` lists, each
+with the original's parameters; a record carries exactly as many as
+`PARAMETER_COUNT` gives the id (`Message::record` pads or trims to it,
+which is what `PackageUpMsg` does with whatever it is handed), and
+`tests/messages.rs` checks a decade of a real game sends no id with the
+wrong count. What the original narrates and this engine does not is
+whatever no transcribed routine sends.

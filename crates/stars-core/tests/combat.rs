@@ -259,14 +259,27 @@ fn bombers_bomb_an_undefended_planet() {
     assert!(done[0].result.colonists > 0, "{:?}", done[0].result);
     assert!(state.planets[target].pop < pop_before);
     assert!(!done[0].depopulated);
-    assert!(state
-        .messages
-        .iter()
-        .any(|m| m.player == 0 && m.id == stars_core::message::id::BOMBED));
-    assert!(state
-        .messages
-        .iter()
-        .any(|m| m.player == 1 && m.id == stars_core::message::id::BOMBED_YOU));
+    // People and installations went, and the planet had defences that
+    // stopped some of it: the fullest wording, five above the base.
+    let installations = done[0].result.factories + done[0].result.mines + done[0].result.defenses;
+    let (ours, theirs) = if installations > 1 {
+        (0x69, 0x73)
+    } else {
+        (0x68, 0x72)
+    };
+    let told = |player: usize, id: u16| {
+        state
+            .messages
+            .iter()
+            .find(|m| m.player == player && m.id == id)
+    };
+    let mine = told(0, ours).unwrap_or_else(|| panic!("{:?}", state.messages));
+    assert_eq!(mine.params[0], 20);
+    assert_eq!(mine.params[1], target_id);
+    assert_eq!(i32::from(mine.params[2]), done[0].result.colonists);
+    assert_eq!(i32::from(mine.params[3]), installations);
+    assert!(mine.params[4] > 0, "the share stopped");
+    assert!(told(1, theirs).is_some(), "{:?}", state.messages);
 
     // A second call in the same year does nothing more: the fleet has
     // bombed.
@@ -274,4 +287,100 @@ fn bombers_bomb_an_undefended_planet() {
     let again = stars_core::bombing::do_bombing(&mut state, &mut rng);
     assert_eq!(again.len(), 1, "a new call is a new year: it bombs again");
     assert!(state.planets[target].pop < pop_after);
+}
+
+/// Retro Bombs undo terraforming (`10f0:b7d1`): each moves every
+/// environment variable one step back toward the original, the count
+/// docked half of what the defences stop, and both sides are told the
+/// steps undone. They kill nobody.
+#[test]
+fn retro_bombs_undo_terraforming() {
+    use stars_core::components::slot;
+    use stars_core::design::{DesignSlot, ShipDesign};
+    use stars_core::fleet::ShipStack;
+    use stars_core::message::id;
+
+    let mut state = tutorial_world();
+    let mut rng = stars_core::rng::Rng::randomize(3);
+    state.designs[0].push(ShipDesign {
+        hull_id: 18,
+        slots: vec![
+            DesignSlot {
+                category: slot::ENGINE,
+                item: 1,
+                count: 1,
+            },
+            DesignSlot {
+                category: slot::BOMB,
+                item: stars_core::bombing::RETRO_BOMB as u8,
+                count: 2,
+            },
+        ],
+        name: "Rewinder".to_string(),
+        picture: 0,
+        stored_armor: 0,
+        obsolete: false,
+        designed: 0,
+        built: 0,
+    });
+    let bomber_slot = u8::try_from(state.designs[0].len() - 1).expect("a slot");
+    let target = state
+        .planets
+        .iter()
+        .position(|p| p.owner == Some(1))
+        .expect("the Berserkers' home");
+    let at = state.planets[target].position.expect("placed");
+    let target_id = state.planets[target].id;
+    // Terraformed five steps up on gravity, three down on radiation, with
+    // no defences to stop anything.
+    let planet = &mut state.planets[target];
+    planet.starbase = false;
+    planet.defenses = 0;
+    let original = planet.env;
+    planet.env_orig = Some(original);
+    planet.env[0] = original[0] + 5;
+    planet.env[2] = original[2] - 3;
+    let pop_before = planet.pop;
+
+    let mut bomber = state.fleets[0].clone();
+    bomber.id = 21;
+    bomber.owner = 0;
+    bomber.position = at;
+    bomber.orbiting = Some(target_id as u16);
+    bomber.waypoints.truncate(1);
+    bomber.waypoints[0].position = at;
+    bomber.waypoints[0].target = Some(target_id as u16);
+    // Two ships, two bombs each: four steps.
+    bomber.stacks = vec![ShipStack {
+        design: bomber_slot,
+        count: 2,
+        damaged_pct: 0,
+        damage_pct: 0,
+    }];
+    state.fleets.push(bomber);
+    for plan in &mut state.players[0].battle_plans {
+        plan.attack_who = combat::attack_who::EVERYONE;
+    }
+
+    let done = stars_core::bombing::do_bombing(&mut state, &mut rng);
+    assert_eq!(done.len(), 1, "{done:?}");
+    let planet = &state.planets[target];
+    assert_eq!(planet.pop, pop_before, "nobody dies");
+    assert_eq!(planet.env[0], original[0] + 1, "four of the five undone");
+    assert_eq!(planet.env[2], original[2], "all three undone");
+    assert_eq!(planet.env[1], original[1]);
+    let told: Vec<(usize, Vec<i16>)> = state
+        .messages
+        .iter()
+        .filter(|m| m.id == id::RETRO_BOMBED)
+        .map(|m| (m.player, m.params.clone()))
+        .collect();
+    assert_eq!(
+        told,
+        vec![(0, vec![21, target_id, 7]), (1, vec![21, target_id, 7])]
+    );
+    assert!(
+        !state.messages.iter().any(|m| m.id == id::BOMBED),
+        "nothing else to say"
+    );
 }

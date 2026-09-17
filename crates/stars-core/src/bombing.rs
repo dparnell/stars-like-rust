@@ -386,12 +386,19 @@ pub fn uninhabit(planet: &mut Planet, claim_adjuster: bool) {
 /// add, the defences take their share (`CalcPctSurvive`), and
 /// [`bomb_planet`] does the rest. A planet emptied is uninhabited.
 ///
-/// The Retro Bombs' undoing of terraforming is not written. The messages
-/// — the original's two dozen wordings by what was destroyed — are one
-/// each way: [`crate::message::id::BOMBED`] to the bomber and
-/// [`crate::message::id::BOMBED_YOU`] to the planet's owner, with the
-/// fleet, the planet, the colonists killed, the installations destroyed
-/// and the defences' stopping share in hundredths of a percent.
+/// **Retro Bombs** undo terraforming (`10f0:b7d1`): the count aboard,
+/// less half of what the defences stopped and at most 500, is how many
+/// steps each environment variable is moved back toward its original,
+/// and both players are told the total (`0x12e`; `0x17a`/`0x17b` for
+/// several fleets). The **messages** are the original's (`10f0:b9d4`):
+/// with installations destroyed and people left, `0x63`/`0x6d` (several
+/// fleets `0x169`/`0x173`), one more when several installations went, two
+/// less when nobody was killed, and five more when the defences stopped
+/// anything, with the stopping share in hundredths of a percent; with
+/// nobody left, `0x8f`/`0x90` (`0x17c`/`0x17d`); with only people killed,
+/// `0x60`/`0x6a` (`0x166`/`0x170`), or the wiped-out pair. The parameters
+/// are the fleet, the planet, the colonists killed (in hundreds) when
+/// any were, the installations destroyed when any were, and the share.
 pub fn do_bombing(state: &mut crate::GameState, rng: &mut Rng) -> Vec<Bombing> {
     use crate::combat::attack_who;
     use crate::message::{id, Message};
@@ -478,41 +485,117 @@ pub fn do_bombing(state: &mut crate::GameState, rng: &mut Rng) -> Vec<Bombing> {
         let their_tech = state.players[target].research.levels;
         let survive = pct_survive(&state.planets[planet_index], &their_race, their_tech);
         let result = bomb_planet(&mut state.planets[planet_index], load, survive, rng);
-        let depopulated = state.planets[planet_index].pop <= 0;
+        let multi = fleet_ids.len() > 1;
+        let n = |v: i32| i16::try_from(v).unwrap_or(i16::MAX);
+        let first = i16::try_from(fleet_ids[0]).unwrap_or(0);
+        let fleet_word = i16::from_le_bytes((fleet_ids[0] | 0x8000).to_le_bytes());
+        let tell = |state: &mut crate::GameState, to_bomber: u16, to_owner: u16, rest: &[i16]| {
+            let mut params = vec![first, planet_id];
+            params.extend_from_slice(rest);
+            state.messages.push(Message {
+                player,
+                id: to_bomber,
+                object: fleet_word,
+                params: params.clone(),
+            });
+            state.messages.push(Message {
+                player: target,
+                id: to_owner,
+                object: planet_id,
+                params,
+            });
+        };
+
+        // Retro Bombs (`10f0:b7d1`): so many steps back toward the original
+        // environment, less half of what the defences stopped.
+        if load.retro > 0 {
+            #[allow(clippy::cast_possible_truncation)]
+            let mut steps = load.retro - (((1.0 - survive.0) * f64::from(load.retro)) / 2.0) as i32;
+            steps = steps.min(500);
+            let planet = &mut state.planets[planet_index];
+            let original = planet.env_orig.unwrap_or(planet.env);
+            let mut changed = 0i32;
+            for (now, &was) in planet.env.iter_mut().zip(original.iter()) {
+                let delta = i32::from(*now) - i32::from(was);
+                let back = delta.abs().min(steps);
+                if back > 0 {
+                    let moved = i32::from(*now) - back * delta.signum();
+                    *now = i8::try_from(moved).unwrap_or(*now);
+                    changed += back;
+                }
+            }
+            if changed > 0 {
+                let (to_bomber, to_owner) = if multi {
+                    (id::RETRO_BOMBED_FLEETS, id::RETRO_BOMBED_YOU_FLEETS)
+                } else {
+                    (id::RETRO_BOMBED, id::RETRO_BOMBED)
+                };
+                tell(state, to_bomber, to_owner, &[n(changed)]);
+            }
+        }
+
+        // The wording (`10f0:b9d4`).
+        let installations = result.factories + result.mines + result.defenses;
+        let killed = result.colonists;
+        let emptied = state.planets[planet_index].pop <= 0;
+        let stopped = i16::try_from(((1.0 - survive.0) * 10_000.0) as i32).unwrap_or(0);
+        let all_stopped = survive.0 >= 1.0;
+        if installations >= 1 {
+            if emptied {
+                // Handed the killed and the destroyed, the wiped-out
+                // wording keeps neither (its parameter count is two).
+                let (a, b) = if multi {
+                    (id::BOMBED_OUT_FLEETS, id::BOMBED_OUT_YOU_FLEETS)
+                } else {
+                    (id::BOMBED_OUT, id::BOMBED_OUT_YOU)
+                };
+                tell(state, a, b, &[]);
+            } else {
+                let (mut a, mut b) = if multi {
+                    (
+                        id::BOMBED_KILLED_AND_ONE_FLEETS,
+                        id::BOMBED_YOU_KILLED_AND_ONE_FLEETS,
+                    )
+                } else {
+                    (id::BOMBED_KILLED_AND_ONE, id::BOMBED_YOU_KILLED_AND_ONE)
+                };
+                if installations > 1 {
+                    a += 1;
+                    b += 1;
+                }
+                if killed == 0 {
+                    a -= 2;
+                    b -= 2;
+                    if all_stopped {
+                        tell(state, a, b, &[n(installations)]);
+                    } else {
+                        tell(state, a + 5, b + 5, &[n(installations), stopped]);
+                    }
+                } else if all_stopped {
+                    tell(state, a, b, &[n(killed), n(installations)]);
+                } else {
+                    tell(state, a + 5, b + 5, &[n(killed), n(installations), stopped]);
+                }
+            }
+        } else if killed > 0 {
+            let (a, b) = match (emptied, multi) {
+                (true, false) => (id::BOMBED_OUT, id::BOMBED_OUT_YOU),
+                (true, true) => (id::BOMBED_OUT_FLEETS, id::BOMBED_OUT_YOU_FLEETS),
+                (false, false) => (id::BOMBED, id::BOMBED_YOU),
+                (false, true) => (id::BOMBED_FLEETS, id::BOMBED_YOU_FLEETS),
+            };
+            if emptied {
+                tell(state, a, b, &[]);
+            } else {
+                tell(state, a, b, &[n(killed)]);
+            }
+        }
+
+        let depopulated = emptied;
         if depopulated {
             let ca = their_race.prt() == Some(crate::race::Prt::Ca);
             uninhabit(&mut state.planets[planet_index], ca);
         }
-        let installations = result.factories + result.mines + result.defenses;
-        let stopped = i16::try_from(((1.0 - survive.0) * 10_000.0) as i32).unwrap_or(0);
-        let n = |v: i32| i16::try_from(v).unwrap_or(i16::MAX);
-        let first = i16::try_from(fleet_ids[0]).unwrap_or(0);
-        state.messages.push(Message {
-            player,
-            id: id::BOMBED,
-            object: i16::from_le_bytes((fleet_ids[0] | 0x8000).to_le_bytes()),
-            params: vec![
-                first,
-                planet_id,
-                n(result.colonists),
-                n(installations),
-                stopped,
-                i16::from(fleet_ids.len() > 1),
-            ],
-        });
-        state.messages.push(Message {
-            player: target,
-            id: id::BOMBED_YOU,
-            object: planet_id,
-            params: vec![
-                first,
-                planet_id,
-                n(result.colonists),
-                n(installations),
-                stopped,
-                i16::from(fleet_ids.len() > 1),
-            ],
-        });
         out.push(Bombing {
             player: owner,
             planet: planet_id,

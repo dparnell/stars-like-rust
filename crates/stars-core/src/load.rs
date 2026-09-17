@@ -369,6 +369,7 @@ impl GameState {
 
         let mut state = Self::new(segment.header.game_id);
         state.turn = i16::try_from(segment.header.turn).unwrap_or(0);
+        state.game_over = segment.header.flag_game_over;
         // The host's password, which only a host file carries: a type-36 block
         // after the player blocks (`file.c`, read as `lSaltCur` when the file
         // is a `.hst`). In any other file that block type is an order record

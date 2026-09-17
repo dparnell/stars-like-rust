@@ -105,13 +105,16 @@ const DESIGN_FLAGS1: u8 = 1;
 /// [`FormatError::Malformed`] if a record does not fit its block — a name
 /// longer than a length byte can count, or a block over 1023 bytes.
 pub fn host_file(state: &GameState) -> Result<Vec<u8>> {
-    let header = FileHeader::new(
+    let mut header = FileHeader::new(
         state.seed,
         FileType::Host,
         HOST_PLAYER,
         state.turn.unsigned_abs(),
         salt_for(state.seed, HOST_PLAYER, state.turn),
     );
+    // `fGameOverMan` goes into a host file's header alone (`WriteBOF`,
+    // `1070:8ea4`: `dt == dtHost && gd.fGameOverMan`).
+    header.flag_game_over = state.game_over;
     let mut body = Vec::new();
 
     // Only the first player's block carries the universe's planet count; every

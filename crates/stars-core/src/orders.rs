@@ -757,7 +757,7 @@ pub fn execute_tasks_pass(
                             player: usize::try_from(fleet.owner).unwrap_or(0),
                             id: crate::message::id::ORDERS_COMPLETE,
                             object: crate::message::fleet_object(id),
-                            params: vec![id as i16, 0],
+                            params: vec![id as i16],
                         });
                     }
                 }

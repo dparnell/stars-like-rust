@@ -142,11 +142,19 @@ score after enough years. It is a comparative condition, so it is one this end
 could not have checked from a player file anyway, but it is the first row in the
 corpus with any condition set at all.
 
-Who has won is worked out; **telling the players is not**, since messages are
-not modelled.
+Who has won is told to everyone, the messages put at the **front** of the
+year's news (`FSendPrependedPlrMsg`): the sole winner hears `0xb6`, winners
+together `0xb7` with the others as a player mask, everybody else alive
+`0xb5` with the winners' mask, and the dead `0xb8`. With one player left
+standing the game is over regardless: the leader hears `0xbc`, the rest
+`0xb8`. Either way `gd.fGameOverMan` is set — `GameState::game_over`, the
+host file header's game-over bit — and the game may be played on.
+`turn::declare_the_winners`; `crates/stars-core/tests/endgame.rs`.
 
 It is also where a player is **marked dead**: the score is computed first, and a
-player with nothing left is marked afterwards. That ordering shows in the files
+player with nothing left — no planet and no ship, unarmed, escort or
+capital — is marked afterwards, and everybody else is told (`0xbb`, the
+player as `player | 0x30`; `turn::mark_the_dead`). That ordering shows in the files
 — a dead player's last scoreboard row still counts the tech levels the next
 year's row will not — and it is why the differential test skips a player the
 file marks dead.
