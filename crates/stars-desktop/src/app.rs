@@ -1123,6 +1123,13 @@ impl eframe::App for StarsApp {
                         self.pick_file();
                     }
                     let open = self.app.game.is_some();
+                    // `&Close` (`0x71`, `CommandHandler` `1020:2f7a`): the
+                    // game is put away and the title screen comes back;
+                    // nothing is asked about unsaved changes.
+                    if ui.add_enabled(open, egui::Button::new("Close")).clicked() {
+                        ui.close_menu();
+                        self.app.close_game();
+                    }
                     if ui
                         .add_enabled(open, egui::Button::new("Save").shortcut_text("Ctrl+S"))
                         .on_hover_text(

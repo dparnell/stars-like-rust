@@ -191,7 +191,9 @@ The five items that carry their own greying rule are asked about through
 menu is alive whenever a game is open, because this shell's scanner is not a
 window that can be absent.
 
-Not there, because there is nothing behind it yet: `Close`.
+`Close` (`0x71`) puts the game away and shows the title screen, as
+`CommandHandler` (`1020:2f7a`) does with `DestroyCurGame` — without asking
+about unsaved changes, which the original does not either.
 `Save And Submit` is there — see below. `Print Map` opens the Print Map dialog
 (`print-map.md`), whose pages come out as pictures rather than on
 paper; the `Dump to Text File` submenu writes its three text files
