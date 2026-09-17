@@ -12,7 +12,12 @@
   `binary/STARS!.HLP`.
 - **Implemented in:** `crates/stars-formats/src/help.rs`
   (`stars_formats::HelpFile`); tests in `tests/help_file.rs`; a dump in
-  `examples/help_dump.rs`
+  `examples/help_dump.rs`; an HTML export of the whole file in
+  `examples/help_export.rs` — `cargo run -p stars-formats --example
+  help_export -- binary/STARS!.HLP out/` writes every topic as a page with
+  the file's fonts as CSS classes, its tables, its pictures as bitmaps with
+  their hotspots as image maps, every jump and popup as a link, the browse
+  sequence, an index, the Search keywords and the Help-button numbers
 
 ## How the game reaches it
 

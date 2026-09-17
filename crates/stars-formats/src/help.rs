@@ -1032,8 +1032,10 @@ pub struct Style {
     pub first: i16,
     /// The tab stops, from the left indent.
     pub tabs: Vec<i16>,
-    /// Whether the paragraph is boxed or ruled.
-    pub border: bool,
+    /// The paragraph's rules, as `helpfile.txt`'s border byte: bit 0 a box,
+    /// 1 a rule above, 2 to the left, 3 below, 4 to the right, 5 thick, 6
+    /// double. Zero for none.
+    pub border: u8,
 }
 
 /// The paragraph info: two bytes nobody has named, an id, then a word of
@@ -1066,9 +1068,8 @@ fn read_style(c: &mut Cursor) -> Result<Style> {
         style.first = c.css()?;
     }
     if bits & 0x0100 != 0 {
-        let _border = c.u8()?;
+        style.border = c.u8()?;
         let _width = c.i16()?;
-        style.border = true;
     }
     if bits & 0x0200 != 0 {
         let count = c.css()?;
