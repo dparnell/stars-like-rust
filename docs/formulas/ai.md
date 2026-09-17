@@ -547,10 +547,9 @@ the corpus shows computer players settling planets whose *current* value is
 negative — 368 of 513 settled planets are habitable as they stand, and the
 shortfall is concentrated in exactly the personalities that apply the test.
 
-How far a planet can be terraformed is not modelled yet, so
-`ai::colonise::pct_planet_opt_value` takes the reachable environment from the
-caller. This is the same gap that leaves the AI's terraform step count
-unmodelled, and closing it would settle both.
+`ai::colonise::pct_planet_opt_value` takes the reachable environment from
+the caller, which computes it with `terraform::optimal_env` from the
+player's technology (`terraforming.md`).
 
 #### What the corpus does and does not settle
 

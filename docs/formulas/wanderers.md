@@ -282,16 +282,15 @@ captured games ever got one, so even that cannot be confirmed from data. Those
 are checked against the binary, and by construction in
 `crates/stars-core/tests/trading.rs`.
 
-## Not modelled
+## Visibility and the legs that follow
 
-- **Visibility**: a waypoint following a Trader that is merely out of scanner
-  range is left alone, where the original would cut it loose when it writes
-  that player's file. The same goes for a wormhole or a minefield, which the
-  original cuts loose the same way, with their own messages (`0x111`, `0x112`).
-- Wormhole **visibility**: who can see an end is carried through a file, set by
-  traversal and cleared on a jump, but not recomputed from anybody's scanners.
-- `NoAutoTrackFleet`: the original stops a fleet auto-tracking the wormhole it
-  has just used. This engine does not model auto-tracking at all.
+A leg aimed at a Trader that is gone, a minefield the player has not
+detected, or a wormhole end their scanners do not reach this year is cut
+loose as the player's file is written (`0x110`, `0x111`, `0xf8`), and who
+can see a wormhole end is recomputed from every player's scanners at the
+year's end — `movement.md`, *The orders are looked over once more*, and
+`scanning.md`, *The space objects*. A fleet chasing one that goes through
+a wormhole stops where it went in (`NoAutoTrackFleet`, `stargates.md`).
 
 ## Source
 

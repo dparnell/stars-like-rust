@@ -202,11 +202,13 @@ between the two years — the same number given to a different packet, sometimes
 with more minerals in it than the one before — which no matching by id can tell
 apart.
 
-## Not modelled
+## Also modelled
 
-- **Stealing.** A fleet at a packet's position may take from it in the
-  original (`MANUAL.PDF` p. 6-12); the cargo transfer form does not offer it.
-- **The thrower learning the target's starbase design**, as above.
+- **Taking from a packet.** A fleet at a packet's position may load from it
+  (`MANUAL.PDF` p. 6-12): the Transport task's packet target,
+  `waypoint-tasks.md`.
+- **The thrower learning the target's starbase design**, as above:
+  `GameState::revealed_designs`, written in full in their file that year.
 
 ## Source
 

@@ -177,13 +177,13 @@ had **backwards**, both pinned by tests:
 
 ## Open questions
 
-- Battle initiative: the hull's base initiative plus battle computers; the
-  bonus each computer gives is in the specials table but the combination rule
-  (`InitFromHuldef`) has not been read yet.
-- Stock designs (`rgshdefT`, `rgshdefSBT`) are not transcribed; only the hull
-  tables are.
-- `LComputePower`, the design's `Rating:`, and the jammer and initiative
-  figures the designer shows at higher resolutions; the cloak figure is
-  `ShipDesign::cloak_pct` (`scanning.md`, *Cloaking*) and is not drawn there
-  yet.
+- ~~Battle initiative.~~ `combat::fittings`: the hull's initiative plus one,
+  two and three per Battle Computer, Super Computer and Nexus, capped at 63.
+- ~~Stock designs (`rgshdefT`, `rgshdefSBT`) are not transcribed.~~ They are
+  `startup::SHIPS` and `startup::STARBASES`, from which a new game's
+  designs are made.
+- ~~`LComputePower`, the design's `Rating:`, and the jammer and initiative
+  figures the designer shows.~~ `score::design_power` is the rating and the
+  designer's figure rows draw it, the cloak and jamming, and the initiative
+  (`../ui/ship-design.md`).
 - `grfAbilities` bit meanings across the component tables.

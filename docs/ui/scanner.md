@@ -955,10 +955,9 @@ from Prune to Hiho with 44 mg aboard, is bound there at **warp 5**: warp 7
 would cost 22 mg, exactly half the tank and so allowed for an unowned
 planet, but Hiho is unexplored in 2402, so the probe cruises at 6 and settles
 to 5. Long Range Scout #2's first leg, to the unexplored 90210, is warp 6 by
-the same road. This project does not yet keep the player's own view of the
-galaxy in a game it hosts itself — the App works from the host's knowledge
-of every planet — so it prices both as unowned and sends them faster; see
-`tutorial.md` for what that costs the walkthrough.
+the same road. The App keeps the player's own record of the galaxy
+(`known_planets`, filled from `visibility::view` year by year) and prices a
+planet not in it as empty space, as the client does.
 
 The fuel the rule weighs is `LFuelUseToWaypoint`'s (`1050:a9f4`): **every
 leg up to and including the one being set**, the earlier ones at the warps

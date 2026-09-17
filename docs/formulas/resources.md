@@ -99,8 +99,8 @@ clamp is `2 *` and not `3 *`.
   colonist contribution truncates.
 - An inhabited planet always produces at least 1 resource.
 - Alternate Reality races use an entirely different expression based on the
-  starbase and their Energy tech level; it is specified in the binary at
-  `1048:788e` but not implemented here, because it needs ship designs.
+  starbase and their Energy tech level, specified in the binary at
+  `1048:788e` and implemented by `resources_at_planet_with_starbase`.
 
 ## Worked example (becomes a test vector)
 
@@ -113,5 +113,6 @@ Captured at: `../vectors/planetary-economy.json` (`resources`).
 
 ## Open questions
 
-- The Alternate Reality resource formula, and the `rgTech[iEnergy]` term it
-  uses, are unimplemented (Step 5).
+- ~~The Alternate Reality resource formula, and the `rgTech[iEnergy]` term it
+  uses, are unimplemented.~~ `resources_at_planet_with_starbase` takes the
+  starbase hull and the Energy level.

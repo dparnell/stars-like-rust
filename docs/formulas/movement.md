@@ -266,8 +266,8 @@ with the cargo spread over the kinds in proportion to what is aboard and
 any rounding shortfall made up a unit at a time from the first kind that
 still has some. A side that gained ships gives nothing. So a split hands
 the new fleet exactly its ships' share, and a merge pulls everything into
-the survivor. `stars_core::fleet::balance_cargo`; the damage-percentage
-rebalancing the same routine does is not modelled.
+the survivor. `stars_core::fleet::balance_cargo`; the damage half is
+`fleet::balance_damage`, below.
 
 
 The same routine (`1050:b2c0`–`bcf4`) moves the **damage** with the ships,

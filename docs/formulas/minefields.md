@@ -173,7 +173,7 @@ field's id), and `0x162` when the fleet was its own. A detonation says
 `0x160`/`0x161` and `0x163`/`0x164` instead of the `0xc6`/`0xc7` and
 `0xca`/`0xcb` pairs. The wordings here are this project's.
 
-Not modelled: a Space Demolition field owner learns the designs its field hit
+A Space Demolition field owner learns the designs its field hit
 (`10b0:6174` sets a seen-by bit on each), for which the state has no place.
 
 ### Worked example
@@ -242,13 +242,13 @@ of `ThingDecay`: every fleet inside that does not belong to the field's owner
 takes the damage it would have taken flying into it, with no roll. The field
 then decays 25 percentage points faster for the privilege.
 
-## Not modelled
+## Visibility
 
-- **Visibility.** `grbitPlr` and `grbitPlrNow` say who has seen a field. They
-  are preserved, and set for a player who hits or sweeps one, but not otherwise
-  maintained — nothing here recomputes what each player's scanners can see.
-- The merging of overlapping intervals of the same kind in the traversal
-  roll, and the Space Demolition owner's view of the designs its field hit.
+`grbitPlr` and `grbitPlrNow` say who has seen a field: set for a player who
+hits or sweeps one, and at the year's end for everyone whose scanners reach
+it — `scanning.md`, *The space objects*. A Space Demolition owner's field
+reads the designs of what it hits (`10b0:6174`, `GameState::revealed_designs`),
+which their file that year describes in full (`../formats/writing.md`).
 
 ## Source
 

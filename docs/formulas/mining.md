@@ -167,8 +167,9 @@ Captured at: `../vectors/planetary-economy.json` (`mining`).
 
 ## Open questions
 
-- The remote-mining path is specified here but not yet exercised: it needs
-  fleets with robot mining modules (Step 4).
+- ~~The remote-mining path is specified here but not yet exercised.~~ The
+  Remote Mining task runs it (`waypoint-tasks.md`); no fleet in the corpus
+  carries a mining robot, so it rests on the transcription.
 
 
 ## Remote mining

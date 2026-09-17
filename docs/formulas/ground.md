@@ -194,8 +194,8 @@ time" gate suggests.
 
 The same routine tries thirteen Mystery Trader parts first, each with its own
 percentage in `rgTechTrader`, skipping any the player already holds
-(`PLAYER.grbitTrader`). It is not modelled: the part table is not in any
-fixture.
+(`PLAYER.grbitTrader`): `learn_from_battle`'s `trader_seen`, filled by
+`MarkTechsSeen` from the wrecks.
 
 ### Not verified
 
