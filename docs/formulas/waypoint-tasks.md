@@ -256,8 +256,14 @@ recipient's numbering, remaps its stacks onto their design slots and stops it
 where it stands.
 
 No fixture contains one — nobody in the sample gave a fleet away — so this rests
-on the binary alone. The messages the original sends, and the salvage-value
-bookkeeping around a gift, are not modelled.
+on the binary alone. The refusals and their words are the original's
+(`10b0:932b`): a player not in the game or dead (`0x148`); a **computer
+player**, who takes nothing, or anyone whose relation to the giver is
+*enemy* (`0x14c`, "snub your gift"); colonists aboard (`0x149`); no free
+design slot for a design the recipient lacks, or 512 fleets already
+(`0x14a` to the giver, `0x14b` to the recipient). A gift that goes through
+is announced to both (`0x14d`, `0x14e`, the fleet named by owner and
+number), and a design gained this way starts with nothing built.
 
 ## Source
 

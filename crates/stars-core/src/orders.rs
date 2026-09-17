@@ -1039,27 +1039,51 @@ fn dismantle_colony_fleet(state: &mut GameState, index: usize, planet: i16) {
 
 /// Give a fleet to another player.
 ///
-/// The arm is at `10b0:932b`, on pass 4. Four things have to be true, and the
-/// original checks them in this order:
+/// The arm is at `10b0:932b`, on pass 4. The original checks, in this
+/// order, and says why when it refuses:
 ///
 /// * **Who gets it** is the waypoint's `id`, but counted among the *other*
 ///   players: an index at or above the giver's own is shifted up by one, so
-///   the number is a position in the list of everybody else. It must land on a
-///   player who is in the game.
+///   the number is a position in the list of everybody else. It must land
+///   on a player who is in the game and alive (`0x148`).
+/// * **A computer player refuses every gift, and so does anyone who counts
+///   the giver an enemy** (`0x14c`).
 /// * **The fleet must not be carrying colonists** (`FLEET.rgwtMin[3]`,
-///   `10b0:9436`). You cannot hand people over.
-/// * **The receiving player must have room for the designs.** Every design the
-///   fleet uses is looked for in the recipient's own list first, and only a
-///   design they do not already have needs a free slot. If any design has
-///   nowhere to go, the whole gift is refused.
+///   `10b0:9436`; `0x149`). You cannot hand people over.
+/// * **The receiving player must have room for the designs**, and for one
+///   more fleet (512 at most). Every design the fleet uses is looked for
+///   in the recipient's own list first, and only a design they do not
+///   already have needs a free slot. If any design has nowhere to go, the
+///   whole gift is refused and both are told (`0x14a`, `0x14b`).
 /// * The fleet then changes hands: its stacks are renumbered to the
-///   recipient's design slots, it takes the lowest fleet number they are not
-///   using, and it stops where it is.
+///   recipient's design slots, the designs they gain start with nothing
+///   built, it takes the lowest fleet number they are not using, and it
+///   stops where it is. Both are told (`0x14d`, `0x14e`).
 ///
 /// Returns whether the fleet changed hands.
 fn give_fleet(state: &mut GameState, index: usize) -> bool {
+    use crate::message::{fleet_object, id, Message};
     let fleet = &state.fleets[index];
     let owner = fleet.owner;
+    let fleet_id = fleet.id;
+    let Ok(from) = usize::try_from(owner) else {
+        return false;
+    };
+    let tell = |state: &mut GameState, player: usize, which: u16, params: Vec<i16>| {
+        state.messages.push(Message {
+            player,
+            id: which,
+            object: if player == from {
+                fleet_object(fleet_id)
+            } else {
+                -1
+            },
+            params,
+        });
+    };
+    let fleet_param = i16::try_from(fleet_id).unwrap_or(0);
+    let player_word = |p: usize| i16::try_from(p).unwrap_or(0) | 0x30;
+
     // The waypoint names a player, numbered among everyone but the giver.
     let Some(named) = fleet.waypoints.first().and_then(|w| w.target) else {
         return false;
@@ -1068,29 +1092,37 @@ fn give_fleet(state: &mut GameState, index: usize) -> bool {
     if recipient >= owner {
         recipient += 1;
     }
-    let Ok(to) = usize::try_from(recipient) else {
+    let to = usize::try_from(recipient).unwrap_or(usize::MAX);
+    if to >= state.players.len() || recipient == owner || state.players[to].dead {
+        tell(state, from, id::GIFT_PLAYER_DEAD, vec![fleet_param]);
         return false;
-    };
-    if to >= state.players.len() || recipient == owner {
+    }
+    // A computer player takes nothing, nor does an enemy.
+    let snubs = state.players[to].control.is_computer()
+        || state.players[to].relations.get(from).copied() == Some(2);
+    if snubs {
+        tell(state, from, id::GIFT_SNUBBED, vec![player_word(to)]);
         return false;
     }
     // People are not a gift, and the player is told so.
-    if fleet.cargo.colonists > 0 {
-        if let Ok(player) = usize::try_from(owner) {
-            let id = fleet.id;
-            state.messages.push(crate::message::Message {
-                player,
-                id: crate::message::id::GIFT_HAS_COLONISTS,
-                object: crate::message::fleet_object(id),
-                params: vec![i16::try_from(id).unwrap_or(0)],
-            });
-        }
+    if state.fleets[index].cargo.colonists > 0 {
+        tell(state, from, id::GIFT_HAS_COLONISTS, vec![fleet_param]);
         return false;
     }
-
-    let Ok(from) = usize::try_from(owner) else {
-        return false;
+    let refuse_for_room = |state: &mut GameState| {
+        tell(
+            state,
+            from,
+            id::GIFT_NO_ROOM,
+            vec![fleet_param, player_word(to)],
+        );
+        tell(state, to, id::GIFT_NO_ROOM_THEIRS, vec![player_word(from)]);
+        false
     };
+    // Five hundred and twelve fleets is all a player's books hold.
+    if state.fleets.iter().filter(|f| f.owner == recipient).count() >= 512 {
+        return refuse_for_room(state);
+    }
     let mine = state.designs.get(from).cloned().unwrap_or_default();
     if state.designs.len() <= to {
         state.designs.resize_with(to + 1, Vec::new);
@@ -1120,18 +1152,21 @@ fn give_fleet(state: &mut GameState, index: usize) -> bool {
         });
         let Some(slot) = slot else {
             // No room for one of the designs: the whole gift is refused.
-            return false;
+            return refuse_for_room(state);
         };
         claimed.push(slot);
         let Ok(slot) = u8::try_from(slot) else {
-            return false;
+            return refuse_for_room(state);
         };
         moved.push((stack.design, slot));
     }
 
     // Nothing has been changed until here.
     for (old, new) in &moved {
-        let design = mine[usize::from(*old)].clone();
+        let mut design = mine[usize::from(*old)].clone();
+        // A design gained this way starts its books afresh (`10b0:94c8`).
+        design.built = 0;
+        design.obsolete = false;
         let theirs = &mut state.designs[to];
         if theirs.len() <= usize::from(*new) {
             theirs.resize_with(usize::from(*new) + 1, || crate::design::ShipDesign {
@@ -1149,6 +1184,17 @@ fn give_fleet(state: &mut GameState, index: usize) -> bool {
     }
 
     let id = crate::turn::next_fleet_id(state, recipient);
+    #[allow(clippy::cast_possible_wrap)]
+    let old_word = ((u16::try_from(from).unwrap_or(0) << 9) | (fleet_id & 0x1ff)) as i16;
+    #[allow(clippy::cast_possible_wrap)]
+    let new_word = ((u16::try_from(to).unwrap_or(0) << 9) | (id & 0x1ff)) as i16;
+    tell(state, from, id::GIFT_GIVEN, vec![old_word, player_word(to)]);
+    tell(
+        state,
+        to,
+        id::GIFT_RECEIVED,
+        vec![player_word(from), new_word],
+    );
     let fleet = &mut state.fleets[index];
     for stack in &mut fleet.stacks {
         if let Some((_, new)) = moved.iter().find(|(old, _)| *old == stack.design) {
@@ -1362,6 +1408,7 @@ fn unload_colonists(
 mod tests {
     use super::*;
     use crate::fleet::{Cargo, Fleet, ShipStack, Waypoint};
+    use crate::message::id;
     use crate::movement::Point;
     use crate::planet::Planet;
     use crate::race::Race;
@@ -1639,6 +1686,19 @@ mod tests {
         assert_eq!(state.designs[1].len(), 1);
         assert_eq!(state.designs[1][0].name, "Scout");
         assert_eq!(given.stacks[0].design, 0);
+        // Both are told, the fleet named by its owner and number.
+        let ids: Vec<(usize, u16, Vec<i16>)> = state
+            .messages
+            .iter()
+            .map(|m| (m.player, m.id, m.params.clone()))
+            .collect();
+        assert_eq!(
+            ids,
+            vec![
+                (0, id::GIFT_GIVEN, vec![3, 1 | 0x30]),
+                (1, id::GIFT_RECEIVED, vec![0x30, 1 << 9]),
+            ]
+        );
     }
 
     /// Colonists are not a gift, and a design with nowhere to go stops the
@@ -1692,6 +1752,61 @@ mod tests {
         assert!(done.is_empty(), "nowhere to put the design");
         assert_eq!(state.fleets[0].owner, 0);
         assert_eq!(state.designs[1].len(), 16, "and nothing was copied in");
+        let ids: Vec<(usize, u16, Vec<i16>)> = state
+            .messages
+            .iter()
+            .map(|m| (m.player, m.id, m.params.clone()))
+            .collect();
+        assert_eq!(
+            ids,
+            vec![
+                (0, id::GIFT_NO_ROOM, vec![3, 1 | 0x30]),
+                (1, id::GIFT_NO_ROOM_THEIRS, vec![0x30]),
+            ]
+        );
+
+        // A computer player, or an enemy, snubs it.
+        for (computer, enemy) in [(true, false), (false, true)] {
+            let mut state = game();
+            state.planets = vec![Planet::unowned(1)];
+            state.designs = vec![vec![design("Scout")], Vec::new()];
+            if computer {
+                state.players[1].control = crate::ai::Control::Computer {
+                    personality: None,
+                    skill_bits: 0,
+                };
+            }
+            if enemy {
+                state.players[1].relations = vec![2, 0];
+            }
+            let mut mine = fleet(0, 3, Cargo::default());
+            mine.waypoints[0].task = task::TRANSFER;
+            mine.waypoints[0].target = Some(0);
+            state.fleets = vec![mine];
+            let (done, _) = execute_arrival_tasks(&mut state);
+            assert!(done.is_empty(), "snubbed");
+            assert_eq!(state.fleets[0].owner, 0);
+            assert_eq!(
+                state.messages.last().map(|m| (m.id, m.params.clone())),
+                Some((id::GIFT_SNUBBED, vec![1 | 0x30]))
+            );
+        }
+
+        // A dead player takes nothing.
+        let mut state = game();
+        state.planets = vec![Planet::unowned(1)];
+        state.designs = vec![vec![design("Scout")], Vec::new()];
+        state.players[1].dead = true;
+        let mut mine = fleet(0, 3, Cargo::default());
+        mine.waypoints[0].task = task::TRANSFER;
+        mine.waypoints[0].target = Some(0);
+        state.fleets = vec![mine];
+        let (done, _) = execute_arrival_tasks(&mut state);
+        assert!(done.is_empty());
+        assert_eq!(
+            state.messages.last().map(|m| (m.id, m.params.clone())),
+            Some((id::GIFT_PLAYER_DEAD, vec![3]))
+        );
     }
 
     /// A task that has nothing to do with a planet is not cancelled for want of

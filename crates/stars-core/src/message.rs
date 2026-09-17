@@ -344,6 +344,26 @@ pub mod id {
     /// `idmCouldntGiveAwayBecauseThereColonistsBoard`: a fleet with colonists
     /// aboard cannot be given away (`10b0:9436`).
     pub const GIFT_HAS_COLONISTS: u16 = 0x149;
+    /// `idmCouldntGiveAwayBecausePlayerDead` (`0x148`): the player named
+    /// is dead, or not in the game (the fleet).
+    pub const GIFT_PLAYER_DEAD: u16 = 0x148;
+    /// `idmCouldntGiveAwayBecauseDidntHaveAdministrative` (`0x14a`): the
+    /// recipient has no room for the designs or the fleet (the fleet, the
+    /// recipient as `player | 0x30`).
+    pub const GIFT_NO_ROOM: u16 = 0x14a;
+    /// `idmAttemptedGiveFleetDontHaveEnoughExcess` (`0x14b`): the same, to
+    /// the recipient (the giver as `player | 0x30`).
+    pub const GIFT_NO_ROOM_THEIRS: u16 = 0x14b;
+    /// `idmSnubAttemptedGiftRefuseFleet` (`0x14c`): the recipient — a
+    /// computer player, or somebody who counts the giver an enemy — will
+    /// not have it (the recipient as `player | 0x30`).
+    pub const GIFT_SNUBBED: u16 = 0x14c;
+    /// `idmHasSuccessfullyGiven` (`0x14d`): the fleet is theirs now (the
+    /// fleet word, the recipient as `player | 0x30`).
+    pub const GIFT_GIVEN: u16 = 0x14d;
+    /// `idmHaveGiven` (`0x14e`): a fleet has been given to the player (the
+    /// giver as `player | 0x30`, the fleet word).
+    pub const GIFT_RECEIVED: u16 = 0x14e;
 
     // What a brand-new game says, all from `GenerateWorld` (`1078:0136`):
     // four playing tips to every player, with no object, and then one about
@@ -1216,6 +1236,33 @@ impl Message {
                 "Your starbase at {} swept {} mines.",
                 planet(param(0)),
                 long(1)
+            ),
+            id::GIFT_PLAYER_DEAD => format!(
+                "{} could not be given away: that player is dead.",
+                fleet()
+            ),
+            id::GIFT_NO_ROOM => format!(
+                "{} could not be given away: player {} has no room in their books for it.",
+                fleet(),
+                param(1) & 0xf
+            ),
+            id::GIFT_NO_ROOM_THEIRS => format!(
+                "Player {} tried to give you a fleet, but you have no spare design slots to take it in.",
+                param(0) & 0xf
+            ),
+            id::GIFT_SNUBBED => format!(
+                "Player {} snubs your gift and refuses the fleet.",
+                param(0) & 0xf
+            ),
+            id::GIFT_GIVEN => format!(
+                "{} has been given to player {}.",
+                names.fleet(u16::try_from(i32::from(param(0)) & 0x1ff).unwrap_or(0)),
+                param(1) & 0xf
+            ),
+            id::GIFT_RECEIVED => format!(
+                "Player {} has given you {}.",
+                param(0) & 0xf,
+                names.fleet(u16::try_from(i32::from(param(1)) & 0x1ff).unwrap_or(0))
             ),
             id::GIFT_HAS_COLONISTS => format!(
                 "{} could not be given away: your colonists are aboard.",
