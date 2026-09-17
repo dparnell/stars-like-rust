@@ -34,7 +34,7 @@ The PRNG that mining and the turn pipeline draw from is specified separately in
 | `components.md` | The component data tables (engines, weapons, scanners, …) | verified |
 
 | `combat.md` | Board, movement, targeting, weapon accuracy, firing | in progress |
-| `bombing.md` | Bombing a planet from orbit | transcribed, unverified |
+| `bombing.md` | Bombing a planet from orbit | transcribed in full, unverified |
 | `ground.md` | Landing colonists: settling and invasion | transcribed in full; no invasion in the corpus to check |
 | `design.md` | Hulls, slots, and the values derived from them | verified |
 | `fleet.md` | Ship stacks, cargo, and what derives from them | model and loading done |

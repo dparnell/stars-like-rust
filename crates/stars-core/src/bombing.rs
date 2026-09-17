@@ -1,10 +1,10 @@
 //! Bombing a planet from orbit.
 //!
-//! Source: `DoBombing` (`battle.c`), `CalcPctSurvive` (`util.c`) and
-//! `FCalcFleetBombDamage`. The first two are recovered in full; the third is a
-//! stub in the reconstructed sources and its decompilation shifts every
-//! parameter by one, because the leading far `FLEET *` occupies two slots. What
-//! could be read from it is marked below; what could not is not implemented.
+//! Source: `DoBombing` (`10f0:aefa`), `CalcPctSurvive` (`util.c`) and
+//! `FCalcFleetBombDamage` (`1038:145c`), all three transcribed. The third
+//! is a stub in the reconstructed sources and its decompilation shifts
+//! every parameter name by one, because the leading far `FLEET *` occupies
+//! two slots; it is read with that in mind.
 //!
 //! See `docs/formulas/bombing.md`.
 
@@ -25,6 +25,16 @@ pub const RETRO_BOMB: usize = 9;
 /// [`MINIMUM_KILL_PER_BOMB`] each — the five basic bombs, all of which damage
 /// buildings as well as people.
 pub const FIRST_SPECIALISED_BOMB: usize = 5;
+
+/// The Multi Contained Munition's index in [`crate::components::BEAMS`]:
+/// the one beam weapon that also bombs (`FCalcFleetBombDamage`, the beam
+/// slot's item `0x12`).
+pub const MULTI_CONTAINED_MUNITION: usize = 18;
+
+/// The Orbital Construction Module's index in
+/// [`crate::components::SPECIALS_M`], which bombs for a floor of twenty
+/// per module.
+pub const ORBITAL_CONSTRUCTION_MODULE: usize = 1;
 
 /// The minimum population each basic bomb kills whatever the percentages say,
 /// in units of 100 colonists.
@@ -72,10 +82,15 @@ impl BombLoad {
 /// hundred of them approach but never reach wiping the planet. Ordinary bombs
 /// sum outright.
 ///
-/// Two further contributors were read but are **not** implemented, because what
-/// they are could not be established: a beam-slot item and an Alternate Reality
-/// mechanical special each add fixed amounts. Neither appears in this
-/// repository's fixtures. See `docs/formulas/bombing.md`.
+/// Two things that are not bombs bomb as well (`1038:145c`, read with the
+/// far `FLEET *` taking two argument slots, which shifts every parameter
+/// name in the decompilation by one): a **Multi Contained Munition** in a
+/// beam slot (index [`MULTI_CONTAINED_MUNITION`]) counts as 20 to the
+/// people, 5 to the buildings and 3 to the floor per munition, and an
+/// **Orbital Construction Module** (mechanical index
+/// [`ORBITAL_CONSTRUCTION_MODULE`]) as 20 to the floor per module — the
+/// Alternate Reality race's way of clearing a world it means to hang a
+/// starbase over. See `docs/formulas/bombing.md`.
 #[must_use]
 pub fn bomb_load(designs: &[ShipDesign], stacks: &[ShipStack]) -> BombLoad {
     let mut load = BombLoad::default();
@@ -90,22 +105,42 @@ pub fn bomb_load(designs: &[ShipDesign], stacks: &[ShipStack]) -> BombLoad {
             continue;
         };
         for fitted in &design.slots {
-            if fitted.count == 0 || fitted.category != slot::BOMB {
+            if fitted.count == 0 {
+                continue;
+            }
+            let count = i32::from(fitted.count) * stack.count;
+            if fitted.category == slot::BEAM && usize::from(fitted.item) == MULTI_CONTAINED_MUNITION
+            {
+                load.people += count * 20;
+                load.buildings += count * 5;
+                load.floor += count * MINIMUM_KILL_PER_BOMB;
+                continue;
+            }
+            if fitted.category == slot::SPECIAL_M
+                && usize::from(fitted.item) == ORBITAL_CONSTRUCTION_MODULE
+            {
+                load.floor += count * 20;
+                continue;
+            }
+            if fitted.category != slot::BOMB {
                 continue;
             }
             let item = usize::from(fitted.item);
             let Some(bomb) = BOMBS.get(item) else {
                 continue;
             };
-            let count = i32::from(fitted.count) * stack.count;
 
             if item == RETRO_BOMB {
                 load.retro += count;
                 continue;
             }
             if is_smart(bomb) {
+                // One factor per bomb, multiplied in one at a time as the
+                // original's loop does.
                 let factor = 1.0 - f64::from(bomb.colonist_damage) / 1000.0;
-                smart_survival *= factor.powi(count.max(0));
+                for _ in 0..count.max(0) {
+                    smart_survival *= factor;
+                }
                 continue;
             }
             load.people += count * i32::from(bomb.colonist_damage);
@@ -116,11 +151,12 @@ pub fn bomb_load(designs: &[ShipDesign], stacks: &[ShipStack]) -> BombLoad {
         }
     }
 
-    // The product is turned back into a tenths-of-a-percent figure and capped.
-    // The conversion itself is the one step of `FCalcFleetBombDamage` that the
-    // decompilation hides — it leaves the value on the FPU stack — so this is
-    // the natural reading of a survival product, not a transcription.
-    load.smart = (((1.0 - smart_survival) * 1000.0) as i32).clamp(0, 1000);
+    // The product is turned back into a tenths-of-a-percent figure
+    // (`__ftol` of what the FPU holds) and capped at 1000.
+    #[allow(clippy::cast_possible_truncation)]
+    {
+        load.smart = (((1.0 - smart_survival) * 1000.0) as i32).clamp(0, 1000);
+    }
     load
 }
 
@@ -648,5 +684,29 @@ mod tests {
         planet.starbase = false;
         planet.pop = 0;
         assert!(!may_bomb(&planet, 1, true), "nobody to kill");
+    }
+
+    /// A Multi Contained Munition bombs as a 20 / 5 / 3 bomb would, and an
+    /// Orbital Construction Module adds twenty to the floor per module.
+    #[test]
+    fn munitions_and_construction_modules_bomb_too() {
+        let mut munition = bomber(0, 0);
+        munition.slots = vec![DesignSlot {
+            category: slot::BEAM,
+            item: u8::try_from(MULTI_CONTAINED_MUNITION).expect("fits"),
+            count: 2,
+        }];
+        let load = bomb_load(&[munition], &[stack(3)]);
+        assert_eq!((load.people, load.buildings, load.floor), (120, 30, 18));
+
+        let mut module = bomber(0, 0);
+        module.slots = vec![DesignSlot {
+            category: slot::SPECIAL_M,
+            item: u8::try_from(ORBITAL_CONSTRUCTION_MODULE).expect("fits"),
+            count: 1,
+        }];
+        let load = bomb_load(&[module], &[stack(2)]);
+        assert_eq!((load.people, load.buildings, load.floor), (0, 0, 40));
+        assert!(load.any());
     }
 }

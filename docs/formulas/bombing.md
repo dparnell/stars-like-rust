@@ -1,8 +1,8 @@
 # Subsystem: Bombing
 
-- **Status:** in progress — the gates, defence coverage and damage application
-  are recovered and implemented; the bomb totals are transcribed with one step
-  inferred, and none of it is verified against a recording
+- **Status:** transcribed in full — the gates, defence coverage, the bomb
+  totals and the damage application; none of it is verified against a
+  recording, a bombing run leaving none
 - **Ghidra routine(s):** `DoBombing` (`battle.c`), `CalcPctSurvive`
   (`util.c`), `FCalcFleetBombDamage` (`1038:145c`), `CMaxDefenses`,
   `CMaxOperableDefenses` (`1048:77ae`)
@@ -67,19 +67,23 @@ leading far `FLEET *` occupies two slots; reading it takes that into account.
 - **Everything else** sums outright into the people and building totals, and
   the five basic bombs (indices below 5) each add **3** to a floor on the kill.
 
-### The one inferred step
+### The end of it
 
-The product is converted back to a tenths-of-a-percent figure at the end, and
-that conversion is the single step the decompilation hides — the value is left
-on the FPU stack, so no expression is visible. `bomb_load` uses
-`(1 - product) * 1000`, clamped to 1000, which is the natural reading of a
-survival product and matches the units everything else uses. **It is a
-reading, not a transcription**, and is marked as such in the code.
+The product is turned back into a tenths-of-a-percent figure with `__ftol`
+and capped at 1000 (`10381747`'s neighbour: `if (smart > 999) smart = 1000`).
+The value is left on the FPU stack, so the expression is not visible in the
+decompilation, but the cap fixes the units: `(1 − product) × 1000`.
 
-Two further contributors were read but are **not** implemented, because what
-they are could not be established: a beam-slot item and an Alternate Reality
-mechanical special each add fixed amounts to the people and floor totals.
-Neither appears in this repository's fixtures.
+Two things that are not bombs count too:
+
+- a **Multi Contained Munition** in a beam slot (`hstBeam`, item `0x12`):
+  20 to the people, 5 to the buildings and 3 to the floor, per munition;
+- an **Orbital Construction Module** (`hstSpecialM`, item 1): 20 to the floor
+  per module — how an Alternate Reality race clears a world it means to hang a
+  starbase over.
+
+`fMulti` is set when more than one fleet at the planet was walked. Neither
+of the two extras appears in this repository's fixtures.
 
 ## Applying it
 
