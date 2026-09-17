@@ -588,31 +588,21 @@ pub fn apply_default_queue(state: &mut GameState, planet: usize) {
 /// one ceases to exist, which is `Merge2Fleets(dest, this, 1)` in the original:
 /// the fleet **carrying** the order is the one that disappears.
 ///
-/// **Scrap.** Each ship gives back a third of each mineral it cost to build,
-/// and everything in the hold is added to that. At a planet the planet keeps
+/// **Scrap.** Each ship gives back a third of each mineral it cost to build
+/// — re-costed at today's levels for a Bleeding Edge Technology race — and
+/// everything in the hold is added to that. At a planet the planet keeps
 /// **80%** of the total if it has a starbase and **50%** if it does not; in
-/// deep space the original leaves a salvage object behind, which this engine
-/// does not model, so the minerals are simply lost. Fuel and colonists aboard
-/// are not recovered either way. Transcribed from `CreateSalvage`
-/// (`10f0:7ee8`); the Bleeding Edge Tech recosting it does first is not
-/// modelled.
+/// deep space three quarters of it is left as salvage. Fuel and colonists
+/// aboard are not recovered either way. Transcribed from `CreateSalvage`
+/// (`10f0:7ee8`).
 ///
 /// **Route.** A fleet sitting at one of its owner's planets that has a route
 /// destination set is given a waypoint to that planet, which is
-/// `AutoRouteFleet` (`1080:1e52`). The original picks the speed with
-/// `IFindIdealWarp` and a stargate check; this uses the fleet's own warp
-/// setting, so the leg is right and its speed may not be.
+/// `AutoRouteFleet` (`1080:1e52`).
 ///
-/// A task is **consumed** once it runs, which is why every waypoint in a saved
-/// game that has already been reached reads `0`.
-///
-/// **Loading at a planet nobody owns.** `SatisfyOrders` gives a fleet
-/// nothing from such a planet unless one of its owner's own fleets is there,
-/// has been there all turn (`fHereAllTurn`) and carries mining robots
-/// (`CMineFromLpfl`): then the load is what the robots have dug — the
-/// planet's surface — and is reported as `idmHasLoadedMiningRobotsWorking`
-/// rather than `idmHasLoaded`. Without such a fleet the original refuses
-/// the load and says so; that refusal is not modelled here yet.
+/// **Transport** is `crate::transport`, and a task is **consumed** once it
+/// runs, which is why every waypoint in a saved game that has already been
+/// reached reads `0`.
 ///
 /// Returns the tasks performed and the colonist landings they caused.
 pub fn execute_arrival_tasks(state: &mut GameState) -> (Vec<(u16, u8)>, Vec<ColonistDrop>) {
@@ -708,13 +698,25 @@ pub fn execute_tasks_pass(
                 continue;
             }
             task::ROUTE => {
+                // A fleet with nothing beyond this waypoint, at a planet
+                // of its own with a route, is sent on (any pass); one
+                // with nowhere to go is given work on the last pass.
+                if route_fleet(state, index) {
+                    done.push((state.fleets[index].id, job));
+                    state.fleets[index].waypoints[0].task = task::NONE;
+                    continue;
+                }
                 if pass != 4 {
                     continue;
                 }
-                if route_fleet(state, index) {
-                    done.push((state.fleets[index].id, job));
-                }
                 state.fleets[index].waypoints[0].task = task::NONE;
+                if let Some(given) = auto_fleet_order(state, index) {
+                    done.push((state.fleets[index].id, job));
+                    if given == task::MERGE && merge_into_target(state, index) {
+                        scrapped.push(index);
+                        state.fleets[index].waypoints[0].task = task::NONE;
+                    }
+                }
                 continue;
             }
             task::TRANSFER => {
@@ -883,14 +885,32 @@ pub fn scrap_value(state: &GameState, index: usize) -> [i32; MINERALS] {
     let Some(fleet) = state.fleets.get(index) else {
         return recovered;
     };
-    let designs = state
-        .designs
-        .get(usize::try_from(fleet.owner).unwrap_or(usize::MAX));
+    let owner = usize::try_from(fleet.owner).unwrap_or(usize::MAX);
+    let designs = state.designs.get(owner);
+    // Bleeding Edge Technology: the design is re-costed at today's levels
+    // first (`UpdateShdefCost` on a copy), so a ship built dear comes back
+    // cheap.
+    let recost = state
+        .players
+        .get(owner)
+        .filter(|p| p.race.has_lrt(crate::race::lrt::BLEEDING_EDGE_TECH))
+        .map(|p| crate::parts::Builder {
+            race: &p.race,
+            levels: p.research.levels,
+            researching: p.research.current_field,
+            trader_parts: p.trader_parts,
+            starbase: false,
+            tutorial: state.tutorial_game,
+        });
     for stack in &fleet.stacks {
-        let Some(cost) = designs
-            .and_then(|d| d.get(usize::from(stack.design)))
-            .and_then(crate::design::ShipDesign::cost)
-        else {
+        let Some(design) = designs.and_then(|d| d.get(usize::from(stack.design))) else {
+            continue;
+        };
+        let cost = match recost.as_ref() {
+            Some(who) => design.true_cost(who),
+            None => design.cost(),
+        };
+        let Some(cost) = cost else {
             continue;
         };
         for (kind, total) in recovered.iter_mut().enumerate() {
@@ -906,9 +926,10 @@ pub fn scrap_value(state: &GameState, index: usize) -> [i32; MINERALS] {
 /// Scrap a fleet where it stands.
 ///
 /// The planet it orbits keeps 80% of [`scrap_value`] if it has a starbase and
-/// 50% if it does not (`CreateSalvage`, `10f0:7ee8`). Scrapped in deep space
-/// the original drops a salvage object, which this engine does not model, so
-/// nothing is kept. The fleet is left with no ships for the caller to sweep up.
+/// 50% if it does not (`CreateSalvage`, `10f0:7ee8`). Scrapped in deep space,
+/// **three quarters** of it — each mineral less a quarter (`>> 2`) — is left
+/// as salvage where the fleet stood (`DropSalvage`), for anyone to pick up.
+/// The fleet is left with no ships for the caller to sweep up.
 fn scrap_fleet(state: &mut GameState, index: usize) {
     let recovered = scrap_value(state, index);
     let orbiting = state.fleets[index]
@@ -918,6 +939,15 @@ fn scrap_fleet(state: &mut GameState, index: usize) {
         let share = if planet.starbase { 8 } else { 5 };
         for (kind, amount) in recovered.iter().enumerate() {
             planet.surface_min[kind] += amount * share / 10;
+        }
+    } else {
+        let mut left = [0i32; MINERALS];
+        for (kind, amount) in recovered.iter().enumerate() {
+            left[kind] = amount - (amount >> 2);
+        }
+        if left.iter().any(|m| *m != 0) {
+            let at = state.fleets[index].position;
+            crate::combat::drop_salvage(state, at, left);
         }
     }
     state.fleets[index].stacks.clear();
@@ -1142,7 +1172,9 @@ fn give_fleet(state: &mut GameState, index: usize) -> bool {
 fn route_fleet(state: &mut GameState, index: usize) -> bool {
     let fleet = &state.fleets[index];
     let owner = fleet.owner;
-    let warp = fleet.warp.unwrap_or(0);
+    if fleet.waypoints.len() != 1 {
+        return false;
+    }
     let Some(here) = fleet.orbiting.and_then(|id| i16::try_from(id).ok()) else {
         return false;
     };
@@ -1154,30 +1186,77 @@ fn route_fleet(state: &mut GameState, index: usize) -> bool {
     else {
         return false;
     };
-    if destination == here {
-        return false;
-    }
-    let Some(position) = state
-        .planets
-        .iter()
-        .chain(state.known_planets.iter())
-        .find(|p| p.id == destination)
-        .and_then(|p| p.position)
-    else {
+    // `AutoRouteFleet` (`1080:1e52`) lays the leg and chooses its warp —
+    // the gate, the dock, the cruising speed — with a Route task at its
+    // end, so the chain goes on; and the player is told, in one of two
+    // ways depending on whether the fuel will stretch.
+    crate::turn::auto_route_fleet(state, index, here);
+    let fleet = &state.fleets[index];
+    let Some(leg) = fleet.waypoints.get(1) else {
         return false;
     };
-    let fleet = &mut state.fleets[index];
-    fleet.waypoints.truncate(1);
-    fleet.waypoints.push(crate::fleet::Waypoint {
-        position,
-        target: u16::try_from(destination).ok(),
-        target_class: 1,
-        warp,
-        task: stars_formats::task::NONE,
-        transport: None,
-        task_data: Vec::new(),
-    });
+    let which = if leg.warp == 0 {
+        crate::message::id::REROUTED_SHORT_OF_FUEL
+    } else {
+        crate::message::id::REROUTED
+    };
+    let fleet_id = fleet.id;
+    if let Ok(player) = usize::try_from(owner) {
+        state.messages.push(crate::message::Message {
+            player,
+            id: which,
+            object: crate::message::fleet_object(fleet_id),
+            params: vec![fleet_id as i16, here, destination],
+        });
+    }
     true
+}
+
+/// `AutoFleetOrder` (`1080:…`, `ship2.c`): a routed fleet that has run out
+/// of route at a planet nobody owns — or its own, for an Alternate Reality
+/// race — and carries mining robots is put to work: merged into another
+/// fleet of the owner's standing on the same spot that mines less than
+/// 4,000 kT a year, or set to Remote Mining on its own. Returns the task
+/// given, if any.
+fn auto_fleet_order(state: &mut GameState, index: usize) -> Option<u8> {
+    let fleet = &state.fleets[index];
+    let owner = fleet.owner;
+    let owner_index = usize::try_from(owner).ok()?;
+    let designs = state.designs.get(owner_index)?;
+    let planet = fleet
+        .orbiting
+        .and_then(|id| i16::try_from(id).ok())
+        .and_then(|id| state.planets.iter().find(|p| p.id == id))?;
+    let alternate = state
+        .players
+        .get(owner_index)
+        .is_some_and(|p| p.race.prt() == Some(crate::race::Prt::Ar));
+    let workable = planet.owner.is_none() || (alternate && planet.owner == Some(owner));
+    if !workable || crate::mining::remote_mines(designs, &fleet.stacks) == 0 {
+        return None;
+    }
+    let partner = if planet.owner.is_none() {
+        state.fleets.iter().find(|other| {
+            other.owner == owner
+                && other.id != fleet.id
+                && !other.is_empty()
+                && other.position == fleet.position
+                && (1..4000).contains(&crate::mining::remote_mines(designs, &other.stacks))
+        })
+    } else {
+        None
+    };
+    let (job, target) = match partner {
+        Some(other) => (stars_formats::task::MERGE, Some((other.owner, other.id))),
+        None => (stars_formats::task::REMOTE_MINING, None),
+    };
+    let waypoint = &mut state.fleets[index].waypoints[0];
+    waypoint.task = job;
+    if let Some((o, id)) = target {
+        waypoint.target_class = crate::fleet::grobj::FLEET;
+        waypoint.target = Some((u16::try_from(o).unwrap_or(0) << 9) | (id & 0x1ff));
+    }
+    Some(job)
 }
 
 /// Move cargo between a fleet and a planet, recording nothing.
@@ -1781,8 +1860,71 @@ mod tests {
         let leg = &state.fleets[0].waypoints[1];
         assert_eq!(leg.position, Point::new(300, 400));
         assert_eq!(leg.target, Some(4));
-        assert_eq!(leg.warp, 7);
+        // The warp is `AutoRouteFleet`'s own choice, not the fleet's
+        // setting, and the leg carries the Route on so the chain goes on.
+        assert!(leg.warp > 0);
+        assert_eq!(leg.task, task::ROUTE);
         assert_eq!(state.fleets[0].waypoints[0].task, task::NONE, "order spent");
+        assert!(state
+            .messages
+            .iter()
+            .any(|m| m.id == crate::message::id::REROUTED));
+    }
+
+    /// A routed fleet that arrives with mining robots at a planet nobody
+    /// owns and no route on is put to work (`AutoFleetOrder`): merged into
+    /// another of the owner's miners there, else set to remote mining.
+    #[test]
+    fn a_route_that_ends_at_an_unowned_planet_sets_the_robots_mining() {
+        use stars_formats::task;
+
+        let mut state = game();
+        state.designs[0] = vec![crate::design::ShipDesign {
+            name: "Miner".to_string(),
+            picture: 0,
+            stored_armor: 0,
+            obsolete: false,
+            designed: 0,
+            built: 0,
+            hull_id: 22,
+            slots: vec![crate::design::DesignSlot {
+                category: crate::components::slot::MINING,
+                item: 0,
+                count: 1,
+            }],
+        }];
+        let mut rock = Planet::unowned(4);
+        rock.position = Some(Point::new(300, 400));
+        state.planets = vec![rock];
+        let mut mine = fleet(0, 3, Cargo::default());
+        mine.position = Point::new(300, 400);
+        mine.orbiting = Some(4);
+        mine.waypoints[0].target = Some(4);
+        mine.waypoints[0].task = task::ROUTE;
+        state.fleets = vec![mine];
+
+        let (done, _) = execute_arrival_tasks(&mut state);
+        assert_eq!(done, vec![(3, task::ROUTE)]);
+        assert_eq!(state.fleets[0].waypoints[0].task, task::REMOTE_MINING);
+
+        // With another miner of ours already there, it merges instead.
+        let mut state2 = game();
+        state2.designs = state.designs.clone();
+        state2.planets = state.planets.clone();
+        let mut other = fleet(0, 5, Cargo::default());
+        other.position = Point::new(300, 400);
+        other.orbiting = Some(4);
+        let mut mine = fleet(0, 3, Cargo::default());
+        mine.position = Point::new(300, 400);
+        mine.orbiting = Some(4);
+        mine.waypoints[0].target = Some(4);
+        mine.waypoints[0].task = task::ROUTE;
+        state2.fleets = vec![other, mine];
+        let (done, _) = execute_arrival_tasks(&mut state2);
+        assert_eq!(done, vec![(3, task::ROUTE)]);
+        assert_eq!(state2.fleets.len(), 1, "merged away");
+        assert_eq!(state2.fleets[0].id, 5);
+        assert_eq!(state2.fleets[0].stacks[0].count, 2);
     }
 
     /// A planet with no route set, or someone else's planet, routes nowhere.

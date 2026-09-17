@@ -231,6 +231,12 @@ pub mod id {
     /// `idmHasTriedBeamColonistsDeepSpaceOrder`: colonists cannot be put
     /// into space.
     pub const BEAM_DOWN_SPACE: u16 = 0x165;
+    /// `idmHasRerouted`: a fleet at a planet with a route has been sent on
+    /// (the fleet, the planet, the route's end).
+    pub const REROUTED: u16 = 0x127;
+    /// `idmHasReroutedUnfortuentlyDoesHaveEnoughFuel`: the same, with too
+    /// little fuel to get there.
+    pub const REROUTED_SHORT_OF_FUEL: u16 = 0x128;
     /// `idmSomeoneHasSweptMinesMineField`: somebody cleared mines from a field
     /// of yours (`SweepForMines`, `10b8:76a4`).
     pub const YOUR_FIELD_SWEPT: u16 = 0xbe;
@@ -1571,6 +1577,18 @@ impl Message {
             id::BEAM_DOWN_SPACE => format!(
                 "{} tried to put colonists out into deep space; the order is cancelled.",
                 fleet()
+            ),
+            id::REROUTED => format!(
+                "{} is at {} and has been routed on to {}.",
+                fleet(),
+                planet(param(1)),
+                planet(param(2))
+            ),
+            id::REROUTED_SHORT_OF_FUEL => format!(
+                "{} is at {} and has been routed on to {}, though it lacks the fuel to get there.",
+                fleet(),
+                planet(param(1)),
+                planet(param(2))
             ),
             id::ARTIFACT_FOUND => {
                 let field = usize::try_from(param(1))

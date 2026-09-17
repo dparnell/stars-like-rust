@@ -127,10 +127,12 @@ for each mineral kind:
 
 A third of each ship's build cost, in other words, of which the planet keeps
 **80%** with a starbase and **50%** without. The third is truncated per design,
-not over the sum. Scrapped in deep space the original drops a **salvage**
-object; this engine does not model salvage, so those minerals are lost. Fuel and
-colonists aboard are not recovered either way, and the Bleeding Edge Tech
-recosting `CreateSalvage` does first is not modelled.
+not over the sum. Scrapped in **deep space**, each mineral less a quarter
+(`recovered -= recovered >> 2`, `10f0:814b`) is dropped as a **salvage**
+object where the fleet stood (`DropSalvage`), for anyone to load. Fuel and
+colonists aboard are not recovered either way. A **Bleeding Edge Technology**
+race's designs are re-costed at its current levels first (`UpdateShdefCost`
+on a copy, `10f0:7f4e`) — `ShipDesign::true_cost`.
 
 ## Route (8)
 
@@ -140,11 +142,22 @@ destination is `PLANET.idRoute & 0x3ff`, stored **one-based** so that zero can
 mean "no route", which is why `stars_core::Planet::route_dest` subtracts the one
 on the way in and adds it back on the way out.
 
-The original picks the speed with `IFindIdealWarp` and a stargate case — if both
-planets have a stargate, the fleet carries no minerals, and the gate can take
-its heaviest ship, the leg is flown at "warp 11", the gate — then walks the
-speed down while the fuel does not stretch. This engine keeps the fleet's own
-warp setting instead, so the leg is right and its speed may not be.
+The speed is `IFindIdealWarp`'s, or "warp 11" — the gate — when both planets
+are the owner's with a gate on the starbase, the fleet carries nothing and its
+heaviest design would jump undamaged (`stargates.md`); below warp 9 with a dock
+at the far end, the fastest warp up to 9 whose range covers the leg; then
+walked down while it costs no more years, and lower while the tank will not
+stretch. The new leg carries the Route task on, so the chain continues, and
+the player is told (`0x127`, or `0x128` when the warp came out 0 for want of
+fuel). `crate::turn::auto_route_fleet`.
+
+The Route arm of `SatisfyOrders` (`10b0:908f`) runs this on **any** pass for
+a fleet with nothing beyond its waypoint at an owned planet with a route; on
+the last pass a fleet that cannot be routed on is given work instead
+(`AutoFleetOrder`, `ship2.c`): at a planet nobody owns — or the owner's own,
+for an Alternate Reality race — a fleet with mining robots merges into
+another of the owner's fleets on the spot that mines under 4,000 kT a year,
+or, failing one, is set to Remote Mining where it is.
 
 ## Lay Minefield (6)
 

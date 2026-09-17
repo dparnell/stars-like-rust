@@ -1282,7 +1282,7 @@ fn add_ships_to_orbiting_fleet(
 /// then, down to warp 3, the slowest warp that takes no more years over
 /// the leg than that one; then lower still while the tank will not cover
 /// the leg.
-fn auto_route_fleet(state: &mut GameState, index: usize, planet: i16) {
+pub(crate) fn auto_route_fleet(state: &mut GameState, index: usize, planet: i16) {
     let owner = state.fleets[index].owner;
     let Some(destination) = state
         .planets
