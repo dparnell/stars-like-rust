@@ -94,6 +94,60 @@ tank, so the fleet covers `306 × 1000 / 7650 = 40` ly, the tank is zeroed, and
 the leg is rewritten to warp 1 (warp 2 would cost `340 × 20 × 9 / 20000 = 3`
 mg). `crates/stars-core/tests/fuel.rs` checks the three cases.
 
+## Mishaps on the way (`MoveFleets`, `10b0:3496`–`423d`, `4b2d`)
+
+Before a fleet with a leg to fly moves, in its first pass only:
+
+- **Cheap Engines** (`ibitRaceCheapEngines`): ordered above warp 6 and not
+  through a gate, the engines fail to start one year in ten
+  (`Random(10) == 0`). The fleet stays put and is told
+  `idmUnableEngageEnginesDueBalkyEquipment…` (`0xf2`).
+- **Alternate Reality** carrying more than ten hundred colonists: `(colonists
+  × 3 + 33) / 100` hundred of them die of the acceleration (`10b0:3e75`), the
+  count sent as a long in `idmDueRigorsWarpAcceleration…` (`0xc1`).
+- **Warp 10** (`10b0:3f5f`): every ship whose engine is not one of the five
+  rated for it — Interspace-10, Enigma Pulsar, Trans-Star 10, Trans-Galactic
+  Mizer Scoop, Galaxy Scoop (engine indices 7, 8, 9, 0xe, 0xf) — blows up one
+  time in ten. One lost is `0xdf`, more are `0xe0` with the count, all of them
+  `0xe1` and the fleet is gone; the dead ships' share of the cargo goes with
+  them (`FleetTransferCargoBalance`).
+
+And after the leg, for a fleet that moved, in the first two passes: a
+**Radiating Hydro-Ram Scoop** (engine index 10, which `EstFuelUse` flags as
+`gd.fRadiatingEngine`) irradiates the colonists aboard (`10b0:4b2d`). A race
+immune to radiation, or whose range's `min + max` reaches 170, is untouched;
+otherwise `(86 − mid) / 2` percent of them die, `mid` the middle of the range,
+at least one hundred and never more than are aboard —
+`idmEngineRadiationHasKilledColonists…` (`0x74`). A Humanoid's 15..85 loses
+18% a year.
+
+Worked examples are the tests in `crates/stars-core/tests/mishaps.rs`.
+
+## Ramscoop fuel (`LCalcFuelGainFromRamScoops`, `1038:56b8`)
+
+After the leg is flown and the minefields crossed (`10b0:484b`), a fleet that
+did not run dry and has room in its tank gathers what its ramscoops picked up.
+Per ship whose engine burns nothing at the ordered warp `w`:
+
+```
+share  = engines                          if fuel[w]   == 0
+share += engines × 2                      if fuel[w+1] == 0 as well
+share += engines × 3                      if w < 9 and fuel[w+2] == 0 as well
+share += engines × 4                      if w < 8 and fuel[w+3] == 0 as well
+gain   = Σ share × ships × light years flown this year
+```
+
+so the more headroom the scoop has at its warp the more it gathers: a Galaxy
+Scoop (free to warp 9) at warp 5 makes 10 mg per light year, at warp 9 only 1.
+Nothing at warp 10 or above. The tank takes what it has room for (`ChgCargo`),
+and the player is told the whole figure, capped at 32,500, in
+`idmSRamScoopsHaveProducedMgFuel` (`0xf3`). The light years counted are the
+year's travel or the leg's length less one, whichever is less.
+
+The guide's *Using Fuel* topic puts it as: ramscoops "generate fuel when
+traveling at the free speed. Traveling at speeds below the maximum free speed
+can generate even more fuel."
+
 ## Chasing a fleet (`MoveFleets`, `10b0:426f`)
 
 A waypoint aimed at a **fleet** is a moving target, and `MoveFleets` flies
@@ -175,7 +229,8 @@ rebalancing the same routine does is not modelled.
 
 - A fleet with a chase order (`grobj == 2`) re-runs the movement loop up to
   eight times as its target moves.
-- Warp 10 and above is the stargate path and skips the mine-field check.
+- Warp 11 is the stargate path (`stargates.md`) and skips the mine-field
+  check.
 - Engines with id 10 (the radiating ram scoop) kill colonists in transit; the
   loss is `(86 - averageRadiation) / 2 * colonists / 100`, minimum 1, and only
   for races whose radiation range is not immune and averages below 85.
@@ -196,8 +251,8 @@ Captured at: `../vectors/planetary-economy.json` (`movement`).
   `components.md` and `movement::engine_fuel_use` reads it. `fuel_used` is
   still parameterised by the caller, because assigning cargo to designs needs
   the hull table.
-- Mine-field traversal (`FTravelThroughMineFields`, `10b0:4f60`), stargates and
-  the chase loop are specified only in outline here; they belong with order
-  processing in Step 4.
+- Mine-field traversal (`FTravelThroughMineFields`, `10b0:4f60`) is in
+  `minefields.md`, stargate jumps in `stargates.md`, and the chase loop under
+  *Chasing a fleet* above.
 - Battle movement is an entirely separate formula (`MANUAL.PDF` p. 23-8) and is
   **not** covered by this spec.

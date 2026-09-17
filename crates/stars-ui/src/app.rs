@@ -3677,7 +3677,11 @@ impl App {
     /// arriving any later ([`stars_core::movement::settle_warp`]), which is
     /// why the tutorial's scout takes two years to Prune while its colony
     /// ship, with the same engine, reaches 90210 in one. A leg already set
-    /// to Colonize is not slowed at all. Warp 10 and above is cut to 9.
+    /// to Colonize is not slowed at all. Then, when the leg runs between
+    /// two of the player's own gated planets and the fleet could take it
+    /// undamaged with nothing aboard (`FCanFleetUseStargates`,
+    /// `1038:75e2`), it is offered as "Use Stargate" instead. Warp 10 and
+    /// above is otherwise cut to 9.
     ///
     /// `destination` is the planet the leg lands on, if it lands on one,
     /// `task` the leg's task, and `order` which leg this is — `1` for the
@@ -3809,6 +3813,28 @@ impl App {
 
         if task != task::COLONIZE {
             warp = stars_core::movement::settle_warp(warp, distance);
+        }
+        // A leg between two of the player's own gates that the fleet can
+        // take unharmed is offered as the gate.
+        let source = record
+            .waypoints
+            .get(order - 1)
+            .filter(|w| w.target_class == stars_core::fleet::grobj::PLANET)
+            .and_then(|w| w.target)
+            .and_then(|t| i16::try_from(t).ok())
+            .and_then(|id| {
+                game.planets
+                    .iter()
+                    .chain(game.known_planets.iter())
+                    .find(|p| p.id == id)
+            });
+        if let (Some(src), Some(dst)) = (source, planet) {
+            let interstellar = owner
+                .and_then(|owner| game.players.get(owner))
+                .is_some_and(|p| p.race.prt() == Some(stars_core::race::Prt::It));
+            if stars_core::stargate::is_safe_leg(record, designs, interstellar, src, dst) {
+                return crate::survey::STARGATE_WARP;
+            }
         }
         u8::try_from(warp.clamp(0, 9)).unwrap_or(5)
     }
@@ -4041,9 +4067,9 @@ impl App {
 
     /// Set the warp of the leg in hand — the Fleet Waypoints tile's **warp
     /// gauge**, dragged (`ClickInShipOrders`, `1050:7cda`, `rgrcRef[0]`:
-    /// the value is the pointer's fraction of the gauge in elevenths, 0 to
-    /// 10, written into the waypoint's warp nibble). A change on the first
-    /// leg is the fleet's own speed.
+    /// the value is the pointer's fraction of the gauge in twelfths, 0 to
+    /// 11, written into the waypoint's warp nibble; 11 is "Use Stargate").
+    /// A change on the first leg is the fleet's own speed.
     pub fn set_waypoint_warp(&mut self, waypoint: usize, warp: u8) -> bool {
         let Some(index) = self.pane_fleet_index() else {
             return false;
@@ -4051,7 +4077,7 @@ impl App {
         if waypoint == 0 || !self.own_fleet(index) {
             return false;
         }
-        let warp = warp.min(10);
+        let warp = warp.min(crate::survey::STARGATE_WARP);
         let Some(fleet) = self.game.as_mut().and_then(|g| g.fleets.get_mut(index)) else {
             return false;
         };
@@ -4790,21 +4816,27 @@ impl App {
         };
         let mut rows = vec![(label.to_string(), named)];
         let warp = i32::from(next.warp);
+        let gate = next.warp >= crate::survey::STARGATE_WARP;
         rows.push((
             "Warp Factor".to_string(),
             if warp == 0 {
                 "(stopped)".to_string()
+            } else if gate {
+                crate::survey::USE_STARGATE.to_string()
             } else {
                 warp.to_string()
             },
         ));
         let distance = stars_core::movement::distance(from, next.position);
         rows.push(("Distance".to_string(), format!("{distance:.0} l.y.")));
-        // A year covers the square of the warp factor.
+        // A year covers the square of the warp factor — or the whole leg,
+        // through a gate.
         let per_year = warp * warp;
         rows.push((
             "Travel Time".to_string(),
-            if per_year <= 0 {
+            if gate {
+                "1.0 years".to_string()
+            } else if per_year <= 0 {
                 "never".to_string()
             } else {
                 let years = distance / f64::from(per_year);
@@ -4812,7 +4844,7 @@ impl App {
             },
         ));
         let designs = self.pane_fleet_designs();
-        if !designs.is_empty() && warp > 0 {
+        if !designs.is_empty() && warp > 0 && !gate {
             let ife = self
                 .game
                 .as_ref()

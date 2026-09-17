@@ -766,8 +766,10 @@ fn waypoints(app: &mut App, ui: &mut egui::Ui) {
     ui.allocate_space(egui::vec2(ui.available_width(), list.height() + 4.0));
 
     // The figures, with the warp drawn as the gauge it is in the original
-    // (`rgrcRef[0]`) rather than as a number: a bar of eleven steps, warp
-    // 0 to 10, that a drag or a click sets the leg in hand to.
+    // (`rgrcRef[0]`) rather than as a number: a bar of twelve steps, warp
+    // 0 to 10 and then "Use Stargate" (`ClickInShipOrders`, `1050:7cda`,
+    // takes the gauge to 11), that a drag or a click sets the leg in hand
+    // to.
     let rows: Vec<(String, String)> = app
         .fleet_waypoints_tile()
         .into_iter()
@@ -804,7 +806,8 @@ fn waypoints(app: &mut App, ui: &mut egui::Ui) {
         crate::views::record(app, ui, "Warp gauge", &response);
         let painter = ui.painter();
         painter.rect_filled(bar, 0.0, ui.visuals().extreme_bg_color);
-        let filled = bar.width() * f32::from(warp) / 10.0;
+        let filled = bar.width() * f32::from(warp.min(crate::survey::STARGATE_WARP))
+            / f32::from(crate::survey::STARGATE_WARP);
         painter.rect_filled(
             egui::Rect::from_min_size(bar.min, egui::vec2(filled, bar.height())),
             0.0,
@@ -818,16 +821,21 @@ fn waypoints(app: &mut App, ui: &mut egui::Ui) {
         painter.text(
             bar.center(),
             egui::Align2::CENTER_CENTER,
-            format!("Warp {warp}"),
+            if warp >= crate::survey::STARGATE_WARP {
+                crate::survey::USE_STARGATE.to_string()
+            } else {
+                format!("Warp {warp}")
+            },
             egui::TextStyle::Small.resolve(ui.style()),
             ui.visuals().text_color(),
         );
         if mine && (response.dragged() || response.clicked()) {
             if let Some(p) = response.interact_pointer_pos() {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                let chosen = (((p.x - bar.left()) / bar.width()) * 11.0)
+                let chosen = (((p.x - bar.left()) / bar.width()) * 12.0)
                     .floor()
-                    .clamp(0.0, 10.0) as u8;
+                    .clamp(0.0, f32::from(crate::survey::STARGATE_WARP))
+                    as u8;
                 app.set_waypoint_warp(waypoint, chosen);
             }
         }

@@ -286,6 +286,13 @@ pub fn generate_turn_with_orders(
     // so that two fleets chasing each other close on one another in steps.
     let mut chase: Vec<(usize, usize, i32, i32)> = Vec::new();
     let mut deferred: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+    // Fleets that went through a stargate this year, by `(owner, id)`,
+    // with where they left from: a fleet chasing one is left pointed at
+    // that spot (`NoAutoTrackFleet`, `1080:…`), and none of them heals
+    // this year (`fNoHeal`).
+    let mut jumped_from: std::collections::BTreeMap<(i16, u16), crate::movement::Point> =
+        std::collections::BTreeMap::new();
+    let mut no_heal: std::collections::BTreeSet<(i16, u16)> = std::collections::BTreeSet::new();
     for index in 0..state.fleets.len() {
         let fleet = &state.fleets[index];
         let Some(leg) = fleet.waypoints.get(1) else {
@@ -308,8 +315,11 @@ pub fn generate_turn_with_orders(
             deferred.insert(index);
         }
     }
+    // The mishaps of the first pass: engines that will not start, colonists
+    // who cannot take the acceleration, engines that cannot take warp 10.
+    let (grounded, blown_up) = first_pass_mishaps(state, rng);
     let mut in_chase: Vec<usize> = (0..state.fleets.len())
-        .filter(|i| !deferred.contains(i))
+        .filter(|i| !deferred.contains(i) && !grounded.contains(i))
         .collect();
     let mut passes = 0;
     while !in_chase.is_empty() && passes <= 10 {
@@ -320,10 +330,18 @@ pub fn generate_turn_with_orders(
                     .iter()
                     .find(|(i, _, _, _)| *i == index)
                     .map(|&(_, quarry, left, used)| {
-                        // Where the quarry now stands is where the leg now points.
-                        let at = state.fleets[quarry].position;
+                        // Where the quarry now stands is where the leg now points
+                        // — unless it went through a stargate, when the chase
+                        // ends where the gate was.
+                        let q = &state.fleets[quarry];
+                        let gate = jumped_from.get(&(q.owner, q.id)).copied();
+                        let at = gate.unwrap_or(q.position);
                         if let Some(leg) = state.fleets[index].waypoints.get_mut(1) {
                             leg.position = at;
+                            if gate.is_some() {
+                                leg.target = None;
+                                leg.target_class = GROBJ_POSITION;
+                            }
                         }
                         let quarry_done = !deferred.contains(&quarry);
                         if quarry_done {
@@ -338,11 +356,28 @@ pub fn generate_turn_with_orders(
                 .players
                 .get(owner)
                 .is_some_and(|p| p.race.has_lrt(crate::race::lrt::IFE));
+            if grounded.contains(&index) {
+                continue;
+            }
             let from = state.fleets[index].position;
+            let leg_length = state.fleets[index]
+                .waypoints
+                .get(1)
+                .map_or(0.0, |w| distance(from, w.position));
+            let leg_warp = state.fleets[index].waypoints.get(1).map_or(0, |w| w.warp);
             // A waypoint is consumed when the fleet reaches it, so the list
             // getting shorter is how this pass knows the fleet arrived.
             let waypoints = state.fleets[index].waypoints.len();
-            let outcome = move_fleet(&mut state.fleets[index], &designs, ife, cap);
+            // A leg at "Use Stargate" is not flown but jumped.
+            let jump = state.fleets[index]
+                .waypoints
+                .get(1)
+                .is_some_and(|w| w.warp >= crate::stargate::WARP);
+            let outcome = if jump {
+                stargate_leg(state, index, rng, &mut jumped_from)
+            } else {
+                move_fleet(&mut state.fleets[index], &designs, ife, cap)
+            };
             settle_where_it_stands(state, index);
             if let Some(entry) = chase.iter_mut().find(|(i, _, _, _)| *i == index) {
                 let travelled = outcome.map_or(0, |(t, _)| t);
@@ -379,9 +414,31 @@ pub fn generate_turn_with_orders(
                     }),
                 }
                 // FTravelThroughMineFields: the leg is flown, and somewhere along
-                // it the fleet may find somebody else's mines.
-                if let Some(hit) = cross_minefields(state, index, from, travelled, rng) {
-                    report.mine_hits.push((state.fleets[index].id, hit));
+                // it the fleet may find somebody else's mines. A jump crosses
+                // nothing.
+                let mut mined = false;
+                if !jump {
+                    if let Some(hit) = cross_minefields(state, index, from, travelled, rng) {
+                        report.mine_hits.push((state.fleets[index].id, hit));
+                        // A fleet the mines caught does not heal this year
+                        // (`FTravelThroughMineFields`, `10b0:…`, `fNoHeal`).
+                        let f = &state.fleets[index];
+                        no_heal.insert((f.owner, f.id));
+                        mined = true;
+                    }
+                }
+                // The ramscoops gather on the way (`10b0:484b`), unless a mine
+                // cut the leg short or the tank ran dry.
+                if !jump && !mined && dry == RanDry::No && travelled > 0 {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let short = (leg_length - 0.99999) as i32;
+                    ramscoop_gain(state, index, &designs, leg_warp, travelled.min(short));
+                }
+                // A Radiating Hydro-Ram Scoop's radiation, on the colonists
+                // aboard a fleet that moved (`10b0:4b2d`), in the first two
+                // passes only.
+                if !jump && travelled > 0 && passes <= 1 {
+                    radiation_deaths(state, index, &designs);
                 }
                 // And a fleet that has arrived may have arrived at a wormhole, in
                 // which case it is not where it thinks it is.
@@ -428,8 +485,12 @@ pub fn generate_turn_with_orders(
         passes += 1;
     }
 
-    // A fleet a minefield emptied is gone.
+    // A fleet a minefield emptied is gone, and so is one whose engines
+    // blew up at warp 10.
     prune_destroyed(state, &report.mine_hits);
+    state
+        .fleets
+        .retain(|f| !blown_up.contains(&(f.owner, f.id)));
 
     // --- ThingDecay: an armed field goes off under everyone inside it, and
     // then every field loses a slice of itself. A field that runs out is gone.
@@ -848,6 +909,24 @@ pub fn generate_turn_with_orders(
     // of orders: everything armed with beams clears what it is sitting in.
     report.mines_swept = sweep_minefields(state);
 
+    // --- HealShips: damaged ships mend a share of their armour, faster
+    // the safer they sit; a fleet that fought, hit a mine or jumped a gate
+    // this year does not, and neither does a starbase that was attacked.
+    no_heal.extend(jumped_from.keys().copied());
+    let mut attacked_planets: std::collections::BTreeSet<i16> = std::collections::BTreeSet::new();
+    for battle in &report.battles {
+        for token in &battle.record.tokens {
+            if token.object_class == 1 {
+                if let Ok(planet) = i16::try_from(token.id) {
+                    attacked_planets.insert(planet);
+                }
+            } else {
+                no_heal.insert((i16::from(token.player), token.id));
+            }
+        }
+    }
+    heal_ships(state, &no_heal, &attacked_planets, &moved_this_turn);
+
     // --- UpdatePlayerScores, which the original runs near the end of the
     // year, once everything that could change a score has happened.
     report.scores = crate::score::scores(state);
@@ -1176,12 +1255,14 @@ fn add_ships_to_orbiting_fleet(
 
 /// `AutoRouteFleet` (`1080:1e52`): a ship built at a planet with a
 /// **route** leaves the yard with a leg to the route's end — a Route task,
-/// at a warp found thus: `IFindIdealWarp`'s cruising warp; then, down to
-/// warp 3, the slowest warp that takes no more years over the leg than
-/// that one; then lower still while the tank will not cover the leg. (The
-/// original also jumps the leg through a pair of stargates when both
-/// ends have one and the fleet carries nothing, which this engine does not
-/// model yet.)
+/// at a warp found thus: `IFindIdealWarp`'s cruising warp; "Use Stargate"
+/// instead when both planets are the owner's, both starbases carry a gate,
+/// the fleet carries nothing and its heaviest design would jump undamaged
+/// (`MdCalcStargateDamage`); else, below warp 9 with a **dock** at the far
+/// end to refuel at, the fastest warp up to 9 whose range covers the leg;
+/// then, down to warp 3, the slowest warp that takes no more years over
+/// the leg than that one; then lower still while the tank will not cover
+/// the leg.
 fn auto_route_fleet(state: &mut GameState, index: usize, planet: i16) {
     let owner = state.fleets[index].owner;
     let Some(destination) = state
@@ -1216,6 +1297,54 @@ fn auto_route_fleet(state: &mut GameState, index: usize, planet: i16) {
     let distance = crate::movement::distance(fleet.position, to).ceil() as i32;
     let years = |warp: i32| (distance + warp * warp - 1) / (warp * warp);
     let mut warp = i32::from(crate::movement::ideal_warp(&fleet.stacks, &designs, false));
+    // The gate, and the dock, at the route's end.
+    let here = state.planets.iter().find(|p| p.id == planet);
+    let there = state
+        .planets
+        .iter()
+        .chain(state.known_planets.iter())
+        .find(|p| p.id == destination);
+    if let (Some(here), Some(there)) = (here, there) {
+        if here.owner == there.owner && here.starbase && there.starbase {
+            let gates = (
+                crate::stargate::gate_of(here, &designs),
+                crate::stargate::gate_of(there, &designs),
+            );
+            let empty = fleet.cargo.minerals.iter().all(|m| *m == 0) && fleet.cargo.colonists == 0;
+            if let (Some(src), Some(dst)) = gates {
+                let heaviest = fleet
+                    .stacks
+                    .iter()
+                    .filter(|s| s.count != 0)
+                    .filter_map(|s| designs.get(usize::from(s.design)))
+                    .filter_map(crate::design::ShipDesign::mass)
+                    .max()
+                    .unwrap_or(0);
+                #[allow(clippy::cast_possible_truncation)]
+                let straight = crate::movement::distance(fleet.position, to) as i32;
+                if empty
+                    && crate::stargate::verdict(src, dst, straight, heaviest)
+                        == crate::stargate::Verdict::Damage(0)
+                {
+                    warp = i32::from(crate::stargate::WARP);
+                }
+            }
+            if warp < 9 {
+                let dock = crate::production::starbase_hull(there, &designs)
+                    .and_then(crate::components::hull)
+                    .is_some_and(|h| h.cargo_max != 0);
+                if dock {
+                    warp = (1..=9)
+                        .rev()
+                        .find(|w| {
+                            fleet.fuel_range(&designs, u8::try_from(*w).unwrap_or(0), ife)
+                                >= distance
+                        })
+                        .unwrap_or(0);
+                }
+            }
+        }
+    }
     if (1..11).contains(&warp) {
         let at_ideal = years(warp);
         while warp >= 3 && years(warp - 1) <= at_ideal {
@@ -1228,7 +1357,7 @@ fn auto_route_fleet(state: &mut GameState, index: usize, planet: i16) {
             warp -= 1;
         }
     }
-    let warp = u8::try_from(warp.clamp(0, 10)).unwrap_or(0);
+    let warp = u8::try_from(warp.clamp(0, i32::from(crate::stargate::WARP))).unwrap_or(0);
     let fleet = &mut state.fleets[index];
     fleet.waypoints.push(crate::fleet::Waypoint {
         position: to,
@@ -3260,6 +3389,707 @@ fn arrive(fleet: &mut Fleet) {
 ///
 /// Returns the distance travelled and what the fuel did, or `None` if the
 /// fleet had nowhere to go.
+/// Put a fleet through the stargates at both ends of its leg — the
+/// stargate branch of `MoveFleets` (`10b0:354f`–`3d0d`).
+///
+/// The fleet must stand at a planet whose starbase has a gate (unless
+/// every ship carries a Jump Gate), the leg must end at a planet with one,
+/// and both must be the player's own or a friend's. A race that is not
+/// Interstellar Traveler cannot take cargo through: minerals and
+/// colonists are put down on the planet first — colonists only on a
+/// planet of its own, else the jump is refused. The jump itself is
+/// [`crate::stargate::jump`]. Returns the leg's length on arrival, as a
+/// flown leg's travel, or `None` when the fleet stays where it is.
+fn stargate_leg(
+    state: &mut GameState,
+    index: usize,
+    rng: &mut Rng,
+    jumped_from: &mut std::collections::BTreeMap<(i16, u16), crate::movement::Point>,
+) -> Option<(i32, RanDry)> {
+    use crate::message::{fleet_object, id, Message};
+    use crate::relations::{regard, Relation};
+
+    let fleet = &state.fleets[index];
+    let Ok(owner) = usize::try_from(fleet.owner) else {
+        return None;
+    };
+    let fleet_id = fleet.id;
+    let from = fleet.position;
+    let here = fleet.waypoints.first()?;
+    let leg = fleet.waypoints.get(1)?.clone();
+    let designs = state.designs.get(owner).cloned().unwrap_or_default();
+    let player_designs = |state: &GameState, who: Option<i16>| -> Vec<crate::design::ShipDesign> {
+        who.and_then(|w| usize::try_from(w).ok())
+            .and_then(|w| state.designs.get(w))
+            .cloned()
+            .unwrap_or_default()
+    };
+    let find_planet = |state: &GameState, pred: &dyn Fn(&Planet) -> bool| -> Option<Planet> {
+        state
+            .planets
+            .iter()
+            .chain(state.known_planets.iter())
+            .find(|p| pred(p))
+            .cloned()
+    };
+    let friendly = |state: &GameState, host: i16| -> bool {
+        host == fleet.owner
+            || usize::try_from(host).is_ok_and(|h| regard(state, h, owner) == Relation::Friend)
+    };
+    let tell = |state: &mut GameState, id: u16, params: Vec<i16>| {
+        state.messages.push(Message {
+            player: owner,
+            id,
+            object: fleet_object(fleet_id),
+            params,
+        });
+    };
+    let fleet_param = fleet_id as i16;
+
+    // The gate the fleet leaves from: the planet it stands at.
+    let source = if here.target_class == crate::fleet::grobj::PLANET {
+        here.target
+            .and_then(|t| i16::try_from(t).ok())
+            .and_then(|pid| find_planet(state, &|p| p.id == pid))
+    } else {
+        None
+    };
+    let source_gate = source
+        .as_ref()
+        .and_then(|p| crate::stargate::gate_of(p, &player_designs(state, p.owner)));
+    let source_only_dst = source_gate.is_none();
+    if source_gate.is_none() && !crate::stargate::can_jumpgate(fleet, &designs) {
+        let place = source
+            .as_ref()
+            .map_or(vec![from.x, from.y], |p| vec![-1, p.id]);
+        tell(
+            state,
+            id::STARGATE_NONE_HERE,
+            [vec![fleet_param], place].concat(),
+        );
+        return None;
+    }
+    if let (Some(src), Some(_)) = (&source, source_gate) {
+        if let Some(host) = src.owner {
+            if !friendly(state, host) {
+                tell(
+                    state,
+                    id::STARGATE_BLOCKED_HERE,
+                    vec![fleet_param, src.id, src.id],
+                );
+                return None;
+            }
+        }
+    }
+
+    // The gate it arrives at: the planet the leg names, or the planet
+    // standing where the leg points.
+    let destination = if leg.target_class == crate::fleet::grobj::PLANET {
+        leg.target
+            .and_then(|t| i16::try_from(t).ok())
+            .and_then(|pid| find_planet(state, &|p| p.id == pid))
+    } else {
+        find_planet(state, &|p| p.position == Some(leg.position))
+    };
+    let src_param = source.as_ref().map_or(-1, |p| p.id);
+    let Some(dst) = destination else {
+        tell(
+            state,
+            id::STARGATE_NONE_THERE,
+            vec![fleet_param, src_param, leg.position.x, leg.position.y],
+        );
+        return None;
+    };
+    let Some(dst_gate) = crate::stargate::gate_of(&dst, &player_designs(state, dst.owner)) else {
+        tell(
+            state,
+            id::STARGATE_NONE_THERE,
+            vec![fleet_param, src_param, -1, dst.id],
+        );
+        return None;
+    };
+    if let Some(host) = dst.owner {
+        if !friendly(state, host) {
+            tell(
+                state,
+                id::STARGATE_BLOCKED_THERE,
+                vec![fleet_param, src_param, dst.id, dst.id],
+            );
+            return None;
+        }
+    }
+    let src_gate = source_gate.unwrap_or(dst_gate);
+
+    // Cargo does not go through, except an Interstellar Traveler's.
+    let interstellar = state
+        .players
+        .get(owner)
+        .is_some_and(|p| p.race.prt() == Some(crate::race::Prt::It));
+    if !source_only_dst && !interstellar {
+        let src = source.as_ref()?;
+        let cargo = state.fleets[index].cargo;
+        if cargo.colonists > 0 && src.owner != Some(fleet.owner) {
+            tell(
+                state,
+                id::STARGATE_COLONISTS_ABOARD,
+                vec![fleet_param, src.id],
+            );
+            return None;
+        }
+        let minerals: i32 = cargo.minerals.iter().sum();
+        let colonists = cargo.colonists;
+        if minerals != 0 || colonists != 0 {
+            if let Some(planet) = state.planets.iter_mut().find(|p| p.id == src.id) {
+                for (kind, held) in cargo.minerals.iter().enumerate() {
+                    planet.surface_min[kind] += held;
+                }
+                planet.pop += colonists;
+            }
+            let f = &mut state.fleets[index];
+            f.cargo.minerals = [0; 3];
+            f.cargo.colonists = 0;
+            let [c_lo, c_hi] = Message::long(colonists);
+            let [m_lo, m_hi] = Message::long(minerals);
+            let (which, params) = if colonists != 0 && minerals != 0 {
+                (
+                    id::STARGATE_UNLOADED_BOTH,
+                    vec![fleet_param, c_lo, c_hi, m_lo, m_hi, src.id],
+                )
+            } else if colonists != 0 {
+                (
+                    id::STARGATE_UNLOADED_COLONISTS,
+                    vec![fleet_param, c_lo, c_hi, c_lo, src.id],
+                )
+            } else {
+                (
+                    id::STARGATE_UNLOADED_MINERALS,
+                    vec![fleet_param, m_lo, m_hi, m_lo, src.id],
+                )
+            };
+            tell(state, which, params.clone());
+            // The planet's owner hears of it too, when it is somebody else.
+            if let Some(host) = src.owner.and_then(|h| usize::try_from(h).ok()) {
+                if host != owner {
+                    state.messages.push(Message {
+                        player: host,
+                        id: which,
+                        object: src.id,
+                        params,
+                    });
+                }
+            }
+        }
+    }
+
+    // The jump, judged on the straight-line distance as `DGetDistance`
+    // reports it, truncated to a whole light year.
+    #[allow(clippy::cast_possible_truncation)]
+    let span = distance(from, leg.position) as i32;
+    let before = state.fleets[index].stacks.clone();
+    match crate::stargate::jump(
+        &mut state.fleets[index],
+        &designs,
+        interstellar,
+        src_gate,
+        dst_gate,
+        span,
+        rng,
+    ) {
+        Err(crate::stargate::Refused::TooFar) => {
+            tell(
+                state,
+                id::STARGATE_TOO_FAR,
+                vec![fleet_param, src_param, dst.id],
+            );
+            None
+        }
+        Err(crate::stargate::Refused::TooMassive(slot)) => {
+            tell(
+                state,
+                id::STARGATE_TOO_MASSIVE,
+                vec![fleet_param, src_param, dst.id, i16::from(slot)],
+            );
+            None
+        }
+        Err(crate::stargate::Refused::Annihilated) => {
+            tell(
+                state,
+                id::STARGATE_ANNIHILATED,
+                vec![fleet_param, src_param, dst.id],
+            );
+            // Nothing is left to arrive: the fleet is gone with its cargo.
+            let f = &mut state.fleets[index];
+            f.stacks.clear();
+            f.cargo = crate::fleet::Cargo::default();
+            None
+        }
+        Ok(jump) => {
+            if jump.lost != 0 {
+                if jump.lost > i32::from(i16::MAX) {
+                    let [lo, hi] = Message::long(jump.lost);
+                    tell(
+                        state,
+                        id::STARGATE_LOST_UNBELIEVABLE,
+                        vec![fleet_param, src_param, dst.id, lo, hi],
+                    );
+                } else {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let lost = jump.lost as i16;
+                    tell(
+                        state,
+                        crate::stargate::loss_message(jump.sent, jump.lost),
+                        vec![fleet_param, src_param, dst.id, lost],
+                    );
+                }
+                // The dead ships' share of the cargo goes with them.
+                let mut dead = Fleet {
+                    stacks: jump.dead.clone(),
+                    cargo: crate::fleet::Cargo::default(),
+                    ..state.fleets[index].clone()
+                };
+                crate::fleet::balance_cargo(
+                    [&mut state.fleets[index], &mut dead],
+                    [&before, &[]],
+                    &designs,
+                );
+            }
+            // Through: the fleet stands at the far gate, its leg done.
+            let f = &mut state.fleets[index];
+            jumped_from.insert((f.owner, f.id), from);
+            f.position = leg.position;
+            arrive(f);
+            Some((span, RanDry::No))
+        }
+    }
+}
+
+/// Repair rates (`HealShips`, `10b8:444c`), in 500ths of the armour a
+/// year, by where the fleet sits: moving; stopped in space; at somebody
+/// else's planet or nobody's; at its own planet without a starbase (or
+/// with one that was attacked this year); at its own starbase without a
+/// dock; at its own dock. The player's guide's *Damage Repair* topic gives
+/// the same as 1, 2, 3, 5, 8 and 20 percent.
+const HEAL_MOVING: i32 = 5;
+const HEAL_STOPPED: i32 = 10;
+const HEAL_FOREIGN_ORBIT: i32 = 15;
+const HEAL_OWN_PLANET: i32 = 25;
+const HEAL_OWN_STARBASE: i32 = 40;
+const HEAL_OWN_DOCK: i32 = 100;
+/// What a Fuel Transport (hull 25) or Super Fuel Xport (hull 26) in the
+/// fleet adds, in the same units: 5 and 10 percent.
+const HEAL_FUEL_TRANSPORT: i32 = 25;
+const HEAL_SUPER_FUEL_XPORT: i32 = 50;
+/// A starbase's own repair a year, and an Inner Strength starbase's:
+/// 10 and 15 percent.
+const HEAL_STARBASE: u16 = 50;
+const HEAL_STARBASE_INNER_STRENGTH: u16 = 75;
+
+/// `HealShips` (`10b8:444c`): every damaged design in every fleet that may
+/// heal this year mends its armour by the rate its place earns
+/// ([`HEAL_MOVING`] and the rest), plus a Fuel Transport's or Super Fuel
+/// Xport's bonus — the better of the two, not both — the whole doubled for
+/// an Inner Strength race. A design whose damage is no more than the rate
+/// is whole again. Then every starbase not attacked this year mends
+/// [`HEAL_STARBASE`] of its own, more for Inner Strength.
+///
+/// `no_heal` names the fleets that fought, hit a mine or jumped a gate
+/// (`fNoHeal`), `attacked` the planets whose starbase fought
+/// (`PLANET.fNoHeal`), and `moved` the fleets that were not here all turn.
+fn heal_ships(
+    state: &mut GameState,
+    no_heal: &std::collections::BTreeSet<(i16, u16)>,
+    attacked: &std::collections::BTreeSet<i16>,
+    moved: &std::collections::BTreeSet<(i16, u16)>,
+) {
+    for index in 0..state.fleets.len() {
+        let fleet = &state.fleets[index];
+        let key = (fleet.owner, fleet.id);
+        if no_heal.contains(&key) || fleet.is_empty() {
+            continue;
+        }
+        if !fleet
+            .stacks
+            .iter()
+            .any(|s| s.count > 0 && (s.damaged_pct != 0 || s.damage_pct != 0))
+        {
+            continue;
+        }
+        let Ok(owner) = usize::try_from(fleet.owner) else {
+            continue;
+        };
+        let designs = state.designs.get(owner).cloned().unwrap_or_default();
+        let mut bonus = 0;
+        for stack in fleet.stacks.iter().filter(|s| s.count > 0) {
+            match designs.get(usize::from(stack.design)).map(|d| d.hull_id) {
+                Some(26) => bonus = HEAL_SUPER_FUEL_XPORT,
+                Some(25) if bonus < 5 => bonus = HEAL_FUEL_TRANSPORT,
+                _ => {}
+            }
+        }
+        let planet = fleet
+            .orbiting
+            .and_then(|id| i16::try_from(id).ok())
+            .and_then(|id| state.planets.iter().find(|p| p.id == id));
+        let mut rate = if moved.contains(&key) {
+            HEAL_MOVING
+        } else {
+            match planet {
+                None => HEAL_STOPPED,
+                Some(p) if p.owner == Some(fleet.owner) => {
+                    if !p.starbase || attacked.contains(&p.id) {
+                        HEAL_OWN_PLANET
+                    } else {
+                        let dock = crate::production::starbase_hull(p, &designs)
+                            .and_then(crate::components::hull)
+                            .is_some_and(|h| h.cargo_max != 0);
+                        if dock {
+                            HEAL_OWN_DOCK
+                        } else {
+                            HEAL_OWN_STARBASE
+                        }
+                    }
+                }
+                Some(_) => HEAL_FOREIGN_ORBIT,
+            }
+        };
+        if state
+            .players
+            .get(owner)
+            .is_some_and(|p| p.race.prt() == Some(crate::race::Prt::Is))
+        {
+            rate <<= 1;
+        }
+        let mend = rate + bonus;
+        for stack in &mut state.fleets[index].stacks {
+            if stack.count <= 0 || (stack.damaged_pct == 0 && stack.damage_pct == 0) {
+                continue;
+            }
+            if mend < stack.damage_pct {
+                stack.damage_pct -= mend;
+            } else {
+                stack.damage_pct = 0;
+                stack.damaged_pct = 0;
+            }
+        }
+    }
+
+    for planet in &mut state.planets {
+        if !planet.starbase || attacked.contains(&planet.id) || planet.starbase_damage == 0 {
+            continue;
+        }
+        let inner_strength = planet
+            .owner
+            .and_then(|o| usize::try_from(o).ok())
+            .and_then(|o| state.players.get(o))
+            .is_some_and(|p| p.race.prt() == Some(crate::race::Prt::Is));
+        let rate = if inner_strength {
+            HEAL_STARBASE_INNER_STRENGTH
+        } else {
+            HEAL_STARBASE
+        };
+        planet.starbase_damage = planet.starbase_damage.saturating_sub(rate);
+    }
+}
+
+/// The five engines rated for warp 10 (`MoveFleets`, `10b0:3fd1`): the
+/// Interspace-10, Enigma Pulsar, Trans-Star 10, Trans-Galactic Mizer
+/// Scoop and Galaxy Scoop, by index in [`crate::components::ENGINES`].
+const SAFE_AT_WARP_TEN: [u8; 5] = [7, 8, 9, 0xe, 0xf];
+
+/// The Radiating Hydro-Ram Scoop's index in [`crate::components::ENGINES`]
+/// (`EstFuelUse` sets `gd.fRadiatingEngine` for engine id 10).
+const RADIATING_ENGINE: u8 = 10;
+
+/// What the first pass of `MoveFleets` does to a fleet before it moves
+/// (`10b0:3496`–`423d`), for every fleet with a leg to fly:
+///
+/// * a **Cheap Engines** race's fleet ordered above warp 6 (and not
+///   through a gate) fails to start one year in ten (`Random(10) == 0`)
+///   and stays put, told by `idmUnableEngageEngines…` (`0xf2`);
+/// * an **Alternate Reality** fleet carrying more than ten hundred
+///   colonists loses `(colonists × 3 + 33) / 100` hundred of them to the
+///   acceleration (`0xc1`);
+/// * at **warp 10**, every ship whose engine is not one of the five rated
+///   for it blows up one time in ten. One lost is `0xdf`, more are `0xe0`,
+///   all of them `0xe1` and the fleet is gone; the dead ships' share of
+///   the cargo goes with them.
+///
+/// Returns the fleets that will not move this year, and those (by
+/// `(owner, id)`) that no longer exist.
+#[allow(clippy::type_complexity)]
+fn first_pass_mishaps(
+    state: &mut GameState,
+    rng: &mut Rng,
+) -> (
+    std::collections::BTreeSet<usize>,
+    std::collections::BTreeSet<(i16, u16)>,
+) {
+    use crate::message::{fleet_object, id, Message};
+
+    let mut grounded = std::collections::BTreeSet::new();
+    let mut blown_up = std::collections::BTreeSet::new();
+    for index in 0..state.fleets.len() {
+        let fleet = &state.fleets[index];
+        let Some(leg) = fleet.waypoints.get(1) else {
+            continue;
+        };
+        if leg.warp == 0 || fleet.is_empty() {
+            continue;
+        }
+        let warp = leg.warp;
+        let Ok(owner) = usize::try_from(fleet.owner) else {
+            continue;
+        };
+        let fleet_id = fleet.id;
+        let Some(player) = state.players.get(owner) else {
+            continue;
+        };
+        let cheap = player.race.has_lrt(crate::race::lrt::CHEAP_ENGINES);
+        let alternate = player.race.prt() == Some(crate::race::Prt::Ar);
+        let designs = state.designs.get(owner).cloned().unwrap_or_default();
+        let tell = |state: &mut GameState, id: u16, params: Vec<i16>| {
+            state.messages.push(Message {
+                player: owner,
+                id,
+                object: fleet_object(fleet_id),
+                params,
+            });
+        };
+        let fleet_param = fleet_id as i16;
+
+        if cheap && warp > 6 && warp != crate::stargate::WARP && rng.random(10) == 0 {
+            tell(state, id::BALKY_ENGINES, vec![fleet_param, 0]);
+            grounded.insert(index);
+            continue;
+        }
+        if warp >= crate::stargate::WARP {
+            continue;
+        }
+
+        if alternate && state.fleets[index].cargo.colonists > 10 {
+            let colonists = i64::from(state.fleets[index].cargo.colonists);
+            let die = (colonists * 3 + 33) / 100;
+            if die > 0 {
+                #[allow(clippy::cast_possible_truncation)]
+                let die = die as i32;
+                state.fleets[index].cargo.colonists -= die;
+                let [lo, hi] = Message::long(die);
+                tell(
+                    state,
+                    id::WARP_ACCELERATION_KILLED,
+                    vec![lo, hi, fleet_param],
+                );
+            }
+        }
+
+        if warp == 10 {
+            let before = state.fleets[index].stacks.clone();
+            let mut lost_total = 0i32;
+            for stack in &mut state.fleets[index].stacks {
+                if stack.count <= 0 {
+                    continue;
+                }
+                let engine = designs
+                    .get(usize::from(stack.design))
+                    .and_then(|d| {
+                        d.slots
+                            .iter()
+                            .find(|s| s.is(crate::components::slot::ENGINE))
+                    })
+                    .map(|s| s.item);
+                if engine.is_some_and(|e| SAFE_AT_WARP_TEN.contains(&e)) {
+                    continue;
+                }
+                let mut lost = 0;
+                for _ in 0..stack.count {
+                    if rng.random(10) == 0 {
+                        lost += 1;
+                    }
+                }
+                stack.count -= lost;
+                lost_total += lost;
+            }
+            if lost_total == 0 {
+                continue;
+            }
+            if state.fleets[index].is_empty() {
+                tell(state, id::WARP_TEN_LOST_FLEET, vec![fleet_param, 0]);
+                let f = &mut state.fleets[index];
+                f.stacks.clear();
+                f.cargo = crate::fleet::Cargo::default();
+                blown_up.insert((f.owner, f.id));
+                grounded.insert(index);
+                continue;
+            }
+            let mut dead = Fleet {
+                stacks: before
+                    .iter()
+                    .zip(&state.fleets[index].stacks)
+                    .map(|(was, now)| crate::fleet::ShipStack {
+                        design: was.design,
+                        count: was.count - now.count,
+                        damaged_pct: 0,
+                        damage_pct: 0,
+                    })
+                    .collect(),
+                cargo: crate::fleet::Cargo::default(),
+                ..state.fleets[index].clone()
+            };
+            crate::fleet::balance_cargo(
+                [&mut state.fleets[index], &mut dead],
+                [&before, &[]],
+                &designs,
+            );
+            if lost_total == 1 {
+                tell(state, id::WARP_TEN_LOST_ONE, vec![fleet_param, 0]);
+            } else {
+                #[allow(clippy::cast_possible_truncation)]
+                tell(
+                    state,
+                    id::WARP_TEN_LOST_SHIPS,
+                    vec![lost_total as i16, fleet_param],
+                );
+            }
+        }
+    }
+    (grounded, blown_up)
+}
+
+/// What a fleet's ramscoops gather over `travelled` light years at `warp`
+/// (`LCalcFuelGainFromRamScoops`, `1038:56b8`), into the tank as far as it
+/// has room (`ChgCargo`), and the player told the whole figure, capped at
+/// 32,500 (`10b0:484b`–`494e`).
+///
+/// Per ship whose engine burns nothing at this warp: the engine count,
+/// plus twice it when the next warp is free too, three times for the one
+/// after and four for the one after that — the more headroom the scoop
+/// has, the more it gathers. Nothing at warp 10 or above.
+fn ramscoop_gain(
+    state: &mut GameState,
+    index: usize,
+    designs: &[crate::design::ShipDesign],
+    warp: u8,
+    travelled: i32,
+) {
+    use crate::message::{fleet_object, id, Message};
+
+    if warp >= 10 || travelled <= 0 {
+        return;
+    }
+    let fleet = &state.fleets[index];
+    let room = fleet.fuel_capacity(designs) - fleet.cargo.fuel;
+    if room <= 0 {
+        return;
+    }
+    let mut per_ly: i64 = 0;
+    for stack in fleet.stacks.iter().filter(|s| s.count > 0) {
+        let Some(design) = designs.get(usize::from(stack.design)) else {
+            continue;
+        };
+        let Some(slot) = design
+            .slots
+            .iter()
+            .find(|s| s.is(crate::components::slot::ENGINE))
+        else {
+            continue;
+        };
+        let Some(engine) = crate::components::ENGINES.get(usize::from(slot.item)) else {
+            continue;
+        };
+        let free = |w: u8| {
+            engine
+                .fuel_used
+                .get(usize::from(w))
+                .is_some_and(|f| *f == 0)
+        };
+        let engines = i64::from(slot.count);
+        let mut share = 0i64;
+        if free(warp) {
+            share += engines;
+            if free(warp + 1) {
+                share += engines * 2;
+                if warp < 9 && free(warp + 2) {
+                    share += engines * 3;
+                    if warp < 8 && free(warp + 3) {
+                        share += engines * 4;
+                    }
+                }
+            }
+        }
+        per_ly += share * i64::from(stack.count);
+    }
+    let gain = per_ly * i64::from(travelled);
+    if gain <= 0 {
+        return;
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    let taken = gain.min(i64::from(room)) as i32;
+    let fleet = &mut state.fleets[index];
+    fleet.cargo.fuel += taken;
+    let (owner, fleet_id) = (fleet.owner, fleet.id);
+    #[allow(clippy::cast_possible_truncation)]
+    let said = gain.min(32_500) as i16;
+    if let Ok(player) = usize::try_from(owner) {
+        state.messages.push(Message {
+            player,
+            id: id::RAMSCOOP_FUEL,
+            object: fleet_object(fleet_id),
+            params: vec![fleet_id as i16, said],
+        });
+    }
+}
+
+/// The radiation of a Radiating Hydro-Ram Scoop, on the colonists aboard
+/// a fleet that moved (`MoveFleets`, `10b0:4b2d`–`4ce0`).
+///
+/// A race whose radiation range reaches 170 in total (`min + max`), or
+/// that is immune to it, is untouched. Otherwise `(86 − mid) / 2` percent
+/// of the colonists die, `mid` the middle of the range, at least one
+/// hundred and never more than are aboard (`0x74`).
+fn radiation_deaths(state: &mut GameState, index: usize, designs: &[crate::design::ShipDesign]) {
+    use crate::message::{fleet_object, id, Message};
+
+    let fleet = &state.fleets[index];
+    if fleet.cargo.colonists <= 0 {
+        return;
+    }
+    let radiating = fleet.stacks.iter().filter(|s| s.count > 0).any(|s| {
+        designs.get(usize::from(s.design)).is_some_and(|d| {
+            d.slots
+                .iter()
+                .any(|h| h.is(crate::components::slot::ENGINE) && h.item == RADIATING_ENGINE)
+        })
+    });
+    if !radiating {
+        return;
+    }
+    let Ok(owner) = usize::try_from(fleet.owner) else {
+        return;
+    };
+    let Some(player) = state.players.get(owner) else {
+        return;
+    };
+    let (low, high) = (
+        i32::from(player.race.env_min[2]),
+        i32::from(player.race.env_max[2]),
+    );
+    if high < 0 || low + high >= 170 {
+        return;
+    }
+    let mid = (low + high) / 2;
+    let colonists = fleet.cargo.colonists;
+    let dead = (((86 - mid) >> 1) * colonists / 100).max(1).min(colonists);
+    let fleet_id = fleet.id;
+    #[allow(clippy::cast_possible_truncation)]
+    state.messages.push(Message {
+        player: owner,
+        id: id::ENGINE_RADIATION_KILLED,
+        object: fleet_object(fleet_id),
+        params: vec![dead as i16, fleet_id as i16],
+    });
+    state.fleets[index].cargo.colonists -= dead;
+}
+
 fn move_fleet(
     fleet: &mut Fleet,
     designs: &[crate::design::ShipDesign],

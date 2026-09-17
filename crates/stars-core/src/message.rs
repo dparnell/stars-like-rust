@@ -375,6 +375,84 @@ pub mod id {
     pub const WRECKAGE_PLANS_PART: u16 = 0x13a;
     /// Wreckage yielded the plans of a Mystery Trader hull.
     pub const WRECKAGE_PLANS_HULL: u16 = 0x13b;
+
+    // Movement mishaps — `MoveFleets` (`10b0:32ce`), the fleet as the
+    // object.
+    /// `idmEngineRadiationHasKilledColonistsTraveling`: a Radiating
+    /// Hydro-Ram Scoop's radiation killed colonists aboard (the count in
+    /// hundreds, then the fleet).
+    pub const ENGINE_RADIATION_KILLED: u16 = 0x74;
+    /// `idmDueRigorsWarpAccelerationColonistsHaveDied`: an Alternate
+    /// Reality fleet lost colonists to acceleration (a long count, then the
+    /// fleet).
+    pub const WARP_ACCELERATION_KILLED: u16 = 0xc1;
+    /// `idmOneShipsDestroyedWhenEnginesReactedTrying`: one ship's engine
+    /// failed at warp 10.
+    pub const WARP_TEN_LOST_ONE: u16 = 0xdf;
+    /// `idmShipsDestroyedDueEngineStrain`: several ships' engines failed at
+    /// warp 10 (the count, then the fleet).
+    pub const WARP_TEN_LOST_SHIPS: u16 = 0xe0;
+    /// `idmDestroyedMassiveReactorAccidentDueUnsafeOperatin`: every ship's
+    /// engine failed at warp 10.
+    pub const WARP_TEN_LOST_FLEET: u16 = 0xe1;
+    /// `idmUnableEngageEnginesDueBalkyEquipmentEngineers`: a Cheap Engines
+    /// fleet's engines would not start this year.
+    pub const BALKY_ENGINES: u16 = 0xf2;
+    /// `idmSRamScoopsHaveProducedMgFuel`: the ramscoops made fuel on the
+    /// way (the fleet, then the milligrams).
+    pub const RAMSCOOP_FUEL: u16 = 0xf3;
+
+    // Stargates — the stargate branch of `MoveFleets` (`10b0:354f`) and
+    // `FStargateJump` (`1080:0cfe`). The fleet is the object and the first
+    // parameter; the place is `(x, y)` or `-1` and the planet.
+    /// `idmAttemptedUseStargateStargateExistsThere`: no gate where the
+    /// fleet stands (the place).
+    pub const STARGATE_NONE_HERE: u16 = 0xde;
+    /// `idmAttemptedUseStargateReachCouldBecauseStargate`: no gate at the
+    /// destination (the source planet, then the place).
+    pub const STARGATE_NONE_THERE: u16 = 0xe2;
+    /// `idmAttemptedUseStargateReachCouldBecauseDestination`: the
+    /// destination is out of range (the source planet, the destination).
+    pub const STARGATE_TOO_FAR: u16 = 0xe3;
+    /// `idmAttemptedUseStargateReachCouldBecauseShips`: ships of a design
+    /// are too massive (the source, the destination, the design slot).
+    pub const STARGATE_TOO_MASSIVE: u16 = 0xe4;
+    /// `idmAttemptedUseStargateReachCouldBecauseStarbase`: the destination
+    /// gate is not a friend's (the source, the destination twice).
+    pub const STARGATE_BLOCKED_THERE: u16 = 0xe5;
+    /// `idmAttemptedUseStargateCouldBecauseStarbaseOwned`: the source gate
+    /// is not a friend's (the planet twice).
+    pub const STARGATE_BLOCKED_HERE: u16 = 0xe6;
+    /// `idmHeedlessDangerAttemptedUseStargateReachFleet`: the fleet never
+    /// arrived (the source, the destination).
+    pub const STARGATE_ANNIHILATED: u16 = 0xe7;
+    /// `idmUsedStargateReachLosingShipsTreacherousVoid`: arrived losing
+    /// under a quarter of the ships (the source, the destination, the
+    /// count).
+    pub const STARGATE_LOST_FEW: u16 = 0xe8;
+    /// `idmUsedStargateReachLosingShipsUnforgivingVoid`: arrived losing up
+    /// to half.
+    pub const STARGATE_LOST_SOME: u16 = 0xe9;
+    /// `idmUsedStargateReachUnfortunatelyLosingShipsGreat`: arrived losing
+    /// more than half.
+    pub const STARGATE_LOST_MANY: u16 = 0xea;
+    /// `idmUsedStargateReachLosingUnbelievableShipsJump`: arrived losing a
+    /// count too big for a word (a long count).
+    pub const STARGATE_LOST_UNBELIEVABLE: u16 = 0xeb;
+    /// `idmHasUnloadedKtMineralsPreparationJumpingThrough`: the minerals
+    /// were put down on the planet first (a long kT, the kT again, the
+    /// planet).
+    pub const STARGATE_UNLOADED_MINERALS: u16 = 0xec;
+    /// `idmHasUnloadedColonistsPreparationJumpingThroughSta`: the
+    /// colonists were put down first (a long count, the count again, the
+    /// planet).
+    pub const STARGATE_UNLOADED_COLONISTS: u16 = 0xed;
+    /// `idmHasUnloadedColonistsKtMineralsPreparationJumping`: both were
+    /// (a long count, a long kT, the planet).
+    pub const STARGATE_UNLOADED_BOTH: u16 = 0xee;
+    /// `idmUnableUseStargateBecauseHadColonistsBoard`: colonists aboard at
+    /// a planet that is not yours (the planet).
+    pub const STARGATE_COLONISTS_ABOARD: u16 = 0x15e;
 }
 
 /// The families of message ids the filter treats as one thing.
@@ -615,6 +693,17 @@ impl Message {
             1 => "heavy",
             _ => "speed trap",
         };
+        // A place given as two parameters from `at`: `x, y`, or `-1` and
+        // the planet.
+        let place_at = |at: usize| {
+            let x = param(at);
+            let y = param(at + 1);
+            if x == -1 {
+                planet(y)
+            } else {
+                format!("({x}, {y})")
+            }
+        };
         let object_planet = || planet(self.object);
         let object_fleet =
             || names.fleet(u16::try_from(i32::from(self.object) & 0x1ff).unwrap_or(0));
@@ -643,6 +732,131 @@ impl Message {
                 param(3)
             ),
             id::ORDERS_COMPLETE => format!("{} has finished its orders.", fleet()),
+            id::ENGINE_RADIATION_KILLED => format!(
+                "Radiation from the engines has killed {} colonists travelling in {}.",
+                i32::from(param(0)) * 100,
+                names.fleet(u16::try_from(i32::from(param(1)) & 0x1ff).unwrap_or(0))
+            ),
+            id::WARP_ACCELERATION_KILLED => format!(
+                "The strain of acceleration has killed {} of the colonists aboard {}.",
+                i64::from(long(0)) * 100,
+                names.fleet(u16::try_from(i32::from(param(2)) & 0x1ff).unwrap_or(0))
+            ),
+            id::WARP_TEN_LOST_ONE => format!(
+                "A ship of {} was lost when its engine failed under the strain of warp 10.",
+                fleet()
+            ),
+            id::WARP_TEN_LOST_SHIPS => format!(
+                "{} ships of {} were lost when their engines failed under the strain of warp 10.",
+                param(0),
+                names.fleet(u16::try_from(i32::from(param(1)) & 0x1ff).unwrap_or(0))
+            ),
+            id::WARP_TEN_LOST_FLEET => format!(
+                "{} was lost with all hands when its engines failed under the strain of warp 10.",
+                fleet()
+            ),
+            id::BALKY_ENGINES => format!(
+                "{} could not get its engines started this year; its engineers believe they have found the fault.",
+                fleet()
+            ),
+            id::RAMSCOOP_FUEL => format!(
+                "The ramscoops of {} gathered {}mg of fuel on the way.",
+                fleet(),
+                param(1)
+            ),
+            id::STARGATE_NONE_HERE => format!(
+                "{} tried to use a stargate at {}, but there is none there.",
+                fleet(),
+                place_at(1)
+            ),
+            id::STARGATE_NONE_THERE => format!(
+                "{} tried to jump from the stargate at {} to {}, but no stargate could be found at the destination.",
+                fleet(),
+                planet(param(1)),
+                place_at(2)
+            ),
+            id::STARGATE_TOO_FAR => format!(
+                "{} tried to jump from the stargate at {} to {}, but the destination is out of the gate's range.",
+                fleet(),
+                planet(param(1)),
+                planet(param(2))
+            ),
+            id::STARGATE_TOO_MASSIVE => format!(
+                "{} tried to jump from the stargate at {} to {}, but its ships of design {} are too massive for the gates.",
+                fleet(),
+                planet(param(1)),
+                planet(param(2)),
+                param(3) + 1
+            ),
+            id::STARGATE_BLOCKED_THERE => format!(
+                "{} tried to jump from the stargate at {} to {}, but the starbase there is not yours or a friend's.",
+                fleet(),
+                planet(param(1)),
+                planet(param(2))
+            ),
+            id::STARGATE_BLOCKED_HERE => format!(
+                "{} could not use the stargate at {}: the starbase is not yours or a friend's.",
+                fleet(),
+                planet(param(1))
+            ),
+            id::STARGATE_ANNIHILATED => format!(
+                "{} jumped from the stargate at {} toward {} and never arrived; the distance or the mass was too much for the gates.",
+                fleet(),
+                planet(param(1)),
+                planet(param(2))
+            ),
+            id::STARGATE_LOST_FEW => format!(
+                "{} jumped from the stargate at {} to {}, losing {} ships on the way; it was fortunate, having exceeded what the gates can take.",
+                fleet(),
+                planet(param(1)),
+                planet(param(2)),
+                param(3)
+            ),
+            id::STARGATE_LOST_SOME => format!(
+                "{} jumped from the stargate at {} to {}, losing {} ships on the way; exceeding what the gates can take is not advised.",
+                fleet(),
+                planet(param(1)),
+                planet(param(2)),
+                param(3)
+            ),
+            id::STARGATE_LOST_MANY => format!(
+                "{} jumped from the stargate at {} to {}, losing {} ships on the way; exceeding what the gates can take is dangerous.",
+                fleet(),
+                planet(param(1)),
+                planet(param(2)),
+                param(3)
+            ),
+            id::STARGATE_LOST_UNBELIEVABLE => format!(
+                "{} jumped from the stargate at {} to {}, losing an unbelievable {} ships; the jump was far beyond the gates.",
+                fleet(),
+                planet(param(1)),
+                planet(param(2)),
+                long(3)
+            ),
+            id::STARGATE_UNLOADED_MINERALS => format!(
+                "{} put {}kT of minerals down on {} before jumping through the stargate.",
+                fleet(),
+                long(1),
+                planet(param(4))
+            ),
+            id::STARGATE_UNLOADED_COLONISTS => format!(
+                "{} put {} colonists down on {} before jumping through the stargate.",
+                fleet(),
+                i64::from(long(1)) * 100,
+                planet(param(4))
+            ),
+            id::STARGATE_UNLOADED_BOTH => format!(
+                "{} put {} colonists and {}kT of minerals down on {} before jumping through the stargate.",
+                fleet(),
+                i64::from(long(1)) * 100,
+                long(3),
+                planet(param(5))
+            ),
+            id::STARGATE_COLONISTS_ABOARD => format!(
+                "{} could not use the stargate at {}: it has colonists aboard and the planet is not yours.",
+                fleet(),
+                planet(param(1))
+            ),
             id::HAS_LOADED | id::HAS_BEAMED_UP => format!(
                 "{} has taken {}kT of {} aboard at {}.",
                 fleet(),

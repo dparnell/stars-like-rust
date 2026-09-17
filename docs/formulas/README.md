@@ -55,6 +55,7 @@ Still to come in Step 4:
 | `wanderers.md` | Wormholes and the Mystery Trader: how they move, how a fleet goes through one and trades with the other | in progress |
 | `random-events.md` | Meteor strikes, climate changes, mineral discoveries and the Mystery Trader setting out | transcribed, message ids verified |
 | `scores.md` | The player scoreboard and the victory conditions | verified against 1,826 real score rows |
+| `stargates.md` | Jumping a leg through a pair of stargates: the limits, the damage, the losses | transcribed, no fixture jumps |
 
 `new-game.md` is checked against `fixtures/incoming/turn0/`, a real turn-0 game
 as `GenerateWorld` left it, which pins down almost every stage of the algorithm.

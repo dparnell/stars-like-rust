@@ -69,17 +69,51 @@ its fuel allows.
 Adding fuel did not change the 86%, which is the reassuring outcome: it means
 the model is not cutting fleets short that the engine let through.
 
+## Damage repair (`HealShips`, `10b8:444c`)
+
+A stack's damage is two fields of one word (`DV`): `pctSh`, the percent of its
+ships that are damaged (7 bits), and `pctDp`, how much each of those has lost,
+in **500ths of the design's armour** (9 bits). `HealShips` runs late in the
+turn, after `SweepForMines`, and for every fleet that is not dead and not
+`fNoHeal` — set on a fleet that fought (`DoBattles`), was caught in a minefield
+(`FTravelThroughMineFields`) or jumped a gate (`FStargateJump`), and cleared
+for everybody at the top of `FGenerateTurn` — takes this much off every damaged
+design's `pctDp`, clearing the whole word when the damage is no more than it:
+
+| Where the fleet is | 500ths | guide's figure |
+|---|---:|---:|
+| moved this year (`!fHereAllTurn`) | 5 | 1% |
+| stopped in space | 10 | 2% |
+| over somebody else's planet, or nobody's | 15 | 3% |
+| over its own planet: no starbase, or the starbase was attacked this year (`PLANET.fNoHeal`) | 25 | 5% |
+| over its own starbase without a dock (`wtCargoMax == 0`) | 40 | 8% |
+| over its own dock | 100 | 20% |
+
+The rate is **doubled for Inner Strength**, and then a bonus is added for a
+tanker in the fleet: 50 (10%) if any design is a Super Fuel Xport (hull 26),
+else 25 (5%) if any is a Fuel Transport (hull 25) — the better one only, not
+both, and not doubled.
+
+Then every starbase whose planet was not attacked this year mends 50 (10%) of
+its own `pctDp`, 75 (15%) for Inner Strength.
+
+The guide's *Damage Repair* topic (`STARS!.HLP` context `0x410661`) states the
+same table in percent and adds that a fleet bombing a planet does not heal;
+`DoBombing` (`10f0:aefa`) sets no such flag in this build, so a bombing fleet
+over an enemy planet heals at the 3% rate unless it also fought.
+
+Worked examples: `crates/stars-core/tests/healing.rs`.
+
 ## Open questions
 
-- **Orders** beyond movement — cargo transfer, colonisation, remote mining —
-  are decoded by the format layer but not modelled. This is what holds the
-  whole-turn replay's surface mineral figure down to 19%.
-- Ramscoops gain fuel in flight (`LCalcFuelGainFromRamScoops`); not modelled,
-  so a ramscoop fleet loses fuel it should be collecting.
-- When a fleet cannot afford its ordered warp the original searches downward
-  for one it can fuel and messages the player; here it simply travels as far as
-  the fuel reaches.
-- Ship building: the production queue recognises ship designs but cannot turn a
-  completed one into a fleet.
-- Fuel consumption is implemented (`movement.md`) but nothing calls it, because
-  nothing moves yet.
+- ~~Orders beyond movement are decoded by the format layer but not
+  modelled.~~ Every waypoint task is simulated now — see
+  `waypoint-tasks.md`.
+- ~~Ramscoops gain fuel in flight; not modelled.~~ `LCalcFuelGainFromRamScoops`
+  is in `movement.md` under *Ramscoop fuel*.
+- ~~When a fleet cannot afford its ordered warp the original searches
+  downward.~~ Done: `movement.md`, *Running dry*.
+- ~~Ship building: the production queue cannot turn a completed ship into a
+  fleet.~~ Done: `production.md`.
+- ~~Fuel consumption is implemented but nothing calls it.~~ Movement calls it.
+- Stargate jumps are `stargates.md`; repair is *Damage repair* above.
