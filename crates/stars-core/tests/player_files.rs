@@ -1,8 +1,8 @@
 //! What a player's turn file says of everybody else.
 //!
 //! The host writes each `.mN` from what that player's scanners reach —
-//! `SetVisiblePlanFleet` (`1070:c4f0`) — and from what the year's battles
-//! showed them (`WriteBattles`, `1070:80f8`): partial records of the other
+//! `SetVisiblePlanFleet` (`1070:95bc`) — and from what the year's battles
+//! showed them (`WriteBattles`, `1070:709c`): partial records of the other
 //! players' planets and fleets, their designs in outline or, once fought or
 //! revealed, in full, and the space objects on the map. See
 //! `docs/formats/writing.md` and `docs/formulas/scanning.md`.
@@ -245,7 +245,7 @@ fn out_of_range_nothing_of_theirs_is_written() {
     assert_eq!(blocks(&bytes, 26).len(), 2);
 }
 
-/// A War Monger reads every design on their map in full (`1070:c43c`).
+/// A War Monger reads every design on their map in full (`1070:c41c`).
 #[test]
 fn a_war_monger_reads_the_designs_it_sees_in_full() {
     let mut state = a_game();
@@ -319,7 +319,7 @@ fn a_battle_reveals_the_designs_that_fought() {
 }
 
 /// A Space Demolition player's field reads the designs of what it hits
-/// (`10b0:5d3e`): that year their file describes them in full, wherever
+/// (`10b0:6174`): that year their file describes them in full, wherever
 /// the fleet has got to.
 #[test]
 fn a_minefield_hit_reveals_the_fleet_to_a_space_demolition_owner() {

@@ -138,13 +138,15 @@ lost ships' share of the cargo goes with them (`FleetTransferCargoBalance`).
 
 On arrival the fleet stands at the far planet with its leg consumed, has not
 been "here all turn", and a fleet of another player chasing it is pointed at
-where the gate was rather than followed through (`NoAutoTrackFleet`): this
-engine rewrites that chaser's leg to the spot as a point in space, where the
-original sets `fNoAutoTrack` on the waypoint and keeps the fleet as its object.
+where the gate was rather than followed through (`NoAutoTrackFleet`,
+`1080:1d32`): the chaser's leg is marked `fNoAutoTrack` and fixed at the
+gate, the movement loop stops updating it, `ValidateWaypoints` leaves it
+alone, and the year's end (`FWriteDataFile`, `1070:5964`) clears the mark
+and, the quarry being out of sight, turns the leg into the gate planet with
+the "outrun" word (`0x2a`) — see `movement.md`, *The year's end*. The mark
+lives on `GameState::no_auto_track` for the one generation it exists.
 
 ## Open questions
 
 - Nothing in the fixtures jumps, so none of this is checked against the
   original's arithmetic beyond the transcription.
-- The chaser's `fNoAutoTrack` flag is not carried on this engine's waypoint
-  (see above).

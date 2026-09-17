@@ -234,6 +234,22 @@ pub mod id {
     /// `idmWormholeHeadingForHasVanished` (`0xf8`): the wormhole a leg was
     /// aimed at is gone or has moved unseen; the leg now ends where it was.
     pub const WORMHOLE_VANISHED: u16 = 0xf8;
+    /// `idmMineFieldHeadingHasVanishedOrdersHave` (`0x111`): the minefield
+    /// a leg was aimed at is gone from the player's map; the leg now ends
+    /// where it was.
+    pub const MINEFIELD_VANISHED: u16 = 0x111;
+    /// `idmSWaypointAppearsHaveDestroyedHasDisappeared` (`0x28`): the fleet
+    /// a leg was chasing is gone (the chaser, the fleet chased); the leg
+    /// now ends where it was last seen.
+    pub const CHASED_FLEET_GONE: u16 = 0x28;
+    /// `idmFleetTrackingAppearsHaveDuckedBehindOrders` (`0x29`): the fleet
+    /// a leg was chasing is out of sight at a planet (the chaser, the
+    /// planet); the leg now ends at the planet.
+    pub const CHASED_FLEET_DUCKED: u16 = 0x29;
+    /// `idmFleetTrackingAppearsHaveOutrunRangeScanners` (`0x2a`): the fleet
+    /// a leg was chasing is out of scanner range, or went through a gate
+    /// (the chaser); the leg now ends where it was last seen.
+    pub const CHASED_FLEET_OUTRUN: u16 = 0x2a;
     /// `idmHasRerouted`: a fleet at a planet with a route has been sent on
     /// (the fleet, the planet, the route's end).
     pub const REROUTED: u16 = 0x127;
@@ -1583,6 +1599,24 @@ impl Message {
             ),
             id::WORMHOLE_VANISHED => format!(
                 "The wormhole {} was heading for is no longer there; it will go to where the wormhole was.",
+                fleet()
+            ),
+            id::MINEFIELD_VANISHED => format!(
+                "The minefield {} was heading for is no longer there; it will go to where the field was.",
+                fleet()
+            ),
+            id::CHASED_FLEET_GONE => format!(
+                "The fleet {} was chasing, {}, has been destroyed or has gone; it will go to where that fleet was last seen.",
+                fleet(),
+                names.fleet(u16::try_from(i32::from(param(1)) & 0x1ff).unwrap_or(0))
+            ),
+            id::CHASED_FLEET_DUCKED => format!(
+                "The fleet {} was chasing seems to have slipped behind {}; it will go to that planet instead.",
+                fleet(),
+                planet(param(1))
+            ),
+            id::CHASED_FLEET_OUTRUN => format!(
+                "The fleet {} was chasing has outrun its scanners; it will go to where that fleet was last seen.",
                 fleet()
             ),
             id::REROUTED => format!(

@@ -197,6 +197,28 @@ it), and each leg beyond the first is looked at:
   winning outright. With nothing there the leg stands. A fleet the leg still
   finds is marked as chased (`fTargeted`), so two chasers spread.
 
+A fleet that goes through a **stargate** or a **wormhole** is not followed
+(`NoAutoTrackFleet`, `1080:1d32`): every other player's leg aimed at it is
+marked `fNoAutoTrack` and fixed where the fleet went in, the chase loop
+stops updating it and the pass above passes it by.
+
+### The orders are looked over once more as each file is written (`FWriteDataFile`, `1070:5964`)
+
+After the scores, for each player from their own view of the galaxy
+(`scanning.md`) — the patrols pick their targets here too, and only from
+the fleets on the player's map — every fleet of theirs not transporting
+and with somewhere to go has its legs checked:
+
+- aimed at a **thing** that is off their map — the Trader gone (`0x110`),
+  a minefield they have not detected (`0x111`), a wormhole end their
+  scanners do not reach this year (`0xf8`) — the leg becomes a point in
+  space where it was;
+- aimed at a **fleet**, the `fNoAutoTrack` mark is taken off, and if the
+  fleet is gone (`0x28`, with the fleet), or off their map — at a planet
+  and not marked, "ducked behind" it (`0x29`, with the planet); in space
+  or marked, "outrun" (`0x2a`) — the leg becomes a point in space where it
+  was, or the planet standing exactly there.
+
 Tests: `crates/stars-core/tests/validate_waypoints.rs`.
 
 ## A new ship follows its planet's route (`AutoRouteFleet`, `1080:1e52`)

@@ -142,7 +142,7 @@ measured over the corpus rather than assumed:
 
 ## What a player's file says of everybody else
 
-`FWriteDataFile` (`1070:8f5e`) runs `SetVisiblePlanFleet` for the player
+`FWriteDataFile` (`1070:5964`) runs `SetVisiblePlanFleet` for the player
 before writing, and `stars_core::save::player_file` does the same with
 `visibility::view` (see `../formulas/scanning.md`, *What a scanner
 reveals*). What the passes mark goes into the file as:
@@ -150,8 +150,8 @@ reveals*). What the passes mark goes into the file as:
 - a **short player record** (type 6, `det` 3: the header and the names, no
   race) for every other player with a planet, fleet, design or space
   object on the map or in a battle with the player; in full for a dead
-  player (`WriteRtPlr`, `1070:cbe6`) and, for a **Claim Adjuster**, for
-  every one (`1070:9210`);
+  player (`WriteRtPlr`, `1070:551c`) and, for a **Claim Adjuster**, for
+  every one (`1070:5964`);
 - a **partial planet** (type 14) per planet on the map that is not the
   player's: `det` 1 with the id, owner and starbase; 3 with the
   environment, concentrations and the owner's guesses (`fInclude` clear
@@ -161,15 +161,15 @@ reveals*). What the passes mark goes into the file as:
   player's: the ships, `dirFltX`/`dirFltY` and `iwarpFlt` — the heading
   as the mover set it (`10b0:4686`), zero for a fleet not moving — the
   mass (hulls, minerals and colonists), and at `det` 4 the minerals
-  aboard (`WriteFleet`, `1070:8b52`);
+  aboard (`WriteFleet`, `1070:81c6`);
 - the other players' **designs**: every design of a fleet on the map and
   the starbase design of a planet seen in any detail but obscurely, in
   outline (`det` 3: hull, picture, mass, name; `WriteRtShDef`,
-  `1070:8dc2`), or in full where the player has been shown it — a **War
-  Monger** always (`SetVisPFFinish`, `1070:c43c`), anyone for a design
-  that fought them this year (`WriteBattles`, `1070:80f8`), a **Space
+  `1070:574e`), or in full where the player has been shown it — a **War
+  Monger** always (`SetVisPFFinish`, `1070:c41c`), anyone for a design
+  that fought them this year (`WriteBattles`, `1070:709c`), a **Space
   Demolition** player for every design of a fleet their field hit
-  (`10b0:5d3e`), a **Packet Physics** player for the starbase of a planet
+  (`10b0:6174`), a **Packet Physics** player for the starbase of a planet
   whose driver caught their packet (`10b0:1f7f`). The last two are
   `SHDEF.grbitPlr`, which the original never saves and zeroes on loading
   its designs, so they last the one generation:

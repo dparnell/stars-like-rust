@@ -37,13 +37,13 @@
 //!
 //! What a player sees of everybody else is [`crate::visibility::view`] —
 //! the original's `SetVisiblePlanFleet` passes, run by `FWriteDataFile`
-//! (`1070:8f5e`) as each file is written — plus what this year's battles
-//! showed them (`WriteBattles`, `1070:80f8`): every design that fought
+//! (`1070:5964`) as each file is written — plus what this year's battles
+//! showed them (`WriteBattles`, `1070:709c`): every design that fought
 //! theirs is written in full, and so is one a Space Demolition player's
 //! field hit or a Packet Physics player's packet was caught by
 //! ([`GameState::revealed_designs`]). A War Monger sees every design on
-//! their map in full (`SetVisPFFinish`, `1070:c43c`); a Claim Adjuster
-//! sees every player record in full (`1070:9210`). See
+//! their map in full (`SetVisPFFinish`, `1070:c41c`); a Claim Adjuster
+//! sees every player record in full (`1070:5964`). See
 //! `docs/formats/writing.md`.
 //!
 //! A fleet the player has named carries its name in a block after its
@@ -184,8 +184,8 @@ pub fn player_file(state: &GameState, player: usize) -> Result<Vec<u8>> {
     let mut body = vec![block(6, header_record.encode()?)?];
     // Everybody else the player knows of, in a short record — the name and
     // the counts — unless the player is a Claim Adjuster, who reads every
-    // record in full (`1070:9210`), or the other player is dead
-    // (`WriteRtPlr`, `1070:cbe6`).
+    // record in full (`1070:5964`), or the other player is dead
+    // (`WriteRtPlr`, `1070:551c`).
     for (index, other) in state.players.iter().enumerate() {
         if index == player || !(others.players.contains(&index) || other.dead) {
             continue;
@@ -687,7 +687,7 @@ fn planet_record(planet: &Planet) -> PlanetRecord {
 }
 
 /// A planet as somebody who does not own it sees it — the `rtPlanetB`
-/// (type 14) arm of `WritePlanet` (`1070:cb0e`): the id, owner and whether
+/// (type 14) arm of `WritePlanet` (`1070:7a6a`): the id, owner and whether
 /// it has a starbase at [`Detail::Minimal`]; the environment,
 /// concentrations and the owner's population and defence guesses from
 /// [`Detail::Some`]; the surface minerals at [`Detail::More`], when there
@@ -881,12 +881,12 @@ impl Others {
 }
 
 /// What the file-writing passes settle about everybody else, given what
-/// the player's scanners found: `MarkFleet` (`1070:c2a4`) puts every
-/// design of a fleet on the map in the file and `MarkPlanet` (`1070:c2f2`)
+/// the player's scanners found: `MarkFleet` (`1070:885e`) puts every
+/// design of a fleet on the map in the file and `MarkPlanet` (`1070:8adc`)
 /// the starbase design of a planet seen in any detail but obscurely;
-/// `SetVisPFFinish` (`1070:c43c`) writes those in part — in full for a War
+/// `SetVisPFFinish` (`1070:c41c`) writes those in part — in full for a War
 /// Monger, or once revealed by a minefield or a packet; and `WriteBattles`
-/// (`1070:80f8`) writes every design that fought the player in full and
+/// (`1070:709c`) writes every design that fought the player in full and
 /// puts the fleets that survived and the planet they fought over on the
 /// map. The owners of the space objects on the map are known too.
 fn others_in_view(state: &GameState, player: usize, view: &mut View) -> Others {
@@ -992,13 +992,42 @@ fn others_in_view(state: &GameState, player: usize, view: &mut View) -> Others {
             out.design(owner, slot, true);
         }
     }
+
+    // MarkPlayersThatSentMsgs (`1030:9604`): whoever wrote to the player,
+    // or to everybody, is known to them.
+    for letter in &state.player_messages {
+        let Ok(from) = usize::try_from(letter.from) else {
+            continue;
+        };
+        let to_me = letter.to == stars_formats::PlayerMessage::EVERYBODY
+            || usize::try_from(letter.to - 1) == Ok(player);
+        if from != player && to_me && from < state.players.len() {
+            out.players.insert(from);
+        }
+    }
+    // MarkPlanetsPlayerLost (`1030:93c6`): a planet the player was told
+    // they lost this year — stormed, died off, jumped ship, bombed out —
+    // stays on their map in some detail.
+    for message in state.messages.iter().filter(|m| m.player == player) {
+        use crate::message::id;
+        let planet = match message.id {
+            id::LANDING_STORMED | id::BOMBED_YOU => message.params.get(1),
+            id::COLONISTS_DIED_OFF | id::COLONISTS_JUMPED_SHIP => message.params.first(),
+            _ => None,
+        };
+        if let Some(&planet) = planet {
+            if all_planets(state).any(|p| p.id == planet) {
+                view.mark_planet(planet, Detail::Some);
+            }
+        }
+    }
     out
 }
 
 /// Append what the player's file says of another player's ship or
 /// starbase designs: in full where they have fought or been revealed, and
 /// otherwise the short form — hull, picture, mass and name
-/// (`WriteRtShDef`, `1070:8dc2`).
+/// (`WriteRtShDef`, `1070:574e`).
 fn push_designs_seen(
     body: &mut Vec<Block>,
     state: &GameState,
@@ -1037,7 +1066,7 @@ fn push_designs_seen(
 
 /// Append the other players' fleets on the player's map, in the partial
 /// form (type 17): the ships, the heading and warp, the mass, and at
-/// [`Detail::More`] the minerals aboard (`WriteFleet`, `1070:8b52`).
+/// [`Detail::More`] the minerals aboard (`WriteFleet`, `1070:81c6`).
 fn push_fleets_seen(
     body: &mut Vec<Block>,
     state: &GameState,
@@ -1281,10 +1310,10 @@ fn push_player_messages(state: &GameState, body: &mut Vec<Block>, player: usize)
 /// back does not delete them. See `docs/formats/thing.md` for the section's
 /// shape.
 /// Which of the space objects a file carries, and with what flags —
-/// `FWriteDataFile`'s count (`1070:9660`): a host file every one; a
+/// `FWriteDataFile`'s count (`1070:5964`): a host file every one; a
 /// player's file their own minefields and every one they have ever
 /// detected (`grbitPlr`), the packets they see (all of them for a Packet
-/// Physics race, `1070:9f8c`), every Mystery Trader (`1070:a0b6`), and
+/// Physics race, `1070:9654`), every Mystery Trader (`1070:9654`), and
 /// the wormhole ends their scanners reach this year.
 fn push_things(
     state: &GameState,
@@ -1326,7 +1355,7 @@ fn push_things(
     };
     let total =
         minefields.len() + packets.len() + wormholes.len() + state.traders.len() + others.len();
-    // No section at all when there is nothing to put in it (`1070:9660`).
+    // No section at all when there is nothing to put in it (`1070:5964`).
     if total == 0 {
         return Ok(());
     }

@@ -61,7 +61,7 @@ use crate::GameState;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Detail {
     /// A planet a scannerless fleet of the player's sits at: its id, its
-    /// owner and whether it has a starbase, nothing more (`1070:9f5a`).
+    /// owner and whether it has a starbase, nothing more (`1070:9654`).
     Minimal = 1,
     /// A planet within penetrating range whose cloaked starbase keeps it
     /// out of the cut-down reach (`1070:ab3c`): written as [`Detail::Some`]
@@ -72,7 +72,7 @@ pub enum Detail {
     Some = 3,
     /// [`Detail::Some`] and the cargo — a Pick Pocket Scanner's fleets at
     /// the same spot, a Robber Baron's planet, or an unowned planet the
-    /// player is remote-mining (`1070:9f78`).
+    /// player is remote-mining (`1070:9654`).
     More = 4,
     /// The player's own: everything.
     Full = 7,
@@ -114,14 +114,14 @@ pub struct View {
 }
 
 impl View {
-    /// `MarkPlanet` (`1070:c2f2`): the planet is on the map, at the
+    /// `MarkPlanet` (`1070:8adc`): the planet is on the map, at the
     /// greater of the detail it had and `detail`.
     pub fn mark_planet(&mut self, id: i16, detail: Detail) {
         let entry = self.planets.entry(id).or_insert(detail);
         *entry = (*entry).max(detail);
     }
 
-    /// `MarkFleet` (`1070:c2a4`): likewise for a fleet.
+    /// `MarkFleet` (`1070:885e`): likewise for a fleet.
     pub fn mark_fleet(&mut self, index: usize, detail: Detail) {
         let entry = self.fleets.entry(index).or_insert(detail);
         *entry = (*entry).max(detail);
@@ -303,7 +303,7 @@ pub fn planet_scan(state: &GameState, planet: &Planet) -> ScannerRange {
 
 /// Whether a fleet carries any scanner at all — the `-1` of
 /// `GetCachedFleetScannerRange` that leaves a planet it sits at known only
-/// minimally (`1070:9f5a`): a scanner part, one of the three parts that
+/// minimally (`1070:9654`): a scanner part, one of the three parts that
 /// scan on the side, or a Jack of All Trades hull's built-in scanner.
 fn fleet_has_scanner(state: &GameState, fleet: &Fleet) -> bool {
     use crate::components::slot;
@@ -390,7 +390,7 @@ fn scan_from(
 }
 
 /// The space objects one scanner at `at` reaches — the things loop of
-/// `SetVisPFFleets` (`1070:a3c6`) and of `SetVisPFPlanets` (`1070:b0a4`),
+/// `SetVisPFFleets` (`1070:a100`) and of `SetVisPFPlanets` (`1070:abde`),
 /// which differ in one respect: a fleet's scanner considers every
 /// minefield, a planet's only those within its normal range.
 ///
@@ -441,7 +441,7 @@ fn scan_things(
     }
 }
 
-/// `SetVisPFPlanets`' second pass (`1070:ac9e`): an Interstellar Traveler
+/// `SetVisPFPlanets`' second pass (`1070:abde`): an Interstellar Traveler
 /// sees every planet with a stargate within the range of each of their
 /// own gates — all of them from an unlimited gate — cut by the target
 /// starbase's cloak the way a penetrating scan is.
@@ -519,7 +519,7 @@ pub fn view_with(state: &GameState, player: usize, rng: &mut crate::rng::Rng) ->
     };
     let prt = state.players.get(player).and_then(|p| p.race.prt());
 
-    // SetVisPFInit (`1070:9e3a`): the player's own planets and fleets in
+    // SetVisPFInit (`1070:9654`): the player's own planets and fleets in
     // full, and the planet each fleet sits at — minimally without a
     // scanner, in some detail with one, and more for a Robber Baron or a
     // fleet remote-mining an unowned planet.
@@ -649,7 +649,7 @@ pub fn view_with(state: &GameState, player: usize, rng: &mut crate::rng::Rng) ->
             if field.owner != me {
                 continue;
             }
-            // The field itself scans to its radius (`1070:ba9a`), normal
+            // The field itself scans to its radius (`1070:b9ee`), normal
             // and penetrating alike.
             #[allow(clippy::cast_possible_truncation)]
             let radius = field.radius() as i32;

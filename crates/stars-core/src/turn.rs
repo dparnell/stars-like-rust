@@ -76,6 +76,8 @@ fn names_thing(target: Option<u16>, ith: u16, id: u16) -> bool {
     target.is_some_and(|t| t >> 13 == ith && t & 0x01FF == id)
 }
 
+/// `ith` for a minefield.
+const ITH_MINEFIELD: u16 = 0;
 /// `ith` for a wormhole.
 const ITH_WORMHOLE: u16 = 2;
 /// `ith` for the Mystery Trader.
@@ -209,6 +211,7 @@ pub fn generate_turn_with_orders(
     state.messages.clear();
     state.battles.clear();
     state.revealed_designs.clear();
+    state.no_auto_track.clear();
     // The players' letters to one another go out with this year's news
     // (`FLoadLogFile` gathers them into `vlpmsgplrOut`, and
     // `WritePlayerMessages` puts each into the files of those it is for).
@@ -350,16 +353,15 @@ pub fn generate_turn_with_orders(
                     .find(|(i, _, _, _)| *i == index)
                     .map(|&(_, quarry, left, used)| {
                         // Where the quarry now stands is where the leg now points
-                        // — unless it went through a stargate, when the chase
-                        // ends where the gate was.
+                        // (`10b0:3d21`) — unless it went through a gate or a
+                        // wormhole, when the leg was fixed where it left from.
                         let q = &state.fleets[quarry];
-                        let gate = jumped_from.get(&(q.owner, q.id)).copied();
-                        let at = gate.unwrap_or(q.position);
+                        let at = q.position;
+                        let chaser = &state.fleets[index];
+                        let fixed = state.no_auto_track.contains(&(chaser.owner, chaser.id, 1));
                         if let Some(leg) = state.fleets[index].waypoints.get_mut(1) {
-                            leg.position = at;
-                            if gate.is_some() {
-                                leg.target = None;
-                                leg.target_class = GROBJ_POSITION;
+                            if !fixed {
+                                leg.position = at;
                             }
                         }
                         let quarry_done = !deferred.contains(&quarry);
@@ -961,9 +963,9 @@ pub fn generate_turn_with_orders(
     report.winners = winners;
 
     // --- Patrol: every patrolling fleet looks for something to intercept.
-    // The original does this as it writes each player's file, after everything
-    // else has happened, because a patrol is decided from that player's view.
-    report.patrols = crate::patrol::patrol(state);
+    // The original does this as it writes each player's file, after
+    // everything else has happened, because a patrol is decided from that
+    // player's view — so it is done in `detect_things`, at the year's end.
 
     // --- AutoTerraform: the Claim Adjuster's free terraforming, which the
     // pipeline runs after Produce. It is a no-op for every other race.
@@ -1072,8 +1074,129 @@ pub fn generate_turn_with_orders(
     // --- SetVisiblePlanFleet, run for each player as their file is written:
     // what their scanners found among the space objects is remembered on
     // the objects themselves.
-    detect_things(state, rng);
+    report.patrols = detect_things(state, rng);
     report
+}
+
+/// The look each player's orders get as their file is written
+/// (`FWriteDataFile`, `1070:5964`), for every fleet of theirs not
+/// transporting and with somewhere to go. A leg aimed at a **thing** that
+/// is off their map — the Trader gone, a minefield they have not detected,
+/// a wormhole end their scanners do not reach this year — becomes a point
+/// in space where it was, with a word (`0x110`, `0x111`, `0xf8`). A leg
+/// aimed at a **fleet** gives up its `fNoAutoTrack` mark, and if the fleet
+/// is gone (`0x28`), or off their map — at a planet, `0x29` and the leg is
+/// aimed at the planet; in space or having gone through a gate, `0x2a` —
+/// becomes a point in space where it was, or the planet standing exactly
+/// there.
+fn revalidate_orders(state: &mut GameState, player: usize, view: &crate::visibility::View) {
+    use crate::message::{fleet_object, id, Message};
+    let Ok(me) = i16::try_from(player) else {
+        return;
+    };
+    let bit = 1u16 << (u16::try_from(player).unwrap_or(0) & 15);
+    let planets: Vec<(i16, crate::movement::Point)> = state
+        .planets
+        .iter()
+        .chain(state.known_planets.iter())
+        .filter_map(|p| p.position.map(|at| (p.id, at)))
+        .collect();
+    let mut told: Vec<(u16, Vec<i16>)> = Vec::new();
+    for index in 0..state.fleets.len() {
+        let fleet = &state.fleets[index];
+        if fleet.owner != me || fleet.is_empty() || fleet.waypoints.len() < 2 {
+            continue;
+        }
+        if fleet.waypoints[0].task == stars_formats::task::TRANSPORT {
+            continue;
+        }
+        let fleet_id = fleet.id;
+        let word = fleet_object(fleet_id);
+        for leg in 1..state.fleets[index].waypoints.len() {
+            let waypoint = state.fleets[index].waypoints[leg].clone();
+            let mut to_point = false;
+            match waypoint.target_class {
+                GROBJ_THING => {
+                    let Some(target) = waypoint.target else {
+                        continue;
+                    };
+                    let gone = match target >> 13 {
+                        ITH_TRADER => !state
+                            .traders
+                            .iter()
+                            .any(|t| names_thing(Some(target), ITH_TRADER, t.id)),
+                        ITH_WORMHOLE => !state.wormholes.iter().enumerate().any(|(i, w)| {
+                            names_thing(Some(target), ITH_WORMHOLE, w.id)
+                                && view.wormholes.contains(&i)
+                        }),
+                        ITH_MINEFIELD => !state.minefields.iter().any(|f| {
+                            names_thing(Some(target), ITH_MINEFIELD, f.id)
+                                && (f.owner == me || f.detected_by & bit != 0)
+                        }),
+                        _ => false,
+                    };
+                    if gone {
+                        let which = match target >> 13 {
+                            ITH_TRADER => id::TRADER_VANISHED,
+                            ITH_WORMHOLE => id::WORMHOLE_VANISHED,
+                            _ => id::MINEFIELD_VANISHED,
+                        };
+                        told.push((which, vec![word, 0]));
+                        to_point = true;
+                    }
+                }
+                crate::fleet::grobj::FLEET => {
+                    let Some(target) = waypoint.target else {
+                        continue;
+                    };
+                    let no_auto_track = state.no_auto_track.remove(&(me, fleet_id, leg));
+                    let quarry = crate::orders::split_fleet_id(target);
+                    let found = state
+                        .fleets
+                        .iter()
+                        .position(|f| (f.owner, f.id) == quarry && !f.is_empty());
+                    match found {
+                        None => {
+                            #[allow(clippy::cast_possible_wrap)]
+                            told.push((id::CHASED_FLEET_GONE, vec![word, target as i16]));
+                        }
+                        Some(q) if view.fleets.contains_key(&q) => continue,
+                        Some(q) => {
+                            let at_planet = state.fleets[q]
+                                .orbiting
+                                .and_then(|p| i16::try_from(p).ok())
+                                .filter(|_| !no_auto_track);
+                            match at_planet {
+                                Some(planet) => {
+                                    told.push((id::CHASED_FLEET_DUCKED, vec![word, planet]));
+                                }
+                                None => told.push((id::CHASED_FLEET_OUTRUN, vec![word, 0])),
+                            }
+                        }
+                    }
+                    to_point = true;
+                }
+                _ => {}
+            }
+            if to_point {
+                let w = &mut state.fleets[index].waypoints[leg];
+                w.target = None;
+                w.target_class = GROBJ_POSITION;
+                if let Some((id, _)) = planets.iter().find(|(_, at)| *at == w.position) {
+                    w.target = u16::try_from(*id).ok();
+                    w.target_class = crate::fleet::grobj::PLANET;
+                }
+            }
+        }
+    }
+    for (id, params) in told {
+        state.messages.push(Message {
+            player,
+            id,
+            object: params[0],
+            params,
+        });
+    }
 }
 
 /// The marks the file-writing passes leave on the space objects
@@ -1083,23 +1206,29 @@ pub fn generate_turn_with_orders(
 /// (`grbitPlrNow`); a wormhole end a scanner reaches is seen (`grbitPlr`),
 /// which a jump later forgets. The Space Demolition roll for cloaked
 /// fleets inside a field draws on the game's generator here, as the
-/// original's does.
-fn detect_things(state: &mut GameState, rng: &mut Rng) {
+/// original's does. Then, from the same view, the player's patrols pick
+/// their targets and their orders are looked over (`FWriteDataFile`,
+/// `1070:5964`). Returns the interceptions the patrols ordered.
+fn detect_things(state: &mut GameState, rng: &mut Rng) -> Vec<(u16, u16)> {
+    let mut patrols = Vec::new();
     for player in 0..state.players.len() {
         let view = crate::visibility::view_with(state, player, rng);
         let bit = 1u16 << (u16::try_from(player).unwrap_or(0) & 15);
-        for index in view.minefields {
+        for &index in &view.minefields {
             if let Some(field) = state.minefields.get_mut(index) {
                 field.detected_by |= bit;
                 field.visible_to |= bit;
             }
         }
-        for index in view.wormholes {
+        for &index in &view.wormholes {
             if let Some(hole) = state.wormholes.get_mut(index) {
                 hole.detected_by |= bit;
             }
         }
+        patrols.extend(crate::patrol::patrol_for(state, player, &view));
+        revalidate_orders(state, player, &view);
     }
+    patrols
 }
 
 /// The race owning `planets[index]`, cloned so the planet can be mutated.
@@ -1694,7 +1823,7 @@ fn mine_hit(
     let fleet_id = state.fleets[index].id;
     let field_owner = usize::try_from(field.owner).ok();
     // A Space Demolition player's field reads every design of what it hits
-    // (`10b0:5d3e`), which their file this year then describes in full.
+    // (`10b0:6174`), which their file this year then describes in full.
     if let Some(fo) = field_owner.filter(|fo| {
         *fo != owner
             && state
@@ -2306,6 +2435,31 @@ fn orders_lose_their_trader(state: &mut GameState, trader: &crate::wormhole::Mys
     }
 }
 
+/// `NoAutoTrackFleet` (`1080:1d32`): a fleet is about to vanish through a
+/// gate or a wormhole, so every other player's leg aimed at it is marked
+/// `fNoAutoTrack` and fixed where the fleet is now — the chase ends there.
+fn no_auto_track_fleet(state: &mut GameState, quarry: usize) {
+    let target = (state.fleets[quarry].owner, state.fleets[quarry].id);
+    let at = state.fleets[quarry].position;
+    for index in 0..state.fleets.len() {
+        let chaser = &state.fleets[index];
+        if chaser.owner == target.0 || chaser.waypoints.len() < 2 {
+            continue;
+        }
+        let key = (chaser.owner, chaser.id);
+        for leg in 1..state.fleets[index].waypoints.len() {
+            let w = &mut state.fleets[index].waypoints[leg];
+            if w.target_class == crate::fleet::grobj::FLEET
+                && w.target
+                    .is_some_and(|t| crate::orders::split_fleet_id(t) == target)
+            {
+                w.position = at;
+                state.no_auto_track.insert((key.0, key.1, leg));
+            }
+        }
+    }
+}
+
 /// Take a fleet that has just reached a wormhole out of the far end.
 ///
 /// `MoveFleets` (`10b0:4ce4`), immediately after the leg is flown: a fleet
@@ -2332,6 +2486,7 @@ fn traverse_wormhole(state: &mut GameState, index: usize) -> Option<(u16, u16)> 
     let far = state.wormholes.iter().position(|w| w.id == partner)?;
 
     let bit = 1u16 << (owner & 0x0F);
+    no_auto_track_fleet(state, index);
     state.wormholes[near].traversed_by |= bit;
     state.wormholes[far].traversed_by |= bit;
     state.wormholes[far].detected_by |= bit;
@@ -3745,7 +3900,9 @@ fn stargate_leg(
                     &designs,
                 );
             }
-            // Through: the fleet stands at the far gate, its leg done.
+            // Through: the fleet stands at the far gate, its leg done, and
+            // whoever was chasing it stops at the gate it left by.
+            no_auto_track_fleet(state, index);
             let f = &mut state.fleets[index];
             jumped_from.insert((f.owner, f.id), from);
             f.position = leg.position;
@@ -4001,6 +4158,9 @@ fn validate_waypoints(state: &mut GameState, rng: &mut Rng) {
                     }
                 }
                 crate::fleet::grobj::FLEET => {
+                    if state.no_auto_track.contains(&(owner, fleet_id, leg)) {
+                        continue;
+                    }
                     let Some(word) = waypoint.target else {
                         continue;
                     };

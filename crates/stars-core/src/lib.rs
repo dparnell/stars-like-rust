@@ -459,7 +459,7 @@ pub struct GameState {
     /// on each design: `(player, owner, slot)`, the slot into
     /// [`Self::designs`] with starbases at [`startup::FIRST_STARBASE_SLOT`]
     /// and up. A Space Demolition player's minefield reads every design of
-    /// a fleet it hits (`10b0:5d3e`), and a Packet Physics player's packet
+    /// a fleet it hits (`10b0:6174`), and a Packet Physics player's packet
     /// reads the starbase of a planet with a driver to catch it
     /// (`10b0:1f7f`). The original never saves the bits and zeroes them
     /// when it loads its designs, so they last one generation; this set is
@@ -467,6 +467,15 @@ pub struct GameState {
     /// designs too, but those are read off [`Self::battles`] when the
     /// files are written.
     pub revealed_designs: std::collections::BTreeSet<(usize, usize, usize)>,
+    /// The legs marked `fNoAutoTrack` this year, by the chaser's `(owner,
+    /// fleet id, leg)`: a leg aimed at a fleet that went through a
+    /// stargate or a wormhole (`NoAutoTrackFleet`, `1080:1d32`) stops
+    /// following it and ends where the fleet left from. The mark lives one
+    /// generation — the year's end reads and clears it as each player's
+    /// orders are looked over (`FWriteDataFile`, `1070:5964`) — so it is
+    /// kept here rather than on the waypoint, whose record's bit it never
+    /// reaches. Cleared at the start of a turn.
+    pub no_auto_track: std::collections::BTreeSet<(i16, u16, usize)>,
 }
 
 impl GameState {
@@ -550,6 +559,7 @@ impl GameState {
             other_things: Vec::new(),
             battles: Vec::new(),
             revealed_designs: std::collections::BTreeSet::new(),
+            no_auto_track: std::collections::BTreeSet::new(),
         }
     }
 

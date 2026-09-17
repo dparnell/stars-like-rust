@@ -129,7 +129,27 @@ pub fn matches_target(state: &GameState, fleet: &Fleet, class: TargetClass) -> b
 /// Returns the interceptions ordered, as `(patrolling fleet, target fleet)`.
 pub fn patrol(state: &mut GameState) -> Vec<(u16, u16)> {
     let mut ordered = Vec::new();
+    for player in 0..state.players.len() {
+        let view = crate::visibility::view(state, player);
+        ordered.extend(patrol_for(state, player, &view));
+    }
+    ordered
+}
+
+/// [`patrol`] for one player's fleets, from that player's view of the
+/// galaxy: only a fleet on their map (`lpflTarget->fInclude`) can be
+/// targeted. The turn engine calls this for each player at the year's
+/// end, where the original does as it writes their file.
+pub fn patrol_for(
+    state: &mut GameState,
+    player: usize,
+    view: &crate::visibility::View,
+) -> Vec<(u16, u16)> {
+    let mut ordered = Vec::new();
     let mut taken: Vec<usize> = Vec::new();
+    let Ok(me) = i16::try_from(player) else {
+        return ordered;
+    };
 
     // A fleet sitting still under a patrolling second waypoint patrols too.
     for fleet in &mut state.fleets {
@@ -151,7 +171,9 @@ pub fn patrol(state: &mut GameState) -> Vec<(u16, u16)> {
 
     for index in 0..state.fleets.len() {
         let fleet = &state.fleets[index];
-        if fleet.waypoints.first().map(|w| w.task) != Some(stars_formats::task::PATROL) {
+        if fleet.owner != me
+            || fleet.waypoints.first().map(|w| w.task) != Some(stars_formats::task::PATROL)
+        {
             continue;
         }
         // Already chasing something.
@@ -181,7 +203,10 @@ pub fn patrol(state: &mut GameState) -> Vec<(u16, u16)> {
         let mut best_distance = i64::MAX;
         let mut found_unmarked = false;
         for (other, target) in state.fleets.iter().enumerate() {
-            if target.owner == fleet.owner || target.stacks.is_empty() {
+            if target.owner == fleet.owner
+                || target.stacks.is_empty()
+                || !view.fleets.contains_key(&other)
+            {
                 continue;
             }
             let marked = taken.contains(&other);
@@ -220,13 +245,15 @@ pub fn patrol(state: &mut GameState) -> Vec<(u16, u16)> {
             taken.push(target);
         }
         let (position, id) = (state.fleets[target].position, state.fleets[target].id);
+        // A waypoint names a fleet by its owner and number together.
+        let word = (u16::try_from(state.fleets[target].owner).unwrap_or(0) << 9) | (id & 0x1ff);
         let warp = state.fleets[index].warp.unwrap_or(0);
         let fleet = &mut state.fleets[index];
         fleet.waypoints.insert(
             1,
             Waypoint {
                 position,
-                target: Some(id),
+                target: Some(word),
                 target_class: GROBJ_FLEET,
                 warp,
                 task: stars_formats::task::NONE,

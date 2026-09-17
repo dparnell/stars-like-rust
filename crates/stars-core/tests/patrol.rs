@@ -25,7 +25,12 @@ fn a_game() -> GameState {
         designed: 0,
         built: 0,
         hull_id: 4,
-        slots: Vec::new(),
+        // A Rhino Scanner: a patrol can only target a fleet on its map.
+        slots: vec![stars_core::design::DesignSlot {
+            category: stars_core::components::slot::SCANNER,
+            item: 1,
+            count: 1,
+        }],
     };
     state.designs = vec![vec![design.clone()], vec![design]];
     state
@@ -86,7 +91,7 @@ fn a_patrol_intercepts_the_nearest_enemy_in_range() {
     let ordered = patrol(&mut state);
     assert_eq!(ordered, vec![(1, 3)], "the nearer of the two");
     let leg = &state.fleets[0].waypoints[1];
-    assert_eq!(leg.target, Some(3));
+    assert_eq!(leg.target, Some((1 << 9) | 3), "player 1's fleet 3");
     assert_eq!(leg.target_class, 2, "a fleet, not a planet");
     assert_eq!(leg.position, Point::new(1020, 1000));
 
@@ -194,5 +199,18 @@ fn a_patrol_is_set_up_by_the_turn() {
     let mut rng = Rng::from_seeds(1, 2);
     let report = generate_turn(&mut state, &mut rng);
     assert_eq!(report.patrols, vec![(1, 2)]);
-    assert_eq!(state.fleets[0].waypoints[1].target, Some(2));
+    // The leg names the fleet by its owner and number.
+    assert_eq!(state.fleets[0].waypoints[1].target, Some((1 << 9) | 2));
+
+    // Out of the scanner's fifty light years, nothing is found.
+    let mut state = a_game();
+    state.players[0].battle_plans[0].attack_who = 3;
+    state.fleets = vec![
+        fleet(1, 0, Point::new(1000, 1000), stars_formats::task::PATROL),
+        fleet(2, 1, Point::new(1080, 1000), 0),
+    ];
+    state.fleets[0].warp = None;
+    state.fleets[1].warp = None;
+    let report = generate_turn(&mut state, &mut Rng::from_seeds(1, 2));
+    assert!(report.patrols.is_empty(), "unseen, untargeted");
 }

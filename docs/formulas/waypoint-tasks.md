@@ -202,9 +202,11 @@ union. The first word is the patrol's warp. The rules are in `save.c`:
 - **A fleet inherits the patrol.** If the first waypoint has no task but the
   second patrols, the first takes the task and both its settings.
 - **A fleet already chasing a fleet is left alone.**
-- **The search.** Every other player's fleet is considered from where the
-  patroller is — or, for a fleet in deep space with repeat orders, from where
-  it is *going*. A candidate must be one the fleet's battle plan will attack
+- **The search.** Every other player's fleet **on the patroller's map**
+  (`lpflTarget->fInclude`, the year's view — `scanning.md`) is considered
+  from where the patroller is — or, for a fleet in deep space with repeat
+  orders, from where it is *going*. A candidate must be one the fleet's
+  battle plan will attack
   (`FAttackPlayer`, `10f0:ae06`) and must match the plan's **primary target
   class** (`FMatchTarget`, `1038:6612`).
 - **One patroller per target.** A target nobody has claimed this pass beats a

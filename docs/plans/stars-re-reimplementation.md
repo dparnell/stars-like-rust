@@ -3186,9 +3186,7 @@ disagree.
     roster (`new-game.md`).
 
     What is left is what no fixture can check, listed under *Carried into
-    Step 5 unverified*. A chaser's `fNoAutoTrack` flag is not carried on
-    the waypoint: a fleet chasing one that jumped a gate is pointed at the
-    spot as a point in space instead.
+    Step 5 unverified*.
 
 110. **What a player's file says of everybody else.** The `.mN` writer
     used to describe only the player's own planets, fleets and designs,
@@ -3209,6 +3207,19 @@ disagree.
     hosted game detects minefields and wormholes by scanning at last.
     `docs/formats/writing.md`, `docs/formulas/scanning.md`;
     `crates/stars-core/tests/player_files.rs`.
+
+    With the view in hand at the year's end, the two things the original
+    does as it writes each file are done from it too: the patrols pick
+    their targets only among the fleets on the player's map, and every leg
+    is looked over — a leg chasing a fleet that is gone or out of sight
+    becomes a point in space or the planet it ducked behind, with a word
+    (`0x28`–`0x2a`), and one aimed at a space object off the map likewise
+    (`0x110`, `0x111`, `0xf8`). The chaser's `fNoAutoTrack` mark, which
+    `NoAutoTrackFleet` sets when the quarry goes through a gate or a
+    wormhole, is kept on the state for the generation it lives
+    (`GameState::no_auto_track`) rather than on the waypoint, whose file
+    bit it never reaches. `docs/formulas/movement.md`, *The orders are
+    looked over once more*.
 
 #### Saving is not re-encoding
 
