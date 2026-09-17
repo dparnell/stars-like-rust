@@ -323,6 +323,46 @@ impl WaypointRecord {
         }
         TransportTask::decode(&self.task_data)
     }
+
+    /// The two words of a four-byte task payload, if the waypoint's task is
+    /// `which` and the payload is there.
+    fn two_words(&self, which: u8) -> Option<(u16, u16)> {
+        if self.task != which {
+            return None;
+        }
+        let b = self.task_data.get(0..4)?;
+        Some((
+            u16::from_le_bytes([b[0], b[1]]),
+            u16::from_le_bytes([b[2], b[3]]),
+        ))
+    }
+
+    /// The Lay Minefield task's payload — `TASKLAYMINES`: `cTime`, the
+    /// years still to lay (5 for ever, 0 to stop), and `cTimeOld`, the
+    /// setting it started from.
+    #[must_use]
+    pub fn lay_mines(&self) -> Option<(u16, u16)> {
+        self.two_words(task::LAY_MINES)
+    }
+
+    /// The Patrol task's payload — `TASKPATROL`: `iWarp`, the warp to
+    /// intercept at (0 for the fleet's own), and `iDist`, the range setting
+    /// (`× 50 + 50` light years, 10 meaning any distance).
+    #[must_use]
+    pub fn patrol(&self) -> Option<(u16, u16)> {
+        self.two_words(task::PATROL)
+    }
+
+    /// The Transfer task's payload — `TASKSELL`: `iPlrX`, the recipient
+    /// counted among the players other than the fleet's owner.
+    #[must_use]
+    pub fn transfer(&self) -> Option<u16> {
+        if self.task != task::TRANSFER {
+            return None;
+        }
+        let b = self.task_data.get(0..2)?;
+        Some(u16::from_le_bytes([b[0], b[1]]))
+    }
 }
 
 /// Waypoint task ids (`grTask`).
@@ -541,5 +581,22 @@ mod tests {
     #[test]
     fn rejects_truncated() {
         assert!(WaypointRecord::decode(&[0u8; 7]).is_none());
+    }
+
+    /// The four-byte and two-byte task payloads read as the NB09 unions.
+    #[test]
+    fn the_other_task_payloads_are_typed() {
+        let mut w = WaypointRecord::decode(&[0, 4, 0, 4, 1, 0, 0x60, 0x11]).expect("decodes");
+        w.task = task::LAY_MINES;
+        w.task_data = vec![3, 0, 5, 0];
+        assert_eq!(w.lay_mines(), Some((3, 5)));
+        assert_eq!(w.patrol(), None);
+        w.task = task::PATROL;
+        w.task_data = vec![0, 0, 10, 0];
+        assert_eq!(w.patrol(), Some((0, 10)));
+        w.task = task::TRANSFER;
+        w.task_data = vec![2, 0];
+        assert_eq!(w.transfer(), Some(2));
+        assert_eq!(w.lay_mines(), None);
     }
 }

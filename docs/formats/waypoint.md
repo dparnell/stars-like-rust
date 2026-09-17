@@ -86,9 +86,14 @@ matching the three homeworlds.
 ## Open questions
 
 - The full `object type` enumeration (17 confirmed = planet).
-- The Transport task's payload is now decoded (see below); the other tasks'
-  payloads (`TASKLAYMINES`, `TASKPATROL`, `TASKSELL`) are named by the NB09
-  structures but not yet decoded, and are preserved verbatim.
+- ~~The other tasks' payloads are not yet decoded.~~ They are the NB09
+  unions, read by `WaypointRecord::lay_mines`, `patrol` and `transfer`:
+  `TASKLAYMINES { cTime, cTimeOld }` (the years still to lay, 5 for ever, 0
+  to stop, and the setting it started from), `TASKPATROL { iWarp, iDist }`
+  (the intercept warp, 0 for the fleet's own, and the range setting,
+  `× 50 + 50` light years, 10 for any distance) and `TASKSELL { iPlrX }`
+  (the recipient counted among the other players). The payload is kept
+  verbatim as well, so a record re-encodes exactly.
 
 ## The Transport task's payload
 
@@ -130,8 +135,5 @@ corroborates the split three ways rather than merely not crashing:
 - `FillPercent` carries only **33 and 66** — percentages, exactly as the action
   name implies.
 
-`stars-core` performs `LoadAll`, `UnloadAll`, `LoadExact`, `UnloadExact` and
-`FillPercent` on arrival. `LoadDunnage`, `WaitPercent`, `SetAmount` and
-`SetWaypoint` are decoded but **not performed**: their behaviour depends on
-parts of `SatisfyOrders` that could not be read confidently, and none of them
-occurs in these fixtures.
+`stars-core` performs every action, in the original's four passes a year:
+`../formulas/waypoint-tasks.md`, *Transport*.
