@@ -32,6 +32,9 @@ fn a_galaxy() -> GameState {
         }],
     }]];
     state.galaxy_planets = 2;
+    // A huge universe, 1000..=3000 on each axis, so that nothing here is
+    // pulled back inside the bounds at the year's end.
+    state.galaxy_size = 4;
     state
 }
 
