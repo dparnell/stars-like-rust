@@ -353,8 +353,6 @@ same lesser traits, including the Cheap Factories checkbox that entry's
   (`1078:4b0d`) seeds from a game-definition file when there is one, and an
   ordinary new game seeds from the clock. Regenerating a real player's
   galaxy is impossible for want of the seed, not for want of the algorithm.
-- **Battle plans**, which every player starts with the five stock ones of;
-  the generated `GameState` does not carry them.
 
 ## 6. Random races (`CreateRandomRace`, `10e0:5b08`)
 
@@ -400,6 +398,13 @@ tries, each a nudge kept only if it lowers the distance outside the range
 The 252nd try gives up and copies `vrgplrDef[0]` — the predefined Humanoid,
 name aside — over the race. `crates/stars-core/tests/new_game.rs` rolls sixty
 of them.
+
+## 6a. Battle plans
+
+`GenerateWorld` gives every player the five stock plans (`InitBattlePlan`,
+one per `rgbtlplanT` entry, the player's number on each); in a single-player
+game the first — Default — attacks **everyone** rather than enemies.
+`crate::default_battle_plans`.
 
 ## 7. Victory conditions and the simple dialog's roster
 

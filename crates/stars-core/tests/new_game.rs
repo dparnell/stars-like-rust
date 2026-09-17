@@ -1089,3 +1089,46 @@ fn the_simple_games_roster_follows_the_size_and_difficulty() {
         "{roster:?}"
     );
 }
+
+/// Every player starts with the five stock battle plans under their own
+/// number, and alone against the computer the Default plan attacks
+/// everyone.
+#[test]
+fn every_player_starts_with_the_stock_battle_plans() {
+    let config = NewGame {
+        players: vec![
+            NewPlayer::human(Race::humanoid()),
+            NewPlayer::human(Race::humanoid()),
+            opponents::opponent(0, 1).expect("an opponent").as_player(),
+        ],
+        ..NewGame::default()
+    };
+    let made = generate(&config, &mut Rng::randomize(3)).expect("generates");
+    for (i, player) in made.state.players.iter().enumerate() {
+        assert_eq!(player.battle_plans.len(), 5);
+        assert!(player
+            .battle_plans
+            .iter()
+            .all(|p| usize::from(p.race_id) == i));
+        assert_eq!(
+            player.battle_plans[0].attack_who,
+            stars_core::combat::attack_who::NEUTRALS_AND_ENEMIES
+        );
+    }
+    let config = NewGame {
+        players: vec![
+            NewPlayer::human(Race::humanoid()),
+            opponents::opponent(0, 1).expect("an opponent").as_player(),
+        ],
+        ..NewGame::default()
+    };
+    let made = generate(&config, &mut Rng::randomize(3)).expect("generates");
+    assert_eq!(
+        made.state.players[0].battle_plans[0].attack_who,
+        stars_core::combat::attack_who::EVERYONE
+    );
+    assert_eq!(
+        made.state.players[0].battle_plans[1].attack_who,
+        stars_core::combat::attack_who::NEUTRALS_AND_ENEMIES
+    );
+}

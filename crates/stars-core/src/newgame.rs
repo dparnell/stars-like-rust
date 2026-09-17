@@ -32,8 +32,6 @@
 //!
 //! * **The Mystery Trader**, which sets out on its own schedule from the
 //!   turn generator rather than the generator of the world.
-//! * **Battle plans**, which every player starts with the five stock ones
-//!   of.
 //!
 //! ## Seed-identical universes: they are
 //!
@@ -1371,6 +1369,12 @@ fn settle_players(
 ) -> (Vec<Player>, Vec<usize>) {
     let count = config.players.len();
     let mut players: Vec<Player> = Vec::with_capacity(count);
+    let single_player = config
+        .players
+        .iter()
+        .filter(|p| matches!(p.control, Control::Human))
+        .count()
+        == 1;
 
     // Which player gets which of the chosen planets is shuffled, so the
     // central one does not always fall to player 0.
@@ -1393,6 +1397,15 @@ fn settle_players(
         player.control = config.players[i].control;
         player.name = name;
         player.plural_name = plural;
+        // The five stock battle plans, in the player's own number
+        // (`InitBattlePlan`, `1078:…`), the Default plan attacking
+        // everyone in a single-player game.
+        player.battle_plans = crate::default_battle_plans(i);
+        if single_player {
+            if let Some(plan) = player.battle_plans.first_mut() {
+                plan.attack_who = crate::combat::attack_who::EVERYONE;
+            }
+        }
         player.relations = vec![0; count];
         player.research.levels = starting_tech(&player.race);
         player.research.current_field = 0;
