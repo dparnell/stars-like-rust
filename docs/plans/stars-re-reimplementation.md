@@ -3159,40 +3159,39 @@ disagree.
      egui's font metrics, so it shrinks with the dialog when the dialog is
      squeezed.
 
-108. **What is still missing to call it playable.** Every waypoint task is now
-    simulated, and minefields with them. What is left, in the order it is worth
-    doing:
+108. ~~**What is still missing to call it playable.**~~ **Done**, item by
+    item, the last of them in the September sweep that closed the turn
+    engine: the messages (a hundred and more ids sent), packets thrown,
+    caught and landed, per-player visibility, the minefield damage step,
+    the race wizard, `stars.ini` keeping the scanner's settings, the
+    designer's numbers, waypoint tasks from the map, `PLANET.turn`, the
+    score sheet's trimmings and the sticky dialog positions.
 
-    - **More messages.** Nineteen ids are sent; the original has hundreds.
-    - **Packets, the rest of the way**: launching them from a production
-      queue, catching them with a planet's own mass driver, and the damage and
-      terraforming when one lands.
-    - **Per-player visibility**: what each player can see is carried through a
-      file rather than recomputed, which is what the Trader's and the
-      wormholes' out-of-view order cancelling waits on.
-    - Inside combat: the minefield damage step's interval merging, engine-count
-      scaling and shield absorption.
-    - A loaded state file still cannot carry structural fleet changes back —
-      the game does not either; the order log does.
-    - **The race creation wizard**, which File (Custom Race Wizard) opens;
-      this project has the read-only viewer only.
-    - **`stars.ini` does not keep the scanner's settings** between sessions —
-      the view, the overlays, the three filter masks and the coverage. Their
-      defaults are honoured; the saving is not.
-    - **The designer's remaining numbers**: `LComputePower` for a design's
-      `Rating:`, and the cloak, jammer and initiative rows; and `SHDEF.cBuilt`,
-      so the plaque's second figure is real.
-    - **Waypoint tasks from the map**: a leg can be dragged out, but the task
-      it carries is still set from the Fleets screen.
-    - **`PLANET.turn`**, the stamp saying when a planet was last seen, which
-      the survey pane wants for its report-age line.
-    - **The Score sheet's remaining trimmings**: the player names as rotated
-      column headers, and the tutorial hooks every one of its buttons calls.
-    - **Sticky dialog positions.** `StickyDlgPos` (`1040:3094`) keeps a
-      remembered top-left per dialog, centring the first time and coming back
-      where it was left after that. The shell places every window itself, so
-      none of them stick.
+109. **The turn engine, closed.** Every step of `FGenerateTurn` is now
+    transcribed (`docs/formulas/turn-order.md`, *What generate_turn
+    performs*), the last pieces being: stargate jumps with
+    `MdCalcStargateDamage` and `FStargateJump` (`stargates.md`); the first
+    pass of `MoveFleets` — Cheap Engines balking, Alternate Reality
+    colonists dying of acceleration, warp-10 engine failures, a Radiating
+    Hydro-Ram Scoop's radiation — and ramscoop fuel gain (`movement.md`);
+    `HealShips` (`fleet.md`, *Damage repair*); `DropColonists` whole,
+    contested landings and all (`ground.md`); `FCalcFleetBombDamage`
+    whole (`bombing.md`); the Transport task's four passes with every
+    action, and `MoveFleets` holding a fleet still transporting or laying
+    (`waypoint-tasks.md`); `CreateSalvage` in deep space and for Bleeding
+    Edge; `AutoRouteFleet` and `AutoFleetOrder` behind the Route task; the
+    battle movement jitter read from the binary (`combat.md`); the damage
+    half of `FleetTransferCargoBalance`; and, at generation, wormholes,
+    random races, battle plans, victory conditions and the simple dialog's
+    roster (`new-game.md`).
 
+    What is left is what no fixture can check, listed under *Carried into
+    Step 5 unverified*, and two pieces of **design intelligence** the state
+    has no place for: a Space Demolition owner learning the designs its
+    field hit (`10b0:6174`) and a Packet Physics thrower learning the
+    target's starbase design (`10b0:1f7f`). A chaser's `fNoAutoTrack`
+    flag is likewise not carried on the waypoint: a fleet chasing one that
+    jumped a gate is pointed at the spot as a point in space instead.
 
 #### Saving is not re-encoding
 
@@ -3233,6 +3232,12 @@ None blocks the UI; all are worth revisiting if a richer corpus appears.
   carries a mining robot.
 - **RNG alignment.** Searched and not found: the seeding reaches only 16,256
   states, and every one was tried against every offset. See `docs/rng/prng.md`.
+- **Stargate jumps, contested landings, damage repair, the movement
+  mishaps, ramscoop gain, the Transport task's waits, the battle jitter,
+  random races and the simple dialog's roster.** All transcribed from the
+  binary and unit-tested against worked examples; no fleet in the corpus
+  jumps a gate, invades, repairs from a recorded state or waits on a load,
+  and no generated game in it was made by the simple dialog.
 
 ###   Step 6: Add hotseat and PBEM multiplayer
 Multiple humans can play via shared files and play-by-email turn exchange.

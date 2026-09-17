@@ -19,7 +19,7 @@ examples make good golden vectors.
 | `mining.md` | Mineral extraction and concentration decay | verified |
 | `resources.md` | Resource output, operable mines and factories | verified |
 | `scanning.md` | Scanner ranges and the fourth-power combination rule | in progress |
-| `movement.md` | Fleet movement geometry and fuel use | in progress |
+| `movement.md` | Fleet movement geometry, fuel use, running dry, the mishaps of the first pass, ramscoop gain | transcribed; geometry and fuel verified |
 
 The PRNG that mining and the turn pipeline draw from is specified separately in
 `../rng/prng.md`; it is the same generator as the file cipher's.
@@ -33,11 +33,11 @@ The PRNG that mining and the turn pipeline draw from is specified separately in
 | `production.md` | Resource/research split; the build queue | in progress |
 | `components.md` | The component data tables (engines, weapons, scanners, …) | verified |
 
-| `combat.md` | Board, movement, targeting, weapon accuracy, firing | in progress |
+| `combat.md` | Board, movement with its jitter, targeting, weapon accuracy, firing | transcribed; movement 95% against recordings, torpedo accuracy unverified |
 | `bombing.md` | Bombing a planet from orbit | transcribed in full, unverified |
 | `ground.md` | Landing colonists: settling and invasion | transcribed in full; no invasion in the corpus to check |
 | `design.md` | Hulls, slots, and the values derived from them | verified |
-| `fleet.md` | Ship stacks, cargo, and what derives from them | model and loading done |
+| `fleet.md` | Ship stacks, cargo, damage repair, and what derives from them | model and loading done; repair transcribed |
 
 Still to come in Step 4:
 
@@ -49,7 +49,7 @@ Still to come in Step 4:
 | Spec | Subsystem | Status |
 |------|-----------|--------|
 | `new-game.md` | Universe generation, homeworlds, starting fleets, advantage points | verified |
-| `waypoint-tasks.md` | What a fleet does when it arrives: colonise, transport, merge, scrap, route, and what the rest still need | in progress |
+| `waypoint-tasks.md` | What a fleet does at its waypoint: the four passes, Transport whole, colonise, merge, scrap, route | transcribed |
 | `minefields.md` | Laying minefields, how they grow, and what they do to a fleet that flies through one | in progress |
 | `packets.md` | Mineral packets: flight, decay and what happens when one lands | flight and decay verified |
 | `wanderers.md` | Wormholes and the Mystery Trader: how they move, how a fleet goes through one and trades with the other | in progress |

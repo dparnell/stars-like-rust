@@ -96,23 +96,25 @@ and the game hands it to the planet along with its "no research" flag, dropping
 the entries the race cannot build: an Alternate Reality race queues no planetary
 installation, a Claim Adjuster no terraforming. See `../formats/player.md`.
 
-## What `generate_turn` currently performs
+## What `generate_turn` performs
 
-`crates/stars-core/src/turn.rs` runs the recorded **cargo transfers**
-(`DoOrders(0)`) and the colonist landings they cause (`DropColonists`), mining,
-the per-planet resource split,
-**the production queue**, population growth, the research advance and
-**`AutoTerraform`** (step 16, the Claim Adjuster's free terraforming) and
-**`RemoteTerraforming`** (step 17, Orbital Adjusters acting from orbit), plus
-**remote mining** from `SatisfyOrders(3)`, and the **random events** that
-close `Produce` (`random-events.md`) — the
-steps whose formulas are recovered. Every other step is returned in
-`TurnReport::skipped` rather than quietly omitted, so a partial turn cannot be
-mistaken for a complete one.
+Every step of the pipeline above, in the original's order, in
+`crates/stars-core/src/turn.rs` — the `// --- ` markers walk it: the computer
+players' turns, the recorded cargo transfers and the two order passes before
+movement (`SatisfyOrders` 1 and 2 with `DropColonists` between), the Mystery
+Trader's and the packets' movement, `MoveFleets` with its first-pass mishaps,
+stargate jumps, fuel, minefields, ramscoops and wormholes, `ThingDecay`,
+`Produce` end to end (mining, resources, the build queue with ships and
+starbases, population, research, random events), the packets' second half,
+`FuelFleets`, battles and bombing, the two order passes after movement,
+trading with the Trader, laying and remote mining, `SweepForMines`,
+`HealShips`, the scores and victory conditions, patrol, and the two
+terraformings. `TurnReport::skipped` names what a caller left out — the
+order files, when none were given, and random events, when the game has
+none — rather than anything the engine cannot do.
 
-The queue builds the planetary installations; ship designs are recognised but
-skipped, because turning a completed design into a fleet needs a fleet model
-the pipeline does not have yet.
+The pieces of it with no fixture to check them against are listed in the
+delivery plan under *Carried into Step 5 unverified*.
 
 ## How much of a turn is right
 
@@ -122,24 +124,22 @@ engine wrote for the following year. Over 28 year-pairs and 438 planet-years:
 
 | field | agrees |
 |-------|-------:|
-| population | **87%** |
-| mineral concentrations | **86%** |
-| mines | 65% |
-| factories | 53% |
-| surface minerals | 19% |
+| population | **90%** |
+| mineral concentrations | **98%** |
+| mines | 94% |
+| factories | 94% |
+| surface minerals | 52% (all three at once; 74% exact and 93% within a kilotonne per reading) |
 
-The top two are the subsystems the pipeline models end to end, and they match
-their individual differential tests. The rest fall away for understood reasons:
-mines and factories depend on a build queue whose ship items cannot be built
-yet, and surface minerals move with cargo the pipeline does not carry and are
-spent on ships it does not build.
+The residual is the year's cargo movement the order files do not carry in
+full, and the computer players' own choices; see *The whole-turn replay's
+surface-mineral figure* below.
 
-The test asserts the top two and reports the rest, so a regression in what is
-modelled shows up without pretending the rest is finished.
+The test asserts the top two and the per-mineral figure, and reports the rest,
+so a regression in what is modelled shows up without pretending the rest is
+finished.
 
 ## Open questions
 
-- Steps 1–9 and 11–24 need fleets, orders and ship designs.
 - The player shuffle at step 1 consumes RNG draws before anything else does, so
   reproducing a turn bit-for-bit will require it even though it only decides
   the order order-files are replayed in.
