@@ -1048,6 +1048,10 @@ pub fn generate_turn_with_orders(
         }
     }
 
+    // --- ValidateWaypoints: legs aimed at things that moved follow them,
+    // legs aimed at fleets that are gone from the spot pick another there.
+    validate_waypoints(state, rng);
+
     // --- UpdateGuesses: what everybody else's scanners will say of each
     // inhabited planet next year.
     update_guesses(state, rng);
@@ -3823,6 +3827,219 @@ fn heal_ships(
             HEAL_STARBASE
         };
         planet.starbase_damage = planet.starbase_damage.saturating_sub(rate);
+    }
+}
+
+/// Whether a fleet is the kind a battle plan's target class names
+/// (`FMatchTarget`, `util.c`), by its designs' hull categories: armed ships
+/// are scouts, warships and utility hulls (categories 2 to 4), unarmed
+/// ships a fleet with none of those, bombers and freighters categories 1
+/// and 5, fuel transports 7, freighters 1; any other class matches
+/// everything.
+fn matches_target_class(fleet: &Fleet, designs: &[crate::design::ShipDesign], class: u8) -> bool {
+    use crate::battle::TargetClass;
+    let categories: Vec<u8> = fleet
+        .stacks
+        .iter()
+        .filter(|s| s.count != 0)
+        .filter_map(|s| designs.get(usize::from(s.design)))
+        .filter_map(|d| d.hull().map(|h| h.category))
+        .collect();
+    let armed = categories.iter().any(|c| (2..5).contains(c));
+    match TargetClass::from_raw(class) {
+        TargetClass::ArmedShips => armed,
+        TargetClass::UnarmedShips => !armed,
+        TargetClass::BombersFreighters => categories.iter().any(|c| *c == 1 || *c == 5),
+        TargetClass::FuelTransports => categories.contains(&7),
+        TargetClass::Freighters => categories.contains(&1),
+        _ => true,
+    }
+}
+
+/// `ValidateWaypoints` (`1038:68c6`), at the year's end: every fleet's
+/// position is held inside the galaxy, and each leg beyond the first is
+/// looked at again.
+///
+/// A leg aimed at a **thing** follows it to where it now is — a wormhole
+/// or the Trader having moved — unless the thing is gone, or is a wormhole
+/// the player has never seen and it has moved, when the leg becomes a
+/// point in space where it last was, with `0xf8` said.
+///
+/// A leg aimed at a **fleet** (and not marked to stop tracking) whose
+/// fleet is gone, or no longer where the leg points, is aimed instead at
+/// the heaviest fleet of the same owner still at the spot that the
+/// chaser's battle plan would target — one no other chaser has been
+/// aimed at this year first; failing any, one of the rest drawn by lot,
+/// the heaviest of them preferred. With nothing there the leg is left as
+/// it was. A fleet the leg still finds is marked as being chased.
+fn validate_waypoints(state: &mut GameState, rng: &mut Rng) {
+    use crate::message::{fleet_object, id, Message};
+
+    // `dGal`: 400 light years for a tiny universe, 400 more a size.
+    let span = (state.galaxy_size.max(0) + 1) * 400;
+    let (low, high) = (1000i16, 1000i16.saturating_add(span));
+    let mut targeted: std::collections::BTreeSet<(i16, u16)> = std::collections::BTreeSet::new();
+
+    for index in 0..state.fleets.len() {
+        if state.fleets[index].is_empty() {
+            continue;
+        }
+        {
+            let fleet = &mut state.fleets[index];
+            let at = fleet.position;
+            let held = crate::movement::Point::new(at.x.clamp(low, high), at.y.clamp(low, high));
+            if held != at {
+                fleet.position = held;
+                if let Some(first) = fleet.waypoints.first_mut() {
+                    first.position = held;
+                }
+            }
+        }
+        let owner = state.fleets[index].owner;
+        let Ok(owner_index) = usize::try_from(owner) else {
+            continue;
+        };
+        let plan_target = state
+            .players
+            .get(owner_index)
+            .and_then(|p| {
+                p.battle_plans
+                    .get(usize::from(state.fleets[index].battle_plan))
+            })
+            .map_or(1, |p| p.primary_target);
+        let fleet_id = state.fleets[index].id;
+
+        for leg in 1..state.fleets[index].waypoints.len() {
+            let waypoint = state.fleets[index].waypoints[leg].clone();
+            match waypoint.target_class {
+                GROBJ_THING => {
+                    let Some(word) = waypoint.target else {
+                        continue;
+                    };
+                    let hole = state
+                        .wormholes
+                        .iter()
+                        .find(|w| names_thing(Some(word), ITH_WORMHOLE, w.id))
+                        .map(|w| (w.position, w.detected_by & (1 << (owner & 15)) != 0));
+                    let trader = state
+                        .traders
+                        .iter()
+                        .find(|t| names_thing(Some(word), ITH_TRADER, t.id))
+                        .map(|t| (t.position, true));
+                    let found = hole.or(trader);
+                    let lost = match found {
+                        None => true,
+                        Some((at, seen)) => !seen && at != waypoint.position,
+                    };
+                    if lost {
+                        if found.is_some() {
+                            state.messages.push(Message {
+                                player: owner_index,
+                                id: id::WORMHOLE_VANISHED,
+                                object: fleet_object(fleet_id),
+                                params: vec![fleet_id as i16, 0],
+                            });
+                        }
+                        let w = &mut state.fleets[index].waypoints[leg];
+                        w.target_class = GROBJ_POSITION;
+                        w.target = None;
+                    } else if let Some((at, _)) = found {
+                        state.fleets[index].waypoints[leg].position = at;
+                    }
+                }
+                crate::fleet::grobj::FLEET => {
+                    let Some(word) = waypoint.target else {
+                        continue;
+                    };
+                    let (their_owner, number) = crate::orders::split_fleet_id(word);
+                    let quarry = state
+                        .fleets
+                        .iter()
+                        .position(|f| f.owner == their_owner && f.id == number && !f.is_empty());
+                    let still_there =
+                        quarry.is_some_and(|q| state.fleets[q].position == waypoint.position);
+                    if still_there {
+                        if let Some(q) = quarry {
+                            targeted.insert((state.fleets[q].owner, state.fleets[q].id));
+                        }
+                        continue;
+                    }
+                    let their_designs = usize::try_from(their_owner)
+                        .ok()
+                        .and_then(|o| state.designs.get(o))
+                        .cloned()
+                        .unwrap_or_default();
+                    let candidates: Vec<usize> = state
+                        .fleets
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, f)| {
+                            *i != index
+                                && f.owner == their_owner
+                                && !f.is_empty()
+                                && f.position == waypoint.position
+                                && matches_target_class(f, &their_designs, plan_target)
+                        })
+                        .map(|(i, _)| i)
+                        .collect();
+                    // The heaviest not yet chased; ties by a coin.
+                    let mut best: Option<(usize, i32)> = None;
+                    for &c in &candidates {
+                        let f = &state.fleets[c];
+                        if targeted.contains(&(f.owner, f.id)) {
+                            continue;
+                        }
+                        let weight = f.mass(&their_designs);
+                        let take = match best {
+                            None => true,
+                            Some((_, w)) => weight > w || (weight == w && rng.random(2) == 0),
+                        };
+                        if take {
+                            best = Some((c, weight));
+                        }
+                    }
+                    let mut chosen = best.map(|(c, _)| c);
+                    if chosen.is_none() {
+                        // Everyone here is chased already: one by lot, the
+                        // heaviest winning outright.
+                        let mut by_lot: Option<usize> = None;
+                        let mut heaviest: Option<(usize, i32)> = None;
+                        let mut seen = 0i16;
+                        for &c in &candidates {
+                            let f = &state.fleets[c];
+                            let weight = f.mass(&their_designs);
+                            let take = match heaviest {
+                                None => true,
+                                Some((_, w)) => weight > w || (weight == w && rng.random(2) == 0),
+                            };
+                            if take {
+                                heaviest = Some((c, weight));
+                            }
+                            seen += 1;
+                            if rng.random(seen) == 0
+                                && (seen == 1
+                                    || !targeted.contains(&(f.owner, f.id))
+                                    || rng.random(2) != 0)
+                            {
+                                by_lot = Some(c);
+                            }
+                        }
+                        chosen = heaviest.map(|(c, _)| c).or(by_lot);
+                    }
+                    if let Some(c) = chosen {
+                        let (o, n, at) = {
+                            let f = &state.fleets[c];
+                            (f.owner, f.id, f.position)
+                        };
+                        let w = &mut state.fleets[index].waypoints[leg];
+                        w.target = Some((u16::try_from(o).unwrap_or(0) << 9) | (n & 0x1ff));
+                        w.position = at;
+                        targeted.insert((o, n));
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 }
 

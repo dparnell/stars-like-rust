@@ -87,6 +87,8 @@ fn waypoint(at: Point, planet: i16, warp: u8) -> Waypoint {
 /// `ships` freighters at the first ordered through the gate to the second.
 fn a_jump(apart: i16, ships: i32, gate: u8) -> GameState {
     let mut state = GameState::new(11);
+    // A huge universe, so that a long jump lands inside it.
+    state.galaxy_size = 4;
     state.players = vec![Player::new(Race::humanoid())];
     state.designs = vec![designs(gate)];
     let a = Point::new(1000, 1000);

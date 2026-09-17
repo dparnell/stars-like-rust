@@ -177,6 +177,28 @@ it carries no Transport or Merge, to say where the fleet now is — the
 planet, or a point in space. The engine does the same in
 `settle_where_it_stands` (`turn.rs`), after the `chase` list.
 
+## The year's end looks at every leg again (`ValidateWaypoints`, `1038:68c6`)
+
+After the terraforming and before the turn is counted, every fleet is held
+inside the galaxy (`1000..=1000 + dGal` on each axis, its first waypoint with
+it), and each leg beyond the first is looked at:
+
+- aimed at a **thing**, it follows the thing to where it now is — a wormhole
+  or the Trader having moved — unless the thing is gone, or is a wormhole the
+  player has never seen (`grbitPlr`) and it has moved, when the leg becomes a
+  point in space where it last was and the player is told (`0xf8`);
+- aimed at a **fleet**, not marked `fNoAutoTrack`, whose fleet is gone or no
+  longer where the leg points, it is aimed at the heaviest fleet of the same
+  owner still there that the chaser's battle plan would target
+  (`FMatchTarget`: armed ships are hull categories 2 to 4, unarmed a fleet
+  with none of those, bombers and freighters 1 and 5, fuel transports 7,
+  freighters 1) — one no other chaser has been aimed at this year first,
+  ties by `Random(2)`; failing any, one of the rest by lot with the heaviest
+  winning outright. With nothing there the leg stands. A fleet the leg still
+  finds is marked as chased (`fTargeted`), so two chasers spread.
+
+Tests: `crates/stars-core/tests/validate_waypoints.rs`.
+
 ## A new ship follows its planet's route (`AutoRouteFleet`, `1080:1e52`)
 
 A ship built at a planet whose **route** is set (a control-click on the

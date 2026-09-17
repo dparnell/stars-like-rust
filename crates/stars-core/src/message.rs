@@ -231,6 +231,9 @@ pub mod id {
     /// `idmHasTriedBeamColonistsDeepSpaceOrder`: colonists cannot be put
     /// into space.
     pub const BEAM_DOWN_SPACE: u16 = 0x165;
+    /// `idmWormholeHeadingForHasVanished` (`0xf8`): the wormhole a leg was
+    /// aimed at is gone or has moved unseen; the leg now ends where it was.
+    pub const WORMHOLE_VANISHED: u16 = 0xf8;
     /// `idmHasRerouted`: a fleet at a planet with a route has been sent on
     /// (the fleet, the planet, the route's end).
     pub const REROUTED: u16 = 0x127;
@@ -1576,6 +1579,10 @@ impl Message {
             ),
             id::BEAM_DOWN_SPACE => format!(
                 "{} tried to put colonists out into deep space; the order is cancelled.",
+                fleet()
+            ),
+            id::WORMHOLE_VANISHED => format!(
+                "The wormhole {} was heading for is no longer there; it will go to where the wormhole was.",
                 fleet()
             ),
             id::REROUTED => format!(
