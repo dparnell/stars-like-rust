@@ -693,6 +693,7 @@ fn move_ships(state: &mut GameState, player: usize, transfer: &CargoTransfer) ->
             (&mut tail[0], &mut head[low])
         };
         crate::fleet::balance_cargo([first, second], [&before[0], &before[1]], &designs);
+        crate::fleet::balance_damage([first, second], [&before[0], &before[1]]);
         // A fleet with nothing left in it no longer exists. Removing shifts
         // the indices, so do it after both ends are settled.
         state.fleets.retain(|f| !f.is_empty());

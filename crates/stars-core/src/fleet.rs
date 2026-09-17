@@ -413,7 +413,8 @@ pub fn primary_design(fleet: &Fleet, designs: &[crate::design::ShipDesign]) -> O
 /// share and a merge pulls everything into the survivor.
 ///
 /// `before` is each fleet's ship counts before the transfer, by design
-/// slot. The damage rebalancing the same routine does is not modelled.
+/// slot. The damage the same routine rebalances is [`balance_damage`]'s
+/// job, for the callers whose two fleets both live on.
 pub fn balance_cargo(fleets: [&mut Fleet; 2], before: [&[ShipStack]; 2], designs: &[ShipDesign]) {
     let [a, b] = fleets;
     let mut delta = [[0i64; 5]; 2];
@@ -477,6 +478,150 @@ pub fn balance_cargo(fleets: [&mut Fleet; 2], before: [&[ShipStack]; 2], designs
         }
         fleet.cargo.colonists += sign * net[3];
         fleet.cargo.fuel += sign * net[4];
+    }
+}
+
+/// Share a design's damage between two fleets after ships of it have
+/// passed from one to the other — the other half of
+/// `FleetTransferCargoBalance` (`1050:b2c0`–`bcf4`), run only when a
+/// design's loss on one side is exactly the other's gain and neither
+/// fleet is dead.
+///
+/// The damaged ships are counted on each side from `pctSh` of the count
+/// before; as many of the giver's damaged ships as it gave — at most the
+/// ships moved — go across. A taker with no damage of its own takes the
+/// giver's damage figure (`pctDp`) as it is; one with damage already
+/// averages the two, ship-weighted and rounded up. Each side's `pctSh` is
+/// then its damaged ships over its ships now, rounded up, or nothing when
+/// none are left damaged. `before` is each fleet's stacks before the
+/// transfer.
+pub fn balance_damage(fleets: [&mut Fleet; 2], before: [&[ShipStack]; 2]) {
+    let [a, b] = fleets;
+    let designs: std::collections::BTreeSet<u8> = before[0]
+        .iter()
+        .chain(before[1])
+        .chain(a.stacks.iter())
+        .chain(b.stacks.iter())
+        .map(|s| s.design)
+        .collect();
+    let was = |side: usize, design: u8| -> ShipStack {
+        before[side]
+            .iter()
+            .find(|s| s.design == design)
+            .copied()
+            .unwrap_or(ShipStack {
+                design,
+                count: 0,
+                damaged_pct: 0,
+                damage_pct: 0,
+            })
+    };
+    let ceil_pct = |damaged: i32, ships: i32| -> i32 {
+        if ships < 1 {
+            0
+        } else {
+            (damaged * 100 + ships - 1) / ships
+        }
+    };
+    for design in designs {
+        let now_a = a
+            .stacks
+            .iter()
+            .find(|s| s.design == design)
+            .map_or(0, |s| s.count);
+        let now_b = b
+            .stacks
+            .iter()
+            .find(|s| s.design == design)
+            .map_or(0, |s| s.count);
+        let (old_a, old_b) = (was(0, design), was(1, design));
+        let loss = [old_a.count - now_a, old_b.count - now_b];
+        if loss[0] != -loss[1] || loss[0] == 0 {
+            continue;
+        }
+        let src = usize::from(loss[0] < 0);
+        let (giver_old, taker_old) = if src == 0 {
+            (old_a, old_b)
+        } else {
+            (old_b, old_a)
+        };
+        let moved_ships = loss[src];
+        let damaged_src = if giver_old.count < 1 {
+            0
+        } else {
+            giver_old.damaged_pct * giver_old.count / 100
+        };
+        let damaged_dst = if taker_old.count < 1 {
+            0
+        } else {
+            taker_old.damaged_pct * taker_old.count / 100
+        };
+        let (giver, taker) = if src == 0 {
+            (&mut *a, &mut *b)
+        } else {
+            (&mut *b, &mut *a)
+        };
+        let giver_now = giver
+            .stacks
+            .iter()
+            .find(|s| s.design == design)
+            .map_or(0, |s| s.count);
+        let taker_now = taker
+            .stacks
+            .iter()
+            .find(|s| s.design == design)
+            .map_or(0, |s| s.count);
+        let set = |fleet: &mut Fleet, damaged_pct: Option<i32>, damage_pct: Option<i32>| {
+            if let Some(stack) = fleet.stacks.iter_mut().find(|s| s.design == design) {
+                if let Some(p) = damaged_pct {
+                    stack.damaged_pct = p;
+                }
+                if let Some(d) = damage_pct {
+                    stack.damage_pct = d;
+                }
+            }
+        };
+        if damaged_src == 0 || damaged_dst == 0 {
+            if damaged_src == 0 {
+                if damaged_dst == 0 {
+                    set(taker, Some(0), None);
+                } else {
+                    set(taker, Some(ceil_pct(damaged_dst, taker_now)), None);
+                }
+            } else {
+                let moved = damaged_src.min(moved_ships);
+                set(
+                    taker,
+                    Some(ceil_pct(moved, taker_now)),
+                    Some(giver_old.damage_pct),
+                );
+                let left = if moved == damaged_src {
+                    0
+                } else {
+                    ceil_pct(damaged_src - moved, giver_now)
+                };
+                set(giver, Some(left), None);
+            }
+        } else {
+            let moved = damaged_src.min(moved_ships);
+            let merged = if taker_now < 1 {
+                0
+            } else {
+                (moved * giver_old.damage_pct + damaged_dst * taker_old.damage_pct + taker_now - 1)
+                    / taker_now
+            };
+            set(
+                taker,
+                Some(ceil_pct(damaged_dst + moved, taker_now)),
+                Some(merged),
+            );
+            let left = if moved == damaged_src {
+                0
+            } else {
+                ceil_pct(damaged_src - moved, giver_now)
+            };
+            set(giver, Some(left), None);
+        }
     }
 }
 
@@ -581,5 +726,57 @@ mod primary_tests {
         let designs = [design(4)];
         assert_eq!(primary_design(&fleet(&[]), &designs), None);
         assert_eq!(primary_design(&fleet(&[(0, 0)]), &designs), None);
+    }
+
+    /// Damage follows the ships across a transfer
+    /// (`FleetTransferCargoBalance`): the giver's damaged ships go first,
+    /// a taker with damage of its own averages the two, and each side's
+    /// damaged share is recounted over what it now holds.
+    #[test]
+    fn damage_follows_the_ships_across_a_transfer() {
+        // Ten ships, half of them damaged at 100/500, give four away to a
+        // fleet with none of that design.
+        let mut giver = fleet(&[(0, 10)]);
+        giver.stacks[0].damaged_pct = 50;
+        giver.stacks[0].damage_pct = 100;
+        let mut taker = fleet(&[]);
+        let before = [giver.stacks.clone(), Vec::new()];
+        giver.stacks[0].count = 6;
+        taker.stacks.push(ShipStack {
+            design: 0,
+            count: 4,
+            damaged_pct: 0,
+            damage_pct: 0,
+        });
+        balance_damage([&mut giver, &mut taker], [&before[0], &before[1]]);
+        // Five damaged; four went, all of them damaged: the taker is
+        // wholly damaged at the giver's figure, the giver keeps one in six.
+        assert_eq!(
+            (taker.stacks[0].damaged_pct, taker.stacks[0].damage_pct),
+            (100, 100)
+        );
+        assert_eq!(
+            (giver.stacks[0].damaged_pct, giver.stacks[0].damage_pct),
+            (17, 100)
+        );
+
+        // Both sides damaged: the taker's figure is the ship-weighted mean,
+        // rounded up.
+        let mut giver = fleet(&[(0, 4)]);
+        giver.stacks[0].damaged_pct = 100;
+        giver.stacks[0].damage_pct = 200;
+        let mut taker = fleet(&[(0, 4)]);
+        taker.stacks[0].damaged_pct = 50;
+        taker.stacks[0].damage_pct = 100;
+        let before = [giver.stacks.clone(), taker.stacks.clone()];
+        giver.stacks[0].count = 2;
+        taker.stacks[0].count = 6;
+        balance_damage([&mut giver, &mut taker], [&before[0], &before[1]]);
+        // Two damaged ships moved at 200, two there at 100: (400 + 200 + 5) / 6 = 100.
+        assert_eq!(taker.stacks[0].damage_pct, 100);
+        // Four damaged of six: 67%.
+        assert_eq!(taker.stacks[0].damaged_pct, 67);
+        // The giver's two remaining damaged ships of two: 100%.
+        assert_eq!(giver.stacks[0].damaged_pct, 100);
     }
 }

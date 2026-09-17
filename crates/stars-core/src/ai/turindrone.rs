@@ -1658,6 +1658,7 @@ pub(crate) fn split_out_designs(
         split.stacks = moved;
         let source_id = source.id;
         crate::fleet::balance_cargo([source, &mut split], [&before, &[]], &designs);
+        crate::fleet::balance_damage([source, &mut split], [&before, &[]]);
         state.fleets.push(split);
         report.split.push((source_id, new_id));
     }
@@ -2047,6 +2048,7 @@ pub(crate) fn merge_all(state: &mut GameState, me: i16, mask: u16, report: &mut 
                 (&mut tail[0], &mut head[low])
             };
             crate::fleet::balance_cargo([a, b], [&before_into, &before_gone], &designs);
+            crate::fleet::balance_damage([a, b], [&before_into, &before_gone]);
             report
                 .merged
                 .push((state.fleets[index].id, state.fleets[into].id));

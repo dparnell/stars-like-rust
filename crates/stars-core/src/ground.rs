@@ -464,8 +464,8 @@ pub struct Salvage {
 ///    next level in that field is credited to its research.
 ///
 /// The Mystery Trader half of the routine — thirteen parts, each with its own
-/// chance — is not modelled here: it needs the trader's part table, which no
-/// fixture carries.
+/// chance — is [`learn_from_battle`]'s, which runs the whole routine on the
+/// game state; this is the research half on its own.
 ///
 /// `slow_tech` is the game option that doubles research costs, which feeds
 /// straight through [`tech_level_cost`].

@@ -858,11 +858,17 @@ fn merge_into_target(state: &mut GameState, index: usize) -> bool {
     }
 
     let taken = state.fleets[index].clone();
+    let before_into = state.fleets[destination].stacks.clone();
     let into = &mut state.fleets[destination];
-    for stack in taken.stacks {
+    for stack in &taken.stacks {
         match into.stacks.iter_mut().find(|s| s.design == stack.design) {
             Some(existing) => existing.count += stack.count,
-            None => into.stacks.push(stack),
+            None => into.stacks.push(crate::fleet::ShipStack {
+                count: stack.count,
+                damaged_pct: 0,
+                damage_pct: 0,
+                design: stack.design,
+            }),
         }
     }
     for (kind, amount) in taken.cargo.minerals.iter().enumerate() {
@@ -871,6 +877,15 @@ fn merge_into_target(state: &mut GameState, index: usize) -> bool {
     into.cargo.colonists += taken.cargo.colonists;
     into.cargo.fuel += taken.cargo.fuel;
     state.fleets[index].stacks.clear();
+    // The damage follows the ships (`FleetTransferCargoBalance`).
+    let (low, high) = (index.min(destination), index.max(destination));
+    let (head, tail) = state.fleets.split_at_mut(high);
+    let (a, b) = if index < destination {
+        (&mut head[low], &mut tail[0])
+    } else {
+        (&mut tail[0], &mut head[low])
+    };
+    crate::fleet::balance_damage([a, b], [&taken.stacks, &before_into]);
     true
 }
 

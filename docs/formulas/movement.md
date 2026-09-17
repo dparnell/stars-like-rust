@@ -225,6 +225,17 @@ the new fleet exactly its ships' share, and a merge pulls everything into
 the survivor. `stars_core::fleet::balance_cargo`; the damage-percentage
 rebalancing the same routine does is not modelled.
 
+
+The same routine (`1050:b2c0`–`bcf4`) moves the **damage** with the ships,
+when a design's loss on one side is exactly the other's gain and neither fleet
+is dead: the giver's damaged ships (`pctSh` of its count before) go across
+first, as many as it gave; a taker with no damage of its own takes the giver's
+`pctDp`; one with damage already averages the two, ship-weighted and rounded
+up — `(moved × giver.pctDp + taker's damaged × taker.pctDp + n − 1) / n`; and
+each side's `pctSh` becomes its damaged ships over its ships now, rounded up.
+`crate::fleet::balance_damage`, run by the replay's split and merge, the merge
+task and the computer players' own transfers.
+
 ## Edge cases & clamps
 
 - A fleet with a chase order (`grobj == 2`) re-runs the movement loop up to
