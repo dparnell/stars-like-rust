@@ -592,11 +592,12 @@ fn planet_record(planet: &Planet) -> PlanetRecord {
         environment: Some(env),
         original_environment: original,
         // `uPopGuess` is the owner's own estimate, which a fresh planet records
-        // as a quarter of its population; the decoder scales it by 1000.
+        // as a quarter of its population in hundreds; the decoder scales it
+        // to colonists.
         pop_guess: owned.then(|| {
             planet
                 .pop_guess
-                .unwrap_or_else(|| u32::try_from(planet.pop / 4).unwrap_or(0) * 1000)
+                .unwrap_or_else(|| u32::try_from(planet.pop / 4).unwrap_or(0) * 400)
         }),
         defense_guess: owned.then(|| planet.defense_guess.unwrap_or(0)),
         surface_minerals: owned.then(|| Minerals {

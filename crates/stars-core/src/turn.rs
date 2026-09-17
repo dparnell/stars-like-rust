@@ -1048,6 +1048,10 @@ pub fn generate_turn_with_orders(
         }
     }
 
+    // --- UpdateGuesses: what everybody else's scanners will say of each
+    // inhabited planet next year.
+    update_guesses(state, rng);
+
     state.turn += 1;
     report.year = state.year();
     // The scoreboard is stamped with the year just finished, so it is filled
@@ -3819,6 +3823,51 @@ fn heal_ships(
             HEAL_STARBASE
         };
         planet.starbase_damage = planet.starbase_damage.saturating_sub(rate);
+    }
+}
+
+/// `UpdateGuesses` (`10b8:532c`): the population and defence estimates a
+/// planet shows to other players' scanners, written on every planet at
+/// the end of the year.
+///
+/// The population guess is a quarter of the population in hundreds,
+/// jittered — `(pop + Random(pop / 4) − pop / 8) / 4`, held to `1..=4090`
+/// — and `0` for an Alternate Reality planet, whose people are not on the
+/// ground; a planet with nobody on it has neither guess. The defence
+/// guess is `(104 − pct) / 6` held to `1..=15`, `pct` the percentage of a
+/// bombing run the defences let through (`CalcPctSurvive`), and `0`
+/// without defences.
+fn update_guesses(state: &mut GameState, rng: &mut Rng) {
+    for index in 0..state.planets.len() {
+        let planet = &state.planets[index];
+        if planet.pop <= 0 {
+            state.planets[index].pop_guess = Some(0);
+            state.planets[index].defense_guess = Some(0);
+            continue;
+        }
+        let owner = planet.owner.and_then(|o| usize::try_from(o).ok());
+        let player = owner.and_then(|o| state.players.get(o));
+        let alternate = player.is_some_and(|p| p.race.prt() == Some(crate::race::Prt::Ar));
+        let pop = i64::from(planet.pop);
+        let guess = if alternate {
+            0
+        } else {
+            let jitter = i64::from(rng.random(i16::try_from(pop >> 2).unwrap_or(i16::MAX)));
+            ((pop + jitter - (pop >> 3)) >> 2).clamp(1, 4090)
+        };
+        let defence = if planet.defenses == 0 {
+            0
+        } else {
+            let pct = player.map_or(1.0, |p| {
+                crate::bombing::pct_survive(planet, &p.race, p.research.levels).0
+            });
+            #[allow(clippy::cast_possible_truncation)]
+            let pct = (pct * 100.0) as i64;
+            ((104 - pct) / 6).clamp(1, 15)
+        };
+        let planet = &mut state.planets[index];
+        planet.pop_guess = u32::try_from(guess * 400).ok();
+        planet.defense_guess = u8::try_from(defence).ok();
     }
 }
 

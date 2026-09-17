@@ -108,8 +108,12 @@ stargate jumps, fuel, minefields, ramscoops and wormholes, `ThingDecay`,
 starbases, population, research, random events), the packets' second half,
 `FuelFleets`, battles and bombing, the two order passes after movement,
 trading with the Trader, laying and remote mining, `SweepForMines`,
-`HealShips`, the scores and victory conditions, patrol, and the two
-terraformings. `TurnReport::skipped` names what a caller left out — the
+`HealShips`, the scores and victory conditions, patrol, the two
+terraformings, and `UpdateGuesses` — the population and defence estimates
+other players' scanners report: a quarter of the population in hundreds,
+jittered by `Random(pop / 4) − pop / 8` and held to `1..=4090` (`0` for an
+Alternate Reality planet), and `(104 − pct) / 6` in `1..=15` for the defences,
+`pct` what they let through of a bombing run. `TurnReport::skipped` names what a caller left out — the
 order files, when none were given, and random events, when the game has
 none — rather than anything the engine cannot do.
 

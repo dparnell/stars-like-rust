@@ -77,7 +77,8 @@ are cursor-relative, starting at 4.
 - **Environment** (3 bytes): gravity, temperature, radiation (0..=255).
 - **Original environment** (3 bytes) — only if `fIncEVO` (terraformed).
 - **Owner guesses** (2 bytes) — only if the planet is owned: a little-endian
-  word split `popGuess = word & 0x0FFF` (× 1000 colonists) and
+  word split `popGuess = word & 0x0FFF` (× 400 colonists: `UpdateGuesses`
+  writes a quarter of the population in hundreds, jittered) and
   `defGuess = word >> 12` (defense-coverage estimate index 0..=15).
 
 ### 2. Surface minerals + population — `det >= 4` and `fIncSurfMin`

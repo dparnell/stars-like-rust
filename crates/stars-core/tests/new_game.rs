@@ -1132,3 +1132,39 @@ fn every_player_starts_with_the_stock_battle_plans() {
         stars_core::combat::attack_who::NEUTRALS_AND_ENEMIES
     );
 }
+
+/// `UpdateGuesses` at the end of every year: the estimate other players
+/// see of a planet's population is about a quarter of it in hundreds —
+/// 400 colonists a count — and none for an Alternate Reality world.
+#[test]
+fn the_years_end_writes_the_population_guess() {
+    use stars_core::generate_turn;
+    let config = NewGame {
+        players: vec![NewPlayer::human(Race::humanoid())],
+        ..NewGame::default()
+    };
+    let mut made = generate(&config, &mut Rng::randomize(3)).expect("generates");
+    generate_turn(&mut made.state, &mut Rng::randomize(4));
+    let home = made
+        .state
+        .planets
+        .iter()
+        .find(|p| p.owner == Some(0))
+        .expect("a homeworld");
+    let guess = home.pop_guess.expect("a guess") as i64;
+    let pop = i64::from(home.pop);
+    // Between (pop − pop/8) / 4 and (pop + pop/4 − pop/8) / 4 counts, in
+    // colonists.
+    assert!(guess >= (pop - pop / 8) / 4 * 400 - 400, "{guess} of {pop}");
+    assert!(
+        guess <= (pop + pop / 4 - pop / 8) / 4 * 400 + 400,
+        "{guess} of {pop}"
+    );
+    // A homeworld starts with ten defences: a guess of 1 to 15.
+    assert!(home.defenses > 0);
+    assert!(
+        home.defense_guess.is_some_and(|d| (1..=15).contains(&d)),
+        "{:?}",
+        home.defense_guess
+    );
+}

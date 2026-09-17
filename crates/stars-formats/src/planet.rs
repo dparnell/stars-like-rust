@@ -312,7 +312,10 @@ impl PlanetRecord {
 
             if owner.is_some() {
                 let guess = read16(data, index)?;
-                record.pop_guess = Some((u32::from(guess) & 0xFFF) * 1000);
+                // `uPopGuess` is a quarter of the population in hundreds
+                // (`UpdateGuesses`, `10b8:532c`): each count is 400
+                // colonists.
+                record.pop_guess = Some((u32::from(guess) & 0xFFF) * 400);
                 record.defense_guess = Some((guess >> 12) as u8);
                 index += 2;
             }
@@ -454,7 +457,7 @@ impl PlanetRecord {
             }
 
             if self.owner.is_some() {
-                let guess = ((self.pop_guess.unwrap_or(0) / 1000) as u16 & 0x0FFF)
+                let guess = ((self.pop_guess.unwrap_or(0) / 400) as u16 & 0x0FFF)
                     | (u16::from(self.defense_guess.unwrap_or(0)) << 12);
                 out.extend_from_slice(&guess.to_le_bytes());
             }
