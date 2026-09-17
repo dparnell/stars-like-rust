@@ -170,3 +170,61 @@ fn other_universes_carry_no_seed() {
         .count();
     assert!(agreed < 4, "{agreed} of 128 agreed by chance");
 }
+
+/// The tutorial's own victory conditions, as `CreateTutorWorld` sets them:
+/// the highest score after a hundred years, and one condition enough — and
+/// they are what the real universe file carries.
+#[test]
+fn the_tutorials_victory_conditions_are_the_originals() {
+    use stars_core::newgame::{generate, tutorial};
+    let (config, seed) = tutorial();
+    let made = generate(&config, &mut stars_core::Rng::randomize(seed)).expect("generates");
+    let mut expected = [0u8; stars_formats::victory::COUNT];
+    expected[7] = 0x80;
+    expected[8] = 0x81;
+    assert_eq!(made.state.victory, expected);
+    let info = made.universe.game().expect("game info");
+    assert_eq!(info.victory_bytes(), expected);
+    if let Some(bytes) = fixture("games/tutorial/tutorial.xy").and_then(|p| std::fs::read(p).ok()) {
+        let real = stars_formats::Universe::decode(&bytes).expect("decodes");
+        assert_eq!(
+            real.game().expect("info").victory_bytes(),
+            expected,
+            "the fixture's own"
+        );
+    }
+}
+
+/// An ordinary new game starts with the New Game dialog's victory
+/// conditions, the least years scaled by the universe's size.
+#[test]
+fn a_new_game_has_the_dialogs_victory_conditions() {
+    use stars_core::newgame::{default_victory, generate, NewGame, Size};
+    for (size, years) in [(Size::Tiny, 30), (Size::Small, 50), (Size::Huge, 110)] {
+        let config = NewGame {
+            size,
+            ..NewGame::default()
+        };
+        let made = generate(&config, &mut stars_core::Rng::randomize(3)).expect("generates");
+        assert_eq!(made.state.victory, default_victory(size));
+        let info = made.universe.game().expect("game info");
+        assert!(info.victory_active(stars_formats::victory::PLANET_CONTROL));
+        assert_eq!(
+            info.victory_value(stars_formats::victory::PLANET_CONTROL),
+            60
+        );
+        assert_eq!(info.victory_value(stars_formats::victory::TECH_LEVEL), 22);
+        assert_eq!(info.victory_value(stars_formats::victory::TECH_FIELDS), 4);
+        assert!(!info.victory_active(stars_formats::victory::SCORE));
+        assert_eq!(info.victory_value(stars_formats::victory::SCORE), 11_000);
+        assert_eq!(
+            info.victory_value(stars_formats::victory::HIGH_SCORE_AT),
+            100
+        );
+        assert_eq!(info.victory_value(stars_formats::victory::MUST_MEET), 1);
+        assert_eq!(
+            info.victory_value(stars_formats::victory::LEAST_YEARS),
+            years
+        );
+    }
+}

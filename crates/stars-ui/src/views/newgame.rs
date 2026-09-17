@@ -196,6 +196,33 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) -> Option<Action> {
                 );
             }
         });
+        // The original's simple New Game dialog fills the roster itself
+        // from a difficulty and the universe's size (`InitNewGamePlr`);
+        // here that is a button beside the difficulty it would use.
+        ui.horizontal(|ui| {
+            ui.label("Or let the game choose the opponents, as its simple dialog does, at");
+            for (level, name) in LEVEL_NAMES.iter().enumerate() {
+                if ui.button(*name).clicked() {
+                    let mut rng = stars_core::rng::Rng::randomize(fresh);
+                    let roster =
+                        stars_core::newgame::simple_game_opponents(config.size, level, &mut rng);
+                    config
+                        .players
+                        .retain(|p| matches!(p.control, Control::Human));
+                    for (personality, level) in roster {
+                        let personality = personality
+                            .unwrap_or_else(|| usize::try_from(rng.random(6)).unwrap_or(0));
+                        let level =
+                            level.unwrap_or_else(|| usize::try_from(rng.random(4)).unwrap_or(0));
+                        if let Some(opponent) = opponents::opponent(personality, level) {
+                            if config.players.len() < stars_core::newgame::MAX_PLAYERS {
+                                config.players.push(opponent.as_player());
+                            }
+                        }
+                    }
+                }
+            }
+        });
 
         ui.add_space(12.0);
         ui.separator();

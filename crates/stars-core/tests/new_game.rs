@@ -1039,3 +1039,53 @@ fn a_random_race_is_rolled_into_a_balanced_one() {
     assert!(seen_names.len() > 5, "only {seen_names:?}");
     assert!(stock < 10, "{stock} of 60 fell back to the stock race");
 }
+
+/// The simple New Game dialog's roster (`InitNewGamePlr`): how many
+/// computer players a universe gets at each difficulty, and which — easy
+/// games dealing Robotoids, Turindrones and Automitrons at the easy level,
+/// expert games the expert Robotoids, Cybertrons and Macinti, with the
+/// original's draws for a random one.
+#[test]
+fn the_simple_games_roster_follows_the_size_and_difficulty() {
+    use stars_core::newgame::simple_game_opponents;
+    // A tiny easy game is one opponent, an easy Robotoid (personality 2,
+    // level 0), every time.
+    for seed in 0..10u32 {
+        let roster = simple_game_opponents(Size::Tiny, 0, &mut Rng::randomize(seed));
+        assert_eq!(roster, vec![(Some(2), Some(0))], "seed {seed}");
+    }
+    // A small standard game is always two opponents at standard, named
+    // ones both; a small harder game has a third one time in four.
+    for seed in 0..20u32 {
+        let roster = simple_game_opponents(Size::Small, 1, &mut Rng::randomize(seed * 31 + 1));
+        assert_eq!(roster.len(), 2, "seed {seed}: {roster:?}");
+        for (personality, level) in &roster {
+            assert_eq!(*level, Some(1), "seed {seed}: {roster:?}");
+            assert!(personality.is_some(), "seed {seed}: {roster:?}");
+        }
+    }
+    let mut threes = 0;
+    for seed in 0..50u32 {
+        let roster = simple_game_opponents(Size::Small, 2, &mut Rng::randomize(seed * 31 + 1));
+        assert!(
+            roster.len() == 2 || roster.len() == 3,
+            "seed {seed}: {roster:?}"
+        );
+        if roster.len() == 3 {
+            threes += 1;
+        }
+    }
+    assert!(threes > 0 && threes < 30, "{threes} of 50 had three");
+    // A huge expert game: fifteen opponents as a rule, all at expert, some
+    // with the personality left to a draw.
+    let roster = simple_game_opponents(Size::Huge, 3, &mut Rng::randomize(5));
+    assert!(roster.len() >= 10 && roster.len() <= 15, "{roster:?}");
+    assert!(roster.iter().all(|(_, l)| *l == Some(3)));
+    assert!(roster.iter().any(|(p, _)| p.is_none()), "{roster:?}");
+    // And the standard game's last slot is left wholly to chance.
+    let roster = simple_game_opponents(Size::Large, 1, &mut Rng::randomize(9));
+    assert!(
+        roster.iter().any(|(p, l)| p.is_none() && l.is_none()),
+        "{roster:?}"
+    );
+}

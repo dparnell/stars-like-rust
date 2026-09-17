@@ -33,8 +33,7 @@
 //! * **The Mystery Trader**, which sets out on its own schedule from the
 //!   turn generator rather than the generator of the world.
 //! * **Battle plans**, which every player starts with the five stock ones
-//!   of; and the **victory conditions**, which `GameState` carries from a
-//!   file rather than from the wizard.
+//!   of.
 //!
 //! ## Seed-identical universes: they are
 //!
@@ -305,6 +304,198 @@ pub struct NewGame {
     /// of the game's own resources. Empty, a random race keeps the name it
     /// was handed.
     pub random_names: Vec<String>,
+    /// The victory conditions, as `GAME.rgvc` holds them — bit 7 of each
+    /// byte whether the condition counts, the rest its setting (see
+    /// [`stars_formats::GameInfo::victory_value`]). `None` is the New
+    /// Game dialog's own defaults ([`default_victory`]), with the least
+    /// years set from the universe size as `InitNewGamePlr` sets it.
+    pub victory: Option<[u8; stars_formats::victory::COUNT]>,
+}
+
+/// The opponents the simple New Game dialog fills a game with
+/// (`InitNewGamePlr`, `1078:6e44`), for a universe of `size` at
+/// `difficulty` 0 (easy) to 3 (expert): how many players the game has, and
+/// for each computer player their personality and level as
+/// `(personality, level)`, with `None` where the original leaves the
+/// choice to chance (`0x9b`: a random personality at a random level).
+///
+/// The count: a tiny universe gets 2 players (3 one time in three at
+/// expert); small 3, or 4 one time in `6 − difficulty` at standard and up,
+/// or 5 one time in four at expert; medium 7, 6 or 8 by two draws of
+/// `Random(7 − difficulty)`, and at expert 9 or 5 one time in ten each;
+/// large 12, 11 or 13 the same way, 14 to 15 or 9 to 10 one time in ten at
+/// expert; huge 16, 15 or 14, or 11 to 13 one time in ten at expert. The
+/// computer players are then dealt personalities by their place in the
+/// list — the original's thresholds, kept as they are — and shuffled.
+///
+/// Returns the computer players in order, each `(personality, level)`,
+/// `None` in either place where the byte says to draw one — a personality
+/// of 6 (`Random(6)` when the game is made) or a level past 3
+/// (`Random(4)`), which is `NewGameWizard`'s reading of the byte.
+#[must_use]
+#[allow(clippy::too_many_lines)]
+pub fn simple_game_opponents(
+    size: Size,
+    difficulty: usize,
+    rng: &mut Rng,
+) -> Vec<(Option<usize>, Option<usize>)> {
+    let roll = |rng: &mut Rng, n: i32| i32::from(rng.random(i16::try_from(n).unwrap_or(1)));
+    let level = i32::try_from(difficulty).unwrap_or(0);
+    let expert = difficulty == 3;
+    let count: i32 = match size {
+        Size::Tiny => {
+            if expert && roll(rng, 3) == 0 {
+                3
+            } else {
+                2
+            }
+        }
+        Size::Small => {
+            if expert && roll(rng, 4) == 0 {
+                5
+            } else if level < 2 || roll(rng, 6 - level) != 0 {
+                3
+            } else {
+                4
+            }
+        }
+        Size::Medium => {
+            if expert && roll(rng, 10) == 0 {
+                9
+            } else if expert && roll(rng, 10) == 0 {
+                5
+            } else if level < 2 || roll(rng, 7 - level) != 0 {
+                if level < 2 || roll(rng, 7 - level) != 0 {
+                    7
+                } else {
+                    6
+                }
+            } else {
+                8
+            }
+        }
+        Size::Large => {
+            if expert && roll(rng, 10) == 0 {
+                roll(rng, 2) + 14
+            } else if expert && roll(rng, 10) == 0 {
+                10 - roll(rng, 2)
+            } else if level < 2 || roll(rng, 7 - level) != 0 {
+                if level < 2 || roll(rng, 7 - level) != 0 {
+                    12
+                } else {
+                    11
+                }
+            } else {
+                13
+            }
+        }
+        Size::Huge => {
+            if expert && roll(rng, 10) == 0 {
+                13 - roll(rng, 3)
+            } else if level < 2 || roll(rng, 9 - level) != 0 {
+                if level < 2 || roll(rng, 7 - level) != 0 {
+                    16
+                } else {
+                    15
+                }
+            } else {
+                14
+            }
+        }
+    };
+
+    // The type bytes: `personality << 2 | 3`, with the level in the top
+    // three bits: a personality of 6 or a level of 4 is a draw.
+    let byte = |p: usize, l: usize| -> (Option<usize>, Option<usize>) {
+        ((p < 6).then_some(p), (l < 4).then_some(l))
+    };
+    let mut types: Vec<(Option<usize>, Option<usize>)> = Vec::new();
+    for i in 1..count {
+        let t = match difficulty {
+            0 => {
+                if i < (count + 1) / 3 + 1 {
+                    byte(2, 0)
+                } else if i < (count + 1) * 2 / 3 + 1 {
+                    byte(3, 0)
+                } else if i < (count + 1) * 5 / 6 + 1 {
+                    byte(1, 0)
+                } else {
+                    byte(6, 0)
+                }
+            }
+            1 => {
+                if i < (count + 5) * 2 / 7 + 1 {
+                    byte(1, 1)
+                } else if i < ((count - 1) * 3 + 6) / 7 + 1 {
+                    byte(0, 1)
+                } else if i < ((count - 1) * 4 + 6) / 7 + 1 {
+                    byte(2, 1)
+                } else if i < ((count - 1) * 5 + 6) / 7 + 1 {
+                    byte(3, 1)
+                } else if i < ((count - 1) * 6 + 6) / 7 + 1 {
+                    byte(4, 1)
+                } else {
+                    byte(6, 4)
+                }
+            }
+            2 => {
+                if i < (count + 5) * 2 / 7 + 1 {
+                    byte(4, 2)
+                } else if i < ((count - 1) * 3 + 6) / 7 + 1 {
+                    byte(1, 2)
+                } else if i < ((count - 1) * 4 + 6) / 7 + 1 {
+                    byte(0, 2)
+                } else if i < ((count - 1) * 5 + 6) / 7 + 1 {
+                    byte(5, 2)
+                } else if i < ((count - 1) * 6 + 6) / 7 + 1 {
+                    byte(6, 2)
+                } else {
+                    byte(6, 4)
+                }
+            }
+            _ => {
+                if i < (count + 1) / 3 + 1 {
+                    byte(0, 3)
+                } else if i < ((count - 1) * 6 + 11) / 12 + 1 {
+                    byte(5, 3)
+                } else if i < ((count - 1) * 5 + 5) / 6 + 1 {
+                    byte(4, 3)
+                } else {
+                    byte(6, 3)
+                }
+            }
+        };
+        types.push(t);
+    }
+    // The shuffle: each place but the last swaps with one further on.
+    let n = types.len();
+    for i in 0..n.saturating_sub(1) {
+        let span = i32::try_from(n - i - 1).unwrap_or(1);
+        let j = i + 1 + usize::try_from(roll(rng, span)).unwrap_or(0);
+        if j < n {
+            types.swap(i, j);
+        }
+    }
+    types
+}
+
+/// The victory conditions the New Game wizard starts with
+/// (`NewGameWizard`, `1078:6022`, written the moment the first dialog
+/// returns): owning 60% of the planets, tech 22 in 4 fields and a score
+/// twice the second player's, all counting; a score of 11,000, 100,000
+/// resources a year, 100 capital ships and the highest score after 100
+/// years set but not counting; one of them enough to win; and the least
+/// years `InitNewGamePlr`'s `2 × size` — 30 for a tiny universe, 10 more
+/// for each size up.
+#[must_use]
+pub fn default_victory(size: Size) -> [u8; stars_formats::victory::COUNT] {
+    let mut bytes = [0u8; stars_formats::victory::COUNT];
+    bytes[..9].copy_from_slice(&[0x88, 0x8e, 0x82, 0x0a, 0x88, 0x09, 0x09, 0x07, 0x01]);
+    #[allow(clippy::cast_possible_truncation)]
+    {
+        bytes[stars_formats::victory::LEAST_YEARS] = (size as u8) << 1;
+    }
+    bytes
 }
 
 impl Default for NewGame {
@@ -324,6 +515,7 @@ impl Default for NewGame {
             tutorial_game: false,
             players: vec![NewPlayer::human(Race::humanoid())],
             random_names: Vec::new(),
+            victory: None,
         }
     }
 }
@@ -390,6 +582,9 @@ pub fn generate(config: &NewGame, rng: &mut Rng) -> Result<Created, NewGameError
     state.tutorial_game = config.tutorial_game;
     state.galaxy_size = config.size as i16;
     state.start_distance = config.start_distance as i16;
+    state.victory = config
+        .victory
+        .unwrap_or_else(|| default_victory(config.size));
     state.galaxy_planets = i16::try_from(positions.len()).unwrap_or(i16::MAX);
     state.planets = planets;
     state.players = state_players;
@@ -1767,6 +1962,12 @@ fn build_universe(
         flags |= game_flag::SINGLE_PLAYER;
     }
 
+    let mut raw = vec![0; GameInfo::LEN];
+    let victory = config
+        .victory
+        .unwrap_or_else(|| default_victory(config.size));
+    raw[stars_formats::victory::OFFSET..stars_formats::victory::OFFSET + victory.len()]
+        .copy_from_slice(&victory);
     let info = GameInfo {
         id: config.id,
         size: config.size as i16,
@@ -1777,7 +1978,7 @@ fn build_universe(
         flags,
         turn: 0,
         name: config.name.clone(),
-        raw: vec![0; GameInfo::LEN],
+        raw,
     };
 
     // A `.xy` belongs to no one player; the game writes it as player 31.
@@ -1877,6 +2078,14 @@ pub fn tutorial() -> (NewGame, u32) {
             },
         ],
         random_names: Vec::new(),
+        // `CreateTutorWorld`: only the highest score after a hundred
+        // years counts, and one condition is enough.
+        victory: Some({
+            let mut v = [0u8; stars_formats::victory::COUNT];
+            v[7] = 0x80;
+            v[8] = 0x81;
+            v
+        }),
     };
     (config, 0x4996_02d2)
 }

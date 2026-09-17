@@ -353,8 +353,8 @@ same lesser traits, including the Cheap Factories checkbox that entry's
   (`1078:4b0d`) seeds from a game-definition file when there is one, and an
   ordinary new game seeds from the clock. Regenerating a real player's
   galaxy is impossible for want of the seed, not for want of the algorithm.
-- **Battle plans and victory conditions**, which the generated `GameState` does
-  not carry.
+- **Battle plans**, which every player starts with the five stock ones of;
+  the generated `GameState` does not carry them.
 
 ## 6. Random races (`CreateRandomRace`, `10e0:5b08`)
 
@@ -401,7 +401,32 @@ The 252nd try gives up and copies `vrgplrDef[0]` — the predefined Humanoid,
 name aside — over the race. `crates/stars-core/tests/new_game.rs` rolls sixty
 of them.
 
-## 7. Wormholes
+## 7. Victory conditions and the simple dialog's roster
+
+`NewGameWizard` (`1078:6022`) writes the dialog's defaults into `GAME.rgvc`
+the moment the simple dialog returns: `88 8e 82 0a 88 09 09 07 01` — owning
+60% of the planets, tech 22 in 4 fields and a score twice the second
+player's, counting (bit 7); a score of 11,000, 100,000 resources, 100 capital
+ships and the highest score after 100 years, set but not counting; one
+condition enough. `InitNewGamePlr` (`1078:6e44`) then sets the least years to
+`2 × mdSize` — 30 for a tiny universe, ten more a size. `CreateTutorWorld`
+sets only `rgvc[7] = 0x80, rgvc[8] = 0x81`, which `tutorial.xy` confirms.
+`crate::newgame::default_victory`, `NewGame::victory`.
+
+The simple dialog also chooses the opponents (`InitNewGamePlr`), from the
+size and the difficulty (0 easy to 3 expert): the player count by the draws
+in `simple_game_opponents`'s doc comment, then the computer players dealt a
+type byte by their place — `personality << 2 | 3` with the level in the top
+three bits, `0x9b` for one drawn at random — from the tables at `1078:6f9a`
+onward, and shuffled with `Random(cPlayer − i − 1)` from the second place
+to the second last. `NewGameWizard` reads a personality of 6 as `Random(6)`
+and a level past 3 as `Random(4)`. The dialog then sets normal density, a
+start distance of 1 (2 at harder and expert), AIs banding together at
+expert, and a game name from the string table by difficulty and size.
+This project's single-page wizard offers the roster as a button per
+difficulty; the density, distance and name stay the player's own.
+
+## 8. Wormholes
 
 After the battle plans, unless `fNoRandom`: `vrgWormholeMin[mdSize] +
 Random(vrgWormholeVar[mdSize])` pairs, with `min = {0,1,1,3,4}` (`1078:0000`)
