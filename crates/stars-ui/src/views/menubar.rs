@@ -62,14 +62,13 @@ pub fn game_menus(app: &mut App, ui: &mut egui::Ui) -> Option<String> {
             "",
         )
         .on_hover_text(
-            "Watch for the other players' turns and generate the year. The \
-             original makes this a mode of its own, entered by opening the \
-             host file.",
+            "Turn the year in and watch for the next one, opening it when it \
+             comes. A newer turn already on disk is opened at once.",
         )
         .clicked()
         {
             ui.close_menu();
-            app.open_host_mode();
+            app.wait_for_new_requested = true;
         }
         if item(
             app,

@@ -76,6 +76,16 @@ instead of hitting F9, select Generate from the Turn menu."*
 then too, and in a **single-player** game, where there is nobody to wait
 for.
 
+What `&Wait for New` does (`CommandHandler`, `1020:2f7a`, the `0x6a` arm):
+if the player's `.mN` on disk already carries a later year (`FNewTurnAvail`)
+the new turn is opened — after an OK/Cancel word when the open one has
+unsaved changes, which cannot be turned in — and otherwise the orders are
+written **submitted** (`gd.fSubmit`) with the history beside them, the
+frame's caption becomes *waiting for the new turn*, and a ten-second timer
+(`uTimerId`, `HostTimerProc`) asks `FNewTurnAvail` until the turn appears
+and is opened. `App::wait_for_new`, `App::open_new_turn`,
+`App::waiting_for_turn`; the desktop shell keeps the timer.
+
 ## `&Commands`
 
 | id | item |

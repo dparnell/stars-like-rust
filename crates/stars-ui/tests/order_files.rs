@@ -1830,3 +1830,43 @@ fn a_newer_turn_on_disk_refuses_the_save() {
     assert!(app.save(&host).is_err());
     assert!(app.save_and_submit(&host).is_err());
 }
+
+/// Turn (Wait for New): the year is turned in and the frontend watches for
+/// the next; once it is on disk, it is opened in the old one's place.
+#[test]
+fn wait_for_new_turns_the_year_in_and_opens_the_next() {
+    let (mut app, host) = a_saved_game("wait");
+    // Played as the human, from their own turn file.
+    let turn_file = host.with_extension("m1");
+    app.open(&turn_file).expect("opens the player's turn");
+    assert!(!app.waiting_for_turn);
+    app.wait_for_new().expect("turns the year in");
+    assert!(app.waiting_for_turn, "watching for the next turn");
+    let orders = host.with_extension("x1");
+    let file = StarsFile::decode(&std::fs::read(&orders).expect("reads")).expect("decodes");
+    assert!(file.header.flag_done, "the orders say the turn is in");
+    assert!(!app.new_turn_available());
+
+    // The host generates the next year: the player's .m1 moves on.
+    let bytes = std::fs::read(&turn_file).expect("the turn file");
+    let decoded = StarsFile::decode(&bytes).expect("decodes");
+    let mut header = decoded.header.clone();
+    header.turn += 1;
+    let body: Vec<_> = decoded.blocks[1..decoded.blocks.len() - 1].to_vec();
+    let footer = decoded.blocks.last().expect("a footer").data.clone();
+    std::fs::write(
+        &turn_file,
+        StarsFile::build(&header, &body, footer).expect("builds"),
+    )
+    .expect("writes");
+    assert!(app.new_turn_available());
+    app.open_new_turn().expect("opens the new turn");
+    assert!(!app.waiting_for_turn);
+    assert_eq!(app.game.as_ref().map(|g| g.turn), Some(1));
+
+    // Asked again with the new turn already there, it is simply opened.
+    let mut again = App::new();
+    again.open(&host).expect("opens the host");
+    again.open(&turn_file).expect("opens the turn");
+    assert!(!again.waiting_for_turn);
+}

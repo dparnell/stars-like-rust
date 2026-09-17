@@ -641,6 +641,13 @@ pub struct App {
     /// (`WriteBOF`, `1050:0e52`, bit 8 of `dts`) and what the host reads
     /// as *turned in* rather than *partially done*.
     pub submitted: bool,
+    /// Turn (Wait for New): the turn is in and the frontend is watching
+    /// for the next one — the original's `uTimerId`, a ten-second timer
+    /// asking `FNewTurnAvail` (`CommandHandler`, `1020:2f7a`).
+    pub waiting_for_turn: bool,
+    /// The menu asked for Wait for New; the frontend, which owns the
+    /// question about unsaved changes and the clock, acts on it.
+    pub wait_for_new_requested: bool,
     /// What the Score sheet was last set to.
     ///
     /// The original keeps the face and the timeline's figure in `gd`, which
@@ -1034,6 +1041,7 @@ impl App {
         self.send_index = 0;
         self.host_mode = false;
         self.hosting = false;
+        self.waiting_for_turn = false;
         self.screen = Screen::Galaxy;
         self.tutor = None;
     }
@@ -1730,6 +1738,49 @@ impl App {
     /// As [`Self::save`].
     pub fn save_and_submit(&mut self, path: &Path) -> Result<(), String> {
         self.save_with(path, true)
+    }
+
+    /// Turn (Wait for New), `0x6a`, for a player in a game with others
+    /// (`CommandHandler`, `1020:2f7a`): with no newer turn on disk the
+    /// orders are written **submitted** and the history beside them, and
+    /// the frontend settles down to watch for the next turn every ten
+    /// seconds ([`Self::waiting_for_turn`]); a newer turn already there is
+    /// opened instead — after a word when this one has unsaved changes,
+    /// which the caller asks about with [`Self::new_turn_available`] and
+    /// [`Self::dirty`] before calling.
+    ///
+    /// # Errors
+    /// As [`Self::save`].
+    pub fn wait_for_new(&mut self) -> Result<(), String> {
+        let Some(path) = self.path.clone() else {
+            return Err("There is no game open to wait on.".to_string());
+        };
+        if self.new_turn_available() {
+            return self.open_new_turn();
+        }
+        self.save_and_submit(&path)?;
+        self.waiting_for_turn = true;
+        Ok(())
+    }
+
+    /// Open the newer turn of this game that has appeared beside it —
+    /// `FLoadGame` after `DestroyCurGame`, the tail of the Wait for New
+    /// and Save arms — and stop waiting.
+    ///
+    /// # Errors
+    /// As [`Self::open`].
+    pub fn open_new_turn(&mut self) -> Result<(), String> {
+        let Some(path) = self.path.clone() else {
+            return Err("There is no game open.".to_string());
+        };
+        let directory = path.parent().unwrap_or_else(|| Path::new("."));
+        let Some(stem) = path.file_stem().map(|s| s.to_string_lossy().to_string()) else {
+            return Err("The game's file has no name to find the new turn by.".to_string());
+        };
+        let file = directory.join(format!("{stem}.m{}", self.local_player() + 1));
+        self.waiting_for_turn = false;
+        self.dirty = false;
+        self.open(&file)
     }
 
     /// Whether a newer turn of this game sits beside the one open —

@@ -14,6 +14,9 @@ pub struct StarsApp {
     /// The clock reading the Host Mode dialog measures "time since last
     /// change" from (`ctickLast`).
     host_since: f64,
+    /// When Wait for New last looked for the next turn (`uTimerId`, a
+    /// ten-second timer in the original).
+    waited_at: f64,
     /// The files the last "save a new game" wrote, to report back.
     written: Vec<String>,
     /// The File menu's tail: the games opened most recently.
@@ -66,6 +69,7 @@ impl StarsApp {
             app,
             written: Vec::new(),
             host_since: 0.0,
+            waited_at: 0.0,
             recent,
             restored: None,
             frame_state: stars_ui::settings::WindowState::Normal,
@@ -636,6 +640,56 @@ impl StarsApp {
         }
     }
 
+    /// Turn (Wait for New): see `App::wait_for_new`.
+    fn wait_for_new(&mut self, ctx: &egui::Context) {
+        if self.app.new_turn_available() {
+            if self.app.dirty
+                && rfd::MessageDialog::new()
+                    .set_title("Stars!")
+                    .set_description(
+                        "The next turn has already been generated; the changes made to \
+                         this one cannot be turned in. Open the new turn and lose them?",
+                    )
+                    .set_buttons(rfd::MessageButtons::OkCancel)
+                    .show()
+                    != rfd::MessageDialogResult::Ok
+            {
+                return;
+            }
+            self.open_new_turn();
+            return;
+        }
+        match self.app.wait_for_new() {
+            Ok(()) => {
+                self.app.error = None;
+                self.waited_at = ctx.input(|i| i.time);
+                // `SETWINDOWTEXT(idsWaitingNewTurn)`: the frame says what it
+                // is doing while it waits.
+                ctx.send_viewport_cmd(egui::ViewportCommand::Title(
+                    "Stars! — waiting for the new turn".to_string(),
+                ));
+                if let Some(path) = self.app.path.clone() {
+                    self.write_templates(&path);
+                }
+            }
+            Err(e) => self.app.error = Some(e),
+        }
+    }
+
+    /// The newer turn beside the open game, opened in its place.
+    fn open_new_turn(&mut self) {
+        match self.app.open_new_turn() {
+            Ok(()) => {
+                self.app.error = None;
+                if let Some(path) = self.app.path.clone() {
+                    self.read_templates(&path);
+                    self.app.read_selection_ini(&read_ini());
+                }
+            }
+            Err(e) => self.app.error = Some(e),
+        }
+    }
+
     fn pick_file(&mut self) {
         let picked = rfd::FileDialog::new()
             .set_title("Open a Stars! save")
@@ -795,6 +849,25 @@ impl eframe::App for StarsApp {
 
         if self.app.print_save_requested {
             self.save_print_pages();
+        }
+
+        // Turn (Wait for New), `0x6a`: turn the year in and watch for the
+        // next; a newer turn already there is opened, after a word when
+        // this one has changes that would be lost (`CommandHandler`,
+        // `1020:2f7a`).
+        if std::mem::take(&mut self.app.wait_for_new_requested) {
+            self.wait_for_new(ctx);
+        }
+        if self.app.waiting_for_turn {
+            let now = ctx.input(|i| i.time);
+            if now - self.waited_at >= 10.0 {
+                self.waited_at = now;
+                if self.app.new_turn_available() {
+                    self.open_new_turn();
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Title("Stars!".to_string()));
+                }
+            }
+            ctx.request_repaint_after(std::time::Duration::from_secs(1));
         }
 
         // F1 is the Player's Guide — `WINHELP(HELP_INDEX)` — with or
