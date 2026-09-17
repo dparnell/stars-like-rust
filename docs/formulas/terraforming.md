@@ -406,8 +406,11 @@ honest measure of what remains.
 
 - (resolved) The step count's apparent 30% over-prediction: there was none. See
   "The count" above.
-- The direction-selection arm of `FCanTerraformLppl`, which picks which way to
-  terraform for the UI's environment graph. It is not needed for the value or
-  the step count, and the decompilation of that branch is not yet trustworthy.
-- Claim Adjuster orbital terraforming (`MANUAL.PDF` p. 19-3), a separate
-  mechanism and a likely source of the reach overshoots.
+- ~~The direction-selection arm of `FCanTerraformLppl`.~~ Read: it is the
+  `fHelp == 0` branch — the flag means *hostile* — and `terraform::Intent`
+  carries it (`Help` toward the owner's ideal, `Harm` away from it);
+  `reachable_band` is what the environment graph draws.
+- ~~Claim Adjuster orbital terraforming (`MANUAL.PDF` p. 19-3).~~
+  `AutoTerraform` and `RemoteTerraforming` are both transcribed
+  (`terraform::auto_terraform`, `terraform::remote_terraform`); what still
+  separates the replay from the oracle is the model's own error above.

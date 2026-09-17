@@ -3221,6 +3221,25 @@ disagree.
     bit it never reaches. `docs/formulas/movement.md`, *The orders are
     looked over once more*.
 
+111. **Everything left, transcribed.** A sweep of every "not modelled",
+    "not written" and "not yet" note across the specs, closing each that
+    was still true and striking the rest: the year's scoring now marks a
+    player with nothing left dead and tells everyone (`0xbb`), and declares
+    the winners — on the game's conditions or as the last one standing —
+    to each player their own way (`0xb5`–`0xb8`, `0xbc`), with
+    `gd.fGameOverMan` carried as `GameState::game_over` and the host
+    header's bit (`scores.md`); `DoBombing` is worded the original's two
+    dozen ways and Retro Bombs undo terraforming (`bombing.md`); giving a
+    fleet away refuses and announces as the original does (`0x148`–`0x14e`,
+    `waypoint-tasks.md`); a battle plan's dump-cargo flag empties the hold
+    before the fight (`combat.md`); every message record carries exactly
+    the parameters the original's table gives its id, checked over a decade
+    of a real game, which caught ten senders; the waypoint record types its
+    last three task payloads; and the shell's File (Close) and Turn (Wait
+    for New) do what `CommandHandler` does. What no fixture can verify is
+    listed under *Carried into Step 5 unverified*; nothing the original's
+    turn engine does is left untranscribed that this project knows of.
+
 #### Saving is not re-encoding
 
 A save file is mostly data this project models partially or not at all. A save
