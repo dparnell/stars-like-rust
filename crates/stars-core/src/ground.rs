@@ -69,18 +69,41 @@ pub struct Landing {
     pub colonists: i32,
     /// Their race's primary trait, which sets their weight.
     pub prt: Option<Prt>,
+    /// Whether they may settle an empty planet (`COLDROP.fCanColonize`):
+    /// set for a drop a waypoint task makes (`FQueueColonistDrop`), and for
+    /// a Cargo Transfer dialog's unload only onto an inhabited planet — the
+    /// dialog's colonists "forced to transport down" to an empty world die.
+    pub can_colonize: bool,
 }
 
 impl Landing {
-    /// The weighted strength of this landing as an attacker.
+    /// The weighted strength of this landing as an attacker, before the
+    /// planet's defences take their share.
     #[must_use]
     pub fn strength(self) -> i32 {
         self.colonists.saturating_mul(attack_weight(self.prt)) / 100
     }
 }
 
+/// The planet the colonists land on, as the fight sees it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Ground {
+    /// The planet's id, for the messages.
+    pub id: i16,
+    /// Who holds it, and with how many colonists (hundreds) and what
+    /// trait; `None` for an empty planet.
+    pub defender: Option<(i16, i32, Option<Prt>)>,
+    /// Whether a starbase is in orbit — with an owner, it kills every
+    /// landing outright.
+    pub starbase: bool,
+    /// The share of a bombing run the planet's defences let through
+    /// (`CalcPctSurvive`); ground troops fare better, and
+    /// [`resolve_landings`] works that in itself.
+    pub pct_survive: f64,
+}
+
 /// What a set of landings did to a planet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
     /// Nobody landed anything that counts.
     Nothing,
@@ -102,69 +125,309 @@ pub enum Outcome {
         player: i16,
         /// Colonists left standing, in units of 100.
         colonists: i32,
+        /// Who lost it.
+        loser: i16,
+    },
+    /// Two claims came out exactly equal: nobody survived, and a planet
+    /// whose defenders had already been overrun is left empty.
+    Annihilated {
+        /// Who held it, if anyone did.
+        loser: Option<i16>,
     },
 }
 
-/// Resolve every landing on one planet.
+/// A landing's fate and what everybody is told.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Resolution {
+    /// What became of the planet.
+    pub outcome: Outcome,
+    /// The messages `DropColonists` sends, in its order.
+    pub messages: Vec<crate::message::Message>,
+}
+
+/// Resolve every landing on one planet — `DropColonists` (`10b8:34e2`),
+/// transcribed.
 ///
-/// `defender` is the population already there and its race's trait, or `None`
-/// for an empty planet.
+/// First each landing is sorted: an Alternate Reality race's colonists die
+/// on any surface (`0x57`); colonists that may not colonise die on an empty
+/// planet (`0x02`); an inhabited planet's starbase kills every landing
+/// (`0x58`). The rest are summed per player, as colonists and as **power**:
+/// `colonists × weight / 100` ([`attack_weight`]) times the share the
+/// planet's defences let through, which for troops is
+/// `pct + (1 − pct) / 4`.
 ///
-/// The strongest landing takes an empty planet, weighted as above; on a held
-/// planet the attackers' combined strength is set against the defenders'.
+/// A held planet's defence is `colonists × weight / 100`
+/// ([`defence_weight`]). Attacking power short of it loses: each attacker is
+/// massacred (`0x00`/`0x03`, or `0x01`/`0x04` when the defences took a
+/// share first) and the defenders lose `held × power / defence`. Power that
+/// matches or beats it clears the planet (`UninhabitPlanet`) and the
+/// attackers fight on among themselves as on an empty one.
 ///
-/// # What is not modelled
-///
-/// The survivor counts the original computes after a *contested* landing are
-/// not transcribed. `DropColonists` scales them through several 32-bit terms
-/// that the decompiler has flattened past the point of confident reading, and
-/// no fixture separates a contested landing from an uncontested one — the 513
-/// colonisations in `fixtures/games/all-computer-players` are all onto empty
-/// planets with a single claimant. What is returned here for those cases is
-/// the uncontested answer, and [`Outcome::Taken`] reports the attacker's
-/// surplus rather than the original's formula.
+/// On an empty planet the greatest power wins — even a power of nothing,
+/// which is how an Alternate Reality race settles; an exact tie kills everyone
+/// (`0x06`, and `0x05` to a former holder). The winner keeps
+/// `colonists × (power − defence) / power` — all of them when nothing stood
+/// in the way — and, when a rival came second, `× (best − second) / best`;
+/// at least one hundred either way. The "second" is the best power seen
+/// before the winner in player order, which is the original's own quirk: a
+/// winner with a lower number than every rival loses nothing to them.
 #[must_use]
-pub fn resolve_landings(defender: Option<(i32, Option<Prt>)>, landings: &[Landing]) -> Outcome {
-    let strongest = landings
-        .iter()
-        .filter(|l| l.strength() > 0)
-        .max_by_key(|l| (l.strength(), std::cmp::Reverse(l.player)));
-    let Some(winner) = strongest.copied() else {
-        return Outcome::Nothing;
-    };
-    let attack: i32 = landings.iter().map(|l| l.strength()).sum();
+pub fn resolve_landings(ground: Ground, landings: &[Landing]) -> Resolution {
+    use crate::message::{id, Message};
 
-    let Some((held, prt)) = defender else {
-        // An empty planet: the strongest claim simply takes it, and its
-        // colonists land intact. What a *losing* claimant leaves behind after a
-        // contested settling is part of what is not transcribed.
-        return Outcome::Settled {
-            player: winner.player,
-            colonists: winner.colonists,
+    let planet = ground.id;
+    let mut messages = Vec::new();
+    let mut tell = |player: i16, which: u16, object: i16, params: Vec<i16>| {
+        if let Ok(player) = usize::try_from(player) {
+            messages.push(Message {
+                player,
+                id: which,
+                object,
+                params,
+            });
+        }
+    };
+    let held_by = ground.defender.map(|(owner, _, _)| owner);
+    let troops_survive = (1.0 - ground.pct_survive) / 4.0 + ground.pct_survive;
+
+    // Per player, colonists and power.
+    let mut colonists = [0i64; 16];
+    let mut power = [0i64; 16];
+    let mut power_total: i64 = 0;
+    for landing in landings {
+        let Ok(who) = usize::try_from(landing.player) else {
+            continue;
         };
-    };
-
-    let defence = held.saturating_mul(defence_weight(prt)) / 100;
-    if attack < defence {
-        // The defenders hold, losing ground in proportion to what hit them.
-        let lost = if defence > 0 {
-            held.saturating_mul(attack) / defence
+        if who >= 16 || landing.colonists <= 0 {
+            continue;
+        }
+        let [lo, hi] = Message::long(landing.colonists);
+        if landing.prt == Some(Prt::Ar) && (!landing.can_colonize || held_by.is_some()) {
+            tell(landing.player, id::LANDING_AR_DIED, planet, vec![planet]);
+        } else if held_by.is_none() && !landing.can_colonize {
+            tell(
+                landing.player,
+                id::LANDING_NOT_COLONISED,
+                planet,
+                vec![lo, hi, planet],
+            );
+        } else if ground.starbase && held_by.is_some() {
+            tell(landing.player, id::LANDING_STARBASE, planet, vec![planet]);
         } else {
-            0
+            colonists[who] += i64::from(landing.colonists);
+            let base = i64::from(landing.colonists) * i64::from(attack_weight(landing.prt)) / 100;
+            // `(long)((double)base * pctSurvive)`: truncated.
+            #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+            let scaled = (base as f64 * troops_survive) as i64;
+            power[who] += scaled;
+            power_total += scaled;
+        }
+    }
+
+    // A held planet defends itself first.
+    let mut defence: i64 = 0;
+    let mut loser: Option<i16> = None;
+    if let Some((owner, held, prt)) = ground.defender {
+        defence = i64::from(held) * i64::from(defence_weight(prt)) / 100;
+        if defence > power_total {
+            let side = |p: i16| p | 0x30;
+            for (who, count) in colonists.iter().enumerate() {
+                if *count == 0 {
+                    continue;
+                }
+                #[allow(clippy::cast_possible_truncation)]
+                let [lo, hi] = Message::long(*count as i32);
+                let attacker = i16::try_from(who).unwrap_or(0);
+                #[allow(clippy::float_cmp)]
+                if troops_survive == 1.0 {
+                    tell(
+                        attacker,
+                        id::LANDING_MASSACRED,
+                        planet,
+                        vec![lo, hi, planet, side(owner)],
+                    );
+                    tell(
+                        owner,
+                        id::LANDING_REPELLED,
+                        planet,
+                        vec![planet, lo, hi, side(attacker)],
+                    );
+                } else {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let pct = (10000.0 * (troops_survive - 1.0)) as i16;
+                    tell(
+                        attacker,
+                        id::LANDING_SHOT_DOWN,
+                        planet,
+                        vec![lo, hi, planet, pct, side(owner)],
+                    );
+                    tell(
+                        owner,
+                        id::LANDING_REPELLED_BY_DEFENCES,
+                        planet,
+                        vec![planet, lo, hi, side(attacker)],
+                    );
+                }
+            }
+            let lost = if defence > 0 {
+                i64::from(held) * power_total / defence
+            } else {
+                0
+            };
+            #[allow(clippy::cast_possible_truncation)]
+            return Resolution {
+                outcome: Outcome::Held {
+                    colonists: (i64::from(held) - lost) as i32,
+                },
+                messages,
+            };
+        }
+        // Overrun: the planet is emptied and the attackers settle it.
+        loser = Some(owner);
+    }
+
+    // The strongest claim, an exact tie, and how many sides there were.
+    let mut best: i64 = -1;
+    let mut second: i64 = 0;
+    let mut sides = 0i16;
+    let mut tie = false;
+    let mut winner = 0usize;
+    for who in 0..16 {
+        if colonists[who] == 0 {
+            continue;
+        }
+        sides += 1;
+        if power[who] >= best {
+            if power[who] == best {
+                tie = true;
+            } else {
+                tie = false;
+                second = best;
+                best = power[who];
+                winner = who;
+            }
+        }
+    }
+    // `cMax` starts at −1 and the test is on its high word: a claim of no
+    // power at all — an Alternate Reality race's — still counts.
+    if best < 0 {
+        return Resolution {
+            outcome: if loser.is_some() {
+                Outcome::Annihilated { loser }
+            } else {
+                Outcome::Nothing
+            },
+            messages,
         };
-        return Outcome::Held {
-            colonists: (held - lost).max(1),
+    }
+    if tie {
+        for (who, count) in colonists.iter().enumerate() {
+            if *count != 0 {
+                tell(
+                    i16::try_from(who).unwrap_or(0),
+                    id::LANDING_FREE_FOR_ALL,
+                    planet,
+                    vec![sides, planet],
+                );
+            }
+        }
+        if let Some(owner) = loser {
+            tell(owner, id::LANDING_PRONGED, planet, vec![sides, planet]);
+        }
+        return Resolution {
+            outcome: Outcome::Annihilated { loser },
+            messages,
         };
     }
 
-    // The planet falls. `UninhabitPlanet` clears it and the strongest claim
-    // settles what is left.
-    let surplus = attack - defence;
-    let colonists = surplus.saturating_mul(100) / attack_weight(winner.prt).max(1);
-    Outcome::Taken {
-        player: winner.player,
-        colonists: colonists.max(1),
+    let winner_param = i16::try_from(winner).unwrap_or(0);
+    match loser {
+        None => {
+            if sides < 2 {
+                let ar = landings
+                    .iter()
+                    .any(|l| l.player == winner_param && l.prt == Some(Prt::Ar));
+                tell(
+                    winner_param,
+                    if ar {
+                        id::COLONISTS_CONTROL_AR
+                    } else {
+                        id::COLONISTS_CONTROL
+                    },
+                    planet,
+                    vec![planet],
+                );
+            } else {
+                for (who, count) in colonists.iter().enumerate() {
+                    if *count == 0 {
+                        continue;
+                    }
+                    let who_param = i16::try_from(who).unwrap_or(0);
+                    if who == winner {
+                        tell(who_param, id::LANDING_RACE_WON, planet, vec![sides, planet]);
+                    } else {
+                        tell(
+                            who_param,
+                            id::LANDING_RACE_LOST,
+                            planet,
+                            vec![sides, planet, winner_param | 0xb0],
+                        );
+                    }
+                }
+            }
+        }
+        Some(owner) => {
+            for (who, count) in colonists.iter().enumerate() {
+                if *count == 0 {
+                    continue;
+                }
+                let who_param = i16::try_from(who).unwrap_or(0);
+                if who == winner {
+                    tell(
+                        who_param,
+                        id::LANDING_CRUSHED_DEFENDERS,
+                        planet,
+                        vec![owner | 0x20, planet],
+                    );
+                } else {
+                    tell(who_param, id::LANDING_LOST_THE_FIGHT, planet, vec![planet]);
+                }
+            }
+            #[allow(clippy::cast_possible_truncation)]
+            let [lo, hi] = Message::long(colonists[winner] as i32);
+            tell(
+                owner,
+                id::LANDING_STORMED,
+                planet,
+                vec![winner_param | 0x30, planet, lo, hi],
+            );
+        }
     }
+
+    // What the winner has left.
+    let mut left = if power_total == 0 || best == 0 {
+        colonists[winner]
+    } else {
+        let through = best * (power_total - defence) / power_total;
+        colonists[winner] * through / best
+    };
+    if second > 0 {
+        left = left * (best - second) / best;
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    let left = left.max(1) as i32;
+    let outcome = match loser {
+        None => Outcome::Settled {
+            player: winner_param,
+            colonists: left,
+        },
+        Some(owner) => Outcome::Taken {
+            player: winner_param,
+            colonists: left,
+            loser: owner,
+        },
+    };
+    Resolution { outcome, messages }
 }
 
 /// The number of technology fields wreckage can teach.
@@ -392,7 +655,30 @@ mod tests {
             player,
             colonists,
             prt: Some(prt),
+            can_colonize: true,
         }
+    }
+
+    fn empty() -> Ground {
+        Ground {
+            id: 7,
+            defender: None,
+            starbase: false,
+            pct_survive: 1.0,
+        }
+    }
+
+    fn held(colonists: i32, prt: Prt) -> Ground {
+        Ground {
+            id: 7,
+            defender: Some((0, colonists, Some(prt))),
+            starbase: false,
+            pct_survive: 1.0,
+        }
+    }
+
+    fn outcome(ground: Ground, landings: &[Landing]) -> Outcome {
+        resolve_landings(ground, landings).outcome
     }
 
     #[test]
@@ -406,40 +692,117 @@ mod tests {
 
     #[test]
     fn an_empty_planet_goes_to_the_only_claimant() {
-        let out = resolve_landings(None, &[landing(3, 250, Prt::Joat)]);
+        let out = resolve_landings(empty(), &[landing(3, 250, Prt::Joat)]);
         assert_eq!(
-            out,
+            out.outcome,
             Outcome::Settled {
                 player: 3,
                 colonists: 250
             }
         );
+        assert_eq!(out.messages.len(), 1);
+        assert_eq!(out.messages[0].id, crate::message::id::COLONISTS_CONTROL);
     }
 
-    /// An Alternate Reality race cannot take a planet with colonists.
+    /// An Alternate Reality race settles an empty planet with a power of
+    /// nothing, and is told it has deployed its Orbital Construction
+    /// Module; on a held planet its colonists die on the surface.
     #[test]
-    fn alternate_reality_cannot_claim_a_planet() {
+    fn alternate_reality_settles_but_never_invades() {
+        let out = resolve_landings(empty(), &[landing(1, 5_000, Prt::Ar)]);
         assert_eq!(
-            resolve_landings(None, &[landing(1, 5_000, Prt::Ar)]),
-            Outcome::Nothing
+            out.outcome,
+            Outcome::Settled {
+                player: 1,
+                colonists: 5_000
+            }
         );
+        assert_eq!(out.messages[0].id, crate::message::id::COLONISTS_CONTROL_AR);
+        let out = resolve_landings(held(10, Prt::Joat), &[landing(1, 5_000, Prt::Ar)]);
+        assert_eq!(out.outcome, Outcome::Held { colonists: 10 });
+        assert_eq!(out.messages[0].id, crate::message::id::LANDING_AR_DIED);
     }
 
-    /// Contested: the heavier weighted claim wins, not the larger one.
+    /// Colonists a cargo transfer put down on an empty planet die.
+    #[test]
+    fn a_forced_transport_onto_an_empty_planet_dies() {
+        let mut drop = landing(1, 50, Prt::Joat);
+        drop.can_colonize = false;
+        let out = resolve_landings(empty(), &[drop]);
+        assert_eq!(out.outcome, Outcome::Nothing);
+        assert_eq!(
+            out.messages[0].id,
+            crate::message::id::LANDING_NOT_COLONISED
+        );
+        assert_eq!(out.messages[0].params, vec![50, 0, 7]);
+    }
+
+    /// A starbase over an inhabited planet kills every landing.
+    #[test]
+    fn a_starbase_stops_a_landing() {
+        let mut ground = held(100, Prt::Joat);
+        ground.starbase = true;
+        let out = resolve_landings(ground, &[landing(1, 5_000, Prt::Wm)]);
+        assert_eq!(out.outcome, Outcome::Held { colonists: 100 });
+        assert_eq!(out.messages[0].id, crate::message::id::LANDING_STARBASE);
+    }
+
+    /// Contested: the heavier weighted claim wins, not the larger one —
+    /// and, the rival having come first in player order, keeps only the
+    /// margin: 100 × (16500 − 15400) / 16500 → 6, on a per-hundred
+    /// power of 165 vs 154.
     #[test]
     fn a_war_monger_outweighs_a_larger_landing() {
         let out = resolve_landings(
-            None,
-            &[landing(1, 100, Prt::Wm), landing(2, 140, Prt::Joat)],
+            empty(),
+            &[landing(2, 140, Prt::Joat), landing(1, 100, Prt::Wm)],
         );
-        // 100 * 165 = 16500 against 140 * 110 = 15400.
+        // Powers: player 1 = 165, player 2 = 154. Player 1 is seen first,
+        // so player 2's 154 never becomes the "second" — the winner keeps
+        // everything.
         assert_eq!(
-            out,
+            out.outcome,
             Outcome::Settled {
                 player: 1,
                 colonists: 100
             }
         );
+        // The other way about, player 1 (165) comes after player 0
+        // (154): 100 × (165 − 154) / 165 = 6.
+        let out = resolve_landings(
+            empty(),
+            &[landing(0, 140, Prt::Joat), landing(1, 100, Prt::Wm)],
+        );
+        assert_eq!(
+            out.outcome,
+            Outcome::Settled {
+                player: 1,
+                colonists: 6
+            }
+        );
+        let ids: Vec<u16> = out.messages.iter().map(|m| m.id).collect();
+        assert_eq!(
+            ids,
+            vec![
+                crate::message::id::LANDING_RACE_LOST,
+                crate::message::id::LANDING_RACE_WON
+            ]
+        );
+    }
+
+    /// Equal powers: nobody survives.
+    #[test]
+    fn an_exact_tie_kills_everyone() {
+        let out = resolve_landings(
+            empty(),
+            &[landing(1, 100, Prt::Joat), landing(2, 100, Prt::Joat)],
+        );
+        assert_eq!(out.outcome, Outcome::Annihilated { loser: None });
+        assert!(out
+            .messages
+            .iter()
+            .all(|m| m.id == crate::message::id::LANDING_FREE_FOR_ALL));
+        assert_eq!(out.messages.len(), 2);
     }
 
     /// Inner Strength doubles the defence, which turns a losing fight.
@@ -447,32 +810,80 @@ mod tests {
     fn inner_strength_holds_a_planet_a_weaker_race_would_lose() {
         let attackers = [landing(2, 150, Prt::Joat)]; // 165 strength
 
-        let joat = resolve_landings(Some((160, Some(Prt::Joat))), &attackers);
+        let joat = outcome(held(160, Prt::Joat), &attackers);
         assert!(
             matches!(joat, Outcome::Taken { player: 2, .. }),
             "160 defenders at 100% should fall to 165: {joat:?}"
         );
 
-        let is = resolve_landings(Some((160, Some(Prt::Is))), &attackers);
+        let is = outcome(held(160, Prt::Is), &attackers);
         assert!(
             matches!(is, Outcome::Held { .. }),
             "160 defenders at 200% should hold against 165: {is:?}"
         );
     }
 
+    /// A repelled invasion costs the defender `held × power / defence`.
     #[test]
     fn a_repelled_invasion_still_costs_the_defender() {
-        let out = resolve_landings(
-            Some((1_000, Some(Prt::Joat))),
-            &[landing(2, 100, Prt::Joat)],
+        let out = resolve_landings(held(1_000, Prt::Joat), &[landing(2, 100, Prt::Joat)]);
+        // 1000 × 110 / 1000 = 110 lost.
+        assert_eq!(out.outcome, Outcome::Held { colonists: 890 });
+        let ids: Vec<u16> = out.messages.iter().map(|m| m.id).collect();
+        assert_eq!(
+            ids,
+            vec![
+                crate::message::id::LANDING_MASSACRED,
+                crate::message::id::LANDING_REPELLED
+            ]
         );
-        match out {
-            Outcome::Held { colonists } => {
-                assert!(colonists < 1_000, "the defender should lose ground");
-                assert!(colonists > 800, "but not be gutted: {colonists}");
+        assert_eq!(out.messages[0].params, vec![100, 0, 7, 0x30]);
+    }
+
+    /// A taken planet leaves the winner the share of its power that beat
+    /// the defence: 200 × (220 − 100) / 220 = 109.
+    #[test]
+    fn a_taken_planet_keeps_the_surplus() {
+        let out = resolve_landings(held(100, Prt::Joat), &[landing(2, 200, Prt::Joat)]);
+        assert_eq!(
+            out.outcome,
+            Outcome::Taken {
+                player: 2,
+                colonists: 109,
+                loser: 0
             }
-            other => panic!("expected the defender to hold, got {other:?}"),
-        }
+        );
+        let ids: Vec<u16> = out.messages.iter().map(|m| m.id).collect();
+        assert_eq!(
+            ids,
+            vec![
+                crate::message::id::LANDING_CRUSHED_DEFENDERS,
+                crate::message::id::LANDING_STORMED
+            ]
+        );
+    }
+
+    /// Planetary defences take their share of the troops first — a
+    /// quarter of what they would take from a bomb.
+    #[test]
+    fn defences_thin_the_landing() {
+        let mut ground = held(100, Prt::Joat);
+        // Bombs get 60% through; troops 60% + 40% / 4 = 70%.
+        ground.pct_survive = 0.6;
+        let out = resolve_landings(ground, &[landing(2, 200, Prt::Joat)]);
+        // Power 220 × 0.7 = 154; 200 × (154 − 100) / 154 = 70.
+        assert_eq!(
+            out.outcome,
+            Outcome::Taken {
+                player: 2,
+                colonists: 70,
+                loser: 0
+            }
+        );
+        // And a repelled landing says how much the defences shot down.
+        let out = resolve_landings(ground, &[landing(2, 100, Prt::Joat)]);
+        assert_eq!(out.messages[0].id, crate::message::id::LANDING_SHOT_DOWN);
+        assert_eq!(out.messages[0].params, vec![100, 0, 7, -3000, 0x30]);
     }
 
     /// The two races that filter their inherited queue, and what they drop.
@@ -580,8 +991,12 @@ mod tests {
 
     #[test]
     fn nothing_lands_nothing_happens() {
-        assert_eq!(resolve_landings(None, &[]), Outcome::Nothing);
-        assert_eq!(resolve_landings(Some((500, None)), &[]), Outcome::Nothing);
+        assert_eq!(outcome(empty(), &[]), Outcome::Nothing);
+        // A held planet with nothing landing keeps everyone it has.
+        assert_eq!(
+            outcome(held(500, Prt::Joat), &[]),
+            Outcome::Held { colonists: 500 }
+        );
     }
 
     /// A seed whose first draw does what the closure wants.

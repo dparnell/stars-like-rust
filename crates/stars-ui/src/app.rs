@@ -1360,6 +1360,26 @@ impl App {
         self.new_game_seeded(config, seed)
     }
 
+    /// The twenty-four names the string table keeps for a random race,
+    /// from `idsBerserker` (`0x56e`) on — or none without the executable.
+    #[must_use]
+    pub fn random_race_names(&self) -> Vec<String> {
+        let Some(art) = self.art.as_ref() else {
+            return Vec::new();
+        };
+        let exe = art.executable();
+        let names: Vec<String> = (0..stars_core::newgame::RANDOM_RACE_NAMES)
+            .filter_map(|n| {
+                stars_formats::resources::text::string(exe, 0x56e + u16::try_from(n).ok()?)
+            })
+            .collect();
+        if names.len() == stars_core::newgame::RANDOM_RACE_NAMES {
+            names
+        } else {
+            Vec::new()
+        }
+    }
+
     /// The same, with the generator seeded from something other than the
     /// game's id.
     ///
@@ -1372,8 +1392,14 @@ impl App {
     /// A message suitable for showing to the player.
     pub fn new_game_seeded(&mut self, config: &NewGame, seed: u32) -> Result<(), String> {
         let mut rng = stars_core::rng::Rng::randomize(seed);
+        // The names a "Random" race may take are the game's own, read from
+        // its string table when the executable is at hand.
+        let mut config = config.clone();
+        if config.random_names.is_empty() {
+            config.random_names = self.random_race_names();
+        }
         let Created { state, universe } =
-            stars_core::newgame::generate(config, &mut rng).map_err(|e| e.to_string())?;
+            stars_core::newgame::generate(&config, &mut rng).map_err(|e| e.to_string())?;
 
         self.selection = Selection {
             planet: state

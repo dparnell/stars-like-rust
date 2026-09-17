@@ -30,6 +30,12 @@
 //!
 //! ## What is deliberately not reproduced
 //!
+//! * **The Mystery Trader**, which sets out on its own schedule from the
+//!   turn generator rather than the generator of the world.
+//! * **Battle plans**, which every player starts with the five stock ones
+//!   of; and the **victory conditions**, which `GameState` carries from a
+//!   file rather than from the wizard.
+//!
 //! ## Seed-identical universes: they are
 //!
 //! This module used to say they were not, on the grounds that the original
@@ -50,11 +56,6 @@
 //! ordinary new game seeds from the clock, so its universe is unreproducible
 //! in principle. That is why the claim went untested for so long — the one
 //! oracle that exists is the tutorial's.
-//! * **Wormholes and the Mystery Trader**, which live in the `THING` list that
-//!   [`GameState`] does not yet model.
-//! * **Random races for computer players.** `CreateRandomRace` is not
-//!   transcribed, so a computer player is given whatever race the caller
-//!   supplies.
 
 use crate::advantage::advantage_points;
 use crate::ai::Control;
@@ -63,7 +64,7 @@ use crate::fleet::{Cargo, Fleet, Waypoint};
 use crate::hab::pct_planet_desirability;
 use crate::movement::Point;
 use crate::planet::{Detail, Planet};
-use crate::race::{lrt, Prt, Race, RaceStat};
+use crate::race::{lrt, Prt, Race, RaceStat, STAT_MAX, STAT_MIN};
 use crate::research::NextField;
 use crate::rng::Rng;
 use crate::startup::{self, ship, starbase, upgrade_slots};
@@ -299,6 +300,11 @@ pub struct NewGame {
     pub tutorial_game: bool,
     /// The players, in order.
     pub players: Vec<NewPlayer>,
+    /// The twenty-four names a random race may be given — the string
+    /// table from `idsBerserker` (`0x56e`) on — which the caller reads out
+    /// of the game's own resources. Empty, a random race keeps the name it
+    /// was handed.
+    pub random_names: Vec<String>,
 }
 
 impl Default for NewGame {
@@ -317,6 +323,7 @@ impl Default for NewGame {
             accelerated: false,
             tutorial_game: false,
             players: vec![NewPlayer::human(Race::humanoid())],
+            random_names: Vec::new(),
         }
     }
 }
@@ -374,6 +381,7 @@ pub fn generate(config: &NewGame, rng: &mut Rng) -> Result<Created, NewGameError
     let homes = place_homeworlds(config, &positions, rng);
     let (state_players, homes) = settle_players(config, &mut planets, &positions, homes, rng);
     let (fleets, designs) = starting_ships(config, &planets, &positions, &homes);
+    let wormholes = place_wormholes(config, &positions, &fleets, rng);
 
     let mut state = GameState::new(config.id);
     state.slow_tech = config.slow_tech;
@@ -382,10 +390,12 @@ pub fn generate(config: &NewGame, rng: &mut Rng) -> Result<Created, NewGameError
     state.tutorial_game = config.tutorial_game;
     state.galaxy_size = config.size as i16;
     state.start_distance = config.start_distance as i16;
+    state.galaxy_planets = i16::try_from(positions.len()).unwrap_or(i16::MAX);
     state.planets = planets;
     state.players = state_players;
     state.fleets = fleets;
     state.designs = designs;
+    state.wormholes = wormholes;
     // `CreateTutorWorld` (`1078:5e5e`) does not run the starting-tech rule
     // for the Berserkers: `tutorial.hst` holds them at Electronics 5 and
     // nothing else, one short of the Propulsion their Improved Fuel
@@ -399,6 +409,352 @@ pub fn generate(config: &NewGame, rng: &mut Rng) -> Result<Created, NewGameError
 
     let universe = build_universe(config, &positions, &names)?;
     Ok(Created { state, universe })
+}
+
+/// What the wizard's "Random" race is called in the string table
+/// (`idsRandom2`, `0x532`); a random race so named draws a real one.
+pub const RANDOM_RACE_NAME: &str = "Random";
+/// How many names a random race chooses from (`Random(0x18)` over
+/// `idsBerserker`).
+pub const RANDOM_RACE_NAMES: usize = 24;
+/// The most tries at balancing a random race's points before giving up
+/// and handing out the stock Humanoid instead (`CreateRandomRace`,
+/// `0xfb`).
+const RANDOM_RACE_TRIES: i32 = 0xfb;
+/// The economy a third of random races start from: the Humanoid's
+/// (`1120:0de0`), with the leftover policy rolled separately.
+const RANDOM_RACE_STOCK_ECONOMY: [i16; 7] = [10, 10, 10, 10, 10, 5, 10];
+
+/// `CreateRandomRace` (`10e0:5b08`): roll a race for a player whose race
+/// is the wizard's "Random", and bring its advantage points into
+/// `0..=50`.
+///
+/// The habitability is one of four shapes on `Random(25)`: under 4, immune
+/// to all three with a growth of `2 + Random(4)`; under 7, the whole
+/// spectrum on all three with `3 + Random(4)`; under 9, each of the first
+/// two axes either the whole spectrum or left as it was, the third left
+/// as it was, with `2 + Random(5)`; otherwise each axis a band
+/// `20 + 2 × Random(40)` wide placed at random, then under 12 one axis
+/// made immune, under 14 one made whole-spectrum, under 17 one narrowed
+/// to twenty wide, with a growth of `7 + Random(9)`. The six research
+/// settings are all normal one time in three, else each `Random(3)`; the
+/// primary trait `Random(10)`; the fourteen lesser traits all off one time
+/// in four, else each a coin; Expensive Tech Starts at 3 and Cheap
+/// Factories a coin each; the economy the Humanoid's one time in three,
+/// with a leftover policy of `Random(5)`, else each statistic anywhere in
+/// its wizard range. A race still called "Random" takes one of the
+/// twenty-four names.
+///
+/// Then, while the points are outside `0..=50`, up to 251 nudges, each
+/// kept only when it brings the points nearer the range: a research
+/// setting down or up (`Random(10) < 3`), a lesser trait off or on
+/// (`< 6`), an economy statistic down or up (`< 9`), or, on a coin, an
+/// axis made immune or an immune axis given a seventy-wide band, else the
+/// growth down or up. After the 251st the race is the stock Humanoid under
+/// the name it had.
+///
+/// Returns the name chosen, if the race was still called "Random".
+pub fn random_race(race: &mut Race, rng: &mut Rng, name: &str, names: &[String]) -> Option<String> {
+    let roll = |rng: &mut Rng, n: i16| i32::from(rng.random(n));
+    let set_axis = |race: &mut Race, axis: usize, low: i32, high: i32| {
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            race.env_min[axis] = low as i8;
+            race.env_max[axis] = high as i8;
+            race.env_center[axis] = (low + (high - low) / 2) as i8;
+        }
+    };
+    let immune = |race: &mut Race, axis: usize| {
+        race.env_min[axis] = -1;
+        race.env_max[axis] = -1;
+        race.env_center[axis] = -1;
+    };
+
+    let shape = roll(rng, 25);
+    if shape < 4 {
+        for axis in 0..3 {
+            immune(race, axis);
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            race.pct_ideal_growth = (roll(rng, 4) + 2) as i8;
+        }
+    } else if shape < 7 {
+        for axis in 0..3 {
+            set_axis(race, axis, 0, 100);
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            race.pct_ideal_growth = (roll(rng, 4) + 3) as i8;
+        }
+    } else if shape < 9 {
+        for axis in 0..3 {
+            let mut coin = roll(rng, 2);
+            if axis == 2 && race.env_center[0] == race.env_center[1] {
+                coin = i32::from(race.env_center[0] != 0);
+            }
+            if coin == 0 {
+                set_axis(race, axis, 0, 100);
+            } else {
+                #[allow(clippy::cast_possible_truncation)]
+                {
+                    race.pct_ideal_growth = (roll(rng, 4) + 2) as i8;
+                }
+            }
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            race.pct_ideal_growth = (roll(rng, 5) + 2) as i8;
+        }
+    } else {
+        for axis in 0..3 {
+            let width = roll(rng, 0x28) * 2 + 0x14;
+            let low = roll(rng, i16::try_from(0x65 - width).unwrap_or(1));
+            set_axis(race, axis, low, low + width);
+        }
+        if shape < 0xc {
+            let axis = usize::try_from(roll(rng, 3)).unwrap_or(0);
+            immune(race, axis);
+        } else if shape < 0xe {
+            let axis = usize::try_from(roll(rng, 3)).unwrap_or(0);
+            set_axis(race, axis, 0, 100);
+        } else if shape < 0x11 {
+            let axis = usize::try_from(roll(rng, 3)).unwrap_or(0);
+            let low = roll(rng, 0x51);
+            set_axis(race, axis, low, low + 0x14);
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            race.pct_ideal_growth = (roll(rng, 9) + 7) as i8;
+        }
+    }
+
+    let set_stat = |race: &mut Race, stat: usize, value: i32| {
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            race.attrs[stat] = (value as i16).clamp(STAT_MIN[stat], STAT_MAX[stat]);
+        }
+    };
+    let all_normal = roll(rng, 3) == 0;
+    for stat in RaceStat::TechBonus1 as usize..RaceStat::MajorAdv as usize {
+        let value = if all_normal { 1 } else { roll(rng, 3) };
+        set_stat(race, stat, value);
+    }
+    set_stat(race, RaceStat::MajorAdv as usize, roll(rng, 10));
+    let all_off = roll(rng, 4) == 0;
+    for bit in 0..14u32 {
+        let on = if all_off { 0 } else { roll(rng, 2) };
+        race.lrt_bits = (race.lrt_bits & !(1 << bit)) | (u32::try_from(on).unwrap_or(0) << bit);
+    }
+    for bit in [lrt::TECH3, lrt::CHEAP_FACT] {
+        let on = roll(rng, 2);
+        race.lrt_bits = (race.lrt_bits & !(1 << bit)) | (u32::try_from(on).unwrap_or(0) << bit);
+    }
+    if roll(rng, 3) == 0 {
+        for (stat, value) in RANDOM_RACE_STOCK_ECONOMY.iter().enumerate() {
+            race.attrs[stat] = *value;
+        }
+        set_stat(race, RaceStat::UseLeftover as usize, roll(rng, 5));
+    } else {
+        for stat in 0..8 {
+            let span = i32::from(STAT_MAX[stat]) + 1 - i32::from(STAT_MIN[stat]);
+            let value = i32::from(STAT_MIN[stat]) + roll(rng, i16::try_from(span).unwrap_or(1));
+            set_stat(race, stat, value);
+        }
+    }
+    let chosen = if name == RANDOM_RACE_NAME {
+        let pick =
+            usize::try_from(roll(rng, i16::try_from(RANDOM_RACE_NAMES).unwrap_or(1))).unwrap_or(0);
+        names.get(pick).cloned()
+    } else {
+        None
+    };
+
+    // How far outside `0..=50` the points are.
+    let away = |race: &Race| {
+        let points = i32::from(advantage_points(race));
+        (points - 50).max(-points)
+    };
+    let mut tries = 0;
+    loop {
+        let now = away(race);
+        if now <= 0 {
+            return chosen;
+        }
+        if tries >= RANDOM_RACE_TRIES {
+            // Give up: the first predefined race (`vrgplrDef[0]`, the
+            // Humanoid) under whatever name it had.
+            *race = crate::presets::ALL[0].race.clone();
+            return chosen;
+        }
+        tries += 1;
+        let what = roll(rng, 10);
+        if what < 3 {
+            let stat = RaceStat::TechBonus1 as usize + usize::try_from(roll(rng, 6)).unwrap_or(0);
+            let was = race.attrs[stat];
+            let mut settled = false;
+            if was > 0 {
+                race.attrs[stat] = was - 1;
+                if away(race) < now {
+                    settled = true;
+                } else {
+                    race.attrs[stat] = was;
+                }
+            }
+            if !settled && was < 2 {
+                race.attrs[stat] = was + 1;
+                if away(race) >= now {
+                    race.attrs[stat] = was;
+                }
+            }
+        } else if what < 6 {
+            let bit = u32::try_from(roll(rng, 14)).unwrap_or(0);
+            let was = race.lrt_bits;
+            let mut kept = false;
+            for on in 0..2u32 {
+                race.lrt_bits = (was & !(1 << bit)) | (on << bit);
+                if away(race) < now {
+                    kept = true;
+                    break;
+                }
+            }
+            if !kept {
+                race.lrt_bits = was;
+            }
+        } else if what < 9 {
+            let stat = usize::try_from(roll(rng, 7)).unwrap_or(0);
+            let was = race.attrs[stat];
+            let mut kept = false;
+            for step in [-1, 1] {
+                set_stat(race, stat, i32::from(was) + step);
+                if away(race) < now {
+                    kept = true;
+                    break;
+                }
+            }
+            if !kept {
+                race.attrs[stat] = was;
+            }
+        } else if roll(rng, 2) == 0 {
+            let axis = usize::try_from(roll(rng, 3)).unwrap_or(0);
+            let before = race.clone();
+            if race.env_center[axis] < 0 {
+                let low = roll(rng, 0x1f);
+                set_axis(race, axis, low, low + 0x46);
+            } else {
+                immune(race, axis);
+            }
+            if away(race) >= now {
+                *race = before;
+            }
+        } else {
+            let was = race.pct_ideal_growth;
+            if was > 1 {
+                race.pct_ideal_growth = was - 1;
+                if away(race) < now {
+                    continue;
+                }
+            }
+            if was < 15 {
+                race.pct_ideal_growth = was + 1;
+                if away(race) < now {
+                    continue;
+                }
+            }
+            race.pct_ideal_growth = was;
+        }
+    }
+}
+
+/// How many wormholes a universe of each size starts with, at least
+/// (`vrgWormholeMin`, `1078:0000`) and the span of the roll above that
+/// (`vrgWormholeVar`, `1078:0006`), by size tiny to huge.
+pub const WORMHOLES_MIN: [i16; 5] = [0, 1, 1, 3, 4];
+/// See [`WORMHOLES_MIN`].
+pub const WORMHOLES_VAR: [i16; 5] = [3, 3, 5, 4, 5];
+
+/// The wormholes a new universe starts with — `GenerateWorld` after the
+/// battle plans (`create.c`, the "wormhole creation loop").
+///
+/// None in a game without random events. Otherwise
+/// `min[size] + Random(var[size])` pairs, each end a `THING` of kind
+/// wormhole with a stability of `Random(3)` and the other end as its
+/// partner; each is placed by up to a hundred tries at
+/// `(Random(dGal) + 1000, Random(dGal) + 1000)`, the first spot
+/// [`crate::wormhole::position_score`] calls perfect, else the best seen.
+/// The first end of a pair is scored before its partner exists.
+fn place_wormholes(
+    config: &NewGame,
+    positions: &[(i16, i16)],
+    fleets: &[Fleet],
+    rng: &mut Rng,
+) -> Vec<crate::wormhole::Wormhole> {
+    use crate::wormhole::{position_score, Wormhole};
+
+    if !config.random_events {
+        return Vec::new();
+    }
+    let size = config.size as usize;
+    let count = WORMHOLES_MIN[size] + rng.random(WORMHOLES_VAR[size]);
+    let span = config.size.span();
+    let planets: Vec<Point> = positions.iter().map(|&(x, y)| Point::new(x, y)).collect();
+    let fleet_spots: Vec<Point> = fleets.iter().map(|f| f.position).collect();
+    // A wormhole's `idFull` is its kind, 2, in the top three bits over its
+    // number.
+    let id_full = |id: u16| (2u16 << 13) | id;
+
+    let mut holes: Vec<Wormhole> = Vec::new();
+    for pair in 0..count {
+        let first = u16::try_from(pair * 2).unwrap_or(0);
+        for end in 0..2u16 {
+            let id = first + end;
+            let partner = if end == 1 { first } else { u16::MAX };
+            let stability = u8::try_from(rng.random(3)).unwrap_or(0);
+            let others: Vec<(u16, Point)> = holes.iter().map(|w| (w.id, w.position)).collect();
+            let mut best: Option<(u8, Point)> = None;
+            let mut at = Point::new(1000, 1000);
+            for _ in 0..100 {
+                at = Point::new(
+                    i16::try_from(i32::from(rng.random(span)) + 1000).unwrap_or(i16::MAX),
+                    i16::try_from(i32::from(rng.random(span)) + 1000).unwrap_or(i16::MAX),
+                );
+                let score = position_score(
+                    at,
+                    i32::from(config.size as i16),
+                    partner,
+                    &others,
+                    &planets,
+                    &fleet_spots,
+                );
+                if score == 0 {
+                    best = None;
+                    break;
+                }
+                if best.is_none_or(|(worst, _)| score < worst) {
+                    best = Some((score, at));
+                }
+            }
+            if let Some((_, spot)) = best {
+                at = spot;
+            }
+            holes.push(Wormhole {
+                id,
+                position: at,
+                stability,
+                years_still: 0,
+                dest_known: false,
+                include: true,
+                detected_by: 0,
+                traversed_by: 0,
+                partner: if end == 1 { id_full(first) } else { 0 },
+                turn: 0,
+            });
+        }
+        // The first end learns its partner once the second exists.
+        let last = holes.len() - 1;
+        holes[last - 1].partner = id_full(first + 1);
+    }
+    holes
 }
 
 /// What a new game has to say before anyone has done anything.
@@ -827,13 +1183,21 @@ fn settle_players(
         let pick = usize::try_from(rng.random(i16::try_from(count - i).unwrap_or(1))).unwrap_or(0);
         homes.swap(i + pick.min(count - i - 1), i);
 
-        let race = config.players[i].race.clone();
+        let mut race = config.players[i].race.clone();
+        let mut name = config.players[i].name.clone();
+        let mut plural = config.players[i].plural_name.clone();
+        // A race carrying `ibitRaceAIPlayer` — the wizard's "Random" — is
+        // rolled here (`GenerateWorld`, `1078:13d0`).
+        if race.has_lrt(lrt::AI_PLAYER) {
+            if let Some(chosen) = random_race(&mut race, rng, &name, &config.random_names) {
+                plural = format!("{chosen}s");
+                name = chosen;
+            }
+        }
         let mut player = Player::new(race);
         player.control = config.players[i].control;
-        player.name.clone_from(&config.players[i].name);
-        player
-            .plural_name
-            .clone_from(&config.players[i].plural_name);
+        player.name = name;
+        player.plural_name = plural;
         player.relations = vec![0; count];
         player.research.levels = starting_tech(&player.race);
         player.research.current_field = 0;
@@ -1512,6 +1876,7 @@ pub fn tutorial() -> (NewGame, u32) {
                 plural_name: "Berserkers".to_string(),
             },
         ],
+        random_names: Vec::new(),
     };
     (config, 0x4996_02d2)
 }

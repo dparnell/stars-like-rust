@@ -264,6 +264,10 @@ pub struct ColonistDrop {
     pub player: i16,
     /// How many, in units of 100 as the planet stores them.
     pub colonists: i32,
+    /// Whether they may settle an empty planet (`COLDROP.fCanColonize`):
+    /// a waypoint task's drop may; a cargo transfer's may only where
+    /// somebody already lives.
+    pub can_colonize: bool,
 }
 
 /// Apply a run of recorded transfers, in order.
@@ -286,7 +290,7 @@ pub fn apply_cargo_transfers(
         }
         // The recorded quantity is what the *source* gained, so an unload is
         // negative and the colonists that land are its magnitude.
-        if let Some((planet, player)) = landing {
+        if let Some((planet, player, inhabited)) = landing {
             let landed = -moved[COLONISTS];
             if landed > 0 {
                 match drops
@@ -298,6 +302,9 @@ pub fn apply_cargo_transfers(
                         planet,
                         player,
                         colonists: landed,
+                        // The transfer log's rule (`log.c`): only onto a
+                        // planet somebody holds.
+                        can_colonize: inhabited,
                     }),
                 }
             }
@@ -306,8 +313,9 @@ pub fn apply_cargo_transfers(
     (applied, drops)
 }
 
-/// Whether this transfer is a landing, and on whose planet.
-fn colonist_landing(state: &GameState, record: &CargoTransferRecord) -> Option<(i16, i16)> {
+/// Whether this transfer is a landing, on which planet, by whom, and
+/// whether the planet is inhabited.
+fn colonist_landing(state: &GameState, record: &CargoTransferRecord) -> Option<(i16, i16, bool)> {
     if record.source_class != Some(GrobjClass::Fleet)
         || record.destination_class != Some(GrobjClass::Planet)
         || record.quantities[COLONISTS] >= 0
@@ -325,7 +333,7 @@ fn colonist_landing(state: &GameState, record: &CargoTransferRecord) -> Option<(
     if planet.owner == Some(fleet.owner) {
         return None;
     }
-    Some((planet_id, fleet.owner))
+    Some((planet_id, fleet.owner, planet.owner.is_some()))
 }
 
 /// Settle every colonist landing, the way `DropColonists` does.
@@ -346,6 +354,8 @@ pub fn resolve_colonist_drops_with(
     drops: &[ColonistDrop],
     mut rng: Option<&mut crate::rng::Rng>,
 ) -> Vec<i16> {
+    use crate::ground::{Ground, Outcome};
+
     let mut planets: Vec<i16> = drops.iter().map(|d| d.planet).collect();
     planets.sort_unstable();
     planets.dedup();
@@ -365,6 +375,7 @@ pub fn resolve_colonist_drops_with(
                     .ok()
                     .and_then(|i| state.players.get(i))
                     .and_then(|p| p.race.prt()),
+                can_colonize: d.can_colonize,
             })
             .collect();
         if landings.is_empty() {
@@ -375,55 +386,70 @@ pub fn resolve_colonist_drops_with(
         // before them.
         let landed: i32 = landings.iter().map(|l| l.colonists).sum();
         let held = state.planets[index].pop - landed;
-        let defender = state.planets[index].owner.and_then(|owner| {
-            let prt = usize::try_from(owner)
-                .ok()
-                .and_then(|i| state.players.get(i))
-                .and_then(|p| p.race.prt());
-            (held > 0).then_some((held, prt))
+        let owner = state.planets[index].owner;
+        let owner_player = owner
+            .and_then(|o| usize::try_from(o).ok())
+            .and_then(|o| state.players.get(o));
+        let defender = owner.and_then(|owner| {
+            let prt = owner_player.and_then(|p| p.race.prt());
+            (held > 0).then_some((owner, held, prt))
         });
+        let pct_survive = owner_player.map_or(1.0, |p| {
+            crate::bombing::pct_survive(&state.planets[index], &p.race, p.research.levels).0
+        });
+        let ground = Ground {
+            id,
+            defender,
+            starbase: state.planets[index].starbase,
+            pct_survive,
+        };
 
-        match crate::ground::resolve_landings(defender, &landings) {
-            crate::ground::Outcome::Nothing => {}
-            crate::ground::Outcome::Settled { player, colonists } => {
+        let resolution = crate::ground::resolve_landings(ground, &landings);
+        state.messages.extend(resolution.messages);
+        let winner = match resolution.outcome {
+            Outcome::Nothing => {
+                // The landings that died on the way down are off the count.
+                let planet = &mut state.planets[index];
+                planet.pop = held.max(0);
+                continue;
+            }
+            Outcome::Annihilated { loser } => {
+                if loser.is_some() {
+                    let claim_adjuster =
+                        owner_player.is_some_and(|p| p.race.prt() == Some(crate::race::Prt::Ca));
+                    crate::bombing::uninhabit(&mut state.planets[index], claim_adjuster);
+                    changed.push(id);
+                } else {
+                    state.planets[index].pop = held.max(0);
+                }
+                continue;
+            }
+            Outcome::Held { colonists } => {
+                state.planets[index].pop = colonists;
+                changed.push(id);
+                continue;
+            }
+            Outcome::Settled { player, colonists } => {
                 let planet = &mut state.planets[index];
                 planet.owner = Some(player);
                 planet.pop = colonists;
-                // A planet that changes hands starts on its new owner's
-                // default queue, not an empty one.
-                apply_default_queue(state, index);
-                changed.push(id);
-                // "Your colonists now control …": `DropColonists` sends 10,
-                // or 11 to an Alternate Reality race, with the planet as
-                // both object and parameter.
-                if let Ok(who) = usize::try_from(player) {
-                    let ar = state
-                        .players
-                        .get(who)
-                        .is_some_and(|p| p.race.prt() == Some(crate::race::Prt::Ar));
-                    state.messages.push(crate::message::Message {
-                        player: who,
-                        id: if ar {
-                            crate::message::id::COLONISTS_CONTROL_AR
-                        } else {
-                            crate::message::id::COLONISTS_CONTROL
-                        },
-                        object: id,
-                        params: vec![id],
-                    });
-                }
+                player
             }
-            crate::ground::Outcome::Taken { player, colonists } => {
-                let loser_tech = state.planets[index]
-                    .owner
-                    .and_then(|o| usize::try_from(o).ok())
+            Outcome::Taken {
+                player,
+                colonists,
+                loser,
+            } => {
+                let loser_tech = usize::try_from(loser)
+                    .ok()
                     .and_then(|o| state.players.get(o))
                     .map(|p| p.research.levels);
+                let claim_adjuster =
+                    owner_player.is_some_and(|p| p.race.prt() == Some(crate::race::Prt::Ca));
+                crate::bombing::uninhabit(&mut state.planets[index], claim_adjuster);
                 let planet = &mut state.planets[index];
                 planet.owner = Some(player);
                 planet.pop = colonists;
-                apply_default_queue(state, index);
-                changed.push(id);
                 // The loser's technology is the wreckage.
                 if let (Some(rng), Some(loser_tech), Ok(who)) =
                     (rng.as_deref_mut(), loser_tech, usize::try_from(player))
@@ -438,10 +464,51 @@ pub fn resolve_colonist_drops_with(
                         rng,
                     );
                 }
+                player
             }
-            crate::ground::Outcome::Held { colonists } => {
-                state.planets[index].pop = colonists;
-                changed.push(id);
+        };
+        changed.push(id);
+        // A planet that changes hands starts on its new owner's default
+        // queue, not an empty one.
+        apply_default_queue(state, index);
+        let Ok(who) = usize::try_from(winner) else {
+            continue;
+        };
+        // An Alternate Reality race lives on its starbase: a Starter
+        // Colony appears with the landing, whole and counted as built.
+        let alternate = state
+            .players
+            .get(who)
+            .is_some_and(|p| p.race.prt() == Some(crate::race::Prt::Ar));
+        if alternate {
+            let planet = &mut state.planets[index];
+            planet.starbase = true;
+            planet.starbase_damage = 0;
+            if let Some(base) = state
+                .designs
+                .get_mut(who)
+                .and_then(|d| d.get_mut(usize::from(crate::startup::FIRST_STARBASE_SLOT)))
+            {
+                base.built = base.built.saturating_add(1);
+            }
+        }
+        // And the artifact, if the planet held one and the game has them.
+        if state.planets[index].artifact && state.random_events {
+            if let Some(rng) = rng.as_deref_mut() {
+                let colonists = state.planets[index].pop;
+                let find = crate::ground::artifact_bonus(colonists, rng);
+                state.planets[index].artifact = false;
+                if let Some(player) = state.players.get_mut(who) {
+                    player.research.points[find.field] =
+                        player.research.points[find.field].saturating_add(find.resources);
+                }
+                #[allow(clippy::cast_possible_truncation)]
+                state.messages.push(crate::message::Message {
+                    player: who,
+                    id: crate::message::id::ARTIFACT_FOUND,
+                    object: crate::message::RESEARCH_OBJECT,
+                    params: vec![id, find.field as i16, find.resources as i16],
+                });
             }
         }
     }
@@ -729,6 +796,7 @@ pub fn execute_arrival_tasks_after_moving(
                                 planet: planet_id,
                                 player: owner,
                                 colonists: -went,
+                                can_colonize: true,
                             });
                         }
                         moved = true;
@@ -1263,6 +1331,7 @@ fn unload_colonists(
         planet,
         player: owner,
         colonists: landed,
+        can_colonize: true,
     })
 }
 
@@ -1327,9 +1396,12 @@ mod tests {
         }
     }
 
-    /// Unloading colonists onto an unowned planet settles it.
+    /// Unloading colonists onto an unowned planet through a cargo
+    /// transfer does **not** settle it: `DropColonists` kills colonists
+    /// "forced to transport down" to a planet nobody colonised first, which
+    /// only a Colonize order does.
     #[test]
-    fn dropping_colonists_on_an_empty_planet_colonises_it() {
+    fn dropping_colonists_on_an_empty_planet_kills_them() {
         let mut state = game();
         let mut planet = Planet::unowned(1);
         planet.pop = 0;
@@ -1352,15 +1424,20 @@ mod tests {
             vec![ColonistDrop {
                 planet: 1,
                 player: 0,
-                colonists: 25
+                colonists: 25,
+                can_colonize: false,
             }]
         );
 
         let changed = resolve_colonist_drops(&mut state, &drops);
-        assert_eq!(changed, vec![1]);
-        assert_eq!(state.planets[0].owner, Some(0));
-        assert_eq!(state.planets[0].pop, 25);
+        assert_eq!(changed, Vec::<i16>::new());
+        assert_eq!(state.planets[0].owner, None);
+        assert_eq!(state.planets[0].pop, 0);
         assert_eq!(state.fleets[0].cargo.colonists, 0);
+        assert_eq!(
+            state.messages.last().map(|m| m.id),
+            Some(crate::message::id::LANDING_NOT_COLONISED)
+        );
     }
 
     /// A Small Freighter design (hull 0, a 70 kT hold) in slot 0 of player

@@ -353,14 +353,64 @@ same lesser traits, including the Cheap Factories checkbox that entry's
   (`1078:4b0d`) seeds from a game-definition file when there is one, and an
   ordinary new game seeds from the clock. Regenerating a real player's
   galaxy is impossible for want of the seed, not for want of the algorithm.
-- **Wormholes.** `vrgWormholeMin = {0,1,1,3,4}` and
-  `vrgWormholeVar = {3,3,5,4,5}` by universe size, placed by
-  `IValidateWormholePos`; they live in the `THING` list, which `GameState` does
-  not model yet.
-- **`CreateRandomRace`**, so a computer player is given whatever race the caller
-  supplies rather than a generated one.
 - **Battle plans and victory conditions**, which the generated `GameState` does
   not carry.
+
+## 6. Random races (`CreateRandomRace`, `10e0:5b08`)
+
+Run for any player whose race carries `ibitRaceAIPlayer` — the wizard's
+"Random", the only shipped race with the bit — in the same loop that shuffles
+the homeworlds (`1078:13d0`), just after each player's shuffle draw. The
+opponents' own races do not carry it and are left alone.
+
+```
+shape = Random(25)
+shape < 4:   all three axes immune;                         growth = 2 + Random(4)
+shape < 7:   all three axes 0..100;                         growth = 3 + Random(4)
+shape < 9:   axes 0, 1: Random(2) == 0 → 0..100, else left as the template
+             has it (and growth = 2 + Random(4), overwritten below);
+             axis 2: left as it is (the template's centres being equal);
+                                                             growth = 2 + Random(5)
+else:        each axis: width = 20 + 2 × Random(40); low = Random(101 − width);
+             shape < 12: one axis (Random(3)) immune
+             shape < 14: one axis 0..100
+             shape < 17: one axis low = Random(81), 20 wide;  growth = 7 + Random(9)
+
+k = Random(3): research settings 8..13 all 1 if k == 0, else each Random(3)
+primary trait = Random(10)
+k = Random(4): lesser traits 0..13 all off if k == 0, else each Random(2)
+Expensive Tech Starts at 3 = Random(2); Cheap Factories = Random(2)
+k = Random(3): k == 0 → economy = {10,10,10,10,10,5,10} (1120:0de0), leftover = Random(5)
+               else each statistic 0..7 = min + Random(max + 1 − min)  (CS:30f4 / CS:3104)
+name == "Random" → one of the 24 from idsBerserker (0x56e), Random(24)
+```
+
+Then the balancing: while `CAdvantagePoints` is outside `0..=50`, up to 251
+tries, each a nudge kept only if it lowers the distance outside the range
+(`max(points − 50, −points)`):
+
+| `Random(10)` | nudge |
+|---|---|
+| < 3 | a research setting (`Random(6)`) down one, else up one |
+| < 6 | a lesser trait (`Random(14)`) off, then on |
+| < 9 | an economy statistic (`Random(7)`) down one, then up one |
+| else, coin | an axis (`Random(3)`): immune → `low = Random(31)`, 70 wide; else immune |
+| else | growth down one, then up one |
+
+The 252nd try gives up and copies `vrgplrDef[0]` — the predefined Humanoid,
+name aside — over the race. `crates/stars-core/tests/new_game.rs` rolls sixty
+of them.
+
+## 7. Wormholes
+
+After the battle plans, unless `fNoRandom`: `vrgWormholeMin[mdSize] +
+Random(vrgWormholeVar[mdSize])` pairs, with `min = {0,1,1,3,4}` (`1078:0000`)
+and `var = {3,3,5,4,5}` (`1078:0006`). Each end is a `THING` of kind wormhole
+with `iStable = Random(3)`, the second end and the first made each other's
+partner, and each placed by up to a hundred tries at `(Random(dGal) + 1000,
+Random(dGal) + 1000)` — the first `IValidateWormholePos` scores 0 (see
+`wanderers.md`), else the least bad seen. The first end of a pair is scored
+before its partner exists.
 
 ## Open questions
 

@@ -905,3 +905,137 @@ fn generated_computer_players_get_their_bonuses() {
     assert_eq!(home(2).pop, 250);
     assert_eq!(home(3).pop, 275, "Expert: a tenth more colonists");
 }
+
+/// A new universe starts with wormholes, in pairs that name each other,
+/// as many as the size's table allows, each inside the galaxy and on top
+/// of nothing — and none at all without random events.
+#[test]
+fn a_new_universe_has_its_wormholes() {
+    use stars_core::newgame::{WORMHOLES_MIN, WORMHOLES_VAR};
+    for size in Size::ALL {
+        for seed in [1u32, 77, 4000] {
+            let config = NewGame {
+                size,
+                players: vec![NewPlayer::human(Race::humanoid())],
+                ..NewGame::default()
+            };
+            let mut rng = Rng::randomize(seed);
+            let made = generate(&config, &mut rng).expect("generates");
+            let holes = &made.state.wormholes;
+            let pairs = i16::try_from(holes.len() / 2).expect("fits");
+            assert_eq!(holes.len() % 2, 0, "{size:?}: {} ends", holes.len());
+            let least = WORMHOLES_MIN[size as usize];
+            let most = least + WORMHOLES_VAR[size as usize] - 1;
+            assert!(
+                (least..=most).contains(&pairs),
+                "{size:?} seed {seed}: {pairs} pairs, expected {least}..={most}"
+            );
+            let planets: Vec<_> = made
+                .state
+                .planets
+                .iter()
+                .filter_map(|p| p.position)
+                .collect();
+            for (n, hole) in holes.iter().enumerate() {
+                let other = &holes[n ^ 1];
+                assert_eq!(
+                    hole.partner,
+                    (2 << 13) | other.id,
+                    "{size:?}: partner of {n}"
+                );
+                assert!(hole.stability <= 2);
+                let p = hole.position;
+                assert!(
+                    p.x >= 1000
+                        && p.y >= 1000
+                        && p.x <= 1000 + size.span()
+                        && p.y <= 1000 + size.span(),
+                    "{size:?}: {p:?} outside the galaxy"
+                );
+                assert!(!planets.contains(&p), "{size:?}: a wormhole on a planet");
+            }
+        }
+    }
+    let config = NewGame {
+        random_events: false,
+        players: vec![NewPlayer::human(Race::humanoid())],
+        ..NewGame::default()
+    };
+    let made = generate(&config, &mut Rng::randomize(1)).expect("generates");
+    assert!(made.state.wormholes.is_empty());
+}
+
+/// A player whose race is the wizard's "Random" is rolled a real one at
+/// generation (`CreateRandomRace`): its advantage points end inside
+/// `0..=50`, its habitability is well formed, it is named from the list
+/// given, and it hardly ever has to fall back on the stock Humanoid.
+#[test]
+fn a_random_race_is_rolled_into_a_balanced_one() {
+    use stars_core::race::lrt;
+    let template = stars_core::presets::ALL
+        .iter()
+        .find(|p| p.name == "Random")
+        .expect("the Random preset");
+    let names: Vec<String> = (0..24).map(|n| format!("Name{n}")).collect();
+    let mut seen_names = std::collections::BTreeSet::new();
+    let mut stock = 0;
+    for seed in 0..60u32 {
+        let config = NewGame {
+            players: vec![
+                NewPlayer::human(Race::humanoid()),
+                NewPlayer {
+                    race: template.race.clone(),
+                    control: stars_core::ai::Control::Human,
+                    name: "Random".to_string(),
+                    plural_name: "Randoms".to_string(),
+                },
+            ],
+            random_names: names.clone(),
+            ..NewGame::default()
+        };
+        let made = generate(&config, &mut Rng::randomize(seed * 977 + 5)).expect("generates");
+        let player = &made.state.players[1];
+        let race = &player.race;
+        assert!(
+            race != &template.race,
+            "seed {seed}: the template was handed out unchanged"
+        );
+        let points = advantage_points(race);
+        assert!((0..=50).contains(&points), "seed {seed}: {points} points");
+        for axis in 0..3 {
+            let (low, high, mid) = (
+                race.env_min[axis],
+                race.env_max[axis],
+                race.env_center[axis],
+            );
+            if high < 0 {
+                assert_eq!((low, mid), (-1, -1), "seed {seed}: immune axis {axis}");
+            } else {
+                assert!((0..=100).contains(&low) && (0..=100).contains(&high) && low < high);
+                assert!(
+                    mid >= low && mid <= high,
+                    "seed {seed}: {low}..{high} mid {mid}"
+                );
+            }
+        }
+        assert!((1..=20).contains(&race.pct_ideal_growth), "seed {seed}");
+        assert!(
+            names.contains(&player.name),
+            "seed {seed}: named {:?}",
+            player.name
+        );
+        seen_names.insert(player.name.clone());
+        // The template's mark stays on the race; a race the balancing gave
+        // up on is the predefined Humanoid, mark and all gone.
+        if race.has_lrt(lrt::AI_PLAYER) {
+            assert_ne!(race, &stars_core::presets::ALL[0].race);
+        } else {
+            assert_eq!(race, &stars_core::presets::ALL[0].race, "seed {seed}");
+            stock += 1;
+        }
+        // The human keeps the race they chose.
+        assert_eq!(made.state.players[0].race, Race::humanoid());
+    }
+    assert!(seen_names.len() > 5, "only {seen_names:?}");
+    assert!(stock < 10, "{stock} of 60 fell back to the stock race");
+}

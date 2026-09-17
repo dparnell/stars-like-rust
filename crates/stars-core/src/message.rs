@@ -130,6 +130,59 @@ pub mod id {
     /// `idmColonistsHaveDeployedOrbitalConstructionModuleHa`: the same, for
     /// an Alternate Reality race, whose colonists live on the starbase.
     pub const COLONISTS_CONTROL_AR: u16 = 0x0b;
+
+    // The rest of `DropColonists` (`10b8:34e2`): the planet is the object,
+    // a player word is `player | 0x30` (or `| 0x20`, `| 0xb0`), and a
+    // count is a long in hundreds.
+    /// `idmColonistsDroppedMassacredGroundTroops`: your landing was wiped
+    /// out by the defenders (the count, the planet, the defender).
+    pub const LANDING_MASSACRED: u16 = 0x00;
+    /// `idmColonistsDroppedDestroyedPlanetaryDefensesRestMa`: the defences
+    /// shot part of it down and the troops finished the rest (the count,
+    /// the planet, the percent shot down, the defender).
+    pub const LANDING_SHOT_DOWN: u16 = 0x01;
+    /// `idmColonistsForcedTransportDiedBecauseDidColonize`: colonists put
+    /// down on an empty planet by a cargo transfer rather than a Colonize
+    /// order die (the count, the planet).
+    pub const LANDING_NOT_COLONISED: u16 = 0x02;
+    /// `idmGroundTroopsValiantlyDestroyedAttackingBarbarian`: your troops
+    /// wiped out a landing (the planet, the count, the attacker).
+    pub const LANDING_REPELLED: u16 = 0x03;
+    /// `idmPlanetaryDefensesGroundTroopsDestroyedInvadingTr`: your defences
+    /// and troops did (the planet, the count, the attacker).
+    pub const LANDING_REPELLED_BY_DEFENCES: u16 = 0x04;
+    /// `idmMultitudeEnemiesHaveMountedProngAttackResulting`: several
+    /// enemies overran your planet and then killed each other off (the
+    /// number of sides, the planet).
+    pub const LANDING_PRONGED: u16 = 0x05;
+    /// `idmInvolvedWayAssaultNobodysTroopsSurvivedBrutal`: you were one
+    /// side of a fight nobody survived (the sides, the planet).
+    pub const LANDING_FREE_FOR_ALL: u16 = 0x06;
+    /// `idmHaveAttackedFirstRateStormTroopersThough`: your planet was
+    /// taken (the attacker, the planet, the count).
+    pub const LANDING_STORMED: u16 = 0x07;
+    /// `idmInvolvedWayRaceUninhabitedPlanetForcesCrush`: you won a race
+    /// for an empty planet (the sides, the planet).
+    pub const LANDING_RACE_WON: u16 = 0x08;
+    /// `idmColonistsDestroyedWayRaceUninhabitedPlanetContro`: you lost one
+    /// (the sides, the planet, the winner).
+    pub const LANDING_RACE_LOST: u16 = 0x09;
+    /// `idmTroopsCrushSColonistsControlPlanet`: your troops took a held
+    /// planet (the loser, the planet).
+    pub const LANDING_CRUSHED_DEFENDERS: u16 = 0x0c;
+    /// `idmColonistsDroppedDestroyedSpiritedFighting`: your landing was
+    /// lost in a fight another attacker won (the planet).
+    pub const LANDING_LOST_THE_FIGHT: u16 = 0x0d;
+    /// `idmColonistsAttemptingSetShopReducedProtoplasmicBlo`: an Alternate
+    /// Reality landing cannot live on a surface (the planet).
+    pub const LANDING_AR_DIED: u16 = 0x57;
+    /// `idmColonistsAssaultingHaveKilledForcesOrbitingStarb`: the starbase
+    /// killed the landing (the planet).
+    pub const LANDING_STARBASE: u16 = 0x58;
+    /// `idmColonistsSettlingHaveFoundStrangeArtifactBoostin`: the planet
+    /// settled held a Mystery Trader artifact (object `-2`; the planet,
+    /// the field, the resources).
+    pub const ARTIFACT_FOUND: u16 = 0x5e;
     /// `idmSomeoneHasSweptMinesMineField`: somebody cleared mines from a field
     /// of yours (`SweepForMines`, `10b8:76a4`).
     pub const YOUR_FIELD_SWEPT: u16 = 0xbe;
@@ -1338,6 +1391,85 @@ impl Message {
             id::COLONISTS_CONTROL | id::COLONISTS_CONTROL_AR => format!(
                 "Your colonists have settled {} and it is yours.",
                 object_planet()
+            ),
+            id::LANDING_MASSACRED => format!(
+                "The {} colonists you landed on {} were wiped out by its defenders.",
+                i64::from(long(0)) * 100,
+                planet(param(2))
+            ),
+            id::LANDING_SHOT_DOWN => format!(
+                "Of the {} colonists you landed on {}, the planet's defences shot down {}% and its defenders finished the rest.",
+                i64::from(long(0)) * 100,
+                planet(param(2)),
+                -i32::from(param(3)) / 100
+            ),
+            id::LANDING_NOT_COLONISED => format!(
+                "The {} colonists sent down to {} died: the planet had not been colonised first.",
+                i64::from(long(0)) * 100,
+                planet(param(2))
+            ),
+            id::LANDING_REPELLED => format!(
+                "Your troops on {} wiped out a landing of {} colonists.",
+                planet(param(0)),
+                i64::from(long(1)) * 100
+            ),
+            id::LANDING_REPELLED_BY_DEFENCES => format!(
+                "Your defences and troops on {} destroyed a landing of {} colonists.",
+                planet(param(0)),
+                i64::from(long(1)) * 100
+            ),
+            id::LANDING_PRONGED => format!(
+                "{} enemies landed on {} at once; they overran it and then killed each other off.",
+                param(0),
+                planet(param(1))
+            ),
+            id::LANDING_FREE_FOR_ALL => format!(
+                "You were one of {} sides fighting for {}; nobody's troops survived.",
+                param(0),
+                planet(param(1))
+            ),
+            id::LANDING_STORMED => format!(
+                "{} has been taken from you by a landing of {} colonists.",
+                planet(param(1)),
+                i64::from(long(2)) * 100
+            ),
+            id::LANDING_RACE_WON => format!(
+                "{} sides raced to settle {}; your colonists prevailed.",
+                param(0),
+                planet(param(1))
+            ),
+            id::LANDING_RACE_LOST => format!(
+                "{} sides raced to settle {}; your colonists were destroyed and somebody else holds it.",
+                param(0),
+                planet(param(1))
+            ),
+            id::LANDING_CRUSHED_DEFENDERS => format!(
+                "Your troops have crushed the defenders of {}; it is yours.",
+                planet(param(1))
+            ),
+            id::LANDING_LOST_THE_FIGHT => format!(
+                "The colonists you landed on {} were lost in the fighting.",
+                planet(param(0))
+            ),
+            id::ARTIFACT_FOUND => {
+                let field = usize::try_from(param(1))
+                    .ok()
+                    .and_then(|i| crate::research::TechField::ALL.get(i))
+                    .map_or("?", |f| f.name());
+                format!(
+                    "Your colonists settling {} found a strange artifact: {} resources toward {}.",
+                    planet(param(0)),
+                    param(2),
+                    field
+                )
+            }
+            id::LANDING_AR_DIED => format!(
+                "Your colonists landing on {} could not live on its surface and died.",
+                planet(param(0))
+            ),
+            id::LANDING_STARBASE => format!(
+                "Every colonist you landed on {} was killed by its starbase.",
+                planet(param(0))
             ),
             id::FOUND_OCCUPIED => format!(
                 "You have come across {}, and it is somebody else's.",

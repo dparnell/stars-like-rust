@@ -35,7 +35,7 @@ The PRNG that mining and the turn pipeline draw from is specified separately in
 
 | `combat.md` | Board, movement, targeting, weapon accuracy, firing | in progress |
 | `bombing.md` | Bombing a planet from orbit | transcribed, unverified |
-| `ground.md` | Landing colonists: settling and invasion | in progress |
+| `ground.md` | Landing colonists: settling and invasion | transcribed in full; no invasion in the corpus to check |
 | `design.md` | Hulls, slots, and the values derived from them | verified |
 | `fleet.md` | Ship stacks, cargo, and what derives from them | model and loading done |
 

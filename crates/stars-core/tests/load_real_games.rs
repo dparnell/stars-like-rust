@@ -283,15 +283,19 @@ fn moving_fleets_burn_fuel_they_actually_have() {
             .and_then(|id| i16::try_from(id).ok())
             .and_then(|id| state.planets.iter().find(|p| p.id == id))
             .is_some_and(|p| p.starbase && p.owner == Some(fleet.owner));
-        // And a fuel transport makes two hundred a year wherever it is.
+        // And a fuel transport makes two hundred a year wherever it is,
+        // while a ramscoop — an engine free at some warp above 1 —
+        // gathers fuel on the way (`LCalcFuelGainFromRamScoops`).
         let makes_fuel = usize::try_from(fleet.owner)
             .ok()
             .and_then(|o| state.designs.get(o))
             .is_some_and(|designs| {
                 fleet.stacks.iter().any(|s| {
-                    designs
-                        .get(usize::from(s.design))
-                        .is_some_and(|d| d.hull_id == 25 || d.hull_id == 26)
+                    designs.get(usize::from(s.design)).is_some_and(|d| {
+                        d.hull_id == 25
+                            || d.hull_id == 26
+                            || d.engine().is_some_and(|e| e.fuel_used[2..=9].contains(&0))
+                    })
                 })
             });
         assert!(

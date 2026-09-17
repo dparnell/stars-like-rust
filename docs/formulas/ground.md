@@ -1,9 +1,9 @@
 # Subsystem: Landing colonists — settling and invasion
 
-- **Status:** weights and the winner rule recovered; contested survivor counts not
+- **Status:** transcribed in full, unit-tested; unverified against a real invasion (the corpus has none)
 - **Ghidra routine(s):** `10b8:34e2` `DropColonists`, called from `DoOrders`
 - **Manual reference:** `MANUAL.PDF` — ground combat
-- **Uses RNG:** no
+- **Uses RNG:** only for the wreckage and the artifact a settling turns up
 - **Implemented in:** `crates/stars-core/src/ground.rs`
 
 One routine does both jobs, because they are the same act: colonists are put
@@ -23,39 +23,77 @@ A War Monger's colonists fight at 165% of their number; Inner Strength defends
 at double. An Alternate Reality race weighs **zero** — it cannot take a planet
 with colonists at all, which follows from living on its starbases.
 
+## Sorting the landings
+
+Each drop record (`COLDROP`: player, planet, colonists, `fCanColonize`) is
+looked at in turn:
+
+1. an **Alternate Reality** race's colonists, unless they may colonise an
+   empty planet, "were reduced to protoplasmic blobs" (`0x57`);
+2. colonists on an **empty** planet without `fCanColonize` — put down by the
+   Cargo Transfer dialog rather than a Colonize order (`log.c` sets the flag
+   only for an inhabited destination; `FQueueColonistDrop` always sets it) —
+   die "because you did not colonize the planet first" (`0x02`);
+3. an inhabited planet with a **starbase** kills every landing (`0x58`);
+4. the rest count: `colonists[player] += n`, and
+   `power[player] += (n × attack[prt] / 100) × pctSurvive`, truncated.
+
+`pctSurvive` is `CalcPctSurvive`'s share for the planet — what its defences let
+through of a bomb — raised for troops to `pct + (1 − pct) / 4`
+(`10b8:35c0`, the constants at `1120:1d8e` and `1d92` being 1.0 and 4.0).
+
 ## Resolution
 
 ```
-attack  = sum over landings of colonists * attack[prt] / 100
-defence = population * defence[prt] / 100          # 0 for an empty planet
+if the planet is held:
+    defence = population × defence[prt] / 100
+    if defence > Σ power:
+        each attacker: massacred (0x00 / 0x03), or, when pctSurvive < 1,
+            "\P were destroyed by planetary defenses" (0x01 / 0x04) with
+            P = 10000 × (pctSurvive − 1) — a negative number, the original's
+        population -= population × Σ power / defence
+        done
+    UninhabitPlanet; the attackers now fight over an empty planet
 
-if the planet is empty:
-    the heaviest single landing takes it
-else if attack < defence:
-    the defender holds, losing population * attack / defence
-else:
-    UninhabitPlanet, and the heaviest landing settles what is left
+best = −1; second = 0; tie = false
+for player in 0 .. cPlayer with colonists[player] != 0:
+    sides += 1
+    if power[player] >= best:
+        if power[player] == best: tie = true
+        else: tie = false; second = best; best = power[player]; winner = player
+if best < 0: nothing landed
+if tie:      everyone dies (0x06 each; 0x05 to the former holder, who loses the planet)
+
+winner keeps:
+    left = colonists[winner]                                if Σ power == 0 or best == 0
+         = colonists[winner] × (best × (Σ power − defence) / Σ power) / best   otherwise
+    if second > 0: left = left × (best − second) / best
+    at least 1
 ```
 
-## What is not transcribed
+Notes on the transcription:
 
-The survivor counts after a **contested** landing. `DropColonists` scales them
-through several 32-bit terms that the decompiler has flattened past confident
-reading, and nothing in the fixtures separates a contested landing from an
-uncontested one: all 513 colonisations in
-`fixtures/games/all-computer-players` are onto empty planets with a single
-claimant, and the corpus has no invasion at all — only 56 planets change hands
-in 101 turns, and those need the fleet orders to attribute.
+- `cMax` starts at `−1` and the "nothing landed" test is on its **high word**
+  (`10b8:3be0`): a claim of **zero** power still wins, which is how an
+  Alternate Reality race settles a planet (its message is `0x0b`, "deployed
+  the Orbital Construction Module"), and it is then given a starbase on the
+  spot — `fStarbase`, `pctDp = 0`, its first starbase design's `cBuilt` and
+  `cExist` up by one.
+- `second` is only replaced when a **new maximum** is found, so it is the best
+  power seen *before* the winner in player order. A winner numbered below every
+  rival loses nothing to them; one numbered above a rival loses the rival's
+  share. This is the original's own quirk and is kept.
+- Messages on a taking: `0x0c` to the winner (loser as `| 0x20`), `0x0d` to the
+  other attackers, `0x07` to the loser (winner as `| 0x30`, the count as a
+  long); on a settling with rivals `0x08` / `0x09` (winner as `| 0xb0`); alone,
+  `0x0a` or `0x0b`.
+- The loser's six technology levels become the winner's wreckage
+  (`ITechLearnATech`, below).
 
-`resolve_landings` therefore returns the uncontested answer in those cases and
-reports the attacker's surplus for a captured planet, rather than guessing at
-the original's formula.
-
-## Also in `DropColonists`, not yet transcribed
-
-*(nothing outstanding — see the sections below.)*
-
-
+Worked examples are the unit tests in `crates/stars-core/src/ground.rs`: a
+200-hundred landing on 100 defenders keeps `200 × (220 − 100) / 220 = 109`; with
+defences letting 60% of a bomb through, troops fare at 70%, the power is 154
+and `200 × (154 − 100) / 154 = 70` remain.
 
 ## The inherited production queue
 

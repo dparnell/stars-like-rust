@@ -2802,7 +2802,7 @@ fn move_wormholes(state: &mut GameState, rng: &mut Rng) -> Vec<u16> {
     if state.wormholes.is_empty() {
         return Vec::new();
     }
-    let size = i32::from(state.galaxy_planets).max(1);
+    let size = i32::from(state.galaxy_size).max(0);
     let span = size * 400;
     let planets: Vec<crate::movement::Point> = state
         .planets
