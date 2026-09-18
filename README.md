@@ -10,6 +10,14 @@ goal. This is an **RE-guided reimplementation** — not a decompilation — so
 correctness is anchored in differential file testing and spec-driven test
 vectors rather than machine-translated code.
 
+![The desktop shell playing the shipped tutorial game in 2403: the planet and
+fleet panes, the scanner with its toolbar, the selection summary and the
+message pane](docs/screenshots/tutorial-2403.png)
+
+*The tutorial game (`fixtures/games/tutorial/tutorial.m1`) in the native
+shell — `cargo run -p stars-desktop -- fixtures/games/tutorial/tutorial.m1`.
+The screens are the original's, recovered from the binary: see `docs/ui/`.*
+
 ## Repository layout
 
 ```
